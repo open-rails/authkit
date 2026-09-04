@@ -70,7 +70,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	// MFA read (#227), recording the verified second factor via authMethods. The
 	// banned gate still fires with ErrUserBanned; the ID-token email the old path
 	// fetched (AdminGetUser) was ignored by MintAccessToken, so it's gone.
-	sid, rt, token, exp, _, err := s.svc.IssueAuthenticatedSession(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"}, nil)
+	sid, rt, token, exp, _, err := s.svc.IssueAuthenticatedSession(r.Context(), userID, r.UserAgent(), parseIP(remoteIP(r)), []string{"pwd", "otp", "mfa"}, nil)
 	if err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {
 			logLoginFailed(s, r, userID, "user_banned")

@@ -23,6 +23,8 @@ func DefaultExchanger(ctx context.Context, rpClient rp.RelyingParty, provider, c
 		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", verifier))
 	}
 
+	// Exchange through the RP's bounded outbound client, never http.DefaultClient.
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, rpClient.HttpClient())
 	oauth2Token, err := oauthConfig.Exchange(ctx, code, opts...)
 	if err != nil {
 		return Claims{}, fmt.Errorf("token exchange failed for %s: %w", provider, err)

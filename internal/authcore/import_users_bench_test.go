@@ -1,3 +1,5 @@
+//go:build importbench
+
 package authcore
 
 import (
@@ -11,14 +13,11 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// TestImportUsers_Benchmark is a throughput probe (not a unit test). It runs only
-// when AUTHKIT_IMPORT_BENCH is set, imports N synthetic users (default 100k,
-// override with AUTHKIT_IMPORT_BENCH_N), reports users/sec, then deletes them.
-// Needs AUTHKIT_TEST_DATABASE_URL (via testPG).
+// TestImportUsers_Benchmark is a throughput probe (not a unit test), built only
+// with `-tags importbench` so the default suite never skips it. It imports N
+// synthetic users (default 100k, override with AUTHKIT_IMPORT_BENCH_N), reports
+// users/sec, then deletes them. Needs AUTHKIT_TEST_DATABASE_URL (via testPG).
 func TestImportUsers_Benchmark(t *testing.T) {
-	if os.Getenv("AUTHKIT_IMPORT_BENCH") == "" {
-		t.Skip("set AUTHKIT_IMPORT_BENCH=1 to run the bulk-import throughput probe")
-	}
 	svc, ctx := importTestService(t)
 
 	n := 100000

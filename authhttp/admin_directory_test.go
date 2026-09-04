@@ -409,7 +409,7 @@ func registerAdminTestRemoteApplication(t *testing.T, s *Service, ctx context.Co
 	})
 	require.NoError(t, err)
 	if role != "" {
-		require.NoError(t, s.svc.AddRemoteApplicationMember(ctx, ra.ID, role))
+		require.NoError(t, s.svc.AssignRemoteApplicationRole(ctx, ra.ID, role))
 	}
 	return ra
 }

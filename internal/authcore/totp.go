@@ -26,8 +26,10 @@ const (
 	keyTOTPEnrollment = "auth:2fa:totp:enroll:"
 )
 
+// The pending secret is sealed with the same key as the committed one, so a
+// dump of the ephemeral store is no weaker than a dump of Postgres.
 type totpEnrollmentData struct {
-	Secret string `json:"secret"`
+	SealedSecret []byte `json:"sealed_secret"`
 }
 
 // StartTOTPEnrollment creates a short-lived pending authenticator-app secret.
@@ -49,7 +51,11 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	if err != nil {
 		return "", "", err
 	}
-	if err := s.ephemSetJSON(ctx, keyTOTPEnrollment+userID, totpEnrollmentData{Secret: secret}, totpEnrollTTL); err != nil {
+	sealed, err := s.encryptTOTPSecret(secret)
+	if err != nil {
+		return "", "", err
+	}
+	if err := s.ephemSetJSON(ctx, keyTOTPEnrollment+userID, totpEnrollmentData{SealedSecret: sealed}, totpEnrollTTL); err != nil {
 		return "", "", err
 	}
 	label := userID
@@ -70,18 +76,18 @@ func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDe
 	}
 	var pending totpEnrollmentData
 	ok, err := s.ephemGetJSON(ctx, keyTOTPEnrollment+userID, &pending)
-	if err != nil || !ok || strings.TrimSpace(pending.Secret) == "" {
+	if err != nil || !ok || len(pending.SealedSecret) == 0 {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	step, validStep, err := matchingTOTPStep(pending.Secret, code, time.Now())
+	secret, err := s.decryptTOTPSecret(pending.SealedSecret)
+	if err != nil {
+		return nil, jwt.ErrTokenUnverifiable
+	}
+	step, validStep, err := matchingTOTPStep(secret, code, time.Now())
 	if err != nil || !validStep {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	encrypted, err := s.encryptTOTPSecret(pending.Secret)
-	if err != nil {
-		return nil, err
-	}
-	codes, err := s.enable2FA(ctx, userID, "totp", nil, encrypted, &step, makeDefault)
+	codes, err := s.enable2FA(ctx, userID, "totp", nil, pending.SealedSecret, &step, makeDefault)
 	if err != nil {
 		return nil, err
 	}

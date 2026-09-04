@@ -49,8 +49,9 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 		authURL, err := url.Parse(w.Header().Get("Location"))
 		require.NoError(t, err)
 		idp.SetNonce(authURL.Query().Get("nonce"))
+		state = authURL.Query().Get("state")
 		for _, c := range w.Result().Cookies() {
-			if c.Name == oauthStateCookie {
+			if c.Name == stateCookieName(state) {
 				cookie = c
 			}
 		}
@@ -58,7 +59,7 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 		if provider == "apple" {
 			require.Equal(t, "form_post", authURL.Query().Get("response_mode"))
 		}
-		return authURL.Query().Get("state"), cookie
+		return state, cookie
 	}
 	postCallback := func(state string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		t.Helper()

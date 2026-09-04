@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestPasswordLogin_LegacyResetRequired drives the full HTTP handler against a
@@ -22,10 +22,7 @@ import (
 // the body code differs, and only for this flagged cohort). Skips when
 // AUTHKIT_TEST_DATABASE_URL is unset.
 func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)

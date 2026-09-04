@@ -3,7 +3,6 @@ package authcore
 import (
 	"context"
 	"fmt"
-	stdlog "log"
 	"strings"
 	"time"
 
@@ -105,7 +104,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 // ConfirmPhoneChange verifies the code and updates the user's phone number.
 // This is called when the user enters the verification code sent to their new phone.
-func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string) error {
+func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
 	if s.pg == nil || !s.useEphemeralStore() {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -124,7 +123,7 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code st
 		return jwt.ErrTokenUnverifiable
 	}
 
-	if _, err := s.finalizeChangePhone(ctx, rec); err != nil {
+	if _, err := s.finalizeChangePhone(ctx, rec, keepSessionID); err != nil {
 		return err
 	}
 	s.deletePendingChangeByToken(ctx, hash)
@@ -223,18 +222,12 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		fmt.Errorf("email change verification unavailable: email sender not configured")); err != nil {
 		return err
 	}
-
-	// Notify the OLD email about the change request.
-	if u.Email != nil && s.email != nil {
-		// Host applications can implement dedicated change-notification messages if needed.
-		stdlog.Printf("[authkit/security] Email change requested for user %s from %s to %s", userID, *u.Email, trimmed)
-	}
 	return nil
 }
 
-// ConfirmEmailChange verifies the code and updates the user's email address.
-// This is called when the user enters the verification code sent to their new email.
-func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code string) error {
+// ConfirmEmailChange verifies the code and applies the new email. Every other
+// session is revoked; keepSessionID (the confirming session) survives.
+func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
 	if s.pg == nil || !s.useEphemeralStore() {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -252,7 +245,7 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code st
 	if strings.TrimSpace(email) != "" && !strings.EqualFold(NormalizeEmail(email), rec.Target) {
 		return jwt.ErrTokenUnverifiable
 	}
-	if _, err := s.finalizeChangeEmail(ctx, rec); err != nil {
+	if _, err := s.finalizeChangeEmail(ctx, rec, keepSessionID); err != nil {
 		return err
 	}
 	s.deletePendingChangeByToken(ctx, hash)

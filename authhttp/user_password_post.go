@@ -61,11 +61,12 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		delete(authMeta, "ok")
 	}
 
-	var keep *string
-	if claims.SessionID != "" {
-		keep = &claims.SessionID
+	keep := keepSession(claims)
+	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
 	}
-	hadPwd := s.svc.HasPassword(r.Context(), claims.UserID)
 	var changeErr error
 	if hadPwd && body.CurrentPassword == "" {
 		changeErr = s.svc.SetPasswordAfterFreshAuth(r.Context(), claims.UserID, body.NewPassword, keep)

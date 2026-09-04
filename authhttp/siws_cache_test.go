@@ -9,21 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSIWSCacheSharesInstanceWithoutRedis proves that, on a single Service with
-// no Redis configured, a challenge stored via the challenge path is later
-// findable via the login path — i.e. Put and Consume hit the SAME in-memory
-// cache instance (#196).
-//
-// The SIWS challenge handler (GenerateSIWSChallenge) obtains its cache from
-// s.siwsCache() and Puts the pending challenge; the login handler
-// (VerifySIWSAndLogin) obtains its cache from a SEPARATE s.siwsCache() call and
-// Consumes the nonce. Before the fix, siwsCache() returned a fresh cache per
-// call, so the login-path Consume never saw the challenge-path Put and Solana
-// login/link failed with challenge-not-found. This test drives that exact
-// two-call sequence without a database (the cache is in-memory).
-func TestSIWSCacheSharesInstanceWithoutRedis(t *testing.T) {
-	s := newTestService(t)
-	require.Nil(t, s.rd, "test must run without Redis so the in-memory branch is exercised")
+// TestSIWSCacheConsumeIsSingleUse drives the two-call sequence the Solana flow
+// uses: the challenge handler Puts via one s.siwsCache() call, the login handler
+// Consumes via a SEPARATE call. Both must hit the same store (#196: the memory
+// cache used to be rebuilt per call) and a consumed nonce must not verify again,
+// on the memory store and on Redis alike.
+func TestSIWSCacheConsumeIsSingleUse(t *testing.T) {
+	forEachStore(t, testSIWSCacheConsumeIsSingleUse)
+}
+
+func testSIWSCacheConsumeIsSingleUse(t *testing.T, store ephemeralStore) {
+	s := store.attach(newTestService(t))
 
 	ctx := context.Background()
 	const nonce = "test-nonce-196"

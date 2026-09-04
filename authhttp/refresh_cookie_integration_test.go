@@ -311,7 +311,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 			require.NotEmpty(t, state)
 			var stateCookie *http.Cookie
 			for _, c := range start.Result().Cookies() {
-				if c.Name == oauthStateCookie {
+				if c.Name == stateCookieName(state) {
 					stateCookie = c
 				}
 			}

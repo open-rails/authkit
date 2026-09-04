@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/open-rails/authkit/verify"
 )
 
 // maxRequestBodyBytes caps the size of a JSON request body we will read. Auth
@@ -38,6 +40,15 @@ func decodeOptionalJSON(r *http.Request, dst any) error {
 		return nil
 	}
 	return decodeJSON(r, dst)
+}
+
+// keepSession is the caller's own session, the one a credential or contact
+// change keeps alive while every other session is revoked.
+func keepSession(claims verify.Claims) *string {
+	if claims.SessionID == "" {
+		return nil
+	}
+	return &claims.SessionID
 }
 
 func parseIP(s string) net.IP {

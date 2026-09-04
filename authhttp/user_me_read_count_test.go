@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
@@ -69,10 +69,7 @@ func (c *queryCounter) count(name string) int {
 // a test can count query executions. Skips when no test database is configured.
 func newTracedServerTestPool(t *testing.T, tracer pgx.QueryTracer) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	config, err := pgxpool.ParseConfig(dsn)
 	require.NoError(t, err)
 	config.ConnConfig.Tracer = tracer

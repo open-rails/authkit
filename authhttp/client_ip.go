@@ -1,10 +1,12 @@
 package authhttp
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 )
 
 // ClientIPFunc determines the client IP used for rate limiting and auditing.
@@ -45,9 +47,20 @@ func PublicRemoteAddrClientIP() ClientIPFunc {
 	}
 }
 
-// ClientIPFromForwardedHeaders trusts CF-Connecting-IP and X-Forwarded-For only when the
-// immediate peer (RemoteAddr) is in trustedProxies. Otherwise it falls back to DefaultClientIP behavior.
-func ClientIPFromForwardedHeaders(trustedProxies []netip.Prefix) ClientIPFunc {
+// ClientIPFromForwardedHeaders derives the client IP behind proxies the host
+// declared. A peer inside trusted or cloudflare enables the right-to-left
+// X-Forwarded-For walk (hops in either set are skipped as our own). Only a peer
+// inside cloudflare may additionally be trusted for CF-Connecting-IP, and only
+// as a fallback when X-Forwarded-For yields nothing: a generic reverse proxy
+// forwards CF-Connecting-IP verbatim, so honouring it from any trusted peer let
+// a client pick its own rate-limit key (ak#298). Any other peer resolves to
+// itself.
+//
+// Hosts that pass a cloudflare set must also lock the origin down to Cloudflare
+// ingress; otherwise a client that reaches the origin directly is its own peer
+// and both headers are ignored, which is the safe outcome.
+func ClientIPFromForwardedHeaders(trusted, cloudflare []netip.Prefix) ClientIPFunc {
+	var disagreeOnce sync.Once
 	return func(r *http.Request) string {
 		peer := remoteIP(r)
 		if peer == "" {
@@ -57,45 +70,54 @@ func ClientIPFromForwardedHeaders(trustedProxies []netip.Prefix) ClientIPFunc {
 		if err != nil {
 			return ""
 		}
-		if inPrefixes(peerAddr, trustedProxies) {
-			// CF-Connecting-IP is a single value set by Cloudflare itself (not a
-			// client-appendable list), so it is safe to trust when the peer is one
-			// of our proxies.
-			if v := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); v != "" {
-				if a, err := netip.ParseAddr(v); err == nil && isPublicAddr(a) {
-					return a.String()
-				}
-			}
-			// X-Forwarded-For is a comma-separated chain "client, proxy1, ..., lastProxy".
-			// The LEFT-most entry is supplied by the client and is therefore
-			// spoofable — trusting it lets an attacker rotate their per-IP
-			// rate-limit key at will. Walk RIGHT-to-LEFT instead (entries closest
-			// to us are appended by infrastructure we control and are the most
-			// trustworthy) and return the first hop that is NOT one of our own
-			// trusted proxies (AK security audit F6).
-			if v := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); v != "" {
-				parts := strings.Split(v, ",")
-				for i := len(parts) - 1; i >= 0; i-- {
-					a, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
-					if err != nil {
-						continue
-					}
-					if inPrefixes(a, trustedProxies) {
-						continue // our own proxy hop; keep walking left
-					}
-					if isPublicAddr(a) {
-						return a.String()
-					}
-					// First non-trusted hop is private/reserved: stop rather than
-					// falling through to even-more-spoofable left entries.
-					break
-				}
+		fromCloudflare := inPrefixes(peerAddr, cloudflare)
+		if !fromCloudflare && !inPrefixes(peerAddr, trusted) {
+			return peerAddr.String()
+		}
+		xff := forwardedForClient(r.Header.Get("X-Forwarded-For"), trusted, cloudflare)
+		var cf netip.Addr
+		if fromCloudflare {
+			if a, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); err == nil && isPublicAddr(a) {
+				cf = a
 			}
 		}
-		// Fallback to the immediate peer. This keeps rate limiting active even
-		// if the peer is private and no trusted forwarded header is present.
+		switch {
+		case xff.IsValid():
+			if cf.IsValid() && cf != xff {
+				disagreeOnce.Do(func() {
+					slog.Default().Warn("authkit: X-Forwarded-For and CF-Connecting-IP disagree; using X-Forwarded-For",
+						slog.String("x_forwarded_for", xff.String()), slog.String("cf_connecting_ip", cf.String()))
+				})
+			}
+			return xff.String()
+		case cf.IsValid():
+			return cf.String()
+		}
 		return peerAddr.String()
 	}
+}
+
+// forwardedForClient walks X-Forwarded-For ("client, proxy1, ..., lastProxy")
+// RIGHT-to-LEFT: entries closest to us were appended by infrastructure we
+// declared, the left-most one is client-supplied and spoofable (AK audit F6).
+// It returns the first hop that is not one of our own proxies, or an invalid
+// Addr when that hop is not public or the header is absent.
+func forwardedForClient(header string, trusted, cloudflare []netip.Prefix) netip.Addr {
+	parts := strings.Split(header, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		a, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
+		if err != nil {
+			continue
+		}
+		if inPrefixes(a, trusted) || inPrefixes(a, cloudflare) {
+			continue
+		}
+		if isPublicAddr(a) {
+			return a
+		}
+		break
+	}
+	return netip.Addr{}
 }
 
 // inPrefixes reports whether a is contained in any of the given CIDR prefixes.

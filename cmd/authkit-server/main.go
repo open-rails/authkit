@@ -67,7 +67,8 @@ type config struct {
 	apiKeyPrefix   string // branded API-key prefix (APIKeysConfig.Prefix)
 	// Standalone reachability knobs (#236): previously library-only options with
 	// no env mapping, so a bare binary deployment could not set them.
-	trustedProxies    []string      // CIDRs whose forwarded headers are trusted (CDN/reverse proxy)
+	trustedProxies    []string      // CIDRs whose X-Forwarded-For is trusted (reverse proxy / LB)
+	cloudflareProxies []string      // Cloudflare egress CIDRs; + CF-Connecting-IP fallback (ak#298)
 	accessTokenTTL    time.Duration // 0 => library default (15m)
 	refreshTokenTTL   time.Duration // 0 => indefinite sessions
 	sessionMaxPerUser int           // 0 => default 3; -1 => unlimited
@@ -121,6 +122,7 @@ func loadConfig() (*config, error) {
 		activePrivateKeyPEM: strings.TrimSpace(os.Getenv("AUTHKIT_ACTIVE_PRIVATE_KEY_PEM")),
 		devMintSecret:       strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
 		trustedProxies:      splitCSV(os.Getenv("AUTHKIT_TRUSTED_PROXIES")),
+		cloudflareProxies:   splitCSV(os.Getenv("AUTHKIT_CLOUDFLARE_PROXIES")),
 		twoFAMode:           strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_2FA_MODE"))),
 		twoFAMethods:        splitCSV(strings.ToLower(os.Getenv("AUTHKIT_2FA_METHODS"))),
 		passkeyRPID:         strings.TrimSpace(os.Getenv("AUTHKIT_PASSKEY_RPID")),
@@ -355,6 +357,9 @@ func run() error {
 	}
 	if len(cfg.trustedProxies) > 0 {
 		httpOpts = append(httpOpts, authhttp.WithTrustedProxies(cfg.trustedProxies...))
+	}
+	if len(cfg.cloudflareProxies) > 0 {
+		httpOpts = append(httpOpts, authhttp.WithCloudflareProxies(cfg.cloudflareProxies...))
 	}
 	if len(cfg.languages) > 0 || cfg.defaultLanguage != "" {
 		httpOpts = append(httpOpts, authhttp.WithLanguageConfig(authhttp.LanguageConfig{

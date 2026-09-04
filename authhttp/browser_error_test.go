@@ -50,7 +50,7 @@ func startBrowserLogin(t *testing.T, h http.Handler, extraQuery string) (string,
 	require.NotEmpty(t, state)
 	var stateCookie *http.Cookie
 	for _, c := range w.Result().Cookies() {
-		if c.Name == oauthStateCookie {
+		if c.Name == stateCookieName(state) {
 			stateCookie = c
 		}
 	}
@@ -165,7 +165,7 @@ func TestBrowserCallback_StepUpFlow_RedirectsStepUpFailed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/step-up/callback?error=access_denied&state="+url.QueryEscape(state), nil)
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: state})
+	r.AddCookie(&http.Cookie{Name: stateCookieName(state), Value: state})
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusFound, w.Code, w.Body.String())
@@ -188,7 +188,7 @@ func TestBrowserCallback_LinkFlow_MarksFlowLink(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/callback?error=access_denied&state="+url.QueryEscape(state), nil)
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: state})
+	r.AddCookie(&http.Cookie{Name: stateCookieName(state), Value: state})
 	h.ServeHTTP(w, r)
 
 	fragment := parseErrorFragment(t, w)

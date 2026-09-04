@@ -37,7 +37,9 @@ func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 	require.NotNil(t, user)
 	require.Equal(t, userID, user.ID)
 	require.True(t, user.EmailVerified, "email_verified must be set inside the transaction")
-	require.True(t, svc.hasPassword(ctx, userID), "password row must be committed inside the transaction")
+	hasPwd, err := svc.HasPassword(ctx, userID)
+	require.NoError(t, err)
+	require.True(t, hasPwd, "password row must be committed inside the transaction")
 }
 
 // TestCreatePhoneRegistrationUserAtomic verifies createPhoneRegistrationUser writes
@@ -66,5 +68,7 @@ func TestCreatePhoneRegistrationUserAtomic(t *testing.T) {
 	require.NotNil(t, user)
 	require.Equal(t, userID, user.ID)
 	require.True(t, user.PhoneVerified, "phone_verified must be set inside the transaction")
-	require.True(t, svc.hasPassword(ctx, userID), "password row must be committed inside the transaction")
+	hasPwd, err := svc.HasPassword(ctx, userID)
+	require.NoError(t, err)
+	require.True(t, hasPwd, "password row must be committed inside the transaction")
 }
