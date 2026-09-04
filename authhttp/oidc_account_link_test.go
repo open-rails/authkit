@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -168,7 +169,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, u.Email)
 	byEmail, err := coreSvc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.Nil(t, byEmail)
 	owner, providerEmail, err := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer, info.Subject)
 	require.NoError(t, err)

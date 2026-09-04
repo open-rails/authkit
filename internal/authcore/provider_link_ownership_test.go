@@ -129,3 +129,37 @@ func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
 		t.Fatalf("original subject must still belong to A; got %s", owner)
 	}
 }
+
+func TestConcurrentProviderLinksDoNotReplaceEachOther(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	user := mkBareUser(t, ctx, svc, "concurrent")
+	issuer := "https://issuer.example"
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, subject := range []string{"one", "two"} {
+		go func(subject string) {
+			<-start
+			results <- svc.LinkProviderByIssuer(ctx, user, issuer, "provider", subject, nil)
+		}(subject)
+	}
+	close(start)
+	success, conflict := 0, 0
+	for range 2 {
+		err := <-results
+		if err == nil {
+			success++
+		} else if errors.Is(err, authkit.ErrProviderChangeRequiresUnlink) {
+			conflict++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if success != 1 || conflict != 1 {
+		t.Fatalf("want one successful link and one conflict, got %d/%d", success, conflict)
+	}
+	if got := svc.providerCount(t, ctx, user); got != 1 {
+		t.Fatalf("want one login method, got %d", got)
+	}
+}

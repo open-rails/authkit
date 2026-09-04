@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -191,8 +190,7 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		if errors.Is(err, pgx.ErrNoRows) {
 			return authkit.ErrProviderAlreadyLinked
 		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_providers_user_id_issuer_key" {
+		if isUniqueViolation(err, "user_providers_user_id_issuer_key") {
 			return authkit.ErrProviderChangeRequiresUnlink
 		}
 		return err

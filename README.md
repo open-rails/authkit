@@ -356,6 +356,24 @@ non-stripping proxies); `Wrap` decorates every mounted route. gin hosts mount
 it once via `router.NoRoute(authkitgin.Fallback(mount))` (or `gin.WrapH` on an
 explicit wildcard); any other router mounts it like any `http.Handler`.
 
+### Provider linking and account email
+
+Adding an OAuth, OIDC, or Solana login method requires fresh sensitive
+authentication. Handle `403 step_up_required` by completing the offered step-up
+flow, then retry link-start with the returned access token. Enrolled MFA must
+participate in that authentication. An existing identity for the same issuer
+cannot be replaced: `409 provider_change_requires_unlink` (or
+`wallet_change_requires_unlink` for Solana) requires explicitly unlinking it
+before linking another. Re-linking the same identity is idempotent.
+
+Federated registration stores an account email only when the provider explicitly
+verifies it. Otherwise the account email is `null`; the asserted address remains
+provider metadata and cannot reserve an address or receive password resets.
+Hosts should offer their normal add-and-verify-email onboarding. The JSON login
+response returns the account's nullable email, including after provider linking.
+Invite-only registration still requires and consumes a valid unbound invite code
+when the new user has no verified email.
+
 ### Browser OIDC result contract
 
 The three routes under `OIDCPath` (`{provider}/login`, `{provider}/callback`,
