@@ -750,11 +750,17 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 		v.mu.Unlock()
 		return authkit.RemoteApplication{}, false
 	}
+	ttl := v.fedSnapshotTTL
 	if wait := v.fedSnapshotFlight; wait != nil {
 		v.mu.Unlock()
+		// Waiters are released by the refresh, the caller's context, or the
+		// TTL — a stalled store never pins a request (keyForToken has no
+		// request context).
 		select {
 		case <-wait:
 		case <-ctx.Done():
+			return authkit.RemoteApplication{}, false
+		case <-time.After(ttl):
 			return authkit.RemoteApplication{}, false
 		}
 		v.mu.RLock()
@@ -766,7 +772,9 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 	v.fedSnapshotFlight = done
 	v.mu.Unlock()
 
-	apps, err := src.ListRemoteApplications(ctx, true)
+	fetchCtx, cancel := context.WithTimeout(ctx, ttl)
+	apps, err := src.ListRemoteApplications(fetchCtx, true)
+	cancel()
 	v.mu.Lock()
 	if err == nil {
 		v.setSnapshotLocked(apps)

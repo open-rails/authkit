@@ -30,17 +30,23 @@ type blockingRemoteSource struct {
 	once    sync.Once
 }
 
-func (s *blockingRemoteSource) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
-	return nil, nil
+// The verifier's on-miss path consults the enabled-issuer snapshot
+// (ListRemoteApplications, ak#297); both store calls stall until released.
+func (s *blockingRemoteSource) ListRemoteApplications(ctx context.Context, _ bool) ([]authkit.RemoteApplication, error) {
+	return nil, s.stall(ctx)
 }
 
 func (s *blockingRemoteSource) GetRemoteApplication(ctx context.Context, _ string) (*authkit.RemoteApplication, error) {
+	return nil, s.stall(ctx)
+}
+
+func (s *blockingRemoteSource) stall(ctx context.Context) error {
 	s.once.Do(func() { close(s.started) })
 	select {
 	case <-s.release:
-		return nil, errors.New("released")
+		return errors.New("released")
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
 	}
 }
 
