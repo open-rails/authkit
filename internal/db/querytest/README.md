@@ -63,10 +63,11 @@ Investigated, not a problem:
   prefers bitmap + top-N to random index-ordered heap fetches for the small
   eligible set, so it is gated for no-seq-scan + budget but **not** `ForbidSort`.
 
-Noted (not fixed):
+Fixed:
 
-- `SessionsDeleteRevokedOrExpired`: seq-scans `refresh_sessions`. Periodic GC
-  sweep, so a full scan is acceptable; index only if cadence/size warrants it.
+- `SessionsDeleteRevokedOrExpired`: used to seq-scan `refresh_sessions` as one
+  unbounded DELETE. Replaced by `SessionsDeleteRevokedOrExpiredBatch` (#325):
+  bounded batches over two partial indexes (migration 013), now gated.
 
 Environment contract, shared with OpenRails:
 
