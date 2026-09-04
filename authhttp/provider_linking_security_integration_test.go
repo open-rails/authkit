@@ -14,6 +14,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -255,7 +256,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = srv.svc.EnableTOTP2FA(ctx, userID, testTOTPCode(t, secret, time.Now().Unix()/30), true)
+	_, err = srv.svc.EnableTOTP2FA(ctx, userID, testTOTPCode(t, secret, time.Now().Unix()/30), true, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
