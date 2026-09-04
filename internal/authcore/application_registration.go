@@ -412,8 +412,12 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	}
 
 	// First registration CLAIMS the requested slug — the same availability +
-	// anti-squat gates as any org: free in the application namespace AND in
-	// the org persona namespace (live groups + tombstones).
+	// anti-squat gates as any org: not reserved by the persona (#296), free in
+	// the application namespace AND in the org persona namespace (live groups
+	// + tombstones).
+	if slugReserved(td.Creation.ReservedSlugs, app.Slug) {
+		return nil, fmt.Errorf("%w: slug %q is reserved", ErrApplicationSlugConflict, app.Slug)
+	}
 	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug); err == nil {
 		return nil, ErrApplicationSlugConflict
 	} else if !errors.Is(err, pgx.ErrNoRows) {

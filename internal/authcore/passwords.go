@@ -151,8 +151,10 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	if err := ValidatePassword(new); err != nil {
 		return err
 	}
-	// If a password exists, verify current
-	hadPassword := s.hasPassword(ctx, userID)
+	hadPassword, err := s.HasPassword(ctx, userID)
+	if err != nil {
+		return err
+	}
 	if hadPassword {
 		hash, algo, _, err := s.getPasswordHash(ctx, userID)
 		if err != nil {

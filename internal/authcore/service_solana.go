@@ -343,8 +343,9 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 		return fmt.Errorf("%w", ErrSIWSChallengeExpired)
 	}
 
-	// Verify the address matches the one the challenge was issued for.
-	if challengeData.Address != output.Account.Address {
+	// Verify the address matches the one the challenge was issued for, and that
+	// the address line the wallet actually signed names the same account.
+	if challengeData.Address != output.Account.Address || parsedInput.Address != output.Account.Address {
 		return fmt.Errorf("%w", ErrSIWSAddressMismatch)
 	}
 

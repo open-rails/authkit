@@ -89,6 +89,7 @@ var (
 	ErrUnknownRole                       = errors.New("unknown_role")
 	ErrUserBanned                        = errors.New("user_banned")
 	ErrUserNotFound                      = errors.New("user_not_found")
+	ErrUserReferenced                    = errors.New("user_referenced")
 	ErrUserRoleNotFound                  = errors.New("user_role_not_found")
 	ErrVerificationLinkExpired           = errors.New("verification_link_expired")
 	ErrSIWSAddressMismatch               = errors.New("siws_address_mismatch")
@@ -179,6 +180,8 @@ var sentinelHTTPStatus = map[error]int{
 	ErrWalletChangeRequiresUnlink:   http.StatusConflict,
 	ErrProviderAlreadyLinked:        http.StatusConflict,
 	ErrProviderChangeRequiresUnlink: http.StatusConflict,
+	ErrUserReferenced:               http.StatusConflict,
+
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
@@ -298,7 +301,7 @@ var errorSentinels = []error{
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
-	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
+	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
 	ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,

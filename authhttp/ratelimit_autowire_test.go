@@ -5,7 +5,7 @@ import (
 
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
-	"github.com/redis/go-redis/v9"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,13 +24,15 @@ func TestRateLimiter_AutoWiring(t *testing.T) {
 	})
 
 	t.Run("WithRedis -> Redis-backed limiter", func(t *testing.T) {
-		// Client is not dialed during construction, so no live Redis is needed.
-		rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
-		t.Cleanup(func() { _ = rdb.Close() })
+		rdb := testdb.ScratchRedis(t)
 		srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithRedis(rdb))
 		require.NoError(t, err)
 		_, ok := srv.rl.(*redislimiter.Limiter)
 		require.Truef(t, ok, "want Redis-backed limiter, got %T", srv.rl)
+		allowed, err := srv.rl.AllowNamed(RLPasswordLogin, "probe")
+		require.NoError(t, err, "limiter must talk to the live Redis")
+		require.True(t, allowed)
+		require.EqualValues(t, 1, rdb.Exists(t.Context(), "probe:"+RLPasswordLogin).Val(), "limiter must record its bucket in Redis")
 	})
 
 	t.Run("WithoutRateLimiter -> disabled", func(t *testing.T) {

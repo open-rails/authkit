@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Hard-deleting a user must clear the group role-assignments they hold so the
-// delete is not blocked by FK references (GroupAssignmentsDeleteByUser).
+// Hard-deleting a user clears the group role-assignments they hold through
+// group_user_roles.user_id ON DELETE CASCADE (#304: no explicit sweep).
 func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()

@@ -20,6 +20,6 @@ func TestConfirmContactChange_RequiresEphemeralStore(t *testing.T) {
 	require.False(t, svc.useEphemeralStore())
 
 	ctx := context.Background()
-	require.ErrorIs(t, svc.ConfirmEmailChange(ctx, "some-user", "new@example.com", "123456"), jwt.ErrTokenUnverifiable)
-	require.ErrorIs(t, svc.ConfirmPhoneChange(ctx, "some-user", "+14155550123", "123456"), jwt.ErrTokenUnverifiable)
+	require.ErrorIs(t, svc.ConfirmEmailChange(ctx, "some-user", "new@example.com", "123456", nil), jwt.ErrTokenUnverifiable)
+	require.ErrorIs(t, svc.ConfirmPhoneChange(ctx, "some-user", "+14155550123", "123456", nil), jwt.ErrTokenUnverifiable)
 }

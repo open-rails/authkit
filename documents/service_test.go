@@ -3,8 +3,8 @@ package documents
 // ak#260 Service lifecycle mechanics over a fake store: publish
 // (sign->verify->persist->re-read->re-verify), digest-stable KID-rotation
 // repair, and the fail-loud invariants when the stored artifact drifts from
-// the process snapshot. The Postgres store and the mounted route are covered
-// end-to-end in authhttp.
+// the process snapshot. The engine's Postgres store and the mounted route are
+// covered end-to-end in authhttp.
 
 import (
 	"context"
@@ -181,7 +181,7 @@ func TestServiceConfigValidation(t *testing.T) {
 		{"empty payload", func(c *ServiceConfig) { c.Payload = nil }},
 		{"blank issuer", func(c *ServiceConfig) { c.Issuer = "  " }},
 		{"no audiences", func(c *ServiceConfig) { c.Audiences = []string{" "} }},
-		{"no store or pool", func(c *ServiceConfig) { c.Store = nil }},
+		{"no store", func(c *ServiceConfig) { c.Store = nil }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrDigestCollision is returned when a save would change the immutable
@@ -36,7 +35,8 @@ type Store interface {
 }
 
 // ServiceConfig declares one published document (ak#260). The host supplies
-// its compiled payload; AuthKit owns the store, lifecycle, and invariants.
+// its compiled payload and the engine's store; AuthKit owns the lifecycle and
+// invariants.
 type ServiceConfig struct {
 	// Type is the versioned application document type (e.g. "example.catalog/v1").
 	Type string
@@ -48,11 +48,7 @@ type ServiceConfig struct {
 	Audiences []string
 	// Signer signs and self-verifies (normally the *embedded.Client).
 	Signer Signer
-	// Postgres + Schema select AuthKit's own signed_documents table (Schema ""
-	// means the default "profiles"). Ignored when Store is set.
-	Postgres *pgxpool.Pool
-	Schema   string
-	// Store overrides the built-in Postgres store (tests / custom backends).
+	// Store persists the document (normally embedded.Client.DocumentStore()).
 	Store Store
 }
 
@@ -97,14 +93,8 @@ func NewService(ctx context.Context, cfg ServiceConfig) (*Service, error) {
 	if len(audiences) == 0 {
 		return nil, errors.New("authkit/documents: ServiceConfig.Audiences is required")
 	}
-	store := cfg.Store
-	if store == nil {
-		if cfg.Postgres == nil {
-			return nil, errors.New("authkit/documents: ServiceConfig requires Postgres (or an explicit Store)")
-		}
-		if store, err = newPostgresStore(cfg.Postgres, cfg.Schema); err != nil {
-			return nil, err
-		}
+	if cfg.Store == nil {
+		return nil, errors.New("authkit/documents: ServiceConfig.Store is required")
 	}
 
 	s := &Service{
@@ -112,7 +102,7 @@ func NewService(ctx context.Context, cfg ServiceConfig) (*Service, error) {
 		issuer:       issuer,
 		audiences:    audiences,
 		signer:       cfg.Signer,
-		store:        store,
+		store:        cfg.Store,
 		payload:      append(json.RawMessage(nil), cfg.Payload...),
 	}
 	document, err := s.sign(ctx)

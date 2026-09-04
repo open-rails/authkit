@@ -1,133 +1,63 @@
-### Security
+# Security
 
-Security policy and static analysis (SAST) setup for AuthKit.
+AuthKit is an auth library: its code runs inside other people's trust
+boundaries, so every push and pull request runs the same gating pipeline.
 
-AuthKit is an auth library, so the code it ships runs inside other people's
-trust boundaries. To keep the signal high we lean on a small, Go-focused set of
-scanners that run in CI on every push and pull request, plus a weekly scheduled
-sweep. Findings are uploaded as SARIF to GitHub code scanning (Security tab),
-not gated as hard CI failures, so contributors see issues without being blocked
-on noisy or low-confidence hits.
+## Reporting a vulnerability
 
-Reporting a vulnerability
-- Please do not open public issues for security problems.
+- Do not open public issues for security problems.
 - Report privately via GitHub Security Advisories ("Report a vulnerability" on
   the repo Security tab), or contact the maintainers directly.
-- Include affected version/commit, a reproduction or PoC if possible, and the
-  impact you observed. We aim to acknowledge reports promptly and coordinate a
-  fix and disclosure timeline with you.
+- Include the affected version/commit, a reproduction or PoC if possible, and
+  the impact you observed. We acknowledge promptly and coordinate a fix and
+  disclosure timeline with you.
 
----
+## CI pipeline
 
-Scope
-- gosec: Go security-focused SAST (crypto, randomness, SQL, file perms, command injection, hardcoded creds).
-- go vet + staticcheck: correctness and suspicious-construct analysis.
-- CodeQL (Go): dataflow/taint analysis with the `security-extended` and `security-and-quality` query suites.
-- govulncheck: dependency vulnerability scanning against the Go vulnerability DB (call-graph aware).
-- Trivy: software-composition analysis plus filesystem secret/misconfiguration scanning.
-- golangci-lint: lint/quality (advisory — non-blocking until the backlog is cleared).
+Four workflows in `.github/workflows/`, all triggered on `push` and
+`pull_request` to `master`/`main` and by `workflow_dispatch`; the three
+scanners also run on a weekly Monday schedule (06:00 / 07:00 / 08:00 UTC).
 
-This brings the pipeline to parity with the OpenRails security workflow.
-Semgrep remains out of scope to keep the rule surface focused.
+| workflow | jobs | gates? |
+|---|---|---|
+| `test.yaml` | `go test -race -p 1 ./...` against a real migrated Postgres (compose `issuer`) and a real Redis, then a skip gate; `sqlc generate` + `sqlc vet` + drift check on `internal/db` | yes |
+| `go-sast.yaml` | `go vet ./...`, `staticcheck ./...` (pinned version) | yes |
+| `codeql.yaml` | CodeQL for Go with `security-extended` + `security-and-quality` (SARIF to code scanning) | no (findings appear in the Security tab) |
+| `security.yaml` | `govulncheck ./...` (pinned version; call-graph aware), Trivy fs scan (`vuln,secret,misconfig`, HIGH+ fixable) | yes |
 
----
+Hardening that applies to every workflow:
 
-Workflows
+- Every action is pinned to a commit SHA with a version comment; tools installed
+  with `go install` are pinned to a module version. Bump deliberately.
+- `step-security/harden-runner` (egress audit) is the first step of every job.
+- Permissions default to `contents: read`; `security-events: write` is granted
+  only to the CodeQL job that uploads SARIF.
+- No `pull_request_target`, no `continue-on-error`.
 
-Four GitHub Actions workflows live in `.github/workflows/`:
+### Tests must run, not skip
 
-- `go-sast.yaml` — runs `gosec` (SARIF) and `staticcheck + go vet` as separate jobs.
-- `codeql.yaml` — runs CodeQL analysis for Go.
-- `security.yaml` — runs `govulncheck`, `Trivy` (SCA + secret + misconfig), and
-  `golangci-lint`. `govulncheck` and `Trivy` **gate** (fail the build) on a
-  reachable known vulnerability / fixable HIGH+ finding; the tree is clean as of
-  the Go 1.26.6 + `x/net` v0.56.0 bumps. `golangci-lint` is advisory
-  (non-blocking) until its backlog is cleared. The Go SAST baseline above stays
-  advisory (SARIF to code scanning).
-- `sqlc.yml` — verifies generated `internal/db` code is in sync with the query files.
+DB-backed tests skip when `AUTHKIT_TEST_DATABASE_URL` / `AUTHKIT_TEST_REDIS_URL`
+are unset so a plain `go test` works offline. In CI that skip would hide a broken stack, so
+`task test` / `task test-ci` export `AUTHKIT_TEST_REQUIRE_DB=1`, which turns the
+skip into a failure (`internal/testdb`), and `task test-ci` fails the job if the
+JSON report records any skipped test at all. Opt-in probes use build tags
+(`-tags importbench`) rather than `t.Skip`.
 
-They trigger on:
-- `push` to `master`/`main`
-- `pull_request` targeting `master`/`main`
-- a weekly schedule (Monday, `go-sast` 06:00 UTC, `codeql` 07:00 UTC, `security` 08:00 UTC)
-- `workflow_dispatch` (manual run)
-
-Runners are pinned to commit SHAs and hardened with `step-security/harden-runner`
-(egress audit). Permissions default to `contents: read`, with `security-events:
-write` granted only to the jobs that upload SARIF.
-
----
-
-gosec configuration
-
-Rule tuning lives in `.gosec.json` (gosec's `-conf` flag only reads JSON, not
-YAML). The config sets global options and the G101 hardcoded-credentials
-pattern:
-
-```json
-{
-  "global": {
-    "audit": "enabled",
-    "nosec": "enabled",
-    "show-ignored": "true"
-  },
-  "G101": {
-    "pattern": "(?i)(passwd|pass|password|pwd|secret|token|api_key|apikey|access_key|auth)",
-    "ignore_entropy": false
-  }
-}
-```
-
-Severity/confidence thresholds, rule exclusions, and directory exclusions are
-gosec CLI flags (they are not valid config-file fields), so they are passed in
-the workflow:
-
-- `-severity medium -confidence medium` — report medium and above.
-- `-exclude=G104` — unhandled errors are covered by staticcheck/`errcheck`-style
-  analysis instead, so they are suppressed here to cut noise.
-- `-exclude-dir=testing -exclude-dir=migrations -exclude-dir=agents` — skip
-  generated/test fixtures.
-
----
-
-Running locally
-
-gosec (matches the CI invocation):
+## Running locally
 
 ```bash
-go install github.com/securego/gosec/v2/cmd/gosec@v2.22.10
-
-gosec \
-  -fmt sarif -out gosec.sarif \
-  -conf .gosec.json \
-  -severity medium -confidence medium -exclude=G104 \
-  -exclude-dir=testing -exclude-dir=migrations -exclude-dir=agents \
-  ./...
+task test                 # full suite against compose Postgres (task test-db-ready first)
+task test-fast            # DB-free smoke
+go vet ./... && go install honnef.co/go/tools/cmd/staticcheck@v0.8.1 && staticcheck ./...
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0 && govulncheck ./...
 ```
 
-go vet + staticcheck:
+CodeQL can be reproduced with the
+[CodeQL CLI](https://docs.github.com/en/code-security/codeql-cli). Local scan
+output (`.reports/`, `*.sarif`) is gitignored.
 
-```bash
-go vet ./...
-go install honnef.co/go/tools/cmd/staticcheck@latest
-staticcheck ./...
-```
+## Triage
 
-CodeQL is normally only run in CI, but can be reproduced locally with the
-[CodeQL CLI](https://docs.github.com/en/code-security/codeql-cli) if needed.
-
-Local scan output (`.reports/`, `*.sarif`) is gitignored. With the medium
-severity/confidence threshold and G104 excluded, a full gosec run currently
-reports a small handful of findings rather than the raw ~180 it produces with
-no tuning.
-
----
-
-Triage notes
-- A finding in code scanning is a lead, not a confirmed vulnerability — review
-  each in context before acting.
-- To suppress an intentional, reviewed gosec finding inline, annotate the line
-  with `// #nosec Gxxx -- <reason>`. Use sparingly and always with a reason.
-- Prefer fixing root causes over excluding rules. If a rule is consistently
-  wrong for this codebase, adjust `.gosec.json` or the workflow flags and note
-  why in the change.
+A code-scanning finding is a lead, not a confirmed vulnerability; review it in
+context. Prefer fixing root causes over suppressing rules, and note why in the
+change when a suppression is unavoidable.

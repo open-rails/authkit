@@ -110,7 +110,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 	// AK F3: require the state cookie set at flow start (login CSRF defense).
 	cookieOK := stateCookieMatches(r, state)
-	clearStateCookie(w)
+	clearStateCookie(w, state)
 	if !cookieOK {
 		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidState)
 		return

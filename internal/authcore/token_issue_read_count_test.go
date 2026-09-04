@@ -3,13 +3,13 @@ package authcore
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 
 	pgx "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // userRowQueryCounter is a pgx QueryTracer that counts how many times specific
@@ -54,10 +54,7 @@ func (c *userRowQueryCounter) get(name string) int {
 // tracer to the pool so a test can count the queries a flow issues.
 func keyedServiceWithTracedPG(t *testing.T, tr pgx.QueryTracer) *Service {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse pool config: %v", err)
