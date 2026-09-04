@@ -37,8 +37,7 @@ func newDocumentsTestStack(t *testing.T, cfg embedded.Config, payload string) (*
 		Issuer:    cfg.Token.Issuer,
 		Audiences: []string{"tensorhub.net"},
 		Signer:    client,
-		Postgres:  pool,
-		Schema:    client.Schema(),
+		Store:     client.DocumentStore(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -171,8 +170,7 @@ func TestDocumentsRoute_DigestImmutabilityAtTheTable(t *testing.T) {
 			Issuer:    cfg.Token.Issuer,
 			Audiences: []string{"tensorhub.net"},
 			Signer:    client,
-			Postgres:  pool,
-			Schema:    client.Schema(),
+			Store:     client.DocumentStore(),
 		})
 	}
 	docSvc, err := build()
@@ -211,8 +209,7 @@ func TestNewServerRefusesDocumentsConfigMismatch(t *testing.T) {
 		Issuer:    cfg.Token.Issuer,
 		Audiences: []string{"tensorhub.net"},
 		Signer:    client,
-		Postgres:  pool,
-		Schema:    client.Schema(),
+		Store:     client.DocumentStore(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

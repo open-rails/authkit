@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -312,6 +313,12 @@ func (s *Client) MintServiceJWT(ctx context.Context, opts authkit.ServiceJWTMint
 
 func (s *Client) SignDocument(ctx context.Context, envelope authkit.DocumentEnvelope) (authkit.SignedDocument, error) {
 	return s.impl.SignDocument(ctx, envelope)
+}
+
+// DocumentStore returns the engine-owned signed-document store for
+// documents.ServiceConfig.Store.
+func (s *Client) DocumentStore() documents.Store {
+	return s.impl.DocumentStore()
 }
 
 // Config returns the normalized host Config the engine was built from (#237).

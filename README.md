@@ -631,7 +631,7 @@ host supplies only its compiled payload:
 docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
     Type: "example.entitlements/v1", Payload: payload,
     Issuer: cfg.Token.Issuer, Audiences: cfg.Delegated.Audiences,
-    Signer: client, Postgres: pool, Schema: client.Schema(),
+    Signer: client, Store: client.DocumentStore(),
 })
 srv, err := authhttp.NewServer(client, authhttp.WithDocuments(docSvc))
 ```
