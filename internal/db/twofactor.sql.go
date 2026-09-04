@@ -123,6 +123,45 @@ func (q *Queries) MFADisable(ctx context.Context, userID string) error {
 	return err
 }
 
+const mFAInsertFactor = `-- name: MFAInsertFactor :one
+INSERT INTO profiles.mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
+RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+`
+
+type MFAInsertFactorParams struct {
+	UserID       string
+	Method       string
+	PhoneNumber  *string
+	TotpSecret   []byte
+	LastTotpStep *int64
+	IsDefault    bool
+}
+
+func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams) (ProfilesMfaFactor, error) {
+	row := q.db.QueryRow(ctx, mFAInsertFactor,
+		arg.UserID,
+		arg.Method,
+		arg.PhoneNumber,
+		arg.TotpSecret,
+		arg.LastTotpStep,
+		arg.IsDefault,
+	)
+	var i ProfilesMfaFactor
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Method,
+		&i.PhoneNumber,
+		&i.TotpSecret,
+		&i.LastTotpStep,
+		&i.IsDefault,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const mFAListFactorsByUser = `-- name: MFAListFactorsByUser :many
 SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
 FROM profiles.mfa_factors
@@ -158,6 +197,17 @@ func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]Pr
 		return nil, err
 	}
 	return items, nil
+}
+
+const mFALockUser = `-- name: MFALockUser :one
+SELECT id FROM profiles.users WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) MFALockUser(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, mFALockUser, id)
+	var id_2 string
+	err := row.Scan(&id_2)
+	return id_2, err
 }
 
 const mFASetBackupCodes = `-- name: MFASetBackupCodes :exec
@@ -208,51 +258,6 @@ func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (Profile
 		&i.UserID,
 		&i.Enabled,
 		&i.BackupCodes,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const mFAUpsertFactor = `-- name: MFAUpsertFactor :one
-INSERT INTO profiles.mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, NOW())
-ON CONFLICT (user_id, method) DO UPDATE SET
-  phone_number = EXCLUDED.phone_number,
-  totp_secret = EXCLUDED.totp_secret,
-  last_totp_step = EXCLUDED.last_totp_step,
-  is_default = profiles.mfa_factors.is_default OR EXCLUDED.is_default,
-  updated_at = NOW()
-RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-`
-
-type MFAUpsertFactorParams struct {
-	UserID       string
-	Method       string
-	PhoneNumber  *string
-	TotpSecret   []byte
-	LastTotpStep *int64
-	IsDefault    bool
-}
-
-func (q *Queries) MFAUpsertFactor(ctx context.Context, arg MFAUpsertFactorParams) (ProfilesMfaFactor, error) {
-	row := q.db.QueryRow(ctx, mFAUpsertFactor,
-		arg.UserID,
-		arg.Method,
-		arg.PhoneNumber,
-		arg.TotpSecret,
-		arg.LastTotpStep,
-		arg.IsDefault,
-	)
-	var i ProfilesMfaFactor
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Method,
-		&i.PhoneNumber,
-		&i.TotpSecret,
-		&i.LastTotpStep,
-		&i.IsDefault,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

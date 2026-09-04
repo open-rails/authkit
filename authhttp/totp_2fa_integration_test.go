@@ -202,7 +202,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.AccessToken)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"factor_id":"`+totpFactorID+`","default":true}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"factor_id":"`+totpFactorID+`","default":true}`, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/user/2fa", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

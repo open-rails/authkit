@@ -32,7 +32,7 @@ func TestRootOwnerRequiresMFA_AssignmentBlockedThenAllowed_DB(t *testing.T) {
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", user, SubjectKindUser, OwnerRoleName); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign root owner without MFA = %v, want ErrTwoFAEnrollmentRequired", err)
 	}
-	if _, err := svc.Enable2FA(ctx, user, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, user, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", user, SubjectKindUser, OwnerRoleName); err != nil {
@@ -117,7 +117,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	}
 
 	owner1 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner1, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, owner1, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner1: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner1, SubjectKindUser, OwnerRoleName); err != nil {
@@ -139,7 +139,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	// Add a second owner; now owner1 can disable their own 2FA (only their
 	// owner role is stripped, owner2 is unaffected).
 	owner2 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner2, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, owner2, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner2: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner2, SubjectKindUser, OwnerRoleName); err != nil {
@@ -190,7 +190,7 @@ func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
 	user := insertBareUser(t, pool)
-	if _, err := enabled.Enable2FA(ctx, user, "email", nil); err != nil {
+	if _, err := enabled.Enable2FA(ctx, user, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if _, err := enabled.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {

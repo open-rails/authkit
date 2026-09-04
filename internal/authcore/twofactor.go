@@ -2,12 +2,14 @@ package authcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -42,21 +44,34 @@ type TwoFactorFactor struct {
 	UpdatedAt    time.Time
 }
 
+// FactorEnrollmentMode distinguishes restricted enrollment grants from authenticated factor management.
+type FactorEnrollmentMode string
+
+const (
+	// FirstFactorOnly permits a restricted grant to enroll only when no factor exists.
+	FirstFactorOnly FactorEnrollmentMode = "first_factor_only"
+	// AllowAdditionalFactors permits fresh authenticated users to add a new method.
+	AllowAdditionalFactors FactorEnrollmentMode = "allow_additional_factors"
+)
+
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
-func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
-	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false)
+func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false, mode)
 }
 
-func (s *Service) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
-	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true)
+func (s *Service) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true, mode)
 }
 
-func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool) ([]string, error) {
+func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
+	if mode != FirstFactorOnly && mode != AllowAdditionalFactors {
+		return nil, fmt.Errorf("invalid factor enrollment mode")
+	}
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method != "email" && method != "sms" && method != "totp" {
 		return nil, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
@@ -74,10 +89,15 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
+	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
+		return nil, err
+	}
 
 	var currentBackupCodes []string
 	if settings, err := qtx.MFASettingsByUser(ctx, userID); err == nil && settings.Enabled {
 		currentBackupCodes = settings.BackupCodes
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
 	}
 
 	factors, err := qtx.MFAListFactorsByUser(ctx, userID)
@@ -85,6 +105,14 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 		return nil, err
 	}
 	firstFactor := len(factors) == 0
+	if mode == FirstFactorOnly && !firstFactor {
+		return nil, authkit.ErrTwoFAFactorExists
+	}
+	for _, factor := range factors {
+		if factor.Method == method {
+			return nil, authkit.ErrTwoFAFactorExists
+		}
+	}
 	makeDefault = makeDefault || firstFactor
 
 	plaintextCodes := []string(nil)
@@ -97,7 +125,7 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 			return nil, err
 		}
 	}
-	factor, err := qtx.MFAUpsertFactor(ctx, db.MFAUpsertFactorParams{
+	_, err = qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
 		UserID:       userID,
 		Method:       method,
 		PhoneNumber:  phoneNumber,
@@ -109,7 +137,6 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 		return nil, err
 	}
 
-	_ = factor // per-factor data lives only on mfa_factors (#125)
 	// Settings holds only the account-level gate + backup codes (#125).
 	if err := qtx.MFAUpsertSettings(ctx, db.MFAUpsertSettingsParams{
 		UserID:      userID,
@@ -143,6 +170,9 @@ func (s *Service) Disable2FAWithRemovedRoles(ctx context.Context, userID string)
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 	qtx := s.qtx(tx)
+	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
+		return nil, err
+	}
 	removed, err := s.removeMFARequiredUserRoles(ctx, q, strings.TrimSpace(userID))
 	if err != nil {
 		return nil, err
@@ -175,6 +205,9 @@ func (s *Service) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, 
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 	qtx := s.qtx(tx)
+	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
+		return nil, err
+	}
 	rows, err := qtx.MFADeleteFactor(ctx, db.MFADeleteFactorParams{UserID: userID, ID: factorID})
 	if err != nil {
 		return nil, err
@@ -226,6 +259,9 @@ func (s *Service) SetDefault2FAFactor(ctx context.Context, userID, factorID stri
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
+	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
+		return err
+	}
 	factors, err := qtx.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
 		return err

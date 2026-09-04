@@ -274,7 +274,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = s.svc.Enable2FA(ctx, subject, "email", nil)
+	_, err = s.svc.Enable2FA(ctx, subject, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = s.driveSub(t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

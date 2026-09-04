@@ -99,7 +99,7 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	}
 	// target later receives "owner" through the actor-checked (still MFA-gated)
 	// AssignRoleBySlugAs path below, so it needs MFA enrolled first.
-	if _, err := svc.Enable2FA(ctx, target, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, target, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("enroll target 2FA: %v", err)
 	}
 

@@ -50,7 +50,7 @@ func TestAdminRecoverUserEmailReplacesLoginFactors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.AdminSetPassword(ctx, user.ID, "correct horse battery staple"))
 	require.NoError(t, svc.LinkProvider(ctx, user.ID, "google", "google-subject-"+suffix, nil))
-	_, err = svc.Enable2FA(ctx, user.ID, "email", nil)
+	_, err = svc.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors)
 	require.NoError(t, err)
 	_, _, _, err = svc.IssueRefreshSessionWithAuthMethods(ctx, user.ID, "test", net.ParseIP("127.0.0.1"), []string{"pwd", "otp", "mfa"})
 	require.NoError(t, err)

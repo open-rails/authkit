@@ -3,6 +3,7 @@ package embedded
 import (
 	"context"
 	"fmt"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"os"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 
 	// Enroll 2FA; the SAME calls now succeed.
-	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil)
+	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	// Genesis().AssignGroupRole grants with NO actor check.

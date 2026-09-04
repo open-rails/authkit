@@ -83,6 +83,7 @@ var (
 	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
 	ErrStepUpRequired                    = errors.New("step_up_required")
 	ErrTooManyCustomClaims               = errors.New("custom_jwt_too_many_claims")
+	ErrTwoFAFactorExists                 = errors.New("2fa_factor_exists")
 	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
 	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
 	ErrUnknownRole                       = errors.New("unknown_role")
@@ -149,6 +150,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRegistrationDisabled:            http.StatusForbidden,
 	ErrPasswordlessDisabled:            http.StatusForbidden,
 	ErrTwoFAEnrollmentRequired:         http.StatusForbidden,
+	ErrTwoFAFactorExists:               http.StatusConflict,
 	ErrStepUpRequired:                  http.StatusForbidden,
 	ErrExternalInvitesDisabled:         http.StatusForbidden,
 	ErrInsufficientRoleAuthority:       http.StatusForbidden,
@@ -293,7 +295,7 @@ var errorSentinels = []error{
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
-	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
+	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,

@@ -18,7 +18,7 @@ func TestAssignRoleBySlug_AllowsOwnerGenesis(t *testing.T) {
 
 	// The genesis slug path skips the owner-reserved guard (#136) but NOT the
 	// MFA-enrollment gate — the root owner requires MFA by default, so enroll.
-	if _, err := svc.Enable2FA(ctx, userID, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, userID, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("enroll 2FA: %v", err)
 	}
 
