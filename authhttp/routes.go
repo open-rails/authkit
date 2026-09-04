@@ -334,6 +334,10 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
 		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		// response_mode=form_post providers (Apple) deliver the same response as a
+		// cross-site POST body (#295).
+		{Method: http.MethodPost, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		{Method: http.MethodPost, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 	}
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {

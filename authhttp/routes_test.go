@@ -196,6 +196,8 @@ func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {
 	requireRoute(t, routes, http.MethodGet, "/{provider}/login")
 	requireRoute(t, routes, http.MethodGet, "/{provider}/callback")
 	requireRoute(t, routes, http.MethodGet, "/{provider}/step-up/callback")
+	requireRoute(t, routes, http.MethodPost, "/{provider}/callback")
+	requireRoute(t, routes, http.MethodPost, "/{provider}/step-up/callback")
 	requireNoRoute(t, routes, http.MethodGet, "/oidc/{provider}/login")
 	requireNoRoute(t, s.APIRoutes(RouteAuth, RouteAccount), http.MethodGet, "/{provider}/login")
 }

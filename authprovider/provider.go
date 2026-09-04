@@ -100,6 +100,13 @@ func (p Provider) NormalizedName() string {
 	return strings.ToLower(strings.TrimSpace(p.Name))
 }
 
+// ResponseModeFormPost reports whether the IdP returns the authorization
+// response as a cross-site POST (response_mode=form_post; Apple requires it
+// when name/email scopes are requested) instead of a GET redirect.
+func (p Provider) ResponseModeFormPost() bool {
+	return strings.EqualFold(strings.TrimSpace(p.ExtraAuthParams["response_mode"]), "form_post")
+}
+
 // ResolveStatic returns the statically configured secret value (empty when
 // unset or when a dynamic Strategy is used instead).
 func (s ClientSecret) ResolveStatic() string {
