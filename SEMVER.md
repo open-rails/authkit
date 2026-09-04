@@ -400,7 +400,7 @@ One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client,
    as the authkit.Client surface — there is no svc.Core() accessor; the former
    `Server = Service` alias was removed pre-1.0, #206)
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
-  WithClientIPFunc, WithLanguageConfig
+  WithCloudflareProxies, WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
   svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
@@ -411,7 +411,8 @@ Verification surface: NOT re-exported (#206 — the former verify_aliases re-exp
    bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
 Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
   DefaultRateLimits() (returns map[string]ratelimit.Limit), RL* consts
-Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders, PublicRemoteAddrClientIP
+Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare),
+  PublicRemoteAddrClientIP
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec, Routes
 Errors: ErrorCode (+the full constant set, §6.2)

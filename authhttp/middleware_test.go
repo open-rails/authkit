@@ -243,7 +243,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	// When behind a trusted proxy, accept forwarded headers and enforce limits on the client IP.
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted)))
+	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted, nil)))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
