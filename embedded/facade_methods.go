@@ -359,10 +359,6 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
-func (s *Client) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	return s.impl.RestoreUsers(ctx, userIDs)
-}
-
 func (s *Client) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
 	return s.impl.RevokeAPIKey(ctx, persona, instanceSlug, tokenID)
 }
@@ -474,11 +470,13 @@ func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, persona, ins
 	return s.impl.SetPermissionGroupDisplayName(ctx, persona, instanceSlug, displayName)
 }
 
-// RenamePermissionGroupSlug renames a group's instance slug, tombstoning the
-// old slug (permanently reserved + forwarding through slug resolution).
-// Authorization (owner-controlled, tier-gated) is the caller's job.
-func (s *Client) RenamePermissionGroupSlug(ctx context.Context, persona, instanceSlug, newSlug string) error {
-	return s.impl.RenamePermissionGroupSlug(ctx, persona, instanceSlug, newSlug)
+// RenamePermissionGroupSlugAs renames a group's instance slug on behalf of
+// actorUserID, tombstoning the old slug (permanently reserved + forwarding
+// through slug resolution). The new slug passes the persona's creation gate
+// (SlugPattern; reserved slugs need the escalation role, #292). Group-level
+// authorization (settings:manage) is the caller's job.
+func (s *Client) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, persona, instanceSlug, newSlug string) error {
+	return s.impl.RenamePermissionGroupSlugAs(ctx, actorUserID, persona, instanceSlug, newSlug)
 }
 
 // DeletePermissionGroup deletes a group instance. By default the slug is

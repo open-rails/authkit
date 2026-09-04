@@ -231,9 +231,6 @@ const (
 	// ErrFailedToRequestPhoneChange is the failed_to_request_phone_change AuthKit HTTP wire error code.
 	ErrFailedToRequestPhoneChange ErrorCode = "failed_to_request_phone_change"
 
-	// ErrFailedToRestoreUser is the failed_to_restore_user AuthKit HTTP wire error code.
-	ErrFailedToRestoreUser ErrorCode = "failed_to_restore_user"
-
 	// ErrFailedToRevoke is the failed_to_revoke AuthKit HTTP wire error code.
 	ErrFailedToRevoke ErrorCode = "failed_to_revoke"
 
@@ -263,6 +260,8 @@ const (
 
 	// ErrForbidden is the forbidden AuthKit HTTP wire error code.
 	ErrForbidden ErrorCode = "forbidden"
+	// ErrAccountAuthorityEscalation is the account_authority_escalation AuthKit HTTP wire error code.
+	ErrAccountAuthorityEscalation ErrorCode = "account_authority_escalation"
 
 	// ErrGroupCreationRefused is the group_creation_refused AuthKit HTTP wire error code.
 	ErrGroupCreationRefused ErrorCode = "group_creation_refused"
@@ -668,9 +667,6 @@ const (
 
 	// ErrUserNotFound is the user_not_found AuthKit HTTP wire error code.
 	ErrUserNotFound ErrorCode = "user_not_found"
-
-	// ErrUserRecoverFailed is the user_recover_failed AuthKit HTTP wire error code.
-	ErrUserRecoverFailed ErrorCode = "user_recover_failed"
 
 	// ErrUserinfoFailed is the userinfo_failed AuthKit HTTP wire error code.
 	ErrUserinfoFailed ErrorCode = "userinfo_failed"

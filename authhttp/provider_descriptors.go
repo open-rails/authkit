@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -23,6 +24,22 @@ func buildAuthProvidersMap(providers []authprovider.Provider) (map[string]authpr
 		}
 	}
 	return out, nil
+}
+
+// requireHTTPSForFormPost refuses a response_mode=form_post provider unless the
+// deployment is HTTPS: its state cookie must be SameSite=None; Secure (#295),
+// which browsers only ever send over HTTPS, so the flow could never complete.
+func requireHTTPSForFormPost(providers map[string]authprovider.Provider, baseURL string) error {
+	origin, ok := originFromBaseURL(baseURL)
+	if ok && strings.HasPrefix(strings.ToLower(origin), "https://") {
+		return nil
+	}
+	for name, provider := range providers {
+		if provider.ResponseModeFormPost() {
+			return fmt.Errorf("authkit: provider %q uses response_mode=form_post, which needs an HTTPS deployment (SameSite=None; Secure state cookie); set Frontend.BaseURL to an https URL", name)
+		}
+	}
+	return nil
 }
 
 func (s *Service) authProviders() map[string]authprovider.Provider {

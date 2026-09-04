@@ -177,7 +177,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	}
 	redirectURI := s.buildRedirectURI(r, provider)
 	// AK F3: bind state to this browser (CSRF defense).
-	s.setStateCookie(w, r, state)
+	s.setStateCookie(w, r, provider, state)
 	startedAt := time.Now().UTC()
 	authURL, err := manager.BeginWithAuthParams(r.Context(), provider, state, nonce, challenge, redirectURI, map[string]string{"max_age": "0"})
 	if err != nil {
