@@ -178,7 +178,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	// Force every cached entry to read as stale (test-only seam; production uses the
 	// fixed 24h TTL) so the stale-refresh + ownership-change path is exercised.
-	svc.snsCacheTTLOverride = time.Nanosecond
+	svc.sns.cacheTTL = time.Nanosecond
 	user := importSNSUser(t, ctx, svc, pool, "stale")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)

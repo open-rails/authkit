@@ -5,6 +5,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	authkit "github.com/open-rails/authkit"
@@ -90,46 +91,43 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
 
+// smsHealth is the SMS deliverability verdict CheckSMSHealth records. Until a
+// check has run, SMS counts as available whenever a sender is configured; once
+// one has, phone flows gate on the result.
+type smsHealth struct {
+	checked atomic.Bool
+	healthy atomic.Bool
+}
+
+func (h *smsHealth) record(err error) {
+	h.healthy.Store(err == nil)
+	h.checked.Store(true)
+}
+
+func (h *smsHealth) available() bool { return !h.checked.Load() || h.healthy.Load() }
+
 // CheckSMSHealth probes whether the configured SMS sender can actually deliver,
 // without sending a message, when the sender implements SMSHealthChecker. The
-// result is cached and gates phone-based flows via SMSAvailable. It returns the
-// probe error (nil = healthy) so callers can log it. When no sender is
-// configured or the sender cannot self-check, it records healthy=true (delivery
-// readiness is then governed solely by sender presence, as before).
+// verdict gates phone-based flows via SMSAvailable. It returns the probe error
+// (nil = healthy) so callers can log it. When no sender is configured or the
+// sender cannot self-check, it records healthy (delivery readiness is then
+// governed solely by sender presence, as before).
 func (s *Service) CheckSMSHealth(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
 	checker, ok := s.sms.(SMSHealthChecker)
 	if s.sms == nil || !ok {
-		s.smsHealthy.Store(true)
-		s.smsHealthReason.Store("")
-		s.smsHealthChecked.Store(true)
+		s.smsHealth.record(nil)
 		return nil
 	}
 	err := checker.CheckHealth(ctx)
-	if err != nil {
-		s.smsHealthy.Store(false)
-		s.smsHealthReason.Store(err.Error())
-	} else {
-		s.smsHealthy.Store(true)
-		s.smsHealthReason.Store("")
-	}
-	s.smsHealthChecked.Store(true)
+	s.smsHealth.record(err)
 	return err
 }
 
-// SMSHealthy reports the last CheckSMSHealth result. It is true until a check
-// has run (legacy behavior: assume healthy when a sender is present).
-func (s *Service) SMSHealthy() bool {
-	if s == nil {
-		return false
-	}
-	if !s.smsHealthChecked.Load() {
-		return true
-	}
-	return s.smsHealthy.Load()
-}
+// SMSHealthy reports the last CheckSMSHealth verdict; true until a check has run.
+func (s *Service) SMSHealthy() bool { return s != nil && s.smsHealth.available() }
 
 // SMSAvailable reports whether phone-based flows should be offered: a sender is
 // configured and (if a health check has run) it was found able to deliver.

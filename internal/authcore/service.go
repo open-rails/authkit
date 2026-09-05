@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -117,13 +116,11 @@ type Service struct {
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer DelegationAuthorizer
 	solanaSNSResolver    SolanaSNSResolver
+	sns                  solanaSNS
 	// now is the engine clock for TTL/grace decisions; Deps.Clock overrides it.
-	now func() time.Time
-	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
-	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
-	snsCacheTTLOverride time.Duration
-	ephemeralStore      EphemeralStore
-	redisClient         *redis.Client // Deps.Redis; resolved into ephemeralStore by newService (#307)
+	now            func() time.Time
+	ephemeralStore EphemeralStore
+	redisClient    *redis.Client // Deps.Redis; resolved into ephemeralStore by newService (#307)
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.
@@ -145,12 +142,7 @@ type Service struct {
 	// gates. Nil = allow.
 	instanceAdmission func(ctx context.Context, persona, instanceSlug, subject string) error
 
-	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
-	// run, SMS is considered available whenever a sender is configured (legacy
-	// behavior). Once a check runs, phone flows gate on the result.
-	smsHealthChecked atomic.Bool
-	smsHealthy       atomic.Bool
-	smsHealthReason  atomic.Value // string
+	smsHealth smsHealth
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.
