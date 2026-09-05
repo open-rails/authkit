@@ -19,10 +19,6 @@ type registrationAvailabilityResponse struct {
 }
 
 func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAuthRegisterAvailability) {
-		return
-	}
-
 	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	email := strings.TrimSpace(r.URL.Query().Get("email"))
 	phone := strings.TrimSpace(r.URL.Query().Get("phone_number"))

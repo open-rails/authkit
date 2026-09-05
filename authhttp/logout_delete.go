@@ -10,10 +10,6 @@ import (
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAuthLogout) {
-		return
-	}
-
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)

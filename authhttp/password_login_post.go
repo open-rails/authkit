@@ -12,11 +12,6 @@ import (
 )
 
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
-	// IP-only pre-check before we even parse the body (fast path).
-	if s.rateLimited(w, r, RLPasswordLogin) {
-		return
-	}
-
 	var req struct {
 		Identifier string `json:"identifier"` // email, phone number, or username
 		Password   string `json:"password"`

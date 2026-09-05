@@ -35,9 +35,6 @@ type twoFactorFactorResponse struct {
 }
 
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserMe) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -64,9 +61,6 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RL2FAEnable) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -252,9 +246,6 @@ func (s *Service) startPhone2FASetup(w http.ResponseWriter, r *http.Request, use
 }
 
 func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RL2FADisable) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -306,9 +297,6 @@ func removedMFARolesResponse(removed []embedded.RemovedMFARoleAssignment) []map[
 }
 
 func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RL2FARegenerateCodes) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)

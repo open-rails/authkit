@@ -9,10 +9,6 @@ import (
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RL2FAVerify) {
-		return
-	}
-
 	var req struct {
 		UserID     string `json:"user_id"`
 		Code       string `json:"code"`
@@ -91,9 +87,6 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RL2FAVerify) {
-		return
-	}
 	var req struct {
 		UserID    string `json:"user_id"`
 		Challenge string `json:"challenge"`

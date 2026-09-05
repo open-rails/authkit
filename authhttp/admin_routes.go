@@ -133,9 +133,6 @@ func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAdminUserSessionsList) {
-		return
-	}
 	opts, ok := adminUserListOptionsFromQuery(r)
 	if !ok {
 		badRequest(w, ErrInvalidRequest)
@@ -175,9 +172,6 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	}
 	if err := decodeOptionalJSON(r, &req); err != nil || userID == "" {
 		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -227,9 +221,6 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
-		return
-	}
 	if err := s.svc.UnbanUser(r.Context(), userID); err != nil {
 		serverErr(w, ErrFailedToUnban)
 		return
@@ -241,9 +232,6 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	id := r.PathValue("user_id")
 	if id == "" {
 		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -265,9 +253,6 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
 		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	actor, ok := actorUserID(w, r)

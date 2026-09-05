@@ -14,9 +14,6 @@ import (
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserUpdateUsername) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -73,9 +70,6 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserPreferredLanguage) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -129,9 +123,6 @@ func (s *Service) supportsLanguage(language string) bool {
 }
 
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserDelete) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -155,9 +146,6 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserUnlinkProvider) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)

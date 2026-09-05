@@ -84,9 +84,6 @@ func (s *Service) writeApplicationError(w http.ResponseWriter, err error) {
 }
 
 func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLApplicationRegister) {
-		return
-	}
 	var req struct {
 		Domain string `json:"domain"`
 	}

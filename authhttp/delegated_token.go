@@ -52,9 +52,6 @@ type delegatedTokenResponse struct {
 }
 
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDelegatedTokenMint) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
