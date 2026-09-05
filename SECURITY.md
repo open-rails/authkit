@@ -29,6 +29,10 @@ Hardening that applies to every workflow:
 
 - Every action is pinned to a commit SHA with a version comment; tools installed
   with `go install` are pinned to a module version. Bump deliberately.
+- `.github/dependabot.yml` opens weekly bump PRs for Go modules (root and both
+  adapter modules; minor/patch grouped, majors separate), the SHA-pinned
+  actions, and the compose images. They merge like any other PR: the full
+  `tests` check and the other gates must pass, and nothing auto-approves them.
 - `step-security/harden-runner` (egress audit) is the first step of every job.
 - Permissions default to `contents: read`; `security-events: write` is granted
   only to the CodeQL job that uploads SARIF.
