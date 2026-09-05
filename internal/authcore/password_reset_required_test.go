@@ -44,13 +44,13 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 		t.Fatalf("upsert legacy hash: %v", err)
 	}
 
-	// PasswordLogin (email identifier) surfaces the sentinel.
-	if _, _, err := svc.PasswordLogin(ctx, email, "anything", nil); !errors.Is(err, ErrPasswordResetRequired) {
-		t.Fatalf("PasswordLogin err = %v, want ErrPasswordResetRequired", err)
-	}
-	// PasswordLoginByUserID (username/phone identifier path) surfaces the sentinel.
-	if _, _, err := svc.PasswordLoginByUserID(ctx, u.ID, "anything", nil); !errors.Is(err, ErrPasswordResetRequired) {
-		t.Fatalf("PasswordLoginByUserID err = %v, want ErrPasswordResetRequired", err)
+	// PasswordLogin surfaces the sentinel as the rejection reason on both the
+	// email and the username identifier paths.
+	for _, identifier := range []string{email, "legacyresetrequired"} {
+		out, err := svc.PasswordLogin(ctx, PasswordLoginInput{Identifier: identifier, Password: "anything"})
+		if err != nil || out.Kind != LoginRejected || !errors.Is(out.Reason, ErrPasswordResetRequired) {
+			t.Fatalf("PasswordLogin(%q) = %+v, %v; want LoginRejected/ErrPasswordResetRequired", identifier, out, err)
+		}
 	}
 	// CheckUserPassword (step-up flows) surfaces the sentinel; the bool wrapper
 	// stays false so legacy callers fail closed.
@@ -74,8 +74,8 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	if err := svc.UpsertPasswordHash(ctx, u.ID, phc, "argon2id", nil); err != nil {
 		t.Fatalf("upsert argon2id: %v", err)
 	}
-	if _, _, err := svc.PasswordLogin(ctx, email, "brand-new-password-1", nil); err != nil {
-		t.Fatalf("PasswordLogin after reset: %v", err)
+	if out, err := svc.PasswordLogin(ctx, PasswordLoginInput{Identifier: email, Password: "brand-new-password-1"}); err != nil || out.Kind != LoginSessionIssued {
+		t.Fatalf("PasswordLogin after reset = %+v, %v; want LoginSessionIssued", out, err)
 	}
 	if err := svc.CheckUserPassword(ctx, u.ID, "brand-new-password-1"); err != nil {
 		t.Fatalf("CheckUserPassword after reset: %v", err)
