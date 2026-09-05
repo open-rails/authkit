@@ -92,7 +92,7 @@ func TestClientIPTrustScope_LimiterKey(t *testing.T) {
 	pool := newServerTestPool(t)
 	post := func(srv *Service, peer, cfIP string, n int) int {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/email/password/reset/request", strings.NewReader(fmt.Sprintf(`{"email":"spoof-%d@example.com"}`, n)))
+		r := httptest.NewRequest(http.MethodPost, "/password/reset/request", strings.NewReader(fmt.Sprintf(`{"identifier":"spoof-%d@example.com"}`, n)))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = peer
 		r.Header.Set("CF-Connecting-IP", cfIP)
@@ -155,7 +155,7 @@ func TestUndeclaredProxyTripwire(t *testing.T) {
 	const marker = "undeclared proxy is in front"
 	post := func(srv *Service, peer string, headers map[string]string) {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/email/password/reset/request", strings.NewReader(`{"email":"tripwire@example.com"}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/reset/request", strings.NewReader(`{"identifier":"tripwire@example.com"}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = peer
 		for k, v := range headers {

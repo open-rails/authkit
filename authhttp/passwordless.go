@@ -2,9 +2,10 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/embedded"
@@ -16,8 +17,6 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 	}
 	var req struct {
 		Identifier         string `json:"identifier"`
-		Email              string `json:"email"`
-		PhoneNumber        string `json:"phone_number"`
 		Mode               string `json:"mode"`
 		ReturnTo           string `json:"return_to"`
 		PreferredLanguage  string `json:"preferred_language"`
@@ -27,7 +26,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	identifier := passwordlessIdentifier(req.Identifier, req.Email, req.PhoneNumber)
+	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
@@ -76,17 +75,15 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 	var req struct {
-		Identifier  string `json:"identifier"`
-		Email       string `json:"email"`
-		PhoneNumber string `json:"phone_number"`
-		Code        string `json:"code"`
-		Token       string `json:"token"`
+		Identifier string `json:"identifier"`
+		Code       string `json:"code"`
+		Token      string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	identifier := passwordlessIdentifier(req.Identifier, req.Email, req.PhoneNumber)
+	identifier := strings.TrimSpace(req.Identifier)
 	if identifier != "" && s.rateLimitedByIdentifier(w, r, RLPasswordlessConfirm, identifier) {
 		return
 	}
@@ -133,8 +130,4 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		extra = map[string]any{"return_to": result.ReturnTo}
 	}
 	s.writeAccessTokenJSON(w, r, http.StatusOK, tokens, extra)
-}
-
-func passwordlessIdentifier(identifier, email, phone string) string {
-	return firstTrimmedNonEmpty(identifier, email, phone)
 }

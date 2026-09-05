@@ -69,13 +69,13 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.Len(t, creation.PublicKey.ExcludeCredentials, 1)
 	require.Equal(t, base64URL(authn.credentialID), creation.PublicKey.ExcludeCredentials[0].ID)
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"login":"does-not-exist@example.com"}`)
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"does-not-exist@example.com"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var unknown passkeyRequestOptions
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &unknown))
 	require.Empty(t, unknown.PublicKey.AllowCredentials)
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"login":"`+*user.Email+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"`+*user.Email+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var assertion passkeyRequestOptions
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))
@@ -113,7 +113,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", string(authn.assertion(t, assertion, 2)))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"login":"`+*user.Email+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"`+*user.Email+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assertion = passkeyRequestOptions{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))

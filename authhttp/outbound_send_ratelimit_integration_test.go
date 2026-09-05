@@ -37,12 +37,12 @@ func outboundSendRoutes() []outboundSendRoute {
 		{path: "/register", bucket: RLAuthRegister, ident: phone, body: func(id string) string {
 			return `{"identifier":"` + id + `","username":"sendcap` + uniqueSuffix()[8:] + `","password":"Correct-password-12345"}`
 		}},
-		{path: "/register/resend-email", bucket: RLAuthRegisterResendEmail, ident: email, body: func(id string) string { return `{"email":"` + id + `"}` }},
-		{path: "/register/resend-phone", bucket: RLAuthRegisterResendPhone, ident: phone, body: func(id string) string { return `{"phone_number":"` + id + `"}` }},
-		{path: "/email/password/reset/request", bucket: RLPasswordResetRequest, ident: email, body: func(id string) string { return `{"email":"` + id + `"}` }},
-		{path: "/phone/password/reset/request", bucket: RLPasswordResetRequest, ident: phone, body: func(id string) string { return `{"phone_number":"` + id + `"}` }},
-		{path: "/email/verify/request", bucket: RLEmailVerifyRequest, ident: email, body: func(id string) string { return `{"email":"` + id + `"}` }},
-		{path: "/phone/verify/request", bucket: RLPhoneVerifyRequest, ident: phone, body: func(id string) string { return `{"phone_number":"` + id + `"}` }},
+		{path: "/register/resend", bucket: RLRegisterResend, ident: email, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
+		{path: "/register/resend", bucket: RLRegisterResend, ident: phone, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
+		{path: "/password/reset/request", bucket: RLPasswordResetRequest, ident: email, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
+		{path: "/password/reset/request", bucket: RLPasswordResetRequest, ident: phone, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
+		{path: "/verify/request", bucket: RLVerifyRequest, ident: email, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
+		{path: "/verify/request", bucket: RLVerifyRequest, ident: phone, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
 		{path: "/passwordless/start", bucket: RLPasswordlessStart, ident: email, body: func(id string) string { return `{"identifier":"` + id + `"}` }},
 		{path: "/device-keys/enroll/begin", bucket: RLDeviceKeyEnrollBegin, ident: email, body: func(id string) string {
 			sum := sha256.Sum256([]byte(id))

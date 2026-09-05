@@ -154,5 +154,5 @@ func login(t *testing.T, srv *Service, prefix, userID string) *httptest.Response
 	if u, err := srv.svc.AdminGetUser(context.Background(), userID); err == nil && u != nil && u.Email != nil {
 		email = *u.Email
 	}
-	return serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"Correct-password-12345"}`)
+	return serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"Correct-password-12345"}`)
 }

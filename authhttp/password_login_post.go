@@ -2,10 +2,11 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
 
 	pwhash "github.com/open-rails/authkit/password"
 )
@@ -17,16 +18,15 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Email    string `json:"email"`
-		Login    string `json:"login"` // email or username
-		Password string `json:"password"`
+		Identifier string `json:"identifier"` // email, phone number, or username
+		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
-	identifier := firstTrimmedNonEmpty(req.Email, req.Login)
+	identifier := strings.TrimSpace(req.Identifier)
 
 	// Per-identifier check: prevents distributed brute-force against a single account
 	// from many IPs, each spending their own per-IP budget.

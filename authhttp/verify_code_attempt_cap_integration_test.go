@@ -29,7 +29,7 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 			u, err := srv.svc.CreateUser(ctx, email, "cap"+uniqueSuffix())
 			require.NoError(t, err)
 			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
-			w := serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+email+`"}`)
+			w := serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+email+`"}`)
 			require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 			code = emailSender.verificationCode(t)
 			wrong := "000000"
@@ -47,7 +47,7 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					<-start
-					w := serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+wrong+`","email":"`+email+`"}`)
+					w := serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+wrong+`","identifier":"`+email+`"}`)
 					if w.Code != http.StatusBadRequest {
 						atomic.AddInt64(&unexpected, 1)
 					}
@@ -67,14 +67,14 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 			require.Equal(t, 4, n, "four concurrent wrong guesses must count as exactly four")
 		}
 		code := emailSender.verificationCode(t)
-		w := serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+email+`"}`)
+		w := serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+email+`"}`)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 		// At or past the cap, concurrent guesses invalidate the outstanding code.
 		email, wrong = newVerification("cap-over")
 		code = emailSender.verificationCode(t)
 		guessConcurrently(email, wrong, 50)
-		w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+email+`"}`)
+		w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+email+`"}`)
 		require.Equal(t, http.StatusBadRequest, w.Code, "the correct code must be dead once the cap is hit under concurrency")
 	})
 }

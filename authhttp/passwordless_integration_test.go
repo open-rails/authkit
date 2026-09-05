@@ -140,7 +140,7 @@ func TestPasswordlessEmailMagicLinkExistingUserAndTokenReuse(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
-	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"email":"`+email+`","mode":"link","return_to":"https://evil.example/steal"}`)
+	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"identifier":"`+email+`","mode":"link","return_to":"https://evil.example/steal"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	token := emailSender.verificationToken(t)
 	require.Contains(t, emailSender.verificationURL(t), "https://example.com/wallet/login?channel=email&token=")
@@ -168,10 +168,10 @@ func TestPasswordlessSMSOTPAndMagicLink(t *testing.T) {
 	pool := srv.svc.Postgres()
 
 	phone := uniquePhone()
-	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"phone_number":"`+phone+`","mode":"code"}`)
+	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"identifier":"`+phone+`","mode":"code"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	code := smsSender.verificationCode(t)
-	w = serveJSON(srv, http.MethodPost, "/passwordless/confirm", `{"phone_number":"`+phone+`","code":"`+code+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/passwordless/confirm", `{"identifier":"`+phone+`","code":"`+code+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var otpBody passwordlessTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &otpBody))

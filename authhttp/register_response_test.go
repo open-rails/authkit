@@ -5,12 +5,13 @@ import (
 	"crypto"
 	"encoding/json"
 	"errors"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
@@ -152,8 +153,8 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{
-		"email":"user@example.com"
+	r := httptest.NewRequest(http.MethodPost, "/register/resend", strings.NewReader(`{
+		"identifier":"user@example.com"
 	}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
@@ -169,8 +170,8 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/email/verify/request", strings.NewReader(`{
-		"email":"user@example.com"
+	r := httptest.NewRequest(http.MethodPost, "/verify/request", strings.NewReader(`{
+		"identifier":"user@example.com"
 	}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
@@ -200,8 +201,8 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 	require.Equal(t, []string{"es"}, sender.languages)
 
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodPost, "/register/resend-email?lang=en", strings.NewReader(`{
-		"email":"user@example.com"
+	r = httptest.NewRequest(http.MethodPost, "/register/resend?lang=en", strings.NewReader(`{
+		"identifier":"user@example.com"
 	}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
@@ -224,7 +225,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))
+	r := httptest.NewRequest(http.MethodPost, "/register/resend", strings.NewReader(`{"identifier":"user@example.com"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "172.21.0.1:1234"
 	h.ServeHTTP(w, r)
@@ -232,7 +233,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	requireErrorCode(t, w.Body.String(), "pending_registration_not_found")
 
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))
+	r = httptest.NewRequest(http.MethodPost, "/register/resend", strings.NewReader(`{"identifier":"user@example.com"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "172.21.0.1:1234"
 	h.ServeHTTP(w, r)
@@ -242,7 +243,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	require.Equal(t, "5", w.Header().Get("RateLimit-Remaining"))
 	require.Equal(t, "60", w.Header().Get("RateLimit-Reset"))
 	require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
-	require.Contains(t, w.Body.String(), `"action":"request_email_verification"`)
+	require.Contains(t, w.Body.String(), `"action":"request_verification"`)
 	require.Contains(t, w.Body.String(), `"allowed":false`)
 	require.Contains(t, w.Body.String(), `"reason":"cooldown"`)
 	require.Contains(t, w.Body.String(), `"retry_after_seconds":60`)

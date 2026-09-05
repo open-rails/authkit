@@ -51,7 +51,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 
 	for _, identifier := range []string{email, "legacyresetrequiredhttp"} {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"login":"`+identifier+`","password":"whatever"}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"identifier":"`+identifier+`","password":"whatever"}`))
 		r.Header.Set("Content-Type", "application/json")
 		svc.apiHandler().ServeHTTP(w, r)
 		require.Equal(t, http.StatusUnauthorized, w.Code, "identifier %q", identifier)

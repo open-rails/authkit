@@ -73,12 +73,12 @@ func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 	svc := newPerIdentifierTestService(t)
 	h := svc.apiHandler()
 
-	body := `{"phone_number":"+15555550123","code":"123456"}`
-	limit := DefaultRateLimits()[RLPhoneVerifyConfirm].Limit
+	body := `{"identifier":"+15555550123","code":"123456"}`
+	limit := DefaultRateLimits()[RLVerifyConfirm].Limit
 
 	for i := 0; i < limit; i++ {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/phone/verify/confirm", strings.NewReader(body))
+		r := httptest.NewRequest(http.MethodPost, "/verify/confirm", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = fmt.Sprintf("203.0.113.%d:1234", i+1)
 		h.ServeHTTP(w, r)
@@ -86,7 +86,7 @@ func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/phone/verify/confirm", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/verify/confirm", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "198.51.100.7:1234"
 	h.ServeHTTP(w, r)

@@ -25,20 +25,20 @@ func TestEmailVerifyConfirm_CodeIsEmailScoped(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, victimUser.ID) })
 
-	w := serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+victim+`"}`)
+	w := serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+victim+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	code := emailSender.verificationCode(t)
 
 	// The victim's code presented with an attacker-controlled email is rejected.
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"f1-attacker@example.com"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"f1-attacker@example.com"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
 	// A missing email is rejected too.
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
 	// The correct (email, code) pair still succeeds.
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+victim+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+victim+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 }

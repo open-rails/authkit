@@ -3,10 +3,12 @@ package authhttp
 import (
 	"encoding/json"
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"io"
 	"net/http"
+	"strings"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -59,13 +61,12 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var req struct {
-		Login string `json:"login"`
-		Email string `json:"email"`
+		Identifier string `json:"identifier"`
 	}
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
 		_ = decodeJSON(r, &req)
 	}
-	identifier := firstTrimmedNonEmpty(req.Login, req.Email)
+	identifier := strings.TrimSpace(req.Identifier)
 	if identifier != "" && s.rateLimitedByIdentifier(w, r, RLPasskeyLogin, identifier) {
 		return
 	}

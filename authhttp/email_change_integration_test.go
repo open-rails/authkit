@@ -33,7 +33,7 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	require.NoError(t, err)
 	newEmail := uniqueEmail("email-change-new")
 
-	w := serveAuthJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+newEmail+`","password":"`+pass+`"}`, access)
+	w := serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+newEmail+`","password":"`+pass+`"}`, access)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	code := sender.verificationCode(t)
 
@@ -41,12 +41,12 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
 	require.Equal(t, email, current, "the address must not change before confirmation")
 
-	w = serveAuthJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+newEmail+`"}`, access)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+newEmail+`"}`, access)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
 	require.Equal(t, newEmail, current)
 
-	replay := serveAuthJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+newEmail+`"}`, access)
+	replay := serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+newEmail+`"}`, access)
 	require.Equal(t, http.StatusBadRequest, replay.Code, replay.Body.String())
 	require.Contains(t, replay.Body.String(), string(ErrInvalidOrExpiredCode))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))

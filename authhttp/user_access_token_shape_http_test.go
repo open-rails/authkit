@@ -81,7 +81,7 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 
 	h := svc.apiHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/password/login", bytes.NewReader([]byte(`{"login":"`+email+`","password":"`+pass+`"}`)))
+	r := httptest.NewRequest(http.MethodPost, "/password/login", bytes.NewReader([]byte(`{"identifier":"`+email+`","password":"`+pass+`"}`)))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

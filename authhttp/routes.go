@@ -93,26 +93,19 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/device-keys", Group: RouteDeviceKeys, Handler: required(http.HandlerFunc(s.handleDeviceKeysGET))},
 		{Method: http.MethodDelete, Path: "/device-keys/{id}", Group: RouteDeviceKeys, Handler: required(http.HandlerFunc(s.handleDeviceKeyDELETE))},
 		{Method: http.MethodPost, Path: "/device-keys/revoke-others", Group: RouteDeviceKeys, Handler: required(http.HandlerFunc(s.handleDeviceKeysRevokeOthersPOST))},
-		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
-		{Method: http.MethodGet, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmGET)},
-		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
-		{Method: http.MethodGet, Path: "/phone/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmGET)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordResetRequestPOST)},
+		{Method: http.MethodGet, Path: "/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordResetConfirmGET)},
+		{Method: http.MethodPost, Path: "/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordResetConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/register", Group: RouteRegistration, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
 		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegistration, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
-		{Method: http.MethodPost, Path: "/register/resend-email", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePendingRegistrationResendPOST)},
-		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
+		{Method: http.MethodPost, Path: "/register/resend", Group: RouteRegistration, Handler: http.HandlerFunc(s.handleRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleEmailVerifyRequestPOST))},
-		{Method: http.MethodGet, Path: "/email/verify/confirm", Group: RouteAccount, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleEmailVerifyConfirmPOST))},
-
-		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyRequestPOST))},
-		{Method: http.MethodGet, Path: "/phone/verify/confirm", Group: RouteAccount, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyConfirmPOST))},
+		// #312: one route per contact flow; the channel comes from the identifier.
+		{Method: http.MethodPost, Path: "/verify/request", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleVerifyRequestPOST))},
+		{Method: http.MethodGet, Path: "/verify/confirm", Group: RouteAccount, Handler: http.HandlerFunc(s.handleVerifyConfirmGET)},
+		{Method: http.MethodPost, Path: "/verify/confirm", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleVerifyConfirmPOST))},
 
 		{Method: http.MethodPost, Path: "/user/password", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
 		{Method: http.MethodGet, Path: "/user/sessions", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionsGET))},
@@ -250,7 +243,7 @@ func isPasswordlessPath(path string) bool {
 }
 
 func isRegistrationMutationPath(path string) bool {
-	return path == "/register" || path == "/register/abandon" || strings.HasPrefix(path, "/register/resend-")
+	return path == "/register" || path == "/register/abandon" || path == "/register/resend"
 }
 
 func isTwoFactorPath(path string) bool {

@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
@@ -407,28 +408,6 @@ func TestOIDCStepUpAuthTimeFreshness(t *testing.T) {
 	require.False(t, validOIDCStepUpTime(started, time.Time{}, started.Add(30*time.Second)))
 	require.False(t, validOIDCStepUpTime(started, started.Add(-10*time.Minute), started.Add(30*time.Second)))
 	require.False(t, validOIDCStepUpTime(started, started.Add(10*time.Minute), started.Add(30*time.Second)))
-}
-
-func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {
-	s := newTestService(t)
-	h := s.apiHandler()
-
-	for _, path := range []string{
-		"/password/reset/request",
-		"/password/reset/confirm-link",
-		"/password/reset/confirm",
-		"/email/password/reset/confirm-link",
-		"/phone/password/reset/confirm-link",
-		"/email/verify/confirm-link",
-		"/phone/verify/confirm-link",
-	} {
-		t.Run(path, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
-			h.ServeHTTP(w, r)
-			require.Equal(t, http.StatusNotFound, w.Code)
-		})
-	}
 }
 
 func TestAPIHandler_LegacyAuthPrefixNotMounted(t *testing.T) {

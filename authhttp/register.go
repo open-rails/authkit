@@ -2,9 +2,10 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/authcore"
@@ -276,56 +277,6 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, &identifier, nil, nextAction, tokens))
 }
 
-func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicRegistrationDisabled() {
-		registrationDisabled(w)
-		return
-	}
-	if !s.svc.RegistrationVerificationEnabled() {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
-		return
-	}
-	if s.rateLimited(w, r, RLAuthRegisterResendEmail) {
-		return
-	}
-
-	var req struct {
-		Email string `json:"email"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if err := embedded.ValidateEmail(req.Email); err != nil {
-		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
-		return
-	}
-	if !s.svc.HasEmailSender() {
-		serverErr(w, ErrEmailUnavailable)
-		return
-	}
-	email := strings.TrimSpace(req.Email)
-	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterResendEmail, email) {
-		return
-	}
-
-	pendingUser, err := s.svc.GetPendingRegistrationByEmail(r.Context(), email)
-	if err != nil || pendingUser == nil {
-		notFound(w, ErrPendingRegistrationNotFound)
-		return
-	}
-	if _, err := s.svc.CreatePendingRegistrationWithLanguage(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLanguage); err != nil {
-		if s.handleDeliveryError(w, r, "register_resend_email", "send_email_verification", err) {
-			return
-		}
-		s.logInternalError(r, "register_resend_email", "create_pending_registration", "resend_failed", err)
-		serverErr(w, ErrResendFailed)
-		return
-	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
-}
-
 // handlePendingRegistrationAbandonPOST lets a user cancel/abandon a pending
 // (unverified) registration they created — e.g. after mistyping their email or
 // phone. Ownership is proven by the password set during registration (the only
@@ -343,14 +294,13 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 
 	var req struct {
 		Identifier string `json:"identifier"`
-		Email      string `json:"email"`
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	identifier := firstTrimmedNonEmpty(req.Identifier, req.Email)
+	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || req.Password == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
@@ -385,55 +335,4 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		}
 	}
 	writeJSON(w, http.StatusOK, ok)
-}
-
-func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicRegistrationDisabled() {
-		registrationDisabled(w)
-		return
-	}
-	if !s.svc.RegistrationVerificationEnabled() {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
-		return
-	}
-	if s.rateLimited(w, r, RLAuthRegisterResendPhone) {
-		return
-	}
-
-	var req struct {
-		PhoneNumber string `json:"phone_number"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	phone := strings.TrimSpace(req.PhoneNumber)
-	if err := embedded.ValidatePhone(phone); err != nil {
-		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
-		return
-	}
-	phone = embedded.NormalizePhone(phone)
-	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterResendPhone, phone) {
-		return
-	}
-
-	if !s.svc.SMSAvailable() {
-		serverErr(w, ErrPhoneUnavailable)
-		return
-	}
-	pending, err := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), phone)
-	if err != nil || pending == nil {
-		notFound(w, ErrPendingRegistrationNotFound)
-		return
-	}
-	if _, err := s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage); err != nil {
-		if s.handleDeliveryError(w, r, "register_resend_phone", "send_phone_verification", err) {
-			return
-		}
-		s.logInternalError(r, "register_resend_phone", "create_pending_phone_registration", "resend_failed", err)
-		serverErr(w, ErrResendFailed)
-		return
-	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }

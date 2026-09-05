@@ -89,7 +89,7 @@ func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	email, pass := newCookieTestUser(t, pool, srv, "cookieoptout")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 	require.Nil(t, refreshCookieOf(t, login), "opt-out must set no refresh cookie")
 	rt := bodyRefreshToken(t, login)
@@ -114,7 +114,7 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 
 	email, pass := newCookieTestUser(t, pool, srv, "cookielife")
 
-	login := postCookieJSON(h, "/api/v1/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 	require.Empty(t, bodyRefreshToken(t, login), "the durable credential must not be readable by script")
 
@@ -182,7 +182,7 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	require.NoError(t, err)
 
 	email, pass := newCookieTestUser(t, pool, srv, "cookiegate")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 	live := refreshCookieOf(t, login)
 	require.NotNil(t, live)
