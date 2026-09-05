@@ -290,6 +290,9 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if slug == "" || issuer == "" {
 		return nil, ErrInvalidRemoteApplication
 	}
+	if !authkit.ValidRemoteApplicationIssuer(issuer) {
+		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", ErrInvalidRemoteApplication, authkit.MaxRemoteApplicationIssuerLen)
+	}
 	// AK-AUTH-01: a remote_application must never claim the platform's own
 	// issuer. The verifier keys issuers by string and upserts by issuer, so a
 	// federated registration under the platform issuer would overwrite the
