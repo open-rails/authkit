@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authkitmigrate"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
@@ -32,12 +33,27 @@ type deviceKeyChallengeBody struct {
 }
 
 type deviceKeyTokenBody struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresAt   string `json:"expires_at"`
+	AccessToken string
+	TokenType   string
+	ExpiresIn   int64
 	DeviceKey   struct {
 		ID string `json:"id"`
-	} `json:"device_key"`
+	}
+}
+
+// UnmarshalJSON lifts {"token_set": ..., "device_key": ...} (#313) into the flat fields.
+func (b *deviceKeyTokenBody) UnmarshalJSON(raw []byte) error {
+	var env struct {
+		TokenSet  authkit.TokenSet `json:"token_set"`
+		DeviceKey struct {
+			ID string `json:"id"`
+		} `json:"device_key"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return err
+	}
+	b.AccessToken, b.TokenType, b.ExpiresIn, b.DeviceKey = env.TokenSet.AccessToken, env.TokenSet.TokenType, env.TokenSet.ExpiresIn, env.DeviceKey
+	return nil
 }
 
 func deviceKeyTestServer(t *testing.T, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
@@ -116,7 +132,10 @@ func requireDeviceKeyTokenShape(t *testing.T, raw []byte) {
 	t.Helper()
 	var body map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(raw, &body))
-	require.ElementsMatch(t, []string{"access_token", "token_type", "expires_at", "device_key"}, mapKeys(body))
+	require.ElementsMatch(t, []string{"token_set", "device_key"}, mapKeys(body))
+	var tokenSet map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body["token_set"], &tokenSet))
+	require.ElementsMatch(t, []string{"access_token", "token_type", "expires_in"}, mapKeys(tokenSet))
 	var device map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(body["device_key"], &device))
 	require.ElementsMatch(t, []string{"id", "label", "created_at"}, mapKeys(device))
@@ -300,12 +319,12 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	listed := serveAuthJSON(srv, http.MethodGet, "/device-keys", "", second.AccessToken)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	var list struct {
-		DeviceKeys []deviceKeyListResponse `json:"device_keys"`
+		Data []deviceKeyListResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &list))
-	require.Len(t, list.DeviceKeys, 2)
+	require.Len(t, list.Data, 2)
 	current := 0
-	for _, key := range list.DeviceKeys {
+	for _, key := range list.Data {
 		if key.Current {
 			current++
 			require.Equal(t, second.DeviceKey.ID, key.ID)
@@ -326,7 +345,7 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
 	require.Equal(t, 2, total)
 	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, proof.AccessToken)
-	require.Equal(t, http.StatusOK, revoked.Code, revoked.Body.String())
+	require.Equal(t, http.StatusNoContent, revoked.Code, revoked.Body.String())
 	var live int
 	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&live))
 	require.Equal(t, 1, live)
@@ -347,9 +366,9 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	// revocation of itself, never mutate another machine.
 	logoutPath := "/device-keys/" + second.DeviceKey.ID
 	logout := serveAuthJSON(srv, http.MethodDelete, logoutPath, "", kept.AccessToken)
-	require.Equal(t, http.StatusOK, logout.Code, logout.Body.String())
+	require.Equal(t, http.StatusNoContent, logout.Code, logout.Body.String())
 	retry := serveAuthJSON(srv, http.MethodDelete, logoutPath, "", kept.AccessToken)
-	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())
+	require.Equal(t, http.StatusNoContent, retry.Code, retry.Body.String())
 	attack := serveAuthJSON(srv, http.MethodDelete, "/device-keys/"+first.DeviceKey.ID, "", kept.AccessToken)
 	require.Equal(t, http.StatusUnauthorized, attack.Code, attack.Body.String())
 

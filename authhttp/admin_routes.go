@@ -1,45 +1,68 @@
 package authhttp
 
 import (
+	"encoding/base64"
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
+
 	"github.com/open-rails/authkit/embedded"
 )
 
-type adminUsersListResponse struct {
-	Object  string              `json:"object"`
-	Data    []authkit.AdminUser `json:"data"`
-	Total   int64               `json:"total"`
-	Limit   int                 `json:"limit"`
-	Offset  int                 `json:"offset"`
-	HasMore bool                `json:"has_more"`
-}
-
-// adminUserListOptionsFromQuery parses the admin dashboard query params:
-// page, page_size, search, root_role, status, sort, order, entitlement.
-func adminUserListOptionsFromQuery(r *http.Request) authkit.AdminUserListOptions {
+// adminUserListOptionsFromQuery parses the admin directory query params:
+// cursor, limit, search, root_role, status, sort, order, entitlement (#313).
+// The cursor is opaque to clients; it encodes the next page's offset and the
+// page size it was produced with, so a page walk never straddles a size change.
+func adminUserListOptionsFromQuery(r *http.Request) (authkit.AdminUserListOptions, bool) {
 	q := r.URL.Query()
-	page, _ := strconv.Atoi(q.Get("page"))
-	size, _ := strconv.Atoi(q.Get("page_size"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	page := 1
+	if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
+		offset, size, ok := decodeAdminUsersCursor(cursor)
+		if !ok || (limit != 0 && limit != size) {
+			return authkit.AdminUserListOptions{}, false
+		}
+		limit, page = size, offset/size+1
+	}
 	sort := authkit.AdminUserSort(strings.TrimSpace(q.Get("sort")))
 	// Default newest-first; only an explicit order=asc flips it.
 	desc := !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc")
 	return authkit.AdminUserListOptions{
 		Page:        page,
-		PageSize:    size,
+		PageSize:    limit,
 		Search:      strings.TrimSpace(q.Get("search")),
 		Role:        strings.TrimSpace(q.Get("root_role")),
 		Status:      authkit.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
 		Sort:        sort,
 		Desc:        desc,
 		Entitlement: strings.TrimSpace(q.Get("entitlement")),
+	}, true
+}
+
+func encodeAdminUsersCursor(offset, size int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset) + ":" + strconv.Itoa(size)))
+}
+
+func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, 0, false
 	}
+	parts := strings.SplitN(string(raw), ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	offset, err1 := strconv.Atoi(parts[0])
+	size, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || offset < 0 || size <= 0 || offset%size != 0 {
+		return 0, 0, false
+	}
+	return offset, size, true
 }
 
 // requirePermission is the granular permission gate for AuthKit's intrinsic
@@ -113,7 +136,11 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLAdminUserSessionsList) {
 		return
 	}
-	opts := adminUserListOptionsFromQuery(r)
+	opts, ok := adminUserListOptionsFromQuery(r)
+	if !ok {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
 		if errors.Is(err, authkit.ErrEntitlementFilterUnavailable) {
@@ -123,15 +150,11 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 		serverErr(w, ErrFailedToListUsers)
 		return
 	}
-	hasMore := int64(result.Offset+result.Limit) < result.Total
-	writeJSON(w, http.StatusOK, adminUsersListResponse{
-		Object:  "list",
-		Data:    result.Users,
-		Total:   result.Total,
-		Limit:   result.Limit,
-		Offset:  result.Offset,
-		HasMore: hasMore,
-	})
+	next := ""
+	if len(result.Users) > 0 && result.Limit > 0 && int64(result.Offset+result.Limit) < result.Total {
+		next = encodeAdminUsersCursor(result.Offset+result.Limit, result.Limit)
+	}
+	writeList(w, result.Users, next)
 }
 
 func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +218,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
+	noContent(w)
 }
 
 func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +234,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, ErrFailedToUnban)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
+	noContent(w)
 }
 
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +258,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 		serverErr(w, ErrFailedToDelete)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
@@ -262,5 +285,5 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 		serverErr(w, ErrFailedToRevokeSessions)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }

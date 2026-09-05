@@ -127,16 +127,14 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 			require.Contains(t, denied.Body.String(), "step_up_required")
 			stepUp := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"Correct-password-12345"}`, stale)
 			require.Equal(t, http.StatusOK, stepUp.Code, stepUp.Body.String())
-			var fresh struct {
-				Token string `json:"access_token"`
-			}
+			var fresh nestedTokenBody
 			require.NoError(t, json.Unmarshal(stepUp.Body.Bytes(), &fresh))
-			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
+			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.AccessToken)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			old := providerTestIdentity{Subject: "original-" + uniqueSuffix()}
 			callback := completeSecurityProviderCallback(t, srv, cfg, start, old)
 			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())
-			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
+			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.AccessToken)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
 			require.Equal(t, http.StatusConflict, callback.Code, callback.Body.String())
@@ -144,9 +142,9 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 			owner, _, err := srv.svc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), old.Subject)
 			require.NoError(t, err)
 			require.Equal(t, userID, owner)
-			unlinked := serveAuthJSON(srv, http.MethodDelete, "/user/providers/"+cfg.Name(), "{}", fresh.Token)
-			require.Equal(t, http.StatusOK, unlinked.Code, unlinked.Body.String())
-			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
+			unlinked := serveAuthJSON(srv, http.MethodDelete, "/user/providers/"+cfg.Name(), "{}", fresh.AccessToken)
+			require.Equal(t, http.StatusNoContent, unlinked.Code, unlinked.Body.String())
+			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.AccessToken)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
 			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())

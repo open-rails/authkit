@@ -126,11 +126,11 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
-		Passkeys []authcore.Passkey `json:"passkeys"`
+		Data []authcore.Passkey `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Len(t, listed.Passkeys, 1)
-	require.NotNil(t, listed.Passkeys[0].LastUsedAt)
+	require.Len(t, listed.Data, 1)
+	require.NotNil(t, listed.Data[0].LastUsedAt)
 }
 
 func TestPasskeyManagementHTTPIntegration(t *testing.T) {
@@ -176,29 +176,29 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 	w := serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
-		Passkeys []struct {
+		Data []struct {
 			ID    string `json:"id"`
 			Label string `json:"label"`
-		} `json:"passkeys"`
+		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Len(t, listed.Passkeys, 1)
-	require.Equal(t, passkeyID, listed.Passkeys[0].ID)
-	require.Equal(t, "old", listed.Passkeys[0].Label)
+	require.Len(t, listed.Data, 1)
+	require.Equal(t, passkeyID, listed.Data[0].ID)
+	require.Equal(t, "old", listed.Data[0].Label)
 
 	w = serveAuthJSON(srv, http.MethodPatch, "/passkeys/"+passkeyID, `{"label":"new"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Equal(t, "new", listed.Passkeys[0].Label)
+	require.Equal(t, "new", listed.Data[0].Label)
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/passkeys/"+passkeyID, `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Empty(t, listed.Passkeys)
+	require.Empty(t, listed.Data)
 }
 
 type softwarePasskeyAuthenticator struct {

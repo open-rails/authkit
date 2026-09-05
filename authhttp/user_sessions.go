@@ -1,9 +1,10 @@
 package authhttp
 
 import (
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -34,7 +35,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 			"ua":           sess.UserAgent,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": arr})
+	writeList(w, arr, "")
 }
 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +57,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 		serverErr(w, ErrFailedToRevoke)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
@@ -73,5 +74,5 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 		serverErr(w, ErrFailedToRevokeAll)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }

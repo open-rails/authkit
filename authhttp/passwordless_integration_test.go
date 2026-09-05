@@ -9,17 +9,32 @@ import (
 	"strings"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
+// passwordlessTokenBody lifts {"token_set": ..., "return_to"?} (#313) into
+// flat fields.
 type passwordlessTokenBody struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	ReturnTo     string `json:"return_to"`
+	AccessToken  string
+	TokenType    string
+	ExpiresIn    int64
+	RefreshToken string
+	ReturnTo     string
+}
+
+func (b *passwordlessTokenBody) UnmarshalJSON(raw []byte) error {
+	var env struct {
+		TokenSet authkit.TokenSet `json:"token_set"`
+		ReturnTo string           `json:"return_to"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return err
+	}
+	*b = passwordlessTokenBody{AccessToken: env.TokenSet.AccessToken, TokenType: env.TokenSet.TokenType, ExpiresIn: env.TokenSet.ExpiresIn, RefreshToken: env.TokenSet.RefreshToken, ReturnTo: env.ReturnTo}
+	return nil
 }
 
 func passwordlessTestServer(t *testing.T, autoRegister bool) (*Service, *captureEmailSender, *captureSMSSender) {

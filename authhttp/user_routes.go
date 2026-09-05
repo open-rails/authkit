@@ -3,11 +3,12 @@ package authhttp
 import (
 	"errors"
 
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -68,7 +69,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		serverErr(w, ErrDatabaseError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": claims.UserID, "username": users[claims.UserID].Username, "time_until_rename_available": state.RetryAfterSeconds, "naming": state})
+	writeJSON(w, http.StatusOK, map[string]any{"username": users[claims.UserID].Username, "naming": state})
 }
 
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
@@ -114,10 +115,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		serverErr(w, ErrPreferredLanguageLookupFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                 true,
-		"preferred_language": preferred.Language,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": preferred.Language})
 }
 
 func (s *Service) supportsLanguage(language string) bool {
@@ -153,7 +151,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 		serverErr(w, ErrFailedToDelete)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
@@ -189,5 +187,5 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 		badRequest(w, ErrCannotUnlinkLastLoginMethod)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }

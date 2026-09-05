@@ -3,11 +3,12 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
@@ -67,7 +68,7 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 	r.SetPathValue("id", inviteID)
 	w = httptest.NewRecorder()
 	s.handleMeGroupInviteAccept(w, r)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	ok, err := s.svc.Can(ctx, target, embedded.SubjectKindUser, "merchant", "m-invite", "merchant:catalog:read")
 	require.NoError(t, err)

@@ -370,7 +370,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrInvalidBaseURL)
 			return
 		}
-		deliveredRT := s.deliverRefreshToken(w, r, newAuthTokens(token, rt, exp)).RefreshToken
+		deliveredRT := s.deliverRefreshToken(w, r, authkit.NewTokenSet(token, rt, exp)).RefreshToken
 		payload := map[string]any{
 			"type":         "AUTHKIT_OIDC_RESULT",
 			"access_token": token,
@@ -394,7 +394,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrUserLookupFailed)
 			return
 		}
-		s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(token, rt, exp), map[string]any{
+		s.writeTokenSetWith(w, r, http.StatusOK, authkit.NewTokenSet(token, rt, exp), map[string]any{
 			"user": map[string]any{"id": userID, "email": user.Email},
 		})
 		return
@@ -405,7 +405,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		base = "/"
 	}
 	state := callbackParams(r).Get("state")
-	fragmentRT := s.deliverRefreshToken(w, r, newAuthTokens(token, rt, exp)).RefreshToken
+	fragmentRT := s.deliverRefreshToken(w, r, authkit.NewTokenSet(token, rt, exp)).RefreshToken
 	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
 	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —

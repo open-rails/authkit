@@ -270,14 +270,13 @@ func TestBrowser2FAEnrollmentRequired_FragmentContract(t *testing.T) {
 	require.Equal(t, "/account", fragment.Get("return_to"))
 	require.Empty(t, fragment.Get("access_token"), "enrollment token must not masquerade as a session token")
 
-	// JSON negotiation still returns the legacy enrollment envelope.
+	// JSON negotiation returns the 403 enrollment envelope with the
+	// enrollment token under metadata.token_set (#313).
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
 	r.Header.Set("Accept", "application/json")
 	s.browser2FAEnrollmentRequired(w, r, "user-1", "google", oidckit.StateData{})
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
-	require.Contains(t, w.Body.String(), "access_token")
+	require.NotEmpty(t, requireEnrollmentToken(t, w))
 }
 
 // Popup-context start failures (before any state exists) still resolve the

@@ -99,10 +99,10 @@ func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability,
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	sendErrData(w, http.StatusTooManyRequests, legacyError, availability.toMap())
+	sendErrData(w, http.StatusTooManyRequests, legacyError, availabilityMap(availability))
 }
 
-func (a ActionAvailability) toMap() map[string]any {
+func availabilityMap(a ActionAvailability) map[string]any {
 	out := map[string]any{
 		"action":  a.Action,
 		"allowed": a.Allowed,
@@ -130,6 +130,19 @@ func (a ActionAvailability) toMap() map[string]any {
 	}
 	return out
 }
+
+// noContent is the ack for a mutation with nothing to return (#313).
+func noContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
+
+// accepted is the empty-bodied ack for anti-enumeration sends and other
+// deferred work (#313).
+func accepted(w http.ResponseWriter) { w.WriteHeader(http.StatusAccepted) }
+
+// writeList answers the one list envelope: {object:"list", data, next_cursor?}.
+func writeList[T any](w http.ResponseWriter, items []T, nextCursor string) {
+	writeJSON(w, http.StatusOK, authkit.NewListPage(items, nextCursor))
+}
+
 func serverErr(w http.ResponseWriter, code ErrorCode) {
 	sendErr(w, http.StatusInternalServerError, code)
 }

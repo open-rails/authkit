@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"github.com/open-rails/authkit/verify"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/siws"
@@ -151,7 +152,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		go s.svc.SendWelcome(context.Background(), userID)
 	}
 
-	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(accessToken, refreshToken, expiresAt), map[string]any{
+	s.writeTokenSetWith(w, r, http.StatusOK, authkit.NewTokenSet(accessToken, refreshToken, expiresAt), map[string]any{
 		"created": created,
 		"user": map[string]any{
 			"id":             userID,
@@ -199,11 +200,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":        true,
-		"message":        "Solana wallet linked successfully",
-		"solana_address": output.Account.Address,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"solana_address": output.Account.Address})
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —

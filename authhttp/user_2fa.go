@@ -4,11 +4,12 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/open-rails/authkit/verify"
 	"math/big"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
@@ -115,7 +116,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			serverErr(w, ErrEnableTwoFAFailed)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		noContent(w)
 		return
 	}
 	if method != "email" && method != "sms" && method != "totp" {
@@ -247,7 +248,7 @@ func (s *Service) startPhone2FASetup(w http.ResponseWriter, r *http.Request, use
 		serverErr(w, ErrSendCodeFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "method": "sms"})
+	accepted(w)
 }
 
 func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
@@ -287,10 +288,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
-		"removed_roles": removedMFARolesResponse(removed),
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"removed_roles": removedMFARolesResponse(removed)})
 }
 
 func removedMFARolesResponse(removed []embedded.RemovedMFARoleAssignment) []map[string]any {

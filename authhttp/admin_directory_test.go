@@ -72,7 +72,7 @@ func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcor
 
 // adminListUsers drives GET /admin/users with the given query string and the
 // admin's bearer token, decoding the list envelope.
-func adminListUsers(t *testing.T, s *Service, token, rawQuery string) adminUsersListResponse {
+func adminListUsers(t *testing.T, s *Service, token, rawQuery string) authkit.ListPage[authkit.AdminUser] {
 	t.Helper()
 	h := s.apiHandler()
 	w := httptest.NewRecorder()
@@ -80,7 +80,7 @@ func adminListUsers(t *testing.T, s *Service, token, rawQuery string) adminUsers
 	r.Header.Set("Authorization", "Bearer "+token)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var resp adminUsersListResponse
+	var resp authkit.ListPage[authkit.AdminUser]
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	return resp
 }
@@ -152,15 +152,15 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("search isolates this run", func(t *testing.T) {
-		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100")
-		require.EqualValues(t, 4, resp.Total)
+		resp := adminListUsers(t, s, token, "search="+prefix+"&limit=100")
 		require.Len(t, resp.Data, 4)
+		require.Empty(t, resp.NextCursor)
 		require.Equal(t, "list", resp.Object)
 	})
 
 	t.Run("role filter resolves via root group", func(t *testing.T) {
-		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&root_role="+roleSlug)
-		require.EqualValues(t, 2, resp.Total)
+		resp := adminListUsers(t, s, token, "search="+prefix+"&limit=100&root_role="+roleSlug)
+		require.Len(t, resp.Data, 2)
 		got := map[string]bool{}
 		for _, u := range resp.Data {
 			got[u.ID] = true
@@ -169,33 +169,38 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	})
 
 	t.Run("status filter banned vs active", func(t *testing.T) {
-		banned := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&status=banned")
-		require.EqualValues(t, 1, banned.Total)
+		banned := adminListUsers(t, s, token, "search="+prefix+"&limit=100&status=banned")
+		require.Len(t, banned.Data, 1)
 		require.Equal(t, idD, banned.Data[0].ID)
 
-		active := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&status=active")
-		require.EqualValues(t, 3, active.Total)
+		active := adminListUsers(t, s, token, "search="+prefix+"&limit=100&status=active")
+		require.Len(t, active.Data, 3)
 	})
 
 	t.Run("sort by username asc/desc", func(t *testing.T) {
-		asc := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&sort=username&order=asc")
+		asc := adminListUsers(t, s, token, "search="+prefix+"&limit=100&sort=username&order=asc")
 		require.Equal(t, []string{idA, idB, idC, idD}, adminIDsOf(asc.Data))
 
-		desc := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&sort=username&order=desc")
+		desc := adminListUsers(t, s, token, "search="+prefix+"&limit=100&sort=username&order=desc")
 		require.Equal(t, []string{idD, idC, idB, idA}, adminIDsOf(desc.Data))
 	})
 
 	t.Run("pagination", func(t *testing.T) {
-		page2 := adminListUsers(t, s, token, "search="+prefix+"&sort=username&order=asc&page_size=2&page=2")
-		require.EqualValues(t, 4, page2.Total)
+		page1 := adminListUsers(t, s, token, "search="+prefix+"&sort=username&order=asc&limit=2")
+		require.Equal(t, []string{idA, idB}, adminIDsOf(page1.Data))
+		require.NotEmpty(t, page1.NextCursor)
+		page2 := adminListUsers(t, s, token, "search="+prefix+"&sort=username&order=asc&cursor="+page1.NextCursor)
 		require.Equal(t, []string{idC, idD}, adminIDsOf(page2.Data))
-		require.True(t, page2.HasMore == false)
+		require.Empty(t, page2.NextCursor)
+		// A cursor is opaque but bound to the page size it was produced with.
+		require.Equal(t, http.StatusBadRequest, adminUsersStatus(t, s, token, "cursor="+page1.NextCursor+"&limit=3"))
+		require.Equal(t, http.StatusBadRequest, adminUsersStatus(t, s, token, "cursor=not-a-cursor"))
 	})
 
 	t.Run("deleted users use status filter", func(t *testing.T) {
 		require.NoError(t, s.svc.SoftDeleteUser(ctx, idC))
-		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&status=deleted")
-		require.EqualValues(t, 1, resp.Total)
+		resp := adminListUsers(t, s, token, "search="+prefix+"&limit=100&status=deleted")
+		require.Len(t, resp.Data, 1)
 		require.Equal(t, idC, resp.Data[0].ID)
 		require.Equal(t, http.StatusNotFound, adminUserPathStatus(t, s, token, "/admin/users/deleted"))
 	})
@@ -205,8 +210,9 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 // parser (no remote-application slug field). Pure parse,
 // no DB.
 func TestAdminUsersListOptionsFromQuery(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/admin/users?page=2&page_size=25&search=alice&root_role=moderator&status=banned&sort=email&order=asc&entitlement=premium", nil)
-	got := adminUserListOptionsFromQuery(r)
+	r := httptest.NewRequest(http.MethodGet, "/admin/users?cursor="+encodeAdminUsersCursor(25, 25)+"&limit=25&search=alice&root_role=moderator&status=banned&sort=email&order=asc&entitlement=premium", nil)
+	got, ok := adminUserListOptionsFromQuery(r)
+	require.True(t, ok)
 
 	require.Equal(t, 2, got.Page)
 	require.Equal(t, 25, got.PageSize)
@@ -248,7 +254,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 
 	until := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	w := post("/admin/users/"+targetID+"/ban", `{"reason":"test ban","until":"`+until+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	w = post("/admin/users/"+targetID+"/ban", `{"reason":"missing until"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
@@ -261,7 +267,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 	require.Equal(t, "test ban", *u.BanReason)
 
 	w = post("/admin/users/"+targetID+"/unban", "")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	u, err = s.svc.AdminGetUser(ctx, targetID)
 	require.NoError(t, err)
@@ -270,7 +276,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 	require.Nil(t, u.BanReason)
 
 	w = post("/admin/users/"+targetID+"/ban", `{"reason":"infinite ban","until":"infinite"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	u, err = s.svc.AdminGetUser(ctx, targetID)
 	require.NoError(t, err)
 	require.NotNil(t, u.BannedAt)

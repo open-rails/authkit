@@ -79,14 +79,14 @@ func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
 	})
 
 	t.Run("operator reaches peers and ordinary users", func(t *testing.T) {
-		require.Equal(t, http.StatusOK, revoke(operatorTok, member).Code)
-		require.Equal(t, http.StatusOK, ban(operatorTok, member).Code)
-		require.Equal(t, http.StatusOK, del(operatorTok, member).Code)
-		require.Equal(t, http.StatusOK, ban(operatorTok, peer).Code)
+		require.Equal(t, http.StatusNoContent, revoke(operatorTok, member).Code)
+		require.Equal(t, http.StatusNoContent, ban(operatorTok, member).Code)
+		require.Equal(t, http.StatusNoContent, del(operatorTok, member).Code)
+		require.Equal(t, http.StatusNoContent, ban(operatorTok, peer).Code)
 	})
 
 	t.Run("owner reaches operator", func(t *testing.T) {
-		require.Equal(t, http.StatusOK, revoke(ownerTok, operator).Code)
-		require.Equal(t, http.StatusOK, ban(ownerTok, operator).Code)
+		require.Equal(t, http.StatusNoContent, revoke(ownerTok, operator).Code)
+		require.Equal(t, http.StatusNoContent, ban(ownerTok, operator).Code)
 	})
 }

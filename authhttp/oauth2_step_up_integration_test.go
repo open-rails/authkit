@@ -69,10 +69,12 @@ func TestStepUpRefusesOAuth2ProvidersAndKeepsOIDC(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, staleToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var me struct {
-		StepUpMethods []string `json:"step_up_methods"`
+		Security struct {
+			StepUpMethods []string `json:"step_up_methods"`
+		} `json:"security"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
-	require.ElementsMatch(t, []string{"password", "google"}, me.StepUpMethods)
+	require.ElementsMatch(t, []string{"password", "google"}, me.Security.StepUpMethods)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/oidc/discord/step-up/start", `{}`, staleToken)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())

@@ -58,15 +58,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"backup_codes"`)
 
 	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var challenge struct {
-		Requires2FA bool   `json:"requires_2fa"`
-		UserID      string `json:"user_id"`
-		Method      string `json:"method"`
-		Challenge   string `json:"challenge"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-	require.True(t, challenge.Requires2FA)
+	challenge := requireTwoFARequired(t, w)
 	require.Equal(t, user.ID, challenge.UserID)
 	require.Equal(t, "totp", challenge.Method)
 	require.NotEmpty(t, challenge.Challenge)
@@ -157,7 +149,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.NotEmpty(t, totpFactorID)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, setupToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
 	require.NotContains(t, w.Body.String(), "factor")
 	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
@@ -173,15 +165,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var challenge struct {
-		Requires2FA bool   `json:"requires_2fa"`
-		UserID      string `json:"user_id"`
-		Method      string `json:"method"`
-		Challenge   string `json:"challenge"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-	require.True(t, challenge.Requires2FA)
+	challenge := requireTwoFARequired(t, w)
 	require.Equal(t, "totp", challenge.Method)
 
 	w = serveJSON(srv, http.MethodPost, "/2fa/verify", `{"user_id":"`+user.ID+`","challenge":"`+challenge.Challenge+`","code":"`+totpEnable.BackupCodes[0]+`","backup_code":true}`)
@@ -189,13 +173,11 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.Contains(t, w.Body.String(), "access_token")
 
 	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-	require.True(t, challenge.Requires2FA)
+	challenge = requireTwoFARequired(t, w)
 	require.Equal(t, "totp", challenge.Method)
 
 	w = serveJSON(srv, http.MethodPost, "/2fa/challenge", `{"user_id":"`+user.ID+`","challenge":"`+challenge.Challenge+`","factor_id":"`+totpFactorID+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
 
 	loginCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
@@ -208,7 +190,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.NotEmpty(t, tokens.AccessToken)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"factor_id":"`+totpFactorID+`","default":true}`, tokens.AccessToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/user/2fa", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &status))

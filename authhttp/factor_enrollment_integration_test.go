@@ -29,9 +29,7 @@ func TestFactorEnrollmentRequiresFreshAuthAndPreservesFactor(t *testing.T) {
 	}
 	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, stale)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var stepped struct {
-		AccessToken string `json:"access_token"`
-	}
+	var stepped nestedTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stepped))
 	var beforeTime time.Time
 	var beforeAMR []string
@@ -100,9 +98,8 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(testEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "requires_2fa_enrollment")
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
+	tokens.AccessToken = requireEnrollmentToken(t, w)
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
 	require.Equal(t, true, claims["2fa_enrollment"])
 	require.Empty(t, claims["sid"])

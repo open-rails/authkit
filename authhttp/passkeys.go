@@ -90,7 +90,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), nil)
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
-			s.write2FAEnrollmentRequired(w, r, result.UserID)
+			s.send2FAEnrollmentRequired(w, r, result.UserID)
 			return
 		}
 		unauthorized(w, ErrInvalidCredentials)
@@ -99,7 +99,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	ua := r.UserAgent()
 	ip := remoteIP(r)
 	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
-	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(result.AccessToken, result.RefreshToken, result.ExpiresAt), nil)
+	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(result.AccessToken, result.RefreshToken, result.ExpiresAt))
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +113,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrPasskeyFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"passkeys": passkeys})
+	writeList(w, passkeys, "")
 }
 
 func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +140,7 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrPasskeyFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrPasskeyFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func readSmallBody(r *http.Request) ([]byte, error) {

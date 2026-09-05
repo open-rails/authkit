@@ -2,11 +2,12 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -40,11 +41,11 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			// path) so a refresh-gated user can reach the enroll routes instead of
 			// a dead-end token-less 403.
 			var ee *authcore.TwoFAEnrollmentRequiredError
-			if errors.As(err, &ee) && ee.UserID != "" {
-				s.write2FAEnrollmentRequired(w, r, ee.UserID)
-				return
+			userID := ""
+			if errors.As(err, &ee) {
+				userID = ee.UserID
 			}
-			s.send2FAEnrollmentRequiredError(w)
+			s.send2FAEnrollmentRequired(w, r, userID)
 			return
 		}
 		if errors.Is(err, authkit.ErrUserBanned) {
@@ -63,28 +64,33 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 
 	// #180: the /token refresh response now emits the full §6.3 token-pair envelope
 	// (previously omitted token_type) — an additive, contract-conforming change.
-	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(accessToken, newRT, exp), nil)
+	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(accessToken, newRT, exp))
 }
 
+// send2FAEnrollmentRequired answers the 403 2fa_enrollment_required envelope
+// (#313). With a user id it also mints the enrollment-only token (#148 note
+// b) under metadata.token_set so the client can reach the enroll routes.
+func (s *Service) send2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID string) {
+	metadata := map[string]any{
+		"requires_2fa_enrollment": true,
+		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
+	}
+	if userID != "" {
+		token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
+		if err != nil {
+			serverErr(w, ErrTokenIssueFailed)
+			return
+		}
+		metadata["token_set"] = authkit.TokenSet{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())}
+	}
+	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, metadata)
+}
+
+// send2FAEnrollmentRequiredError is the tokenless form for callers without a
+// user id (or a request).
 func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
 	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
 		"requires_2fa_enrollment": true,
 		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
-	})
-}
-
-func (s *Service) write2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID string) {
-	token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
-	if err != nil {
-		serverErr(w, ErrTokenIssueFailed)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"error":                   ErrTwoFAEnrollmentRequired,
-		"requires_2fa_enrollment": true,
-		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
-		"access_token":            token,
-		"token_type":              "Bearer",
-		"expires_in":              int64(time.Until(exp).Seconds()),
 	})
 }
