@@ -81,7 +81,7 @@ func (g *graceHarness) postJSON(path, body string) (int, map[string]any, error) 
 func (g *graceHarness) login(t *testing.T, prefix string) (userID, refreshToken string) {
 	t.Helper()
 	email, pass := newCookieTestUser(t, g.pool, g.srv, prefix)
-	code, body, err := g.postJSON("/api/v1/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	code, body, err := g.postJSON("/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, code, body)
 	rt, _ := body["refresh_token"].(string)

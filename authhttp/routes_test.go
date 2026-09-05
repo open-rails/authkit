@@ -21,7 +21,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	register := s.APIRoutes(RouteRegistration)
 	requireRoute(t, register, http.MethodPost, "/register")
 	requireRoute(t, register, http.MethodGet, "/register/availability")
-	requireNoRoute(t, register, http.MethodPost, "/email/verify/request")
+	requireNoRoute(t, register, http.MethodPost, "/verify/request")
 	requireNoRoute(t, register, http.MethodPost, "/token")
 
 	deviceKeys := s.APIRoutes(RouteDeviceKeys)
@@ -47,8 +47,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireRoute(t, sessionUser, http.MethodPost, "/oidc/{provider}/step-up/start")
 	requireRoute(t, sessionUser, http.MethodPost, "/solana/challenge")
 	requireRoute(t, sessionUser, http.MethodPost, "/solana/link")
-	requireRoute(t, sessionUser, http.MethodPost, "/email/verify/request")
-	requireRoute(t, sessionUser, http.MethodPost, "/phone/verify/request")
+	requireRoute(t, sessionUser, http.MethodPost, "/verify/request")
 	requireNoRoute(t, sessionUser, http.MethodPost, "/register")
 	requireNoRoute(t, sessionUser, http.MethodGet, "/user/me")
 	requireNoRoute(t, sessionUser, http.MethodGet, "/me/bootstrap")

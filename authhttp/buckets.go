@@ -13,8 +13,6 @@ const (
 	RLAuthToken                = "auth_token"
 	RLAuthRegister             = "auth_register"
 	RLAuthRegisterAvailability = "auth_register_availability"
-	RLAuthRegisterResendEmail  = "auth_register_resend_email"
-	RLAuthRegisterResendPhone  = "auth_register_resend_phone"
 	RLAuthRegisterAbandon      = "auth_register_abandon"
 	RLInviteCreate             = "auth_invite_create"
 	RLPasswordLogin            = "auth_password_login"
@@ -46,10 +44,11 @@ const (
 
 	RLPasswordResetRequest = "auth_pwd_reset_request"
 	RLPasswordResetConfirm = "auth_pwd_reset_confirm"
-	RLEmailVerifyRequest   = "auth_email_verify_request"
-	RLEmailVerifyConfirm   = "auth_email_verify_confirm"
-	RLPhoneVerifyRequest   = "auth_phone_verify_request"
-	RLPhoneVerifyConfirm   = "auth_phone_verify_confirm"
+	// #312: one bucket per contact flow, whichever channel the identifier names.
+	RLVerifyRequest        = "auth_verify_request"
+	RLVerifyConfirm        = "auth_verify_confirm"
+	RLRegisterResend       = "auth_register_resend"
+	RLContactChangeRequest = "auth_contact_change_request"
 
 	RLOIDCStart    = "auth_oidc_start"
 	RLOIDCCallback = "auth_oidc_callback"
@@ -58,14 +57,6 @@ const (
 	RLUserMe                = "auth_user_me"
 	RLUserUpdateUsername    = "auth_user_update_username"
 	RLUserPreferredLanguage = "auth_user_preferred_language"
-
-	RLUserEmailChangeRequest = "auth_user_email_change_request"
-	RLUserEmailChangeConfirm = "auth_user_email_change_confirm"
-	RLUserEmailChangeResend  = "auth_user_email_change_resend"
-
-	RLUserPhoneChangeRequest = "auth_user_phone_change_request"
-	RLUserPhoneChangeConfirm = "auth_user_phone_change_confirm"
-	RLUserPhoneChangeResend  = "auth_user_phone_change_resend"
 
 	RLUserDelete         = "auth_user_delete"
 	RLUserUnlinkProvider = "auth_user_unlink_provider"

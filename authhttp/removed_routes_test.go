@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ak#286/#311: routes with no consumer were deleted outright — no alias, no
+// ak#286/#311/#312: routes with no consumer (or merged into one) were deleted outright — no alias, no
 // 410. They must be absent from the route registry and answer 404 (not 401 or
 // 405) on the mounted DefaultAPI surface.
 func TestRemovedRoutesAreGone(t *testing.T) {
@@ -25,6 +25,21 @@ func TestRemovedRoutesAreGone(t *testing.T) {
 		{http.MethodPost, "/admin/applications/{slug}/tier", "/api/v1/admin/applications/app/tier"},
 		{http.MethodPost, "/admin/users/{user_id}/recover", "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/recover"},
 		{http.MethodPost, "/admin/users/{user_id}/restore", "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/restore"},
+		// #312: per-channel contact routes merged into /verify/*, /password/reset/*, /register/resend.
+		{http.MethodPost, "/email/verify/request", "/api/v1/email/verify/request"},
+		{http.MethodGet, "/email/verify/confirm", "/api/v1/email/verify/confirm"},
+		{http.MethodPost, "/email/verify/confirm", "/api/v1/email/verify/confirm"},
+		{http.MethodPost, "/phone/verify/request", "/api/v1/phone/verify/request"},
+		{http.MethodGet, "/phone/verify/confirm", "/api/v1/phone/verify/confirm"},
+		{http.MethodPost, "/phone/verify/confirm", "/api/v1/phone/verify/confirm"},
+		{http.MethodPost, "/email/password/reset/request", "/api/v1/email/password/reset/request"},
+		{http.MethodGet, "/email/password/reset/confirm", "/api/v1/email/password/reset/confirm"},
+		{http.MethodPost, "/email/password/reset/confirm", "/api/v1/email/password/reset/confirm"},
+		{http.MethodPost, "/phone/password/reset/request", "/api/v1/phone/password/reset/request"},
+		{http.MethodGet, "/phone/password/reset/confirm", "/api/v1/phone/password/reset/confirm"},
+		{http.MethodPost, "/phone/password/reset/confirm", "/api/v1/phone/password/reset/confirm"},
+		{http.MethodPost, "/register/resend-email", "/api/v1/register/resend-email"},
+		{http.MethodPost, "/register/resend-phone", "/api/v1/register/resend-phone"},
 	}
 	registered := map[string]bool{}
 	for _, spec := range svc.APIRoutes() {

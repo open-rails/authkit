@@ -68,14 +68,11 @@ type Service struct {
 // continues to fail open — denying every login because a host opted out of rate
 // limiting would be the wrong default.
 var failClosedBuckets = map[string]struct{}{
-	RL2FAVerify:              {},
-	RLPasswordLogin:          {},
-	RLPasswordResetConfirm:   {},
-	RLDeviceKeyEnrollFinish:  {},
-	RLEmailVerifyConfirm:     {},
-	RLPhoneVerifyConfirm:     {},
-	RLUserEmailChangeConfirm: {},
-	RLUserPhoneChangeConfirm: {},
+	RL2FAVerify:             {},
+	RLPasswordLogin:         {},
+	RLPasswordResetConfirm:  {},
+	RLDeviceKeyEnrollFinish: {},
+	RLVerifyConfirm:         {},
 }
 
 // limiterErrorResult is the verdict when the rate limiter returns a backend error.

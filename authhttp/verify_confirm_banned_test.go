@@ -23,13 +23,13 @@ func TestPhoneVerifyConfirm_BannedUserGets401(t *testing.T) {
 	phone := uniquePhone()
 	userID := createPhoneUser(t, pool, srv, phone, "bannedphoneverify")
 
-	w := serveJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+phone+`"}`)
+	w := serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+phone+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	token := smsSender.verificationToken(t)
 
 	// Ban the user after the verification link is issued but before they confirm.
 	require.NoError(t, srv.svc.BanUser(ctx, userID, nil, nil, userID))
 
-	w = serveJSON(srv, http.MethodPost, "/phone/verify/confirm", `{"token":"`+token+`","phone_number":"`+phone+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"token":"`+token+`","identifier":"`+phone+`"}`)
 	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
 }

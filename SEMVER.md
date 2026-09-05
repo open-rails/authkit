@@ -463,27 +463,20 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/passwordless/confirm` | session | none |
 | POST | `/passkeys/login/begin` | passkeys | none |
 | POST | `/passkeys/login/finish` | passkeys | none |
-| POST | `/email/password/reset/request` | session | none |
-| GET | `/email/password/reset/confirm` | session | none |
-| POST | `/email/password/reset/confirm` | session | none |
-| POST | `/phone/password/reset/request` | session | none |
-| GET | `/phone/password/reset/confirm` | session | none |
-| POST | `/phone/password/reset/confirm` | session | none |
+| POST | `/password/reset/request` | session | none (#312 — `{identifier}`, email or phone) |
+| GET | `/password/reset/confirm` | session | none |
+| POST | `/password/reset/confirm` | session | none |
 | POST | `/2fa/challenge` | session | none |
 | POST | `/2fa/verify` | session | none |
 | POST | `/solana/challenge` | session | none |
 | POST | `/solana/login` | session | none |
 | POST | `/register` | register | none |
 | GET | `/register/availability` | register | none |
-| POST | `/register/resend-email` | register | none |
-| POST | `/register/resend-phone` | register | none |
+| POST | `/register/resend` | register | none (#312 — `{identifier}`) |
 | POST | `/register/abandon` | register | none |
-| POST | `/email/verify/request` | register/user | optional |
-| GET | `/email/verify/confirm` | register | none |
-| POST | `/email/verify/confirm` | register/user | optional |
-| POST | `/phone/verify/request` | register/user | optional |
-| GET | `/phone/verify/confirm` | register | none |
-| POST | `/phone/verify/confirm` | register/user | optional |
+| POST | `/verify/request` | register/user | optional (#312 — `{identifier, password?}`, email or phone) |
+| GET | `/verify/confirm` | register | none |
+| POST | `/verify/confirm` | register/user | optional (`{identifier, code}` or `{token}`) |
 | GET | `/me` | user | required |
 | POST | `/user/password` | user | required |
 | GET | `/user/sessions` | user | required |

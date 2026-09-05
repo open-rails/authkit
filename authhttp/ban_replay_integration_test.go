@@ -29,7 +29,7 @@ func testBanRevokesHeldCredentials(t *testing.T, store ephemeralStore) {
 	require.NoError(t, err)
 	email, pass := newCookieTestUser(t, pool, srv, "ban-replay")
 
-	login := serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	login := serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 	var tokens struct {
 		AccessToken  string `json:"access_token"`

@@ -56,7 +56,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"backup_codes"`)
 
-	w = serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var challenge struct {
 		Requires2FA bool   `json:"requires_2fa"`
@@ -171,7 +171,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE profiles.mfa_factors SET last_totp_step=NULL WHERE id=$1::uuid`, totpFactorID)
 	require.NoError(t, err)
 
-	w = serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var challenge struct {
 		Requires2FA bool   `json:"requires_2fa"`
@@ -187,7 +187,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "access_token")
 
-	w = serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
 	require.True(t, challenge.Requires2FA)

@@ -194,23 +194,23 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
-	w := serveJSON(srv, http.MethodPost, "/email/password/reset/request", `{"email":"`+email+`"}`)
+	w := serveJSON(srv, http.MethodPost, "/password/reset/request", `{"identifier":"`+email+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	token := emailSender.passwordResetToken(t)
 	require.Contains(t, emailSender.passwordResetURL(t), "https://example.com/reset?channel=email&token=")
 
-	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"token":"`+token+`","new_password":"New-password-12345"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"New-password-12345"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"ok":true`)
 
 	_, _, err = srv.svc.PasswordLogin(ctx, email, "New-password-12345", nil)
 	require.NoError(t, err)
 
-	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"token":"`+token+`","new_password":"Another-password-12345"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"Another-password-12345"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"code":"invalid_or_expired_token"`)
 
-	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"reset_session":"legacy","new_password":"Another-password-12345"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"reset_session":"legacy","new_password":"Another-password-12345"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 
@@ -221,21 +221,14 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	_, err = pool.Exec(ctx, `UPDATE profiles.users SET phone_number=$1, phone_verified=false WHERE id=$2::uuid`, phone, phoneUser.ID)
 	require.NoError(t, err)
 
-	w = serveJSON(srv, http.MethodPost, "/phone/password/reset/request", `{"phone_number":"`+phone+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/request", `{"identifier":"`+phone+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	phoneToken := smsSender.passwordResetToken(t)
 
-	w = serveJSON(srv, http.MethodPost, "/phone/password/reset/confirm", `{"token":"`+phoneToken+`","new_password":"Phone-password-12345"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+phoneToken+`","new_password":"Phone-password-12345"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NotContains(t, w.Body.String(), `"user_id"`, "phone reset confirm must not echo the user id (ak#324)")
 
-	for _, path := range []string{
-		"/email/password/reset/confirm-link",
-		"/phone/password/reset/confirm-link",
-	} {
-		w = serveJSON(srv, http.MethodPost, path, `{"token":"unused"}`)
-		require.Equal(t, http.StatusNotFound, w.Code, path)
-	}
 }
 
 func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
@@ -251,10 +244,10 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
-	w := serveJSON(srv, http.MethodPost, "/email/password/reset/request", `{"email":"`+email+`"}`)
+	w := serveJSON(srv, http.MethodPost, "/password/reset/request", `{"identifier":"`+email+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	resetToken := emailSender.passwordResetToken(t)
-	w = serveRequest(srv, http.MethodGet, "/email/password/reset/confirm?token="+url.QueryEscape(resetToken)+"&return_to=%2Fsubscribe%3Fplan%3Dpro", "")
+	w = serveRequest(srv, http.MethodGet, "/password/reset/confirm?channel=email&token="+url.QueryEscape(resetToken)+"&return_to=%2Fsubscribe%3Fplan%3Dpro", "")
 	require.Equal(t, http.StatusFound, w.Code, w.Body.String())
 	loc, err := url.Parse(w.Header().Get("Location"))
 	require.NoError(t, err)
@@ -269,18 +262,18 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	require.Equal(t, resetToken, frag.Get("token"))
 	require.Equal(t, "/subscribe?plan=pro", frag.Get("return_to"))
 
-	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"token":"`+resetToken+`","new_password":"New-password-12345"}`)
+	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+resetToken+`","new_password":"New-password-12345"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	verifyEmail := "link-verify-" + suffix + "@example.com"
 	verifyUser, err := srv.svc.CreateUser(ctx, verifyEmail, "linkverify"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, verifyUser.ID) })
-	w = serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+verifyEmail+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+verifyEmail+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.Contains(t, emailSender.verificationURL(t), "https://example.com/verify?channel=email&token=")
 	verifyToken := emailSender.verificationToken(t)
-	w = serveRequest(srv, http.MethodGet, "/email/verify/confirm?token="+url.QueryEscape(verifyToken)+"&return_to=https%3A%2F%2Fevil.example", "")
+	w = serveRequest(srv, http.MethodGet, "/verify/confirm?channel=email&token="+url.QueryEscape(verifyToken)+"&return_to=https%3A%2F%2Fevil.example", "")
 	require.Equal(t, http.StatusFound, w.Code, w.Body.String())
 	loc, err = url.Parse(w.Header().Get("Location"))
 	require.NoError(t, err)
@@ -291,7 +284,7 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	require.Empty(t, frag.Get("return_to"))
 	require.Equal(t, verifyToken, frag.Get("token"))
 
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"token":"`+verifyToken+`","email":"`+verifyEmail+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"token":"`+verifyToken+`","identifier":"`+verifyEmail+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 }
@@ -308,9 +301,9 @@ func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
 	emailCodeUser, err := srv.svc.CreateUser(ctx, emailCode, "verifycodeuser")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, emailCodeUser.ID) })
-	w := serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+emailCode+`"}`)
+	w := serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+emailCode+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+emailSender.verificationCode(t)+`","email":"`+emailCode+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+emailSender.verificationCode(t)+`","identifier":"`+emailCode+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 
@@ -318,33 +311,29 @@ func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
 	emailTokenUser, err := srv.svc.CreateUser(ctx, emailToken, "verifytokenuser")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, emailTokenUser.ID) })
-	w = serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+emailToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+emailToken+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"token":"`+emailSender.verificationToken(t)+`","email":"`+emailToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"token":"`+emailSender.verificationToken(t)+`","identifier":"`+emailToken+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 
 	phoneCode := uniquePhone()
 	phoneCodeUser := createPhoneUser(t, pool, srv, phoneCode, "verifyphonecode")
-	w = serveJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+phoneCode+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+phoneCode+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	w = serveJSON(srv, http.MethodPost, "/phone/verify/confirm", `{"phone_number":"`+phoneCode+`","code":"`+smsSender.verificationCode(t)+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+phoneCode+`","code":"`+smsSender.verificationCode(t)+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 	_ = phoneCodeUser
 
 	phoneToken := uniquePhone()
 	createPhoneUser(t, pool, srv, phoneToken, "verifyphonetoken")
-	w = serveJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+phoneToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+phoneToken+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	w = serveJSON(srv, http.MethodPost, "/phone/verify/confirm", `{"token":"`+smsSender.verificationToken(t)+`","phone_number":"`+phoneToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"token":"`+smsSender.verificationToken(t)+`","identifier":"`+phoneToken+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 
-	for _, path := range []string{"/email/verify/confirm-link", "/phone/verify/confirm-link"} {
-		w = serveJSON(srv, http.MethodPost, path, `{"token":"unused"}`)
-		require.Equal(t, http.StatusNotFound, w.Code, path)
-	}
 }
 
 func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
@@ -364,15 +353,15 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 	}
 
 	newEmail := uniqueEmail("change-email")
-	w := serveAuthJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+newEmail+`","password":"`+pass+`"}`, token)
+	w := serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+newEmail+`","password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	emailCode := emailSender.verificationCode(t)
 	require.NotEmpty(t, emailSender.verificationToken(t))
 
-	w = serveAuthJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"`+uniqueEmail("wrong-email")+`","code":"`+emailCode+`"}`, token)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+uniqueEmail("wrong-email")+`","code":"`+emailCode+`"}`, token)
 	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
 
-	w = serveAuthJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"`+newEmail+`","code":"`+emailCode+`"}`, token)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newEmail+`","code":"`+emailCode+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var gotEmail string
 	var emailVerified bool
@@ -381,15 +370,15 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 	require.True(t, emailVerified)
 
 	newPhone := uniquePhone()
-	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+newPhone+`","password":"`+pass+`"}`, token)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+newPhone+`","password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	phoneCode := smsSender.verificationCode(t)
 	require.NotEmpty(t, smsSender.verificationToken(t))
 
-	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/confirm", `{"phone_number":"`+uniquePhone()+`","code":"`+phoneCode+`"}`, token)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+uniquePhone()+`","code":"`+phoneCode+`"}`, token)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
-	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/confirm", `{"phone_number":"`+newPhone+`","code":"`+phoneCode+`"}`, token)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newPhone+`","code":"`+phoneCode+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var gotPhone string
 	var phoneVerified bool
@@ -410,17 +399,17 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	userID, token, _ := createPasswordUserAccessToken(t, pool, srv, "contact-token", pass)
 	newEmail := uniqueEmail("change-token")
 
-	w := serveAuthJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+newEmail+`"}`, token)
+	w := serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+newEmail+`"}`, token)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	emailToken := emailSender.verificationToken(t)
 
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"`+newEmail+`","token":"`+emailToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newEmail+`","token":"`+emailToken+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var gotEmail string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, userID).Scan(&gotEmail))
 	require.Equal(t, newEmail, gotEmail)
 
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"`+newEmail+`","token":"`+emailToken+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newEmail+`","token":"`+emailToken+`"}`)
 	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
 
 	staleUserID, _, sid := createPasswordUserAccessToken(t, pool, srv, "contact-stale", pass)
@@ -429,11 +418,11 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	staleToken, _, err := srv.svc.MintAccessToken(ctx, staleUserID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`"}`, staleToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+uniquePhone()+`"}`, staleToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"code":"step_up_required"`)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`","password":"`+pass+`"}`, staleToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+uniquePhone()+`","password":"`+pass+`"}`, staleToken)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.NotEmpty(t, smsSender.verificationToken(t))
 }

@@ -72,11 +72,11 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 	h := srv.apiHandler()
 
 	for path, want := range map[string]string{
-		"/email/verify/confirm?token=sekrit&return_to=/next": "https://app.example/verify#channel=email&return_to=%2Fnext&status=ready&token=sekrit",
-		"/phone/verify/confirm?token=sekrit":                 "https://app.example/verify#channel=phone&status=ready&token=sekrit",
-		"/email/password/reset/confirm?token=sekrit":         "https://app.example/reset#channel=email&status=ready&token=sekrit",
-		"/phone/password/reset/confirm?token=sekrit":         "https://app.example/reset#channel=phone&status=ready&token=sekrit",
-		"/email/password/reset/confirm":                      "https://app.example/reset#channel=email&status=invalid_request",
+		"/verify/confirm?token=sekrit&channel=email&return_to=/next": "https://app.example/verify#channel=email&return_to=%2Fnext&status=ready&token=sekrit",
+		"/verify/confirm?token=sekrit&channel=phone":                 "https://app.example/verify#channel=phone&status=ready&token=sekrit",
+		"/password/reset/confirm?token=sekrit&channel=email":         "https://app.example/reset#channel=email&status=ready&token=sekrit",
+		"/password/reset/confirm?token=sekrit":                       "https://app.example/reset#status=ready&token=sekrit",
+		"/password/reset/confirm":                                    "https://app.example/reset#status=invalid_request",
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
@@ -96,20 +96,19 @@ func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithRedis(rdb)), WithoutRateLimiter())
 	require.NoError(t, err)
 
-	w := serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"nobody@example.com","code":"000000"}`)
+	w := serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"nobody@example.com","code":"000000"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "invalid_or_expired_code")
 
 	require.NoError(t, rdb.Close())
-	for path, body := range map[string]string{
-		"/email/verify/confirm":         `{"email":"nobody@example.com","code":"000000"}`,
-		"/phone/verify/confirm":         `{"phone_number":"+15555550100","code":"000000"}`,
-		"/email/password/reset/confirm": `{"token":"nope","new_password":"Correct-password-12345"}`,
-		"/phone/password/reset/confirm": `{"token":"nope","new_password":"Correct-password-12345"}`,
+	for _, tc := range []struct{ path, body string }{
+		{"/verify/confirm", `{"identifier":"nobody@example.com","code":"000000"}`},
+		{"/verify/confirm", `{"identifier":"+15555550100","code":"000000"}`},
+		{"/password/reset/confirm", `{"token":"nope","new_password":"Correct-password-12345"}`},
 	} {
-		w := serveJSON(srv, http.MethodPost, path, body)
-		require.Equal(t, http.StatusInternalServerError, w.Code, path+": "+w.Body.String())
-		require.Contains(t, w.Body.String(), "database_error", path)
+		w := serveJSON(srv, http.MethodPost, tc.path, tc.body)
+		require.Equal(t, http.StatusInternalServerError, w.Code, tc.path+": "+w.Body.String())
+		require.Contains(t, w.Body.String(), "database_error", tc.path)
 	}
 }
 
@@ -124,8 +123,7 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	srv, err := NewServer(
 		newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{}), embedded.WithSMSSender(&captureSMSSender{})),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{
-			RLEmailVerifyRequest: {Limit: 100, Window: time.Hour},
-			RLPhoneVerifyRequest: {Limit: 100, Window: time.Hour},
+			RLVerifyRequest: {Limit: 100, Window: time.Hour},
 		}),
 	)
 	require.NoError(t, err)
@@ -143,15 +141,22 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
-	for path, body := range map[string]func() string{
-		"/email/verify/request": func() string { return `{"email":"` + uniqueEmail("rl-new") + `","password":"wrong-password-12345"}` },
-		"/phone/verify/request": func() string { return `{"phone_number":"` + uniquePhone() + `","password":"wrong-password-12345"}` },
+	// Both channels share the one change bucket now (#312), so each case gets
+	// its own client IP.
+	for _, tc := range []struct {
+		ip   string
+		body func() string
+	}{
+		{"203.0.113.40:1234", func() string {
+			return `{"identifier":"` + uniqueEmail("rl-new") + `","password":"wrong-password-12345"}`
+		}},
+		{"203.0.113.41:1234", func() string { return `{"identifier":"` + uniquePhone() + `","password":"wrong-password-12345"}` }},
 	} {
-		first := serveAuthJSONFrom(srv, http.MethodPost, path, body(), token, "203.0.113.40:1234")
-		require.GreaterOrEqual(t, first.Code, 400, path)
-		require.NotEqual(t, http.StatusTooManyRequests, first.Code, path)
-		second := serveAuthJSONFrom(srv, http.MethodPost, path, body(), token, "203.0.113.40:1234")
-		require.Equal(t, http.StatusTooManyRequests, second.Code, path+": the change bucket must trip before the password check: "+second.Body.String())
+		first := serveAuthJSONFrom(srv, http.MethodPost, "/verify/request", tc.body(), token, tc.ip)
+		require.GreaterOrEqual(t, first.Code, 400, tc.ip)
+		require.NotEqual(t, http.StatusTooManyRequests, first.Code, tc.ip)
+		second := serveAuthJSONFrom(srv, http.MethodPost, "/verify/request", tc.body(), token, tc.ip)
+		require.Equal(t, http.StatusTooManyRequests, second.Code, tc.ip+": the change bucket must trip before the password check: "+second.Body.String())
 	}
 }
 

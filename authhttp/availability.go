@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	ActionUpdateUsername           = "update_username"
-	ActionRequestPasswordReset     = "request_password_reset"
-	ActionRequestEmailVerification = "request_email_verification"
-	ActionRequestPhoneVerification = "request_phone_verification"
+	ActionUpdateUsername       = "update_username"
+	ActionRequestPasswordReset = "request_password_reset"
+	ActionRequestVerification  = "request_verification"
 )
 
 type ActionAvailability struct {
@@ -65,10 +64,8 @@ func actionForRateLimitBucket(bucket string) string {
 	switch bucket {
 	case RLPasswordResetRequest:
 		return ActionRequestPasswordReset
-	case RLEmailVerifyRequest, RLAuthRegisterResendEmail, RLUserEmailChangeRequest, RLUserEmailChangeResend:
-		return ActionRequestEmailVerification
-	case RLPhoneVerifyRequest, RLAuthRegisterResendPhone, RLUserPhoneChangeRequest, RLUserPhoneChangeResend:
-		return ActionRequestPhoneVerification
+	case RLVerifyRequest, RLRegisterResend, RLContactChangeRequest:
+		return ActionRequestVerification
 	default:
 		action := strings.TrimPrefix(strings.TrimSpace(bucket), "auth_")
 		if action == "" {
