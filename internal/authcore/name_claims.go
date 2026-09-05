@@ -62,6 +62,9 @@ func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName,
 
 // ResolveUsername resolves current names and unexpired aliases directly to UUID.
 func (s *Service) ResolveUsername(ctx context.Context, name string) (authkit.NameResolution, error) {
+	if err := s.requirePG(); err != nil {
+		return authkit.NameResolution{}, err
+	}
 	row, err := s.q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 	return authkit.NameResolution{ID: row.ID, CanonicalName: row.CanonicalName, IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
 }
@@ -76,6 +79,9 @@ func (s *Service) admitName(ctx context.Context, request authkit.NameAdmissionRe
 	return nil
 }
 func (s *Service) UserNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
+	if err := s.requirePG(); err != nil {
+		return authkit.NamingState{}, err
+	}
 	var last *time.Time
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&last)
 	if err != nil {
@@ -84,6 +90,9 @@ func (s *Service) UserNamingState(ctx context.Context, id string) (authkit.Namin
 	return s.namingStateWithAliases(ctx, "user", id, last)
 }
 func (s *Service) GroupNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
+	if err := s.requirePG(); err != nil {
+		return authkit.NamingState{}, err
+	}
 	var last *time.Time
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.permission_groups WHERE id=$1::uuid`, id).Scan(&last)
 	if err != nil {

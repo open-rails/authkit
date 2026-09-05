@@ -407,10 +407,6 @@ func (s *Client) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authk
 	return s.impl.SoftDeleteUsers(ctx, userIDs)
 }
 
-func (s *Client) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
-	return s.impl.TimeUntilUsernameRenameAvailable(ctx, userID, now)
-}
-
 func (s *Client) UnbanUser(ctx context.Context, userID string) error {
 	return s.impl.UnbanUser(ctx, userID)
 }

@@ -13,6 +13,7 @@ CREATE TABLE profiles.name_claims (
 );
 CREATE UNIQUE INDEX name_claims_canonical_owner ON profiles.name_claims(owner_kind, owner_id) WHERE canonical;
 CREATE INDEX name_claims_owner ON profiles.name_claims(owner_kind, owner_id);
+CREATE INDEX name_claims_expiry ON profiles.name_claims(expires_at) WHERE NOT canonical AND expires_at IS NOT NULL;
 ALTER TABLE profiles.users ADD COLUMN last_renamed_at timestamptz;
 ALTER TABLE profiles.permission_groups ADD COLUMN last_renamed_at timestamptz;
 
@@ -75,15 +76,10 @@ BEGIN
   END IF;
  END IF;
  IF TG_OP = 'DELETE' THEN
-  -- Canonical deletion reserves forever by default. Explicit group release
-  -- deletes this one claim after deletion; previous aliases keep their deadlines.
-  IF kind='user' THEN
-   -- Existing user hard-delete semantics release the final canonical username.
-   DELETE FROM profiles.name_claims WHERE owner_kind=kind AND owner_id=OLD.id AND canonical;
-  ELSE
-   UPDATE profiles.name_claims SET canonical = false, expires_at = NULL
-    WHERE owner_kind = kind AND owner_id = OLD.id AND canonical;
-  END IF;
+  -- Raw deletion keeps existing canonical-release semantics. The explicit group
+  -- lifecycle primitive first turns the canonical claim into a permanent alias
+  -- when reservation is requested. Earlier rename aliases always survive.
+  DELETE FROM profiles.name_claims WHERE owner_kind=kind AND owner_id=OLD.id AND canonical;
   RETURN OLD;
  END IF;
  IF TG_OP = 'INSERT' THEN

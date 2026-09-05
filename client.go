@@ -45,7 +45,7 @@ type Users interface {
 	UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error)
 	ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error)
 	ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
-	TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error)
+	UserNamingState(ctx context.Context, userID string) (NamingState, error)
 	IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	// UsersByIDs resolves many user IDs to slim display projections (id +
 	// username/email) in ONE query: the batch read for "render N authors"

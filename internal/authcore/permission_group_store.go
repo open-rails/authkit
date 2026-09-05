@@ -137,12 +137,12 @@ func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 	if persona == RootPersona {
 		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}
-	if _, err = st.q.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE id=$1::uuid`, groupID); err != nil {
-		return err
+	if !releaseSlug && slug != nil {
+		if _, err = st.q.Exec(ctx, `UPDATE profiles.name_claims SET canonical=false,expires_at=NULL WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND owner_id=$3::uuid AND canonical`, persona, *slug, groupID); err != nil {
+			return err
+		}
 	}
-	if releaseSlug && slug != nil {
-		_, err = st.q.Exec(ctx, `DELETE FROM profiles.name_claims WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND owner_id=$3::uuid`, persona, *slug, groupID)
-	}
+	_, err = st.q.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE id=$1::uuid`, groupID)
 	return err
 }
 

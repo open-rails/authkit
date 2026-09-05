@@ -10,6 +10,25 @@ import (
 	"time"
 )
 
+const nameClaimsDeleteExpired = `-- name: NameClaimsDeleteExpired :execrows
+WITH expired AS (
+ SELECT owner_kind,persona,name FROM profiles.name_claims
+ WHERE NOT canonical AND expires_at <= $1::timestamptz
+ ORDER BY expires_at LIMIT 5000 FOR UPDATE SKIP LOCKED
+)
+DELETE FROM profiles.name_claims c USING expired e
+WHERE c.owner_kind=e.owner_kind AND c.persona=e.persona AND c.name=e.name
+ AND NOT c.canonical AND c.expires_at <= $1::timestamptz
+`
+
+func (q *Queries) NameClaimsDeleteExpired(ctx context.Context, atTime time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, nameClaimsDeleteExpired, atTime)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const resolveUsername = `-- name: ResolveUsername :one
 SELECT u.id::text AS id, u.username::text AS canonical_name, COALESCE(NOT c.canonical,false)::boolean AS is_alias, c.expires_at
 FROM profiles.name_claims c JOIN profiles.users u ON u.id=c.owner_id

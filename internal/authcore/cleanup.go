@@ -50,6 +50,12 @@ func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 		return err
 	}
 
+	// One bounded alias batch per maintenance tick. Request-time expiry is the
+	// authority regardless of whether this best-effort storage cleanup has run.
+	if _, err := s.q.NameClaimsDeleteExpired(ctx, s.namingNow()); err != nil {
+		return err
+	}
+
 	cutoff := time.Now().UTC().Add(-inviteRetention)
 	q := db.ForSchema(s.pg, s.dbSchema())
 	for _, stmt := range []string{

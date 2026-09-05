@@ -397,17 +397,6 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserIns
 	return i, err
 }
 
-const userLastRenamedAt = `-- name: UserLastRenamedAt :one
-SELECT last_renamed_at AS renamed_at FROM profiles.users WHERE id=$1::uuid AND last_renamed_at IS NOT NULL
-`
-
-func (q *Queries) UserLastRenamedAt(ctx context.Context, userID string) (*time.Time, error) {
-	row := q.db.QueryRow(ctx, userLastRenamedAt, userID)
-	var renamed_at *time.Time
-	err := row.Scan(&renamed_at)
-	return renamed_at, err
-}
-
 const userPasswordInsert = `-- name: UserPasswordInsert :exec
 INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, 'argon2id')
@@ -499,21 +488,6 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 	var language string
 	err := row.Scan(&language)
 	return language, err
-}
-
-const userRenameInsert = `-- name: UserRenameInsert :exec
-INSERT INTO profiles.user_renames (user_id, from_slug)
-VALUES ($1::uuid, $2)
-`
-
-type UserRenameInsertParams struct {
-	UserID   string
-	FromSlug string
-}
-
-func (q *Queries) UserRenameInsert(ctx context.Context, arg UserRenameInsertParams) error {
-	_, err := q.db.Exec(ctx, userRenameInsert, arg.UserID, arg.FromSlug)
-	return err
 }
 
 const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
@@ -639,20 +613,6 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 	return err
 }
 
-const userSetUsername = `-- name: UserSetUsername :exec
-UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetUsernameParams struct {
-	ID       string
-	Username *string
-}
-
-func (q *Queries) UserSetUsername(ctx context.Context, arg UserSetUsernameParams) error {
-	_, err := q.db.Exec(ctx, userSetUsername, arg.ID, arg.Username)
-	return err
-}
-
 const userSoftDelete = `-- name: UserSoftDelete :exec
 UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1
 `
@@ -660,17 +620,6 @@ UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1
 func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userSoftDelete, id)
 	return err
-}
-
-const userUsernameByID = `-- name: UserUsernameByID :one
-SELECT username::text FROM profiles.users WHERE id = $1::uuid
-`
-
-func (q *Queries) UserUsernameByID(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, userUsernameByID, id)
-	var username string
-	err := row.Scan(&username)
-	return username, err
 }
 
 const userUsernameExists = `-- name: UserUsernameExists :one

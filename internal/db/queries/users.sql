@@ -109,19 +109,6 @@ WHERE id = sqlc.arg(id);
 -- name: UserSoftDelete :exec
 UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1;
 
--- name: UserUsernameByID :one
-SELECT username::text FROM profiles.users WHERE id = sqlc.arg(id)::uuid;
-
--- name: UserLastRenamedAt :one
-SELECT last_renamed_at AS renamed_at FROM profiles.users WHERE id=sqlc.arg(user_id)::uuid AND last_renamed_at IS NOT NULL;
-
--- name: UserSetUsername :exec
-UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1;
-
--- name: UserRenameInsert :exec
-INSERT INTO profiles.user_renames (user_id, from_slug)
-VALUES (sqlc.arg(user_id)::uuid, $2);
-
 -- name: UserSetEmailAndUnverify :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
 

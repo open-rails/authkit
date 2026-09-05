@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -235,31 +233,4 @@ func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID 
 func (s *Service) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
 	slug, _, err := s.ValidateUsernameForUser(ctx, username, "")
 	return slug, err
-}
-
-func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
-	if s == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
-		return 0, nil
-	}
-	var lastRenamedAt *time.Time
-	if v, err := s.q.UserLastRenamedAt(ctx, strings.TrimSpace(userID)); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, nil
-		}
-		return 0, err
-	} else {
-		lastRenamedAt = v
-	}
-	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
-		return 0, nil
-	}
-	if !s.NamingPolicy().Enabled {
-		return 0, authkit.ErrRenamesDisabled
-	}
-	availableAt := lastRenamedAt.Add(s.NamingPolicy().RenameInterval)
-	if !availableAt.After(now) {
-		return 0, nil
-	}
-	remaining := availableAt.Sub(now)
-	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
 }

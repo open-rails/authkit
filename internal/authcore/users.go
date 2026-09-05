@@ -450,9 +450,6 @@ func (s *Service) UpdateUsername(ctx context.Context, id, username string) error
 		return err
 	}
 	username = strings.TrimSpace(username)
-	if err := ValidateUsername(username); err != nil {
-		return err
-	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -479,6 +476,11 @@ func (s *Service) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username 
 	}
 	if strings.EqualFold(oldName, username) {
 		return nil
+	}
+	if authority == normalRename {
+		if err := ValidateUsername(username); err != nil {
+			return err
+		}
 	}
 	now := s.namingNow()
 	policy := s.NamingPolicy()

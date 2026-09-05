@@ -522,13 +522,6 @@ func (c *Client) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authk
 	return out, err
 }
 
-func (c *Client) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
-	args := map[string]any{"userID": userID, "now": now}
-	var out int64
-	err := c.call(ctx, "TimeUntilUsernameRenameAvailable", args, &out)
-	return out, err
-}
-
 func (c *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID string, persona string, instanceSlug string, subjectID string, subjectKind string, role string) error {
 	args := map[string]any{"actorUserID": actorUserID, "persona": persona, "instanceSlug": instanceSlug, "subjectID": subjectID, "subjectKind": subjectKind, "role": role}
 	return c.call(ctx, "UnassignGroupRoleAs", args, nil)
@@ -587,6 +580,13 @@ func (c *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 	args := map[string]any{"ids": ids}
 	var out map[string]authkit.UserLiveness
 	err := c.call(ctx, "UserLivenessByIDs", args, &out)
+	return out, err
+}
+
+func (c *Client) UserNamingState(ctx context.Context, userID string) (authkit.NamingState, error) {
+	args := map[string]any{"userID": userID}
+	var out authkit.NamingState
+	err := c.call(ctx, "UserNamingState", args, &out)
 	return out, err
 }
 

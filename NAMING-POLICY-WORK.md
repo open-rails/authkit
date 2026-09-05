@@ -37,3 +37,20 @@ keys, applications and invite paths. Full workspace validation is in progress;
 initial full run found an unknown-group status regression (fixed) and was stopped
 to bound per-name lock growth before the 100k performance fixture. Current source
 is not yet declared merge-ready; first-party adoption remains #339/#949 work.
+
+
+Final local evidence: the full workspace `go test -race -p 1
+ github.com/open-rails/authkit/...` passed with DB-required and isolated Redis
+leases after restoring explicit-vs-raw deletion semantics and replacing the
+portable host-clock cooldown method with `UserNamingState`. The subsequent
+bounded alias-maintenance hook, nil-store guards, imported-name no-op check and
+dead-query removal passed targeted core/HTTP/DB/remote race tests, SQLC
+generate+vet, staticcheck and govet. The 100k-row query-performance fixture
+passed with the 256-stripe lock bound. Logs are under `.runtime/`.
+
+API contract sent to the consumer owners: atomic `UpdateGroupInstanceAs`;
+`UserNamingState` portable read; GET /me and rename responses report normalized
+policy, eligibility and aliases with recorded deadlines. Root owns generic
+machine scope #338 and final merging. SaaS PR62 is this agent's adoption lane;
+Doujins/Hentai0 adoption belongs to `/root/refund_fixes`. Current Tensorhub and
+final OpenRails acceptance remain recorded prerequisites, not inferred adoption.

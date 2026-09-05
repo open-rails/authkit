@@ -74,11 +74,10 @@ body; no redirect is required. Credentials and internal jobs remain UUID-bound.
 
 ## Delivery status
 
-The policy/configuration foundation is implemented first in AuthKit #335. Runtime
-claim storage (#336), mutation authorization (#337), UUID permission scopes (#338),
-and coordinated first-party adoption (#339; OpenRails #947–#949) must land before
-finite or immediate name reuse is enabled. This foundation alone does not claim
-that existing rename/lookup paths already enforce the new contract.
+This implements the AuthKit #335–#337 policy, storage and mutation contract. Stable
+machine permission scopes (#338) and first-party adoption (#339; OpenRails
+#947–#949) remain coordinated release prerequisites. Library tests or a published
+artifact alone do not establish fleet adoption.
 
 ## Storage and request ownership
 
@@ -118,3 +117,10 @@ owner UUID, actor and outgoing/requested names. It runs for generated creation
 and ordinary rename. `WithInstanceAdmission` remains the separate creation-only
 cost/enrollment hook and is never rerun by a rename. Trusted imports retain their
 existing provisioning authority, but cannot bypass claim ownership.
+
+The portable `UserNamingState(ctx,userID)` read replaces the old host-clock
+`TimeUntilUsernameRenameAvailable` API; no independent policy arithmetic remains
+on that surface. `CleanupExpiredAuthState` removes at most 5000 expired aliases
+per call through an expiry index, preserving canonical and permanent claims.
+This existing maintenance hook only removes stale storage; it never controls
+forwarding or claim eligibility.

@@ -774,17 +774,6 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.SoftDeleteUsers(ctx, a.A0)
 		return r0, err
 	},
-	"TimeUntilUsernameRenameAvailable": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string    `json:"userID"`
-			A1 time.Time `json:"now"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.TimeUntilUsernameRenameAvailable(ctx, a.A0, a.A1)
-		return r0, err
-	},
 	"UnassignGroupRoleAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"actorUserID"`
@@ -900,6 +889,16 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		r0, err := c.UserLivenessByIDs(ctx, a.A0)
+		return r0, err
+	},
+	"UserNamingState": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"userID"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.UserNamingState(ctx, a.A0)
 		return r0, err
 	},
 	"UsersByIDs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {

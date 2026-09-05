@@ -280,3 +280,83 @@ func TestNamingPolicyChangeDoesNotRewriteReservations(t *testing.T) {
 	_, err = next.ResolveUsername(ctx, "promised")
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
+
+func TestNamingRequestBindingDoesNotOverrideOtherTargets(t *testing.T) {
+	svc, _ := namingTestService(t, authkit.NamingConfig{})
+	ctx := context.Background()
+	first, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "first"})
+	require.NoError(t, err)
+	second, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "second"})
+	require.NoError(t, err)
+	inst, err := svc.GroupInstanceByID(ctx, first)
+	require.NoError(t, err)
+	bound := WithResolvedGroup(ctx, inst, "first")
+	got, err := svc.ResolveGroupIDForSlug(bound, "merchant", "second")
+	require.NoError(t, err)
+	require.Equal(t, second, got)
+	root, err := svc.EnsureRootGroup(ctx)
+	require.NoError(t, err)
+	got, err = svc.ResolveGroupIDForSlug(bound, RootPersona, "first")
+	require.NoError(t, err)
+	require.Equal(t, root, got)
+	require.NoError(t, svc.DeleteGroupInstanceByID(ctx, first, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
+	replacement, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "first"})
+	require.NoError(t, err)
+	require.NotEqual(t, first, replacement)
+	_, err = svc.ResolveGroupIDForSlug(bound, "merchant", "first")
+	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
+	// Raw lifecycle deletion releases canonical names but retains earlier aliases;
+	// an explicit default delete has its separate permanent-canonical policy.
+	_, err = svc.pg.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE id=$1::uuid`, replacement)
+	require.NoError(t, err)
+	_, err = svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "first"})
+	require.NoError(t, err)
+}
+
+func TestNamingMaintenanceIsBoundedAndDoesNotControlExpiry(t *testing.T) {
+	svc, setTime := namingTestService(t, authkit.NamingConfig{})
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, "cleanup@example.test", "outgoing")
+	require.NoError(t, err)
+	require.NoError(t, svc.UpdateUsername(ctx, user.ID, "canonical"))
+	setTime(svc.namingNow().Add(90 * 24 * time.Hour))
+	_, err = svc.ResolveUsername(ctx, "outgoing")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	// 5001 additional expired aliases prove one maintenance call is bounded.
+	_, err = svc.pg.Exec(ctx, `INSERT INTO profiles.name_claims(owner_kind,persona,name,owner_id,canonical,expires_at) SELECT 'user','','expired_'||n,$1::uuid,false,$2 FROM generate_series(1,5001) n`, user.ID, svc.namingNow().Add(-time.Hour))
+	require.NoError(t, err)
+	_, err = svc.pg.Exec(ctx, `INSERT INTO profiles.name_claims(owner_kind,persona,name,owner_id,canonical) VALUES ('user','','permanent',$1::uuid,false)`, user.ID)
+	require.NoError(t, err)
+	require.NoError(t, svc.CleanupExpiredAuthState(ctx))
+	var left int
+	require.NoError(t, svc.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.name_claims WHERE NOT canonical AND expires_at<=$1`, svc.namingNow()).Scan(&left))
+	require.Equal(t, 2, left)
+	require.NoError(t, svc.CleanupExpiredAuthState(ctx))
+	require.NoError(t, svc.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.name_claims WHERE NOT canonical AND expires_at<=$1`, svc.namingNow()).Scan(&left))
+	require.Zero(t, left)
+	for _, name := range []string{"canonical", "permanent"} {
+		resolved, err := svc.ResolveUsername(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, user.ID, resolved.ID)
+	}
+}
+
+func TestNamingReadsWithoutStoreRefuseAndImportedNoOpSucceeds(t *testing.T) {
+	empty := NewService(Config{}, Keyset{})
+	ctx := context.Background()
+	_, err := empty.UserNamingState(ctx, "unknown")
+	require.Error(t, err)
+	_, err = empty.GroupNamingState(ctx, "unknown")
+	require.Error(t, err)
+	_, err = empty.ResolveUsername(ctx, "unknown")
+	require.Error(t, err)
+	svc, _ := namingTestService(t, authkit.NamingConfig{})
+	user, err := svc.ImportUser(ctx, ImportUserInput{Username: "imported-name", Email: "imported@example.test"})
+	require.NoError(t, err)
+	require.NoError(t, svc.UpdateUsername(ctx, user.ID, "imported-name"))
+	state, err := svc.UserNamingState(ctx, user.ID)
+	require.NoError(t, err)
+	require.True(t, state.Allowed)
+	require.Nil(t, state.NextRenameAt)
+	require.Empty(t, state.Aliases)
+}
