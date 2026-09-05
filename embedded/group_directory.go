@@ -53,3 +53,10 @@ func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, persona, refe
 func (d *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (authkit.GroupInstance, error) {
 	return d.store.GroupInstanceByID(ctx, strings.TrimSpace(id))
 }
+
+// SearchGroupInstances returns canonical slugs containing query (case insensitive,
+// literal substring), ordered by (slug,id). Empty cursor starts the search; later
+// pages use the last row's slug/id. Limit defaults to50 and is capped at200.
+func (d *GroupDirectory) SearchGroupInstances(ctx context.Context, persona, query, afterSlug, afterID string, limit int) ([]authkit.GroupInstance, error) {
+	return d.store.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)
+}

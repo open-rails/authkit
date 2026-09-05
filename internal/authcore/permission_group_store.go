@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	authkit "github.com/open-rails/authkit"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -594,4 +595,44 @@ func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID, r
 		`DELETE FROM profiles.group_custom_roles WHERE permission_group_id = $1::uuid AND role = $2`,
 		groupID, role)
 	return err
+}
+
+// SearchGroupInstances searches canonical names only. Former names are addresses,
+// not additional directory entries. Keyset ordering keeps the host's paginated
+// binding join bounded without loading every group or performing per-row reads.
+func (st *PermissionGroupStore) SearchGroupInstances(ctx context.Context, persona, query, afterSlug, afterID string, limit int) ([]GroupInstance, error) {
+	persona = strings.TrimSpace(persona)
+	query = strings.ToLower(strings.TrimSpace(query))
+	afterSlug = strings.ToLower(strings.TrimSpace(afterSlug))
+	afterID = strings.TrimSpace(afterID)
+	if persona == "" {
+		return nil, fmt.Errorf("group search requires a persona")
+	}
+	if (afterSlug == "") != (afterID == "") {
+		return nil, fmt.Errorf("group search cursor requires both slug and id")
+	}
+	if limit == 0 {
+		limit = 50
+	}
+	if limit < 1 || limit > 200 {
+		return nil, fmt.Errorf("group search limit must be between 1 and 200")
+	}
+	rows, err := st.q.Query(ctx, `SELECT id::text,persona,instance_slug,COALESCE(display_name,'')
+ FROM profiles.permission_groups WHERE persona=$1 AND instance_slug IS NOT NULL
+ AND strpos(instance_slug,$2)>0
+ AND ($3='' OR (instance_slug,id)>($3,NULLIF($4,'')::uuid))
+ ORDER BY instance_slug,id LIMIT $5`, persona, query, afterSlug, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]GroupInstance, 0)
+	for rows.Next() {
+		var g GroupInstance
+		if err := rows.Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
 }

@@ -72,13 +72,6 @@ rename reservations. Canonical-name deletion/release remains a separate explicit
 lifecycle operation. API writes resolve aliases internally, preserving method and
 body; no redirect is required. Credentials and internal jobs remain UUID-bound.
 
-## Delivery status
-
-This implements the AuthKit #335–#337 policy, storage and mutation contract. Stable
-machine permission scopes (#338) and first-party adoption (#339; OpenRails
-#947–#949) remain coordinated release prerequisites. Library tests or a published
-artifact alone do not establish fleet adoption.
-
 ## Storage and request ownership
 
 `profiles.name_claims` owns each normalized `(owner_kind, persona, name)` key.
@@ -138,3 +131,11 @@ CLI/import/catalog callers needing only identity lookup can construct
 `GroupInstanceByID`. This read-only directory validates the schema and reuses the
 same alias queries, without constructing an issuer, loading keys, migrating,
 writing state, or starting workers. Empty schema uses `profiles`.
+
+
+`GroupDirectory.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)`
+searches current canonical slugs by literal, case-insensitive substring. Results
+are ordered by `(slug,id)`; subsequent pages pass the last returned slug and ID.
+Limit defaults to 50 and must be 1–200. Aliases do not create duplicate search
+entries. Hosts may join each bounded page to their own UUID-bound data before
+returning a product directory; no cached host label becomes naming authority.
