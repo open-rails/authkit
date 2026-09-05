@@ -207,12 +207,12 @@ func ValidatePassword(value string) error {
 	return nil
 }
 
-// ValidateUsernameForUser validates a desired username and confirms no OTHER
+// validateUsernameForUser validates a desired username and confirms no OTHER
 // live user already holds it, so username uniqueness is the only constraint.
 // The returned slug is the lowercased username; excludeGroupID is retained in
 // the signature for dependent adapters but is always empty under the
 // permission-group model.
-func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeGroupID string, err error) {
+func (s *Service) validateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeGroupID string, err error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", "", err
 	}
@@ -231,6 +231,6 @@ func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID 
 }
 
 func (s *Service) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
-	slug, _, err := s.ValidateUsernameForUser(ctx, username, "")
+	slug, _, err := s.validateUsernameForUser(ctx, username, "")
 	return slug, err
 }

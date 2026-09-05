@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
@@ -141,7 +142,7 @@ func (s *Service) ConfirmPasswordlessCode(ctx context.Context, identifier, code 
 	}
 	result, err := s.consumePasswordlessChallenge(ctx, rec)
 	if err == nil {
-		s.ClearPasswordlessCodeAttempts(ctx, identifier)
+		s.clearPasswordlessCodeAttempts(ctx, identifier)
 	}
 	return result, err
 }
@@ -205,7 +206,7 @@ func (s *Service) RecordFailedPasswordlessCode(ctx context.Context, identifier s
 	}
 }
 
-func (s *Service) ClearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
+func (s *Service) clearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
 	if !s.useEphemeralStore() {
 		return
 	}

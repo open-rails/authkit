@@ -443,16 +443,6 @@ func (s *Service) logSessionsRevoked(ctx context.Context, userID string, session
 	}
 }
 
-// HostDeleteUser performs deletion on behalf of the host application.
-// If soft is true, it performs a soft delete (see SoftDeleteUser). If false, it hard-deletes the user
-// and all dependent rows via ON DELETE CASCADE.
-func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) error {
-	if soft {
-		return s.SoftDeleteUser(ctx, id)
-	}
-	return s.AdminDeleteUser(ctx, id)
-}
-
 // RenameAuthority is internal: ordinary account changes obey the site policy;
 // trusted import updates can bypass only the enabled/cooldown checks.
 type renameAuthority uint8

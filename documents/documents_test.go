@@ -59,7 +59,7 @@ func TestSignRetainsExactEnvelopeBytes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			normalized, _ := NormalizeEnvelope(envelope)
+			normalized, _ := normalizeEnvelope(envelope)
 			wantPayload, _ := json.Marshal(normalized)
 			if !bytes.Equal(document.SignedPayload, wantPayload) {
 				t.Fatalf("signed payload changed\n got: %s\nwant: %s", document.SignedPayload, wantPayload)

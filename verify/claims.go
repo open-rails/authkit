@@ -44,8 +44,8 @@ type Claims struct {
 
 	// Attributes is the `attributes` claim of a delegated access token: the
 	// canonical app-specific ESCAPE HATCH (#75). It is an object of issuer-
-	// asserted, NAMESPACED, OPAQUE key/values that AuthKit transports and
-	// optionally shape-validates (WithAttributesPolicy) but NEVER interprets —
+	// asserted, NAMESPACED, OPAQUE key/values that AuthKit transports but NEVER
+	// interprets —
 	// the semantics belong to the consuming app. Each value is in one of two
 	// modes (see Attribute / AttributeIsReference):
 	//   INLINE    — the value carries the full definition, e.g.

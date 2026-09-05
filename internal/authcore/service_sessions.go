@@ -472,17 +472,6 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 	}, nil
 }
 
-func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
-	freshness, err := s.SessionFreshness(ctx, userID, sessionID, now)
-	if err != nil {
-		return SessionFreshness{}, err
-	}
-	if freshness.StepUpRequiredForSensitiveOps {
-		return freshness, ErrStepUpRequired
-	}
-	return freshness, nil
-}
-
 func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
 	return s.MarkSessionAuthenticatedWithMethods(ctx, userID, sessionID, []string{"pwd"})
 }
@@ -531,26 +520,6 @@ func normalizeAuthMethods(methods []string) []string {
 		return []string{"pwd"}
 	}
 	return out
-}
-
-func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error {
-	if s.pg == nil {
-		return nil
-	}
-	reason := sessionRevokeReasonFromContext(ctx)
-	if reason == nil {
-		v := string(SessionRevokeReasonAdminRevoke)
-		reason = &v
-	}
-	uid, err := s.q.SessionRevokeByID(ctx, db.SessionRevokeByIDParams{ID: sessionID, Issuer: s.cfg.Token.Issuer})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	s.logSessionRevoked(ctx, uid, sessionID, reason)
-	return nil
 }
 
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.

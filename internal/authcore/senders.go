@@ -84,12 +84,6 @@ type SMSHealthChecker interface {
 	CheckHealth(ctx context.Context) error
 }
 
-// WithEmailSender sets the email sender dependency.
-func (s *Service) WithEmailSender(sender EmailSender) *Service { s.email = sender; return s }
-
-// WithSMSSender sets the SMS sender dependency.
-func (s *Service) WithSMSSender(sender SMSSender) *Service { s.sms = sender; return s }
-
 // HasEmailSender returns true if an email sender is configured.
 func (s *Service) HasEmailSender() bool { return s.email != nil }
 
@@ -135,17 +129,6 @@ func (s *Service) SMSHealthy() bool {
 		return true
 	}
 	return s.smsHealthy.Load()
-}
-
-// SMSHealthReason returns the reason SMS was last found unhealthy, if any.
-func (s *Service) SMSHealthReason() string {
-	if s == nil {
-		return ""
-	}
-	if r, ok := s.smsHealthReason.Load().(string); ok {
-		return r
-	}
-	return ""
 }
 
 // SMSAvailable reports whether phone-based flows should be offered: a sender is

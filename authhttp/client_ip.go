@@ -26,27 +26,6 @@ func DefaultClientIP() ClientIPFunc {
 	}
 }
 
-// PublicRemoteAddrClientIP returns the older conservative client IP strategy:
-//   - If RemoteAddr is a public IP, use it.
-//   - If RemoteAddr is private/loopback/etc, return "" (fail open) so we don't accidentally
-//     rate-limit a reverse proxy/ingress as a single client.
-func PublicRemoteAddrClientIP() ClientIPFunc {
-	return func(r *http.Request) string {
-		ip := remoteIP(r)
-		if ip == "" {
-			return ""
-		}
-		parsed, err := netip.ParseAddr(ip)
-		if err != nil {
-			return ""
-		}
-		if isPublicAddr(parsed) {
-			return parsed.String()
-		}
-		return ""
-	}
-}
-
 // ClientIPFromForwardedHeaders derives the client IP behind proxies the host
 // declared. A peer inside trusted or cloudflare enables the right-to-left
 // X-Forwarded-For walk (hops in either set are skipped as our own). Only a peer

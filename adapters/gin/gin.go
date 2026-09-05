@@ -55,16 +55,6 @@ func RequiredLive(v *verify.Verifier) (gin.HandlerFunc, error) {
 	return Use(mw), nil
 }
 
-// RequiredLiveUser is the gin-native form of verify.RequiredLiveUser (#267):
-// RequiredLive restricted to native human users.
-func RequiredLiveUser(v *verify.Verifier) (gin.HandlerFunc, error) {
-	mw, err := verify.RequiredLiveUser(v)
-	if err != nil {
-		return nil, err
-	}
-	return Use(mw), nil
-}
-
 func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		terminalRan := false

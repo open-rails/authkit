@@ -16,20 +16,6 @@ func (s *Service) SetProviderUsername(ctx context.Context, userID, provider, sub
 	return s.setProviderUsername(ctx, userID, provider, subject, username)
 }
 
-// Provider link management
-func (s *Service) countProviderLinks(ctx context.Context, userID string) int {
-	if s.pg == nil {
-		return 0
-	}
-	n, _ := s.q.UserProvidersCount(ctx, userID)
-	return int(n)
-}
-
-// Public wrappers
-func (s *Service) CountProviderLinks(ctx context.Context, userID string) int {
-	return s.countProviderLinks(ctx, userID)
-}
-
 // UserProfileLinks returns the user's linked provider slugs (non-null) and username
 // aliases — the two extra lists GET /me needs beyond AdminGetUser. Keeps raw
 // db.Queries out of the HTTP layer, which previously built its own db handle inline.

@@ -7,7 +7,6 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/open-rails/authkit v0.97.2
 	github.com/riverqueue/river v0.40.0
-	github.com/robfig/cron/v3 v3.0.1
 )
 
 require (

@@ -53,7 +53,9 @@ func TestProviderUnlinkRequiresFreshAuthOrPassword(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/user/providers/google", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Equal(t, 0, srv.svc.CountProviderLinks(ctx, userID))
+	slugs, _, err := srv.svc.UserProfileLinks(ctx, userID)
+	require.NoError(t, err)
+	require.Empty(t, slugs)
 }
 
 func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, prefix, pass string) (string, string) {

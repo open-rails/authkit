@@ -114,12 +114,12 @@ func (r Reference) Validate() error {
 	return nil
 }
 
-func NormalizeReference(r Reference) (Reference, error) {
+func normalizeReference(r Reference) (Reference, error) {
 	t, err := NormalizeType(r.Type)
 	if err != nil {
 		return Reference{}, fmt.Errorf("%w: %v", ErrInvalidReference, err)
 	}
-	d, err := NormalizeDigest(r.Digest)
+	d, err := normalizeDigest(r.Digest)
 	if err != nil {
 		return Reference{}, fmt.Errorf("%w: %v", ErrInvalidReference, err)
 	}
@@ -162,7 +162,7 @@ func ValidateType(value string) error {
 	return nil
 }
 
-func NormalizeDigest(value string) (string, error) {
+func normalizeDigest(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if err := ValidateDigest(value); err != nil {
 		return "", err
@@ -194,9 +194,9 @@ func ReferenceFor(documentType string, signedPayload []byte) (Reference, error) 
 	return Reference{Type: t, Digest: Digest(signedPayload)}, nil
 }
 
-// NormalizeEnvelope returns a detached, normalized copy suitable for one-time
+// normalizeEnvelope returns a detached, normalized copy suitable for one-time
 // marshaling and signing.
-func NormalizeEnvelope(in Envelope) (Envelope, error) {
+func normalizeEnvelope(in Envelope) (Envelope, error) {
 	out := Envelope{
 		Issuer:  strings.TrimSpace(in.Issuer),
 		Payload: append(json.RawMessage(nil), in.Payload...),
@@ -277,7 +277,7 @@ func Sign(ctx context.Context, signer jwtkit.Signer, envelope Envelope) (SignedD
 	if !supportedSigningAlgorithm(signer.Algorithm()) {
 		return SignedDocument{}, ErrUnsupportedAlgorithm
 	}
-	normalized, err := NormalizeEnvelope(envelope)
+	normalized, err := normalizeEnvelope(envelope)
 	if err != nil {
 		return SignedDocument{}, err
 	}
@@ -465,7 +465,7 @@ func NormalizeReferences(in map[string]string) (map[string]string, error) {
 	}
 	out := make(map[string]string, len(in))
 	for documentType, digest := range in {
-		normalized, err := NormalizeReference(Reference{Type: documentType, Digest: digest})
+		normalized, err := normalizeReference(Reference{Type: documentType, Digest: digest})
 		if err != nil {
 			return nil, err
 		}
@@ -474,13 +474,13 @@ func NormalizeReferences(in map[string]string) (map[string]string, error) {
 		}
 		out[normalized.Type] = normalized.Digest
 	}
-	if err := ValidateReferences(out); err != nil {
+	if err := validateReferences(out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func ValidateReferences(references map[string]string) error {
+func validateReferences(references map[string]string) error {
 	if len(references) > MaxReferences {
 		return ErrTooManyReferences
 	}
@@ -538,7 +538,7 @@ func ParseReferencesJSON(raw []byte) (map[string]string, error) {
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return nil, ErrInvalidReference
 	}
-	if err := ValidateReferences(out); err != nil {
+	if err := validateReferences(out); err != nil {
 		return nil, err
 	}
 	if len(out) == 0 {

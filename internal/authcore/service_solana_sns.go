@@ -150,12 +150,12 @@ func (s *Service) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, ad
 	if s.pg == nil {
 		return
 	}
-	_, _ = s.ResolveAndStoreSolanaSNS(ctx, userID, address)
+	_, _ = s.resolveAndStoreSolanaSNS(ctx, userID, address)
 }
 
-// ResolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
+// resolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
-func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
+func (s *Service) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
 	account := SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
@@ -257,7 +257,7 @@ func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*S
 	if stale {
 		status = SolanaSNSStatusStale
 		go func() {
-			_, _ = s.ResolveAndStoreSolanaSNS(context.Background(), userID, address)
+			_, _ = s.resolveAndStoreSolanaSNS(context.Background(), userID, address)
 		}()
 	}
 

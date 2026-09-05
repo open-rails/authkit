@@ -103,15 +103,9 @@ type Verifier struct {
 	kidRefetchFlight map[string]chan struct{}
 	kidRefetchMin    time.Duration
 
-	// Delegated-access-token validation hooks (optional). permValidator checks
-	// `permissions` against the resource server's catalog; attrValidator checks
-	// `attributes` against a policy schema. Run only by VerifyDelegatedAccess.
+	// permValidator (optional) checks a delegated access token's `permissions`
+	// against the resource server's catalog. Run only by VerifyDelegatedAccess.
 	permValidator PermissionValidator
-	attrValidator AttributesValidator
-	// attrHydrate / attrResolver implement opt-in verify-time REFERENCE-mode
-	// attribute hydration (#75). Off unless WithAttributeHydration is set.
-	attrHydrate  bool
-	attrResolver AttributeDefResolver
 }
 
 // issuerEntry describes a trusted issuer (private — replaces authkit.IssuerAccept).
@@ -219,45 +213,11 @@ func WithRequireMFAEnrollment(require bool) VerifierOption {
 // reject the token. Called only for delegated access tokens.
 type PermissionValidator func(permissions []string) error
 
-// AttributesValidator validates a delegated access token's `attributes` against
-// the receiving service's policy schema. Return an error to reject the token.
-// Called only for delegated access tokens.
-type AttributesValidator func(attributes map[string]json.RawMessage) error
-
 // WithPermissions installs a validator that VerifyDelegatedAccess runs
 // against the token's `permissions`. Use it to ensure every permission string
 // belongs to this resource server's permissions.
 func WithPermissions(fn PermissionValidator) VerifierOption {
 	return func(v *Verifier) { v.permValidator = fn }
-}
-
-// WithAttributesPolicy installs a validator that VerifyDelegatedAccess runs
-// against the token's `attributes`. Use it to enforce a policy schema (allowed
-// keys, value shapes/ranges).
-func WithAttributesPolicy(fn AttributesValidator) VerifierOption {
-	return func(v *Verifier) { v.attrValidator = fn }
-}
-
-// AttributeDefResolver resolves a REFERENCE-mode attribute (#75) to its opaque
-// definition, given the token's validated issuer, the attribute key, and the
-// reference value the token carried. It returns the resolved definition (raw
-// JSON) to substitute for the reference, or an error. *authkit.Service-backed
-// resolvers map issuer -> remote_application -> registered definition.
-type AttributeDefResolver func(ctx context.Context, issuer, key, ref string) (json.RawMessage, error)
-
-// WithAttributeHydration enables OPT-IN verify-time hydration (#75): after a
-// delegated token verifies, VerifyDelegatedAccess resolves each REFERENCE-mode
-// attribute (a JSON-string value) into its full definition via resolver, so the
-// consumer sees a uniform INLINE shape whether the token used inline or
-// reference. OFF by default. A resolver miss leaves that attribute untouched
-// (the consumer can still resolve it itself); only a hard resolver error fails
-// the call. Pass nil to use the Service-backed default resolver (requires
-// WithService).
-func WithAttributeHydration(resolver AttributeDefResolver) VerifierOption {
-	return func(v *Verifier) {
-		v.attrHydrate = true
-		v.attrResolver = resolver
-	}
 }
 
 // resolveAPIKey handles opaque shared-secret API keys. It returns matched=true
@@ -588,7 +548,6 @@ type Enricher interface {
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error)
-	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error)
 	// (#215/#220: the former per-request enrichment methods — provider username,
 	// role slugs, user refs, live ban gate — are gone from this seam; the request
 	// path is stateless and those reads live on authkit.Client.)
@@ -1061,69 +1020,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, p
 			return Claims{}, DelegatedPrincipal{}, err
 		}
 	}
-	if v.attrValidator != nil {
-		if err := v.attrValidator(cl.Attributes); err != nil {
-			return Claims{}, DelegatedPrincipal{}, err
-		}
-	}
-	if v.attrHydrate {
-		if err := v.hydrateAttributes(ctx, &cl); err != nil {
-			return Claims{}, DelegatedPrincipal{}, err
-		}
-		dp, _ = cl.Delegated() // refresh principal view (UserTier etc. unchanged keys)
-	}
 	return cl, dp, nil
-}
-
-// hydrateAttributes resolves each REFERENCE-mode attribute (#75) in place into
-// its full definition, so the consumer sees a uniform INLINE shape. A resolver
-// miss (ErrAttributeDefNotFound) leaves the reference untouched; only a hard
-// resolver error fails. Uses the configured resolver, or a Service-backed
-// default (issuer -> remote_application -> registered definition).
-func (v *Verifier) hydrateAttributes(ctx context.Context, cl *Claims) error {
-	if len(cl.Attributes) == 0 {
-		return nil
-	}
-	resolver := v.attrResolver
-	if resolver == nil {
-		if v.enrich == nil {
-			return nil // nothing to resolve against
-		}
-		resolver = v.defaultAttributeResolver
-	}
-	for key := range cl.Attributes {
-		ref, isRef := cl.AttributeReference(key)
-		if !isRef {
-			continue
-		}
-		def, err := resolver(ctx, cl.Issuer, key, ref)
-		if err != nil {
-			if errors.Is(err, authkit.ErrAttributeDefNotFound) {
-				continue
-			}
-			return err
-		}
-		if len(def) > 0 {
-			cl.Attributes[key] = def
-		}
-	}
-	return nil
-}
-
-// defaultAttributeResolver maps a validated issuer to its remote_application and
-// resolves the registered definition for the REFERENCE value (the token's
-// {"<attr>":"<ref>"} carries <ref> as the registry key, e.g. "tier-1"). Latest
-// version. Used when WithAttributeHydration was passed a nil resolver.
-func (v *Verifier) defaultAttributeResolver(ctx context.Context, issuer, _key, ref string) (json.RawMessage, error) {
-	ra, err := v.enrich.GetRemoteApplication(ctx, issuer)
-	if err != nil {
-		return nil, err
-	}
-	def, err := v.enrich.ResolveRemoteAppAttributeDef(ctx, ra.ID, ref, 0)
-	if err != nil {
-		return nil, err
-	}
-	return def.Definition, nil
 }
 
 // verifyClaimsWithHeader is the single internal parse that backs both public

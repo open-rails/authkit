@@ -317,20 +317,18 @@ re-exports every name below, so token-issuing apps need no change.
 **`verify`** (Stable, verify-only):
 ```
 type Verifier; NewVerifier(opts ...VerifierOption) *Verifier
-  WithAPIKeyPrefix, WithAlgorithms, WithAttributeHydration, WithAttributesPolicy,
-  WithHTTPClient, WithPermissions, WithRequireMFAEnrollment, WithSSRFGuard, WithSkew
+  WithAPIKeyPrefix, WithAlgorithms, WithHTTPClient, WithPermissions, WithRequireMFAEnrollment, WithSSRFGuard, WithSkew
 (*Verifier).ValidateDocumentIssuer, (*Verifier).VerifyDocument
 (*Verifier).WithService(Enricher) attaches DB-backed enrichment
 type Claims (see §6.4); ClaimsFromContext, GetClaims, SetClaims
 Middleware: Required, Optional, RequiredServiceJWT, RequireACR, RequireAMR, RequireMFA,
-  RequireFreshAuth, RequireEntitlement, RequireAnyEntitlement, RequireDelegatedOrigin,
+  RequireFreshAuth, RequireDelegatedOrigin,
   RemoteApplicationCORS, Sensitive
 Helpers: SensitiveClaims, SensitiveOptions, NewSSRFGuardedClient, DefaultOutboundTimeout
 Principals: DelegatedPrincipal, ServiceJWTPrincipal (+FromContext), Enricher,
   RemoteApplicationSource, IssuerKey, IssuerOptions
-Service-JWT verify: ServiceJWTVerifyOption (WithServiceJWTMaxLifetime,
-  WithServiceJWTReplayChecker), ServiceJWTReplayChecker
-Policy callbacks: AttributeDefResolver, AttributesValidator, PermissionValidator
+Service-JWT verify: ServiceJWTVerifyOption (WithServiceJWTMaxLifetime)
+Policy callbacks: PermissionValidator
 Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenType,
   DefaultSensitiveMaxAge=15m, DefaultOutboundTimeout=30s
 ```
@@ -382,7 +380,7 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   package were DELETED — hosts mount `authhttp.MountHandler` once instead.)
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
 - **`riverjobs`**: `PurgeDeletedUsersWorker`/`Args`, `RegisterPurgeDeletedUsersWorker`,
-  `AddPurgeDeletedUsersPeriodicJob`, `BeforeUserHardDeleteFunc`, `DefaultQueue` (#246).
+  `BeforeUserHardDeleteFunc`, `DefaultQueue` (#246).
   (#246 BREAKING: the job no longer inserts onto `river.QueueDefault` — it inserts onto
   `DefaultQueue = "authkit"` unless the new `PurgeDeletedUsersArgs.Queue` field overrides
   it. The queue name a River job inserts onto is a covered operational default: River
@@ -418,12 +416,10 @@ Verification surface: NOT re-exported (#206 — the former verify_aliases re-exp
    bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
 Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
   DefaultRateLimits() (returns map[string]ratelimit.Limit), RL* consts
-Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare),
-  PublicRemoteAddrClientIP
+Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare)
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec
 Errors: ErrorCode (+the full constant set, §6.2)
-Remote-application issuers client: RemoteApplicationIssuersClient (+options/registration)
 ```
 
 ---

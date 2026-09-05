@@ -132,47 +132,6 @@ func (s *Service) ConfirmPhoneChangeByToken(ctx context.Context, token string) (
 	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangePhone)
 }
 
-// ResendPhoneChangeCode resends the verification code for a pending phone change.
-func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone string) error {
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if u == nil {
-		return fmt.Errorf("user not found")
-	}
-
-	// The unified pending-change record (keyed by user) is the source of truth for
-	// whether a phone change is pending for this user.
-	rec, ok := s.findPendingChangeByUser(ctx, KindChangePhone, userID)
-	if !ok {
-		return fmt.Errorf("no pending phone change found")
-	}
-	pendingPhone := rec.Target
-
-	code, linkToken, err := s.newPendingContactChange(ctx, KindChangePhone, pendingPhone, userID, defaultPhoneVerificationTTL)
-	if err != nil {
-		return err
-	}
-	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
-	return s.sendContactChangeVerification(ctx, userID, s.sms != nil,
-		func(c context.Context) error { return s.sms.SendVerification(c, pendingPhone, msg) },
-		smsDeliveryError,
-		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
-}
-
-// CancelPhoneChange aborts a pending phone-change for the user, clearing the
-// unified pending-change record. Because the new phone is held only in the
-// pending record and never optimistically applied to the profile, there is
-// nothing to roll back. Idempotent: a no-op when no pending change exists.
-func (s *Service) CancelPhoneChange(ctx context.Context, userID, phone string) error {
-	if !s.useEphemeralStore() {
-		return nil
-	}
-	s.deletePendingChangeByUser(ctx, KindChangePhone, userID)
-	return nil
-}
-
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
 // The current email is NOT changed until the user confirms via ConfirmEmailChange.
 // The old address is not notified by AuthKit (only a security log line); a host
@@ -232,60 +191,4 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code st
 // ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
 func (s *Service) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
 	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangeEmail)
-}
-
-// ResendEmailChangeCode resends the verification code for a pending email change.
-func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) error {
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if u == nil {
-		return fmt.Errorf("user not found")
-	}
-
-	rec, ok := s.findPendingChangeByUser(ctx, KindChangeEmail, userID)
-	if !ok {
-		return fmt.Errorf("no pending email change found")
-	}
-	pendingEmail := rec.Target
-
-	code, linkToken, err := s.newPendingContactChange(ctx, KindChangeEmail, pendingEmail, userID, defaultEmailVerificationTTL)
-	if err != nil {
-		return err
-	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
-	return s.sendContactChangeVerification(ctx, userID, s.email != nil,
-		func(c context.Context) error { return s.email.SendVerification(c, pendingEmail, username, msg) },
-		emailDeliveryError,
-		fmt.Errorf("email change verification unavailable: email sender not configured"))
-}
-
-// GetPendingEmailChange retrieves the pending email change for a user, if any.
-// A unified change_email record exists only for an actual change (verifying the
-// current address uses a separate store), so its presence already means "change".
-func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (string, error) {
-	if !s.useEphemeralStore() {
-		return "", nil
-	}
-	rec, ok := s.findPendingChangeByUser(ctx, KindChangeEmail, userID)
-	if !ok {
-		return "", nil
-	}
-	return rec.Target, nil
-}
-
-// CancelEmailChange aborts a pending email-change for the user, clearing the
-// unified pending-change record. The new email is applied only on confirmation,
-// so there is nothing to roll back. Idempotent: a no-op when none is pending.
-func (s *Service) CancelEmailChange(ctx context.Context, userID string) error {
-	if !s.useEphemeralStore() {
-		return nil
-	}
-	s.deletePendingChangeByUser(ctx, KindChangeEmail, userID)
-	return nil
 }

@@ -49,14 +49,6 @@ func parseBlocks(cidrs ...string) []*net.IPNet {
 	return out
 }
 
-// PrivateBlocks returns a copy of the address ranges an outbound fetch must
-// never target.
-func PrivateBlocks() []*net.IPNet {
-	out := make([]*net.IPNet, len(privateBlocks))
-	copy(out, privateBlocks)
-	return out
-}
-
 // IsPrivateIP reports whether ip is loopback, link-local, multicast,
 // unspecified, or inside PrivateBlocks.
 func IsPrivateIP(ip net.IP) bool {
@@ -106,12 +98,6 @@ type Resolver interface {
 // DialFunc is the http.Transport.DialContext shape.
 type DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error)
 
-// Dialer returns a DialContext. With allowPrivate false it resolves the
-// target itself, refuses any private/reserved answer, and dials the first
-// public IP directly so no second lookup can rebind between check and connect.
-// With allowPrivate true it is a plain bounded dialer (local development).
-func Dialer(allowPrivate bool) DialFunc { return DialerWith(net.DefaultResolver, allowPrivate) }
-
 // DialerWith is Dialer with an explicit Resolver.
 func DialerWith(r Resolver, allowPrivate bool) DialFunc {
 	d := &net.Dialer{Timeout: 10 * time.Second}
@@ -145,7 +131,7 @@ func DialerWith(r Resolver, allowPrivate bool) DialFunc {
 	}
 }
 
-// Transport returns an http.Transport wired to Dialer(allowPrivate) with
+// Transport returns an http.Transport wired to DialerWith(net.DefaultResolver, allowPrivate) with
 // bounded handshake and header timeouts. A guarded transport never uses an
 // egress proxy: the proxy would be dialed in place of the resolved target and
 // the private-address check would no longer see the real destination.

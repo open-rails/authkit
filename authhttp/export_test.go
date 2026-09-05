@@ -2,7 +2,10 @@ package authhttp
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"sync"
+
+	"github.com/open-rails/authkit/verify"
 )
 
 // apiHandler serves the prefix-neutral JSON API routes at root and oidcHandler
@@ -29,4 +32,16 @@ func (s *Service) oidcHandler() http.Handler {
 func (s *Service) resetOIDCManagerForTest() {
 	s.oidcMgrOnce = sync.Once{}
 	s.oidcMgr = nil
+}
+
+// serveWithClaims serves h with cl (when non-nil) pre-attached to the request
+// context, the way a Required gate would leave it.
+func serveWithClaims(h http.Handler, cl *verify.Claims) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	if cl != nil {
+		r = r.WithContext(verify.SetClaims(r.Context(), *cl))
+	}
+	h.ServeHTTP(w, r)
+	return w
 }

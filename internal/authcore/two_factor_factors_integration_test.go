@@ -92,7 +92,7 @@ func TestMFAFactorHardDelete(t *testing.T) {
 	if smsID == "" {
 		t.Fatalf("no sms factor found in %+v", factors)
 	}
-	if err := svc.Disable2FAFactor(ctx, user.ID, smsID); err != nil {
+	if _, err := svc.Disable2FAFactorWithRemovedRoles(ctx, user.ID, smsID); err != nil {
 		t.Fatalf("disable (delete) sms factor: %v", err)
 	}
 
