@@ -61,8 +61,8 @@ func TestQueryPerformance(t *testing.T) {
 		},
 		{
 			Name: "user_by_username", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
-			SQL: db.QueryText["UserByUsername"], Args: []any{perfUsername(hot)},
-			ForbidSeqScan: []string{"users"},
+			SQL: db.QueryText["ResolveUsername"], Args: []any{perfUsername(hot), time.Now()},
+			ForbidSeqScan: []string{"users", "name_claims"},
 		},
 		{
 			Name: "users_by_id_array", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,

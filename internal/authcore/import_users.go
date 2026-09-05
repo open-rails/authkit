@@ -165,6 +165,52 @@ func (s *Service) ImportUsers(ctx context.Context, inputs []ImportUserInput) (Im
 // bulkInsertUsers inserts a chunk via one multi-row INSERT and returns the set of
 // ids that actually landed (ON CONFLICT DO NOTHING drops racing duplicates).
 func (s *Service) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow) (map[string]struct{}, error) {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+	names := make([]string, len(chunk))
+	for i, row := range chunk {
+		names[i] = strings.ToLower(row.username)
+	}
+	if err := lockNameClaims(ctx, q, "user", "", names...); err != nil {
+		return nil, err
+	}
+	now := s.namingNow()
+	if _, err := q.Exec(ctx, `DELETE FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, now); err != nil {
+		return nil, err
+	}
+	// Bulk import remains insert-or-skip, including live alias reservations.
+	rowsTaken, err := q.Query(ctx, `SELECT name FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[])`, names)
+	if err != nil {
+		return nil, err
+	}
+	taken := map[string]bool{}
+	for rowsTaken.Next() {
+		var name string
+		if err := rowsTaken.Scan(&name); err != nil {
+			rowsTaken.Close()
+			return nil, err
+		}
+		taken[name] = true
+	}
+	err = rowsTaken.Err()
+	rowsTaken.Close()
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]preparedImportRow, 0, len(chunk))
+	for _, row := range chunk {
+		if !taken[strings.ToLower(row.username)] {
+			eligible = append(eligible, row)
+		}
+	}
+	chunk = eligible
+	if len(chunk) == 0 {
+		return map[string]struct{}{}, nil
+	}
 	var b strings.Builder
 	b.WriteString("INSERT INTO profiles.users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at) VALUES ")
 	args := make([]any, 0, len(chunk)*13)
@@ -180,7 +226,7 @@ func (s *Service) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow
 			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.bannedBy, r.metadata, r.createdAt, r.updatedAt)
 	}
 	b.WriteString(" ON CONFLICT DO NOTHING RETURNING id")
-	rows, err := s.pg.Query(ctx, db.RewriteSQL(b.String(), s.dbSchema()), args...)
+	rows, err := q.Query(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +239,15 @@ func (s *Service) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow
 		}
 		inserted[id] = struct{}{}
 	}
-	return inserted, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return inserted, nil
 }
 
 // bulkInsertPasswordHashes stores pre-hashed credentials for freshly-inserted

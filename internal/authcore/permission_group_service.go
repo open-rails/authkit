@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"strings"
 
@@ -33,7 +34,7 @@ func (s *Service) groupSchemaOrDefault() *GroupSchema {
 // groupStore binds a PermissionGroupStore to the Service's schema-rewriting pool
 // handle (so "profiles." resolves to the configured schema, authkit #69).
 func (s *Service) groupStore() *PermissionGroupStore {
-	return NewPermissionGroupStore(db.ForSchema(s.pg, s.dbSchema()))
+	return s.groupStoreFor(db.ForSchema(s.pg, s.dbSchema()))
 }
 
 // SeedPermissionGroupContainment writes the declared containment schema into
@@ -110,7 +111,7 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
 
 	parentID := ""
 	if req.Persona != RootPersona {
@@ -124,15 +125,6 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 		}
 		if err != nil {
 			return "", fmt.Errorf("resolve %q parent: %w", parentPersona, err)
-		}
-	}
-	// #264: a tombstoned slug is permanently reserved to the group that
-	// renamed away from it — never claimable by a NEW group.
-	if req.Persona != RootPersona {
-		if tombstoned, err := st.slugTombstoneTarget(ctx, req.Persona, req.InstanceSlug); err != nil {
-			return "", err
-		} else if tombstoned != "" {
-			return "", ErrGroupSlugTaken
 		}
 	}
 	id, err := st.CreateGroupNamed(ctx, req.Persona, parentID, req.InstanceSlug, strings.TrimSpace(req.DisplayName))
@@ -177,60 +169,70 @@ func (s *Service) SetPermissionGroupDisplayName(ctx context.Context, persona, in
 	return st.SetGroupDisplayName(ctx, gid, truncateDisplayName(displayName))
 }
 
-// RenamePermissionGroupSlugAs renames a group's instance slug (#264) on behalf
-// of actorUserID. The old slug is tombstoned — permanently reserved to this
-// group and FORWARDING to it through slug resolution — so published references
-// keep working and the slug can never be re-claimed by someone else
-// (repojacking prevention). A group whose slug mirrors a domain-rooted
-// application's proven domain renames only via the application repoint flow.
-// The new slug is a CLAIM and passes the same gate as creation (#292): the
-// persona's SlugPattern, and reserved slugs only for a holder of the
-// escalation role. Group-level authorization (settings:manage) is the
-// caller's job.
-func (s *Service) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, persona, instanceSlug, newSlug string) error {
+// UpdateGroupInstanceAs applies settings to one captured UUID. It authorizes
+// before even a no-op and never resolves a mutable spelling after authorization.
+func (s *Service) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error) {
+	var out authkit.GroupInstance
 	if err := s.requirePG(); err != nil {
-		return err
+		return out, err
 	}
-	persona = strings.TrimSpace(persona)
-	instanceSlug = strings.TrimSpace(instanceSlug)
-	newSlug = strings.ToLower(strings.TrimSpace(newSlug))
-	if persona == RootPersona {
-		return fmt.Errorf("the root group has no slug: %w", authkit.ErrUnknownGroupPersona)
-	}
-	if newSlug == instanceSlug {
-		return nil
-	}
-	if err := s.authorizeSlugClaim(ctx, s.groupSchemaOrDefault(), persona, newSlug, actorUserID); err != nil {
-		return err
-	}
-
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return err
+		return out, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
-	gid, err := st.GroupByLiveInstanceSlug(ctx, persona, instanceSlug)
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	var persona, current string
+	if err := st.q.QueryRow(ctx, `SELECT persona,COALESCE(instance_slug,'') FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &current); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, ErrGroupNotFound
+		}
+		return out, err
+	}
+	allowed, err := st.CanOnGroup(ctx, s.groupSchemaOrDefault(), actorUserID, SubjectKindUser, groupID, PermSettingsManage(persona))
 	if err != nil {
-		return err
+		return out, err
 	}
-	// Domain-rooted application orgs keep slug = domain; renaming them here
-	// would desynchronize the proven identity.
-	var managed bool
-	if err := db.ForSchema(tx, s.dbSchema()).QueryRow(ctx,
-		`SELECT EXISTS (
-		   SELECT 1 FROM profiles.remote_applications
-		    WHERE permission_group_id = $1::uuid AND trust_root = 'domain' AND slug = $2
-		 )`, gid, instanceSlug).Scan(&managed); err != nil {
-		return err
+	if !allowed {
+		return out, authkit.ErrInsufficientRoleAuthority
 	}
-	if managed {
-		return ErrGroupSlugApplicationManaged
+	if update.Slug != nil {
+		newSlug := strings.ToLower(strings.TrimSpace(*update.Slug))
+		if persona == RootPersona {
+			return out, authkit.ErrUnknownGroupPersona
+		}
+		if newSlug != current {
+			if err := s.authorizeSlugClaim(ctx, s.groupSchemaOrDefault(), persona, newSlug, actorUserID); err != nil {
+				return out, err
+			}
+			var managed bool
+			if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.remote_applications WHERE permission_group_id=$1::uuid AND trust_root='domain')`, groupID).Scan(&managed); err != nil {
+				return out, err
+			}
+			if managed {
+				return out, ErrGroupSlugApplicationManaged
+			}
+			if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "group", Persona: persona, OwnerID: groupID, ActorID: actorUserID, CurrentName: current, RequestedName: newSlug, Operation: authkit.NameRename}); err != nil {
+				return out, err
+			}
+			if err := st.renameGroupSlug(ctx, groupID, newSlug, s.NamingPolicy()); err != nil {
+				return out, err
+			}
+		}
 	}
-	if err := st.RenameGroupSlug(ctx, gid, persona, instanceSlug, newSlug); err != nil {
-		return err
+	if update.DisplayName != nil {
+		if len(*update.DisplayName) > 256 {
+			return out, authkit.ErrGroupSlugInvalid
+		}
+		if err := st.SetGroupDisplayName(ctx, groupID, strings.TrimSpace(*update.DisplayName)); err != nil {
+			return out, err
+		}
 	}
-	return tx.Commit(ctx)
+	out, err = st.GroupInstanceByID(ctx, groupID)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit(ctx)
 }
 
 // resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
@@ -370,8 +372,12 @@ func (s *Service) DeletePermissionGroup(ctx context.Context, persona, instanceSl
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
-	gid, err := st.GroupByLiveInstanceSlug(ctx, persona, strings.TrimSpace(instanceSlug))
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	reference := strings.TrimSpace(instanceSlug)
+	gid, bound, err := st.requestGroupID(ctx, persona, reference)
+	if !bound {
+		gid, err = st.GroupByLiveInstanceSlug(ctx, persona, reference)
+	}
 	if err != nil {
 		return err
 	}
@@ -524,4 +530,14 @@ func (s *Service) DeleteGroupCustomRole(ctx context.Context, actorUserID, person
 		return err
 	}
 	return st.DeleteCustomRole(ctx, gid, role)
+}
+
+func (s *Service) groupStoreFor(q db.DBTX) *PermissionGroupStore {
+	st := NewPermissionGroupStore(q)
+	st.now = s.namingNow
+	return st
+}
+
+func (s *Service) ResolveGroupSlug(ctx context.Context, persona, slug string) (authkit.NameResolution, error) {
+	return s.groupStore().ResolveGroupSlug(ctx, persona, slug)
 }

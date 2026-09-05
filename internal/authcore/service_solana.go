@@ -420,7 +420,7 @@ func (s *Service) usernameExists(ctx context.Context, username string) (bool, er
 	if s.pg == nil {
 		return false, nil
 	}
-	return s.q.UserUsernameExists(ctx, &username)
+	return s.q.UserUsernameExists(ctx, db.UserUsernameExistsParams{Username: username, AtTime: s.namingNow()})
 }
 
 // solanaLinkUserID resolves a verified Solana link to its user.

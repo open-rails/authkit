@@ -2,12 +2,11 @@ package authcore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
@@ -54,11 +53,9 @@ func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 	if s.pg == nil {
 		return true
 	}
-	u, err := s.getUserByUsername(ctx, username)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false
-	}
-	return u == nil
+	var taken bool
+	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, username, s.namingNow()).Scan(&taken)
+	return err == nil && !taken
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.

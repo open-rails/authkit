@@ -36,6 +36,7 @@ import (
 )
 
 type config struct {
+	naming         authkit.NamingConfig
 	listenAddr     string
 	dbURL          string
 	issuer         string
@@ -118,6 +119,9 @@ func loadConfig() (*config, error) {
 		languages:           splitCSV(strings.ToLower(os.Getenv("AUTHKIT_LANGUAGES"))),
 		defaultLanguage:     strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_DEFAULT_LANGUAGE"))),
 		bootstrapPath:       strings.TrimSpace(os.Getenv("AUTHKIT_BOOTSTRAP_PATH")),
+	}
+	if c.naming, err = namingConfigFromEnv(); err != nil {
+		return nil, err
 	}
 	if c.issuer == "" {
 		return nil, errors.New("AUTHKIT_ISSUER is required")
@@ -292,6 +296,7 @@ func run() error {
 	}
 
 	coreCfg := embedded.Config{
+		Naming:      cfg.naming,
 		Environment: cfg.env,
 		Schema:      cfg.schema,
 		Ephemeral:   embedded.EphemeralConfig{AllowMemory: cfg.allowMemory},

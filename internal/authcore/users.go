@@ -30,10 +30,6 @@ func userFromByEmailRow(r db.UserByEmailRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
 }
 
-func userFromByUsernameRow(r db.UserByUsernameRow) *User {
-	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
-}
-
 func userFromByPhoneRow(r db.UserByPhoneRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
 }
@@ -60,11 +56,11 @@ func (s *Service) getUserByUsername(ctx context.Context, username string) (*User
 	if s.pg == nil {
 		return nil, nil
 	}
-	r, err := s.q.UserByUsername(ctx, &username)
+	resolution, err := s.ResolveUsername(ctx, username)
 	if err != nil {
 		return nil, err
 	}
-	return userFromByUsernameRow(r), nil
+	return s.getUserByID(ctx, resolution.ID)
 }
 
 // GetUserByUsername looks up a user by username.
@@ -160,7 +156,7 @@ func mapUserUniqueViolation(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case isUniqueViolation(err, "users_username_key"):
+	case isUniqueViolation(err, "users_username_key"), isUniqueViolation(err, "name_claims_pkey"):
 		return ErrUsernameInUse
 	case isUniqueViolation(err, "users_email_uidx"):
 		return ErrEmailInUse
@@ -178,7 +174,10 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err != nil {
 		return nil, err
 	}
-	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
+	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: authkit.NameCreate}); err != nil {
+		return nil, err
+	}
+	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
 	if err != nil {
 		return nil, mapUserUniqueViolation(err)
 	}
@@ -251,6 +250,7 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 		Email:         email,
 		PhoneNumber:   phone,
 		Username:      &username,
+		AtTime:        s.namingNow(),
 		EmailVerified: input.EmailVerified,
 		PhoneVerified: input.PhoneVerified,
 		BannedAt:      input.BannedAt,
@@ -279,7 +279,15 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	if err != nil {
 		return nil, err
 	}
-	updatedID, err := s.q.UserImportUpdate(ctx, db.UserImportUpdateParams{
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
+		return nil, err
+	}
+	updatedID, err := s.qtx(tx).UserImportUpdate(ctx, db.UserImportUpdateParams{
 		ID:            userID,
 		Email:         email,
 		PhoneNumber:   phone,
@@ -298,6 +306,9 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return s.getUserByID(ctx, updatedID)
@@ -442,67 +453,75 @@ func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) erro
 	return s.AdminDeleteUser(ctx, id)
 }
 
-func (s *Service) updateUsername(ctx context.Context, id, username string) error {
-	return s.updateUsernameImpl(ctx, id, username, false)
-}
+// RenameAuthority is internal: ordinary account changes obey the site policy;
+// trusted import updates can bypass only the enabled/cooldown checks.
+type renameAuthority uint8
 
-// UpdateUsername updates a user's username, subject to the rename cooldown.
+const (
+	normalRename renameAuthority = iota
+	importRename
+)
+
+// UpdateUsername applies the deployment policy to an account rename.
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
-	return s.updateUsername(ctx, id, username)
-}
-
-// UpdateUsernameForce is the admin override that skips the 72h cooldown
-// check. Otherwise identical to UpdateUsername. Caller is responsible
-// for gating this behind admin scope upstream.
-func (s *Service) UpdateUsernameForce(ctx context.Context, id, username string) error {
-	return s.updateUsernameImpl(ctx, id, username, true)
-}
-
-func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, bypassCooldown bool) error {
-	if s.pg == nil {
-		return nil
-	}
-	newUsername := strings.TrimSpace(username)
-	if err := ValidateUsername(newUsername); err != nil {
+	if err := s.requirePG(); err != nil {
 		return err
 	}
+	username = strings.TrimSpace(username)
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.qtx(tx)
-
-	oldUsername, err := qtx.UserUsernameByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
-		return nil
-	}
-
-	// Cooldown check (issue #58). Walks the `(user_id, renamed_at DESC)` index
-	// to grab the most recent rename.
-	if !bypassCooldown {
-		lastRenamedAt, err := qtx.UserLastRenamedAt(ctx, id)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err == nil && time.Since(lastRenamedAt) < renameCooldown {
-			return ErrRenameRateLimited
-		}
-	}
-
-	if err := qtx.UserSetUsername(ctx, db.UserSetUsernameParams{ID: id, Username: &newUsername}); err != nil {
-		return mapUserUniqueViolation(err)
-	}
-	// Audit row for the user rename. from_slug is the old username lowercased and
-	// NOT slugified — user_renames_from_slug_format_chk follows the username
-	// validators rather than the other way round (ak#273, migration 0006).
-	if err := qtx.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: id, FromSlug: strings.ToLower(strings.TrimSpace(oldUsername))}); err != nil {
+	if err := s.renameUsernameTx(ctx, tx, id, username, normalRename); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+func (s *Service) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
+	q := db.ForSchema(tx, s.dbSchema())
+	var old *string
+	var last *time.Time
+	if err := q.QueryRow(ctx, `SELECT username::text,last_renamed_at FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id).Scan(&old, &last); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	oldName := ""
+	if old != nil {
+		oldName = *old
+	}
+	if strings.EqualFold(oldName, username) {
+		return nil
+	}
+	if authority == normalRename {
+		if err := ValidateUsername(username); err != nil {
+			return err
+		}
+	}
+	now := s.namingNow()
+	policy := s.NamingPolicy()
+	if authority == normalRename {
+		if err := policy.CheckRename(last, now); err != nil {
+			return err
+		}
+	}
+	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: authkit.NameRename}); err != nil {
+		return err
+	}
+	if err := renameNameClaim(ctx, q, "user", "", id, oldName, username, now, policy); err != nil {
+		return err
+	}
+	if _, err := q.Exec(ctx, `UPDATE profiles.users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
+		return err
+	}
+	if oldName != "" {
+		if _, err := q.Exec(ctx, `INSERT INTO profiles.user_renames(user_id,from_slug,renamed_at) VALUES ($1::uuid,lower($2),$3)`, id, oldName, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) updateEmail(ctx context.Context, id, email string) error {

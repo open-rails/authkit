@@ -75,6 +75,8 @@ var (
 	ErrRemoteApplicationIssuerConflict   = errors.New("remote_application_issuer_conflict")
 	ErrRemoteApplicationNotFound         = errors.New("remote_application_not_found")
 	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
+	ErrRenamesDisabled                   = errors.New("renames_disabled")
+	ErrNameAdmissionRefused              = errors.New("name_admission_refused")
 	ErrReservedIssuer                    = errors.New("reserved_issuer")
 	ErrRoleAssignmentEscalation          = errors.New("role_assignment_escalation")
 	ErrAccountAuthorityEscalation        = errors.New("account_authority_escalation")
@@ -187,7 +189,9 @@ var sentinelHTTPStatus = map[error]int{
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
-	ErrRenameRateLimited: http.StatusTooManyRequests,
+	ErrRenameRateLimited:    http.StatusTooManyRequests,
+	ErrRenamesDisabled:      http.StatusForbidden,
+	ErrNameAdmissionRefused: http.StatusForbidden,
 	// 400 — malformed / invalid input.
 	ErrApplicationDocumentInvalid:     http.StatusBadRequest,
 	ErrApplicationDomainInvalid:       http.StatusBadRequest,
@@ -300,7 +304,7 @@ var errorSentinels = []error{
 	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
 	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled, ErrDeviceKeysDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-	ErrPhoneInUse, ErrUsernameInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited,
+	ErrPhoneInUse, ErrUsernameInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,

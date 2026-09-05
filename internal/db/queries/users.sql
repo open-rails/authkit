@@ -12,10 +12,6 @@ FROM profiles.users WHERE id = $1;
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 
--- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE username = $1;
-
 -- name: UserByPhone :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1;
@@ -31,12 +27,12 @@ WHERE id = $1 AND phone_number = $2;
 -- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::public.citext)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::public.citext)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserSetPreferredLanguage :exec
 UPDATE profiles.users
@@ -50,19 +46,25 @@ FROM profiles.users
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+)
 INSERT INTO profiles.users (id, email, username)
-VALUES (sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username))
+SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at;
 
 -- name: UserImportInsert :exec
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+)
 INSERT INTO profiles.users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
-VALUES (
+SELECT
   sqlc.arg(id)::uuid, sqlc.narg(email), sqlc.narg(phone_number), sqlc.arg(username), sqlc.arg(email_verified), sqlc.arg(phone_verified),
   sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
-);
+FROM claim;
 
 -- name: UserImportUpdate :one
 UPDATE profiles.users
@@ -107,23 +109,6 @@ WHERE id = sqlc.arg(id);
 -- name: UserSoftDelete :exec
 UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1;
 
--- name: UserUsernameByID :one
-SELECT username::text FROM profiles.users WHERE id = sqlc.arg(id)::uuid;
-
--- name: UserLastRenamedAt :one
-SELECT renamed_at
-FROM   profiles.user_renames
-WHERE  user_id = sqlc.arg(user_id)::uuid
-ORDER  BY renamed_at DESC
-LIMIT  1;
-
--- name: UserSetUsername :exec
-UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1;
-
--- name: UserRenameInsert :exec
-INSERT INTO profiles.user_renames (user_id, from_slug)
-VALUES (sqlc.arg(user_id)::uuid, $2);
-
 -- name: UserSetEmailAndUnverify :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
 
@@ -156,4 +141,4 @@ ORDER BY deleted_at ASC
 LIMIT sqlc.arg(max_rows)::bigint;
 
 -- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1);
+SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));

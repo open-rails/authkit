@@ -155,6 +155,14 @@ func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 	return s.impl.UserLivenessByIDs(ctx, ids)
 }
 
+func (s *Client) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
+	return s.impl.GetUserMetadata(ctx, userID)
+}
+
+func (s *Client) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
+	return s.impl.PatchUserMetadata(ctx, userID, patch)
+}
+
 func (s *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
 	return s.impl.UpdateAvatarURL(ctx, id, avatarURL)
 }
@@ -385,13 +393,9 @@ func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, persona, ins
 	return s.impl.SetPermissionGroupDisplayName(ctx, persona, instanceSlug, displayName)
 }
 
-// RenamePermissionGroupSlugAs renames a group's instance slug on behalf of
-// actorUserID, tombstoning the old slug (permanently reserved + forwarding
-// through slug resolution). The new slug passes the persona's creation gate
-// (SlugPattern; reserved slugs need the escalation role, #292). Group-level
-// authorization (settings:manage) is the caller's job.
-func (s *Client) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, persona, instanceSlug, newSlug string) error {
-	return s.impl.RenamePermissionGroupSlugAs(ctx, actorUserID, persona, instanceSlug, newSlug)
+// UpdateGroupInstanceAs changes settings atomically after authorizing the captured UUID.
+func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error) {
+	return s.impl.UpdateGroupInstanceAs(ctx, actorUserID, groupID, update)
 }
 
 // DeletePermissionGroup deletes a group instance. By default the slug is
@@ -400,6 +404,13 @@ func (s *Client) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, p
 // the host's. authkit never deletes a group on its own.
 func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlug string, opts authkit.DeletePermissionGroupOptions) error {
 	return s.impl.DeletePermissionGroup(ctx, persona, instanceSlug, opts)
+}
+
+// NamingPolicy returns the normalized deployment-wide user/group naming policy.
+func (s *Client) NamingPolicy() authkit.NamingPolicy { return s.impl.NamingPolicy() }
+
+func (s *Client) ResolveUsername(ctx context.Context, name string) (authkit.NameResolution, error) {
+	return s.impl.ResolveUsername(ctx, name)
 }
 
 // CanOnGroup checks live authority on an already resolved immutable group.
@@ -415,4 +426,13 @@ func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit
 // captured UUID so retries cannot delete a new owner of a reused name.
 func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
 	return s.impl.DeleteGroupInstanceByID(ctx, groupID, opts)
+}
+
+// GroupNamingState describes effective policy and still-reserved former names.
+// The host authorizes access to the captured UUID before calling this read.
+func (s *Client) GroupNamingState(ctx context.Context, groupID string) (authkit.NamingState, error) {
+	return s.impl.GroupNamingState(ctx, groupID)
+}
+func (s *Client) UserNamingState(ctx context.Context, userID string) (authkit.NamingState, error) {
+	return s.impl.UserNamingState(ctx, userID)
 }
