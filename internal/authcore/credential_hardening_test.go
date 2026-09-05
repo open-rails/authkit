@@ -54,7 +54,7 @@ func newHardeningService(t *testing.T) (*Service, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
-		WithPostgres(testPG(t)), WithEphemeralStore(memorystore.NewKV())).WithEmailSender(sender)
+		WithPostgres(testPG(t)), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender))
 	return svc, sender
 }
 

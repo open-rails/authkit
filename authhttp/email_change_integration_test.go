@@ -36,9 +36,6 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	w := serveAuthJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+newEmail+`","password":"`+pass+`"}`, access)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	code := sender.verificationCode(t)
-	pending, err := srv.svc.GetPendingEmailChange(ctx, user.ID)
-	require.NoError(t, err)
-	require.Equal(t, newEmail, pending)
 
 	var current string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
@@ -48,9 +45,6 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
 	require.Equal(t, newEmail, current)
-	pending, err = srv.svc.GetPendingEmailChange(ctx, user.ID)
-	require.NoError(t, err)
-	require.Empty(t, pending, "confirmation must clear the pending change")
 
 	replay := serveAuthJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+code+`","email":"`+newEmail+`"}`, access)
 	require.Equal(t, http.StatusBadRequest, replay.Code, replay.Body.String())

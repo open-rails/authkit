@@ -195,8 +195,8 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 
 	setName("")
 	freshSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-	if _, err := freshSvc.ResolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
-		t.Fatalf("ResolveAndStoreSolanaSNS clear: %v", err)
+	if _, err := freshSvc.resolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
+		t.Fatalf("resolveAndStoreSolanaSNS clear: %v", err)
 	}
 	cleared, err := freshSvc.GetSolanaLinkedAccount(ctx, user.ID)
 	if err != nil {

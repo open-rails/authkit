@@ -1,15 +1,15 @@
 package authhttp
 
 import (
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"testing"
+
+	"github.com/open-rails/authkit/verify"
 )
 
-// Every outbound client must carry a bounded timeout: NewVerifier,
-// NewRemoteApplicationIssuersClient and the Service's OAuth2 client must not
-// default to http.DefaultClient, which has none, because a slow/hostile JWKS,
-// IdP or registration endpoint could hang a request goroutine forever.
+// Every outbound client must carry a bounded timeout: NewVerifier and the
+// Service's OAuth2 client must not default to http.DefaultClient, which has
+// none, because a slow/hostile JWKS or IdP could hang a request goroutine forever.
 func TestServiceOutboundClientHasTimeout(t *testing.T) {
 	s := newTestService(t)
 	if s.outboundHTTP == nil || s.outboundHTTP == http.DefaultClient || s.outboundHTTP.Timeout <= 0 {
@@ -24,15 +24,5 @@ func TestNewVerifierUsesBoundedClient(t *testing.T) {
 	}
 	if v.HTTPClient().Timeout <= 0 {
 		t.Fatalf("verifier client timeout = %v, want > 0", v.HTTPClient().Timeout)
-	}
-}
-
-func TestNewRemoteApplicationIssuersClientUsesBoundedClient(t *testing.T) {
-	fc := NewRemoteApplicationIssuersClient()
-	if fc.httpClient == nil || fc.httpClient == http.DefaultClient {
-		t.Fatal("NewRemoteApplicationIssuersClient must default to a bounded outbound client")
-	}
-	if fc.httpClient.Timeout <= 0 {
-		t.Fatalf("federation client timeout = %v, want > 0", fc.httpClient.Timeout)
 	}
 }

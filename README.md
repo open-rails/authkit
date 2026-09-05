@@ -192,10 +192,6 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	// Host route middleware definitions, in the same order as the examples below.
 	optionalAuth := authkitgin.Use(verify.Optional(srv.Verifier()))
 	requireAuth := authkitgin.Use(verify.Required(srv.Verifier()))
-	optionalUser := authkitgin.Use(verify.OptionalUser(srv.Verifier()))
-	requireUser := authkitgin.Use(verify.RequiredUser(srv.Verifier()))
-	requirePremium := authkitgin.Use(verify.RequireEntitlement("premium"))
-	requirePaidPlan := authkitgin.Use(verify.RequireAnyEntitlement("premium", "pro"))
 	root, err := client.GroupInstanceForSlug(ctx, authkit.RootPersona, "")
 	if err != nil { return nil, nil, nil, err }
 	rootScope := func(*http.Request) verify.PermissionScope {
@@ -222,7 +218,7 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 
 	// ====== Optional and required user routes ======
 	// Optional-user host route: public when anonymous, enriched when a user token is present.
-	router.GET("/api/v1/session/optional", optionalUser, func(c *gin.Context) {
+	router.GET("/api/v1/session/optional", optionalAuth, func(c *gin.Context) {
 		userClaims, ok := authkitgin.UserClaims(c)
 		resp := map[string]any{"authenticated": ok}
 		if ok {
@@ -232,7 +228,7 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	})
 
 	// Authenticated user host route: reads token claims and loads profile data only when needed.
-	router.GET("/api/v1/account/debug", requireUser, func(c *gin.Context) {
+	router.GET("/api/v1/account/debug", requireAuth, func(c *gin.Context) {
 		userClaims, _ := authkitgin.UserClaims(c)
 		users, err := client.UsersByIDs(c.Request.Context(), []string{userClaims.UserID})
 		if err != nil || len(users) == 0 {
@@ -251,7 +247,7 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 
 	// ====== User account routes ======
 	// Sensitive account route: requires recent step-up before changing email.
-	router.POST("/api/v1/account/email", requireUser, sensitive, func(c *gin.Context) {
+	router.POST("/api/v1/account/email", requireAuth, sensitive, func(c *gin.Context) {
 		userClaims, _ := authkitgin.UserClaims(c)
 		c.JSON(http.StatusOK, map[string]any{
 			"user_id":    userClaims.UserID,
@@ -295,30 +291,9 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 		})
 	})
 
-	// ====== Entitlement routes ======
-	// Entitlement-gated host route: requires the premium entitlement on the user.
-	router.GET("/api/v1/premium/download", requireUser, requirePremium, func(c *gin.Context) {
-		userClaims, _ := authkitgin.UserClaims(c)
-		c.JSON(http.StatusOK, map[string]any{
-			"user_id":      userClaims.UserID,
-			"entitlements": userClaims.Entitlements,
-			"download_url": "/downloads/premium.zip",
-		})
-	})
-
-	// Any-entitlement host route: requires at least one accepted entitlement.
-	router.GET("/api/v1/account/export", requireUser, requirePaidPlan, func(c *gin.Context) {
-		userClaims, _ := authkitgin.UserClaims(c)
-		c.JSON(http.StatusOK, map[string]any{
-			"user_id":      userClaims.UserID,
-			"entitlements": userClaims.Entitlements,
-			"export_id":    "exp_123",
-		})
-	})
-
 	// ====== Permission routes ======
 	// Root-admin host route: requires root:users:ban on the singleton root persona.
-	router.POST("/api/v1/admin/users/:id/ban", requireUser, requireBanUsersPermission, func(c *gin.Context) {
+	router.POST("/api/v1/admin/users/:id/ban", requireAuth, requireBanUsersPermission, func(c *gin.Context) {
 		userClaims, _ := authkitgin.UserClaims(c)
 		c.JSON(http.StatusOK, map[string]any{
 			"admin_user_id":  userClaims.UserID,
@@ -327,7 +302,7 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	})
 
 	// Sensitive permission-gated host route: requires permission plus recent step-up.
-	router.DELETE("/api/v1/repos/:repo/models/:id", requireUser, sensitive, requireDeletePermission, func(c *gin.Context) {
+	router.DELETE("/api/v1/repos/:repo/models/:id", requireAuth, sensitive, requireDeletePermission, func(c *gin.Context) {
 		userClaims, _ := authkitgin.UserClaims(c)
 		c.JSON(http.StatusOK, map[string]any{
 			"user_id":  userClaims.UserID,
@@ -517,7 +492,7 @@ func mountAdvancedAuthExamples(
 	authorityIssuer string, // this AuthKit deployment's configured Token.Issuer
 	client authkit.Client,
 	requireAuth gin.HandlerFunc,
-	requireUser gin.HandlerFunc,
+	requireAuth gin.HandlerFunc,
 ) {
 	type Caller struct {
 		Invoker string
@@ -540,7 +515,7 @@ func mountAdvancedAuthExamples(
 	requireRootUsersInvite := authkitgin.Use(verify.RequirePermission(client, "root:users:invite", rootScope))
 
 	// Operator route: list users for an admin screen.
-	router.GET("/api/v1/operator/users", requireUser, requireRootRead, func(c *gin.Context) {
+	router.GET("/api/v1/operator/users", requireAuth, requireRootRead, func(c *gin.Context) {
 		users, err := client.AdminListUsers(c.Request.Context(), authkit.AdminUserListOptions{
 			Page:     1,
 			PageSize: 50,
@@ -556,7 +531,7 @@ func mountAdvancedAuthExamples(
 	})
 
 	// Operator route: create a user directly.
-	router.POST("/api/v1/operator/users", requireUser, requireRootUsersInvite, func(c *gin.Context) {
+	router.POST("/api/v1/operator/users", requireAuth, requireRootUsersInvite, func(c *gin.Context) {
 		var req struct {
 			Email    string `json:"email"`
 			Username string `json:"username"`
@@ -574,7 +549,7 @@ func mountAdvancedAuthExamples(
 	})
 
 	// Operator route: register a trusted remote application issuer.
-	router.POST("/api/v1/operator/remote-applications", requireUser, requireRootCredentialsManage, func(c *gin.Context) {
+	router.POST("/api/v1/operator/remote-applications", requireAuth, requireRootCredentialsManage, func(c *gin.Context) {
 		var req struct {
 			Slug              string `json:"slug"`
 			PermissionGroupID string `json:"permission_group_id"`
@@ -787,7 +762,7 @@ if err != nil {
 admin := router.Group("/api/v1/admin", requiredLive)
 ```
 
-* `verify.RequiredLive` / `RequiredLiveUser` (and the `authkitgin` twins) — 401
+* `verify.RequiredLive` (and the `authkitgin` twin) — 401
   on a banned, deleted, reserved or unknown account, on the user's NEXT request.
 * Claims handed downstream carry `Username`, `Email` and `EmailVerified` FRESH
   as of that lookup. Do not call the admin directory per request to refresh

@@ -68,7 +68,7 @@ type PurgeDeletedUsersWorker struct {
 	before BeforeUserHardDeleteFunc
 }
 
-func NewPurgeDeletedUsersWorker(svc authkit.Client, before BeforeUserHardDeleteFunc) *PurgeDeletedUsersWorker {
+func newPurgeDeletedUsersWorker(svc authkit.Client, before BeforeUserHardDeleteFunc) *PurgeDeletedUsersWorker {
 	return &PurgeDeletedUsersWorker{svc: svc, before: before}
 }
 

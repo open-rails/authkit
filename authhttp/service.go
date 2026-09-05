@@ -2,13 +2,14 @@ package authhttp
 
 import (
 	"context"
-	"github.com/open-rails/authkit/verify"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
@@ -189,9 +190,6 @@ func (s *Service) CheckSMSHealth(ctx context.Context) error { return s.svc.Check
 
 // SMSHealthy reports the last CheckSMSHealth result (true until a check runs).
 func (s *Service) SMSHealthy() bool { return s.svc.SMSHealthy() }
-
-// SMSHealthReason returns why SMS was last found unhealthy, if any.
-func (s *Service) SMSHealthReason() string { return s.svc.SMSHealthReason() }
 
 // SMSAvailable reports whether phone-based flows should be offered (a sender is
 // configured and, if checked, found able to deliver).

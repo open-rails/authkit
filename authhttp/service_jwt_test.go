@@ -3,13 +3,13 @@ package authhttp
 import (
 	"context"
 	"crypto"
-	"errors"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/embedded"
@@ -158,12 +158,6 @@ func TestVerifyServiceJWTScopeCompatibilityAndReplayHook(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"openrails:entitlements:read", "openrails:credits:reserve"}, claims.Permissions)
 	require.Equal(t, claims.Permissions, claims.Scope)
-
-	replayErr := errors.New("replay")
-	_, err = v.VerifyServiceJWT(context.Background(), token, verify.WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
-		return replayErr
-	}))
-	require.ErrorIs(t, err, replayErr)
 }
 
 func TestWrongTokenTypeDenials(t *testing.T) {

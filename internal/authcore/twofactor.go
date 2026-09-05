@@ -150,12 +150,6 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 	return plaintextCodes, nil
 }
 
-// Disable2FA disables two-factor authentication for a user.
-func (s *Service) Disable2FA(ctx context.Context, userID string) error {
-	_, err := s.Disable2FAWithRemovedRoles(ctx, userID)
-	return err
-}
-
 // Disable2FAWithRemovedRoles disables account MFA and removes active user role
 // assignments whose catalog role requires MFA.
 func (s *Service) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error) {
@@ -184,11 +178,6 @@ func (s *Service) Disable2FAWithRemovedRoles(ctx context.Context, userID string)
 		return nil, err
 	}
 	return removed, tx.Commit(ctx)
-}
-
-func (s *Service) Disable2FAFactor(ctx context.Context, userID, factorID string) error {
-	_, err := s.Disable2FAFactorWithRemovedRoles(ctx, userID, factorID)
-	return err
 }
 
 func (s *Service) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error) {
@@ -336,14 +325,6 @@ func (s *Service) List2FAFactors(ctx context.Context, userID string) ([]TwoFacto
 	return out, nil
 }
 
-// Require2FAForLogin sends a 2FA code to the user's configured method.
-// Returns the destination (email/phone) where the code was sent.
-// This should be called after successful password verification.
-func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string, error) {
-	destination, _, _, err := s.Require2FAForLoginFactor(ctx, userID, "")
-	return destination, err
-}
-
 func (s *Service) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
 	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
@@ -427,24 +408,6 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 	return destination, nil
 }
 
-// Require2FAForStepUp sends a 2FA code for authenticated step-up.
-func (s *Service) Require2FAForStepUp(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
-	destination, method, _, err = s.Require2FAForStepUpMethod(ctx, userID, sessionID, "")
-	return destination, method, err
-}
-
-func (s *Service) Require2FAForStepUpFactor(ctx context.Context, userID, sessionID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
-	}
-	factor, err = s.twoFactorFactor(ctx, userID, factorID)
-	if err != nil {
-		return "", "", TwoFactorFactor{}, err
-	}
-	destination, err = s.send2FACodeForFactor(ctx, userID, sessionID, factor)
-	return destination, factor.Method, factor, err
-}
-
 func (s *Service) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
@@ -455,22 +418,6 @@ func (s *Service) Require2FAForStepUpMethod(ctx context.Context, userID, session
 	}
 	destination, err = s.send2FACodeForFactor(ctx, userID, sessionID, factor)
 	return destination, factor.Method, factor, err
-}
-
-// Verify2FAStepUpCode verifies a session-scoped 2FA step-up code.
-func (s *Service) Verify2FAStepUpCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
-	return s.Verify2FAStepUpMethodCode(ctx, userID, sessionID, "", code)
-}
-
-func (s *Service) Verify2FAStepUpFactorCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return false, jwt.ErrTokenInvalidClaims
-	}
-	factor, err := s.twoFactorFactor(ctx, userID, factorID)
-	if err != nil {
-		return false, err
-	}
-	return s.verifyStepUpForFactor(ctx, userID, sessionID, code, factor)
 }
 
 func (s *Service) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {

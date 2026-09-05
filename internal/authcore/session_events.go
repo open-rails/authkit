@@ -22,11 +22,6 @@ const listSessionEventsLimit = 500
 // sessionEventsPruneBatchSize bounds each retention DELETE batch.
 const sessionEventsPruneBatchSize = 5000
 
-// SessionEventHistoryEnabled reports whether session-event history is
-// available. Always true since #245: history is Postgres-backed and every
-// deployment has Postgres — the feature is no longer config-gated.
-func (s *Service) SessionEventHistoryEnabled() bool { return true }
-
 // ListSessionEvents returns a user's recent session events, most recent first
 // (capped at listSessionEventsLimit). No eventTypes means all event types.
 func (s *Service) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {

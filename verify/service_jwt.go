@@ -10,12 +10,8 @@ import (
 	authkit "github.com/open-rails/authkit"
 )
 
-// ServiceJWTReplayChecker lets hosts reject already-seen jti values.
-type ServiceJWTReplayChecker func(ctx context.Context, claims authkit.ServiceJWTClaims) error
-
 type serviceJWTVerifyConfig struct {
 	maxLifetime time.Duration
-	replay      ServiceJWTReplayChecker
 }
 
 // ServiceJWTVerifyOption configures VerifyServiceJWT.
@@ -25,11 +21,6 @@ type ServiceJWTVerifyOption func(*serviceJWTVerifyConfig)
 // to AuthKit's 15-minute service-JWT lifetime.
 func WithServiceJWTMaxLifetime(d time.Duration) ServiceJWTVerifyOption {
 	return func(c *serviceJWTVerifyConfig) { c.maxLifetime = d }
-}
-
-// WithServiceJWTReplayChecker installs an optional jti replay hook.
-func WithServiceJWTReplayChecker(fn ServiceJWTReplayChecker) ServiceJWTVerifyOption {
-	return func(c *serviceJWTVerifyConfig) { c.replay = fn }
 }
 
 // VerifyServiceJWT verifies a first-party OIDC service JWT through the
@@ -54,11 +45,6 @@ func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts .
 	claims, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
 	if err != nil {
 		return authkit.ServiceJWTClaims{}, err
-	}
-	if cfg.replay != nil {
-		if err := cfg.replay(ctx, claims); err != nil {
-			return authkit.ServiceJWTClaims{}, err
-		}
 	}
 	return claims, nil
 }

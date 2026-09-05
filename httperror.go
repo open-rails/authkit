@@ -34,9 +34,9 @@ type ErrorEnvelope struct {
 	Error ErrorObject `json:"error"`
 }
 
-// ErrorTypeForStatus maps an HTTP status to its error-type category (the same
+// errorTypeForStatus maps an HTTP status to its error-type category (the same
 // inference openrails performs).
-func ErrorTypeForStatus(status int) string {
+func errorTypeForStatus(status int) string {
 	switch status {
 	case 401:
 		return ErrorTypeAuthentication
@@ -59,7 +59,7 @@ func NewErrorEnvelope(status int, code string, param *string, metadata map[strin
 		metadata = nil
 	}
 	return ErrorEnvelope{Error: ErrorObject{
-		Type:     ErrorTypeForStatus(status),
+		Type:     errorTypeForStatus(status),
 		Code:     code,
 		Message:  ErrorMessage(code),
 		Param:    param,

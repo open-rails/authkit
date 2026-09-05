@@ -162,19 +162,6 @@ func (exactClaims) GetIssuer() (string, error)                   { return "", ni
 func (exactClaims) GetSubject() (string, error)                  { return "", nil }
 func (exactClaims) GetAudience() (jwt.ClaimStrings, error)       { return nil, nil }
 
-// NewRSASignerFromPEM constructs an RSASigner from a PEM-encoded RSA private key.
-func NewRSASignerFromPEM(kid string, pemBytes []byte) (*RSASigner, error) {
-	signer, err := NewSignerFromPEM(kid, pemBytes)
-	if err != nil {
-		return nil, err
-	}
-	r, ok := signer.(*RSASigner)
-	if !ok {
-		return nil, errors.New("pem is not RSA private key")
-	}
-	return r, nil
-}
-
 // Helper to make base registered claims.
 func BaseRegisteredClaims(subject string, audiences []string, ttl time.Duration) jwt.RegisteredClaims {
 	now := time.Now()

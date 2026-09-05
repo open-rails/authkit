@@ -17,10 +17,6 @@ type Users interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByPhone(ctx context.Context, phone string) (*User, error)
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
-	// GetUserMetadata and PatchUserMetadata are privileged host operations for
-	// account metadata, including the host's existing moderation history.
-	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
-	PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error
 	// {Hard,Soft}DeleteUsers are batch-native admin bulk mutations (#219/#222):
 	// per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
 	// and the returned OpResults pinpoint the failures. Single-item = one-element

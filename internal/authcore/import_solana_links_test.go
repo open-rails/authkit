@@ -49,8 +49,8 @@ func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 	if got, err := svc.GetSolanaAddress(ctx, userID); err != nil || got != "" {
 		t.Fatalf("GetSolanaAddress before proof = %q, %v; want empty, nil", got, err)
 	}
-	if got := svc.CountProviderLinks(ctx, userID); got != 0 {
-		t.Fatalf("CountProviderLinks before proof = %d, want 0", got)
+	if linked, _, err := svc.UserProfileLinks(ctx, userID); err != nil || len(linked) != 0 {
+		t.Fatalf("provider links before proof = %v, %v; want none", linked, err)
 	}
 	if _, _, err := svc.GetProviderLinkByIssuer(ctx, svc.solanaIssuer(), address); err != pgx.ErrNoRows {
 		t.Fatalf("trusted provider lookup before proof error = %v, want pgx.ErrNoRows", err)
@@ -85,8 +85,8 @@ func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 	if got, err := svc.GetSolanaAddress(ctx, userID); err != nil || got != address {
 		t.Fatalf("GetSolanaAddress after proof = %q, %v; want %q, nil", got, err, address)
 	}
-	if got := svc.CountProviderLinks(ctx, userID); got != 1 {
-		t.Fatalf("CountProviderLinks after proof = %d, want 1", got)
+	if linked, _, err := svc.UserProfileLinks(ctx, userID); err != nil || len(linked) != 1 {
+		t.Fatalf("provider links after proof = %v, %v; want one", linked, err)
 	}
 
 	var verificationRequired bool

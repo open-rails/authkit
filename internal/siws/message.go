@@ -170,23 +170,3 @@ func WithChainID(chainID string) InputOption {
 		i.ChainID = &chainID
 	}
 }
-
-// WithExpirationDuration sets expiration relative to issued time.
-func WithExpirationDuration(d time.Duration) InputOption {
-	return func(i *SignInInput) {
-		// Parse IssuedAt to calculate expiration
-		issuedAt, err := time.Parse(time.RFC3339, i.IssuedAt)
-		if err != nil {
-			issuedAt = time.Now().UTC()
-		}
-		exp := issuedAt.Add(d).Format(time.RFC3339)
-		i.ExpirationTime = &exp
-	}
-}
-
-// WithResources adds resource URIs to the input.
-func WithResources(resources ...string) InputOption {
-	return func(i *SignInInput) {
-		i.Resources = append(i.Resources, resources...)
-	}
-}

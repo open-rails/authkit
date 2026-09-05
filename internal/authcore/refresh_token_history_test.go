@@ -75,7 +75,7 @@ func TestRefreshTokenHistory_Cleanup(t *testing.T) {
 		require.NoError(t, svc.pg.QueryRow(ctx, `SELECT expires_at FROM profiles.refresh_sessions WHERE id=$1::uuid`, sid).Scan(&stored))
 		require.WithinDuration(t, *expiry, stored, time.Microsecond)
 	}
-	require.NoError(t, svc.RevokeSessionByID(ctx, ids[0]))
+	require.NoError(t, svc.RevokeSessionByIDForUser(ctx, uid, ids[0]))
 	_, err := svc.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET expires_at=now()-interval '1 second' WHERE id=$1::uuid`, ids[1])
 	require.NoError(t, err)
 	require.NoError(t, svc.CleanupExpiredAuthState(ctx))

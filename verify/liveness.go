@@ -193,23 +193,3 @@ func RequiredLive(v *Verifier) (func(http.Handler) http.Handler, error) {
 		})
 	}, nil
 }
-
-// RequiredLiveUser is RequiredLive restricted to native human users: machine and
-// delegated principals are rejected rather than passed through unchecked. Use it
-// on a route whose whole premise is "a live human did this".
-func RequiredLiveUser(v *Verifier) (func(http.Handler) http.Handler, error) {
-	req, err := RequiredLive(v)
-	if err != nil {
-		return nil, err
-	}
-	return func(next http.Handler) http.Handler {
-		return req(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := GetClaims(r.Context())
-			if err != nil || !cl.IsUser() {
-				unauthorized(w, "invalid_principal")
-				return
-			}
-			next.ServeHTTP(w, r)
-		}))
-	}, nil
-}

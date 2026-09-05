@@ -17,8 +17,8 @@ func TestErrorTypeForStatus(t *testing.T) {
 		503: ErrorTypeAPI,
 	}
 	for status, want := range cases {
-		if got := ErrorTypeForStatus(status); got != want {
-			t.Errorf("ErrorTypeForStatus(%d) = %q, want %q", status, got, want)
+		if got := errorTypeForStatus(status); got != want {
+			t.Errorf("errorTypeForStatus(%d) = %q, want %q", status, got, want)
 		}
 	}
 }

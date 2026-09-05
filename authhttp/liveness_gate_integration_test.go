@@ -205,9 +205,6 @@ func TestRequiredLive_RefusesToBuildWithoutLivenessSource(t *testing.T) {
 	mw, err := verify.RequiredLive(v)
 	require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
 	require.Nil(t, mw)
-	userMW, err := verify.RequiredLiveUser(v)
-	require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
-	require.Nil(t, userMW)
 
 	// And the out-of-band caller gets the same configuration error, never a 401 —
 	// a misconfigured host must not look like a deployment where everyone is banned.

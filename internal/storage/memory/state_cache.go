@@ -17,13 +17,6 @@ type StateCache struct {
 	now    func() time.Time
 }
 
-type StateCacheOption func(*StateCache)
-
-// WithStateCacheClock replaces the TTL clock (tests advance it instead of sleeping).
-func WithStateCacheClock(now func() time.Time) StateCacheOption {
-	return func(s *StateCache) { s.now = now }
-}
-
 type item struct {
 	v   oidckit.StateData
 	exp time.Time
@@ -32,14 +25,11 @@ type item struct {
 // NewStateCache creates a new in-memory state cache with the given TTL.
 // If ttl <= 0, a default of 10 minutes is used.
 // Starts a background goroutine to clean up expired entries every minute.
-func NewStateCache(ttl time.Duration, opts ...StateCacheOption) *StateCache {
+func NewStateCache(ttl time.Duration) *StateCache {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
 	c := &StateCache{ttl: ttl, data: make(map[string]item), closed: make(chan struct{}), now: time.Now}
-	for _, opt := range opts {
-		opt(c)
-	}
 	go c.cleanupLoop()
 	return c
 }

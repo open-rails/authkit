@@ -68,10 +68,6 @@ func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
 	require.NotEmpty(t, settings.TOTPSecret)
 	require.NotContains(t, string(settings.TOTPSecret), secret)
 
-	destination, err := svc.Require2FAForLogin(ctx, user.ID)
-	require.NoError(t, err)
-	require.Equal(t, "authenticator app", destination)
-
 	ok, err := svc.Verify2FACode(ctx, user.ID, code)
 	require.NoError(t, err)
 	require.False(t, ok)
