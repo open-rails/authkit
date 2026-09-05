@@ -1,6 +1,7 @@
 package authtest
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -60,7 +61,7 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
-	claims, err := verifier.Verify(token)
+	claims, err := verifier.Verify(context.Background(), token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 		IsLocal: true, // TestIssuer simulates the platform signer; roles must be trusted
 	})
 
-	claims, err := verifier.Verify(token)
+	claims, err := verifier.Verify(context.Background(), token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
-	_, err := verifier.Verify(token)
+	_, err := verifier.Verify(context.Background(), token)
 	if err == nil {
 		t.Error("expected expired token to fail verification")
 	}
@@ -134,7 +135,7 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
-	claims, err := verifier.Verify(token)
+	claims, err := verifier.Verify(context.Background(), token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}

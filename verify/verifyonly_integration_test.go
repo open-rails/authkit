@@ -57,7 +57,7 @@ func TestVerifyOnlyConsumer_EndToEnd(t *testing.T) {
 	tok := mintAccess(t, signer, iss, aud, "user-123")
 
 	// 1) Direct verification yields the expected claims.
-	cl, err := v.Verify(tok)
+	cl, err := v.Verify(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestVerifyOnlyConsumer_EndToEnd(t *testing.T) {
 		t.Fatalf("new attacker signer: %v", err)
 	}
 	bad := mintAccess(t, attacker, iss, aud, "user-123")
-	if _, err := v.Verify(bad); err == nil {
+	if _, err := v.Verify(context.Background(), bad); err == nil {
 		t.Fatal("token signed with an unknown key must not verify")
 	}
 }

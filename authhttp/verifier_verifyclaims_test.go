@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestVerifyClaims_CustomTokenReturnsRawClaims(t *testing.T) {
 		// deliberately no `sub` — a custom (non-user) token shape.
 	})
 
-	mc, err := v.VerifyClaims(tok)
+	mc, err := v.VerifyClaims(context.Background(), tok)
 	require.NoError(t, err)
 	require.Equal(t, "org-acme", mc["owner"])
 	require.Equal(t, "repo_write", mc["cap_kind"])
@@ -45,7 +46,7 @@ func TestVerifyClaims_Rejections(t *testing.T) {
 			"iss": "https://cap.example", "aud": "someone-else",
 			"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
 		})
-		_, err := v.VerifyClaims(tok)
+		_, err := v.VerifyClaims(context.Background(), tok)
 		require.EqualError(t, err, "bad_audience")
 	})
 
@@ -54,7 +55,7 @@ func TestVerifyClaims_Rejections(t *testing.T) {
 			"iss": "https://cap.example", "aud": "tensorhub-workers",
 			"iat": time.Now().Add(-2 * time.Hour).Unix(), "exp": time.Now().Add(-time.Hour).Unix(),
 		})
-		_, err := v.VerifyClaims(tok)
+		_, err := v.VerifyClaims(context.Background(), tok)
 		require.EqualError(t, err, "token_expired")
 	})
 
@@ -63,7 +64,7 @@ func TestVerifyClaims_Rejections(t *testing.T) {
 			"iss": "https://not-registered.example", "aud": "tensorhub-workers",
 			"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
 		})
-		_, err := v.VerifyClaims(tok)
+		_, err := v.VerifyClaims(context.Background(), tok)
 		require.Error(t, err)
 	})
 }

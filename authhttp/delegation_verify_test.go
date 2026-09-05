@@ -79,7 +79,7 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	cl, err := newDelegatedVerifier(t, signer, iss, aud).Verify(tok)
+	cl, err := newDelegatedVerifier(t, signer, iss, aud).Verify(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestVerifyRejectsBothSubAndDelegatedSub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	_, err = newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(context.Background(), tok)
 	if err == nil || err.Error() != "conflicting_subject" {
 		t.Fatalf("expected conflicting_subject, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestNativeTokenIsNotDelegated(t *testing.T) {
 		"exp": now.Add(time.Minute).Unix(),
 		"sub": "local-1",
 	}, map[string]any{"typ": AccessTokenType})
-	cl, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	cl, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(context.Background(), tok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestVerifyRejectsAccessTokenWithoutAccessTyp(t *testing.T) {
 		"exp": now.Add(time.Minute).Unix(),
 		"sub": "local-1",
 	})
-	_, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	_, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(context.Background(), tok)
 	if err == nil || err.Error() != "access_token_wrong_typ" {
 		t.Fatalf("expected access_token_wrong_typ, got %v", err)
 	}
@@ -177,7 +177,7 @@ func TestVerifyRejectsDelegatedSubWithoutDelegatedTyp(t *testing.T) {
 		"exp":           now.Add(time.Minute).Unix(),
 		"delegated_sub": "ext-1",
 	}, map[string]any{"typ": AccessTokenType})
-	_, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	_, err := newDelegatedVerifier(t, signer, iss, []string{"tensorhub"}).Verify(context.Background(), tok)
 	if err == nil || err.Error() != "delegated_access_wrong_typ" {
 		t.Fatalf("expected delegated_access_wrong_typ, got %v", err)
 	}
@@ -203,7 +203,7 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 	}
 
 	v := newDelegatedVerifier(t, signer, iss, aud)
-	_, dp, err := v.VerifyDelegatedAccess(tok)
+	_, dp, err := v.VerifyDelegatedAccess(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestDelegatedAccessRolesFromAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	cl, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(tok)
+	cl, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestDelegatedAccessRolesDropsMalformed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(tok)
+	_, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestDelegatedAccessRolesCapped(t *testing.T) {
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 		Roles: roles, TTL: time.Minute,
 	})
-	_, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(tok)
+	_, dp, err := newDelegatedVerifier(t, signer, iss, aud).VerifyDelegatedAccess(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
 		DelegatedSubject: "x", TTL: time.Minute,
 	})
-	if _, err := v.Verify(tok); err == nil {
+	if _, err := v.Verify(context.Background(), tok); err == nil {
 		t.Fatal("expected rejection of unregistered issuer")
 	}
 }
@@ -402,7 +402,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mint: %v", err)
 		}
-		cl, _, err := mkVerifier().VerifyDelegatedAccess(tok)
+		cl, _, err := mkVerifier().VerifyDelegatedAccess(context.Background(), tok)
 		if err != nil {
 			t.Fatalf("verify: %v", err)
 		}
@@ -421,7 +421,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mint: %v", err)
 		}
-		if _, _, err := mkVerifier().VerifyDelegatedAccess(tok); err == nil {
+		if _, _, err := mkVerifier().VerifyDelegatedAccess(context.Background(), tok); err == nil {
 			t.Fatal("expected out-of-ceiling delegated permission to be rejected")
 		}
 	})

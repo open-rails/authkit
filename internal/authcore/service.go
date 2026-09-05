@@ -131,10 +131,9 @@ type Service struct {
 	cfg            Config
 	verifyWarnOnce sync.Once
 
-	// appHTTPClient overrides the outbound client used for application
-	// self-registration fetches (application.json, JWKS during signed
-	// rotation). Nil builds the default: timeout-bounded, redirect-refusing,
-	// SSRF-guarded outside dev-like environments (#264).
+	// appHTTPClient is the outbound client for application self-registration
+	// fetches (application.json, JWKS during signed rotation): the
+	// WithApplicationsHTTPClient override, else newApplicationsHTTPClient (#264).
 	appHTTPClient *http.Client
 	// appAdmission is the optional host-injected admission predicate consulted
 	// before any registration fetch (#264 anti-squat doctrine: cost gates live

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +67,7 @@ func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcor
 		IsLocal: true,
 	}))
 	ver.WithService(coreSvc)
-	return &Service{svc: coreSvc, verifier: ver}
+	return &Service{svc: coreSvc, verifier: ver, outboundHTTP: netguard.Client(netguard.DefaultTimeout, true)}
 }
 
 // adminListUsers drives GET /admin/users with the given query string and the

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/netguard"
 )
 
 // RemoteApplicationIssuersClient publishes this remote application's issuer
@@ -58,7 +59,7 @@ func WithRemoteApplicationIssuersInsecureJWKS() RemoteApplicationIssuersClientOp
 
 // NewRemoteApplicationIssuersClient creates a RemoteApplicationIssuersClient.
 func NewRemoteApplicationIssuersClient(opts ...RemoteApplicationIssuersClientOption) *RemoteApplicationIssuersClient {
-	fc := &RemoteApplicationIssuersClient{httpClient: defaultOutboundHTTPClient}
+	fc := &RemoteApplicationIssuersClient{httpClient: netguard.Client(netguard.DefaultTimeout, true)}
 	for _, o := range opts {
 		o(fc)
 	}

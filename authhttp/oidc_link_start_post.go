@@ -9,7 +9,7 @@ import (
 
 func (s *Service) oidcManager() *oidckit.Manager {
 	s.oidcMgrOnce.Do(func() {
-		s.oidcMgr = oidckit.NewManagerFromProviders(s.authProviders())
+		s.oidcMgr = oidckit.NewManagerFromProviders(s.authProviders(), s.outboundHTTP)
 	})
 	return s.oidcMgr
 }

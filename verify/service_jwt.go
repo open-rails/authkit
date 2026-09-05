@@ -47,7 +47,7 @@ func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts .
 		cfg.maxLifetime = authkit.DefaultServiceJWTLifetime
 	}
 
-	mc, err := v.VerifyClaims(tokenStr)
+	mc, err := v.VerifyClaims(ctx, tokenStr)
 	if err != nil {
 		return authkit.ServiceJWTClaims{}, err
 	}

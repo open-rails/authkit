@@ -198,6 +198,9 @@ func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ..
 			o(s)
 		}
 	}
+	if s.appHTTPClient == nil {
+		s.appHTTPClient = newApplicationsHTTPClient(s.isDevEnvironment(), nil)
+	}
 	s.resolveEphemeralStore()
 	return s
 }
@@ -222,7 +225,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	}
 	if keySource == nil {
 		var err error
-		keySource, err = jwtkit.ResolveKeySource(strings.TrimSpace(cfg.Keys.Path), cfg.Keys.AllowEphemeralDevKeys)
+		keySource, err = jwtkit.ResolveKeySource(strings.TrimSpace(cfg.Keys.Path), cfg.Keys.AllowEphemeralDevKeys, nil)
 		if err != nil {
 			return nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Keys.Source, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 		}

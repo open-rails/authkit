@@ -48,7 +48,7 @@ func TestVerifierJWKSFetchResilience(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ver.Verify(tok); err != nil {
+	if _, err := ver.Verify(context.Background(), tok); err != nil {
 		t.Fatalf("verify should succeed after JWKS retries (calls=%d): %v", atomic.LoadInt32(&calls), err)
 	}
 	if got := atomic.LoadInt32(&calls); got < 3 {
@@ -93,7 +93,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 	t1, _ := authcore.MintDelegatedAccessToken(context.Background(), oldSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
-	if _, err := ver.Verify(t1); err != nil {
+	if _, err := ver.Verify(context.Background(), t1); err != nil {
 		t.Fatalf("prime verify: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 	t2, _ := authcore.MintDelegatedAccessToken(context.Background(), newSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u2", TTL: time.Minute,
 	})
-	if _, err := ver.Verify(t2); err != nil {
+	if _, err := ver.Verify(context.Background(), t2); err != nil {
 		t.Fatalf("verify should succeed after refetch-on-reject (key rotated under same kid): %v", err)
 	}
 }

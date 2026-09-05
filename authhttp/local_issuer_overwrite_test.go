@@ -8,6 +8,7 @@ package authhttp
 // issuer identity to attacker key material.
 
 import (
+	"context"
 	"crypto"
 	"github.com/open-rails/authkit/verify"
 	"testing"
@@ -65,14 +66,14 @@ func TestAddIssuerRefusesToOverwriteLocalWithFederated(t *testing.T) {
 
 	// The platform's real token must still verify — keys were not swapped.
 	platformTok := mintAccessJWT(t, platformSigner, platformIss, nil)
-	if _, verr := ver.Verify(platformTok); verr != nil {
+	if _, verr := ver.Verify(context.Background(), platformTok); verr != nil {
 		t.Fatalf("AK-AUTH-01: platform token no longer verifies after attempted overwrite: %v", verr)
 	}
 
 	// A token signed by the attacker's key under the platform issuer must NOT
 	// verify — the attacker key was never cached for the platform issuer.
 	attackerTok := mintAccessJWT(t, attackerSigner, platformIss, nil)
-	if _, verr := ver.Verify(attackerTok); verr == nil {
+	if _, verr := ver.Verify(context.Background(), attackerTok); verr == nil {
 		t.Fatal("AK-AUTH-01: token signed with attacker key verified under the platform issuer — keys were swapped")
 	}
 }
@@ -102,7 +103,7 @@ func TestAddIssuerAllowsLocalRefresh(t *testing.T) {
 		t.Fatalf("AK-AUTH-01 guard wrongly blocked a local issuer refresh: %v", err)
 	}
 	tok := mintAccessJWT(t, signerB, iss, nil)
-	if _, err := ver.Verify(tok); err != nil {
+	if _, err := ver.Verify(context.Background(), tok); err != nil {
 		t.Fatalf("rotated local key does not verify after refresh: %v", err)
 	}
 }
