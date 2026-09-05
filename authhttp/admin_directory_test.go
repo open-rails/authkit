@@ -122,7 +122,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("hadir%d", suffix)
-	const roleSlug = embedded.OwnerRoleName // intrinsic root role.
+	const roleSlug = authkit.OwnerRole // intrinsic root role.
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
@@ -140,8 +140,8 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 
 	// Root owner assignment for A + B (genesis seeding — fixture setup, not an
 	// MFA-enrollment scenario under test).
-	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", idA, embedded.SubjectKindUser, roleSlug))
-	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", idB, embedded.SubjectKindUser, roleSlug))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(idA), roleSlug))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(idB), roleSlug))
 
 	// Ban D (so status filters can distinguish it).
 	banUntil := time.Now().UTC().Add(time.Hour)
@@ -159,7 +159,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	})
 
 	t.Run("role filter resolves via root group", func(t *testing.T) {
-		resp := adminListUsers(t, s, token, "search="+prefix+"&limit=100&root_role="+roleSlug)
+		resp := adminListUsers(t, s, token, "search="+prefix+"&limit=100&root_role="+string(roleSlug))
 		require.Len(t, resp.Data, 2)
 		got := map[string]bool{}
 		for _, u := range resp.Data {
@@ -217,7 +217,7 @@ func TestAdminUsersListOptionsFromQuery(t *testing.T) {
 	require.Equal(t, 2, got.Page)
 	require.Equal(t, 25, got.PageSize)
 	require.Equal(t, "alice", got.Search)
-	require.Equal(t, "moderator", got.Role)
+	require.Equal(t, authkit.Role("moderator"), got.Role)
 	require.Equal(t, authkit.AdminUserStatusBanned, got.Status)
 	require.Equal(t, authkit.AdminUserSortEmail, got.Sort)
 	require.False(t, got.Desc) // order=asc
@@ -306,11 +306,11 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 	plainJWT, _, err := s.svc.MintAccessToken(ctx, plainID, nil)
 	require.NoError(t, err)
 
-	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", embedded.OwnerRoleName, adminID)
+	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", string(authkit.OwnerRole), adminID)
 	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", "no-access", adminID)
 	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{embedded.PermRootResourcesRead})
 	delegatedDeny := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-deny", nil)
-	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", embedded.OwnerRoleName)
+	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", string(authkit.OwnerRole))
 	remoteDeny := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-deny", "no-access")
 
 	for name, token := range map[string]string{
@@ -341,14 +341,14 @@ func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username
 	u, err := s.svc.CreateUser(ctx, username+"@test.example", username)
 	require.NoError(t, err)
 	if admin {
-		require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", u.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+		require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(u.ID), authkit.OwnerRole))
 	}
 	return u.ID
 }
 
 func mintAdminTestAPIKey(t *testing.T, s *Service, ctx context.Context, name, role, createdBy string) string {
 	t.Helper()
-	_, token, err := s.svc.MintAPIKeyWithOptions(ctx, embedded.RootPersona, "", authkit.APIKeyMintOptions{Name: name, Role: role, CreatedBy: createdBy})
+	_, token, err := s.svc.MintAPIKeyWithOptions(ctx, authkit.RootGroup(), authkit.APIKeyMintOptions{Name: name, Role: authkit.Role(role), CreatedBy: createdBy})
 	require.NoError(t, err)
 	return token
 }
@@ -365,7 +365,7 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 	// authority-less (it 403s on the missing permission).
 	raRole := ""
 	if len(perms) > 0 {
-		raRole = embedded.OwnerRoleName
+		raRole = string(authkit.OwnerRole)
 	}
 	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, raRole)
 	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
@@ -417,7 +417,7 @@ func registerAdminTestRemoteApplication(t *testing.T, s *Service, ctx context.Co
 	})
 	require.NoError(t, err)
 	if role != "" {
-		require.NoError(t, s.svc.AssignRemoteApplicationRole(ctx, ra.ID, role))
+		require.NoError(t, s.svc.AssignRemoteApplicationRole(ctx, ra.ID, authkit.Role(role)))
 	}
 	return ra
 }
