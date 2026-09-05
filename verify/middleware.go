@@ -80,7 +80,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// revoking all sessions on disable) — so a banned/deleted
 	// user cannot obtain a new access token and their existing one expires within
 	// one access-TTL window (≤15min by default). That residual window is the
-	// accepted #90 trade-off (internal/authcore/service.go:348-352: trust the
+	// accepted #90 trade-off (embedded/service.go: trust the
 	// short-lived access token instead of a per-request liveness lookup). Roles
 	// resolve lazily via Can() on permission-gated routes (DB-live there); email
 	// rides in the token claims. Delegated principals are still gated above.

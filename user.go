@@ -4,7 +4,7 @@ import "time"
 
 // User is the public user view returned by AuthKit lookups. Plain data: see
 // #138 (contract inversion) — definitions live here in the lean, pgx-free
-// contract package; internal/authcore aliases back to these.
+// contract package; the embedded engine aliases back to these.
 type User struct {
 	ID              string
 	Email           *string // Nullable - phone-only users have NULL email

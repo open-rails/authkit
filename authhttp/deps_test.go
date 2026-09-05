@@ -50,6 +50,14 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 
 // coreFromConfig is embedded.NewFromConfig with the pool positional and Deps
 // composed from options.
+// coreFromConfig is embedded.New with the pool positional and Deps composed
+// from options. A test that wires neither Redis nor an EphemeralStore gets the
+// memory store New defaults to, so the opt-in is implied (the host-facing
+// refusal is pinned in embedded and by TestNewServer_RequiresClientIPPosture).
 func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Client, error) {
-	return embedded.New(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
+	deps := depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...)
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		cfg.Ephemeral.AllowMemory = true
+	}
+	return embedded.New(cfg, deps)
 }

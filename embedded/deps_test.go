@@ -47,8 +47,14 @@ func depsOf(opts ...Option) Deps {
 	return d
 }
 
-// newFromConfig is NewFromConfig with the pool positional and Deps composed
-// from options, the shape most tests read best.
+// newFromConfig is New with the pool positional and Deps composed from
+// options, the shape most tests read best. A test that wires neither Redis nor
+// an EphemeralStore gets the memory store New defaults to, so the opt-in is
+// implied (the host-facing refusal is pinned by TestNewRefusesMemoryEphemeralWithoutOptIn).
 func newFromConfig(cfg Config, pool *pgxpool.Pool, opts ...Option) (*Client, error) {
-	return New(cfg, depsOf(append([]Option{WithPostgres(pool)}, opts...)...))
+	deps := depsOf(append([]Option{WithPostgres(pool)}, opts...)...)
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		cfg.Ephemeral.AllowMemory = true
+	}
+	return New(cfg, deps)
 }

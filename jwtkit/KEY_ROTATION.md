@@ -35,7 +35,7 @@ Two pieces make rotation reboot-free:
    every `DefaultKeyReloadInterval` (10s, overridable via `jwtkit.NewFileKeySource`)
    and atomically swaps in the new keystore on change. A malformed/unreadable
    file is rejected and the last-good keystore is kept (a bad render never
-   bricks signing). `internal/authcore.Service` reads `ActiveSigner()`/
+   bricks signing). `*embedded.Client` reads `ActiveSigner()`/
    `PublicKeys()` from this source on every mint/JWKS call — never a snapshot
    taken once at construction (#238) — so the issuer's own
    `/.well-known/jwks.json` and new mints reflect a rotation within ~10s, no
@@ -98,6 +98,6 @@ cache TTL; the issuer side is already immediate.
 The dev/compose host mount (`./.secrets/authkit` → `/vault/auth`) makes this
 testable by hand: edit `keys.json` and watch the poller reload it. See
 `jwtkit/keys_reload_test.go` for the reload/keep-old-on-error/poller coverage,
-and `internal/authcore/key_rotation_integration_test.go` for the end-to-end
+and `embedded/key_rotation_integration_test.go` for the end-to-end
 proof that a running Service observes the reload (mint + JWKS, not just the
 key source in isolation).
