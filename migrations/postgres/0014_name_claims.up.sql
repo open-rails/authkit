@@ -1,3 +1,4 @@
+-- parent: 13 sha256:e29d479fca8e66ceb39569ca324c3066268179e5c3f970e2460720190f49e1f8
 -- Canonical names and active former names share one unique ownership key.
 -- No FK: deletion must not free a surviving former-name reservation.
 CREATE TABLE profiles.name_claims (

@@ -1,3 +1,4 @@
+-- parent: 11 sha256:f831545083deaa07cdd201726b3bbd06c86feba76f08efca90846cc28efcd481
 -- A consumed refresh token remains attributable until its session is removed.
 -- The session owns the family/user/issuer identity; do not duplicate that binding
 -- in history. Cleanup of revoked/expired sessions cascades to their history.

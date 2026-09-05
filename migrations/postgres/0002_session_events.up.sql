@@ -1,3 +1,4 @@
+-- parent: 1 sha256:d7aeb53b5754826081eb0c0544bd9e5e6f47a2e0f9a035f915a3dbaad303d640
 -- Session-event history (sign-ins, revocations, password changes), moved from
 -- ClickHouse (#245). Append-only, best-effort; pruned by CleanupExpiredAuthState
 -- per Config.SessionEventRetention. user_id is text with no FK: events outlive

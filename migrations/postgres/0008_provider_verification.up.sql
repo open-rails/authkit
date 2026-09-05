@@ -1,3 +1,4 @@
+-- parent: 7 sha256:727422891155b39f068da9b0c4d81c5fc7863396c867fdffe55fad08f6fe885b
 ALTER TABLE profiles.user_providers
   ADD COLUMN IF NOT EXISTS verified_at timestamptz;
 
