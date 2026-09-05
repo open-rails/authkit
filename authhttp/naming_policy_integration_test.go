@@ -132,7 +132,7 @@ func TestNamingHTTPRequestsKeepAuthorizedGroupAfterReuse(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+firstToken)
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		srv.APIHandler().ServeHTTP(w, r)
+		srv.apiHandler().ServeHTTP(w, r)
 		return w
 	}
 	for _, suffix := range []string{"/members", "/api-keys", "/remote-applications", "/invites/links"} {
