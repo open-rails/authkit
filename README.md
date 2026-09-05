@@ -196,12 +196,16 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	requireUser := authkitgin.Use(verify.RequiredUser(srv.Verifier()))
 	requirePremium := authkitgin.Use(verify.RequireEntitlement("premium"))
 	requirePaidPlan := authkitgin.Use(verify.RequireAnyEntitlement("premium", "pro"))
+	root, err := client.GroupInstanceForSlug(ctx, authkit.RootPersona, "")
+	if err != nil { return nil, nil, nil, err }
 	rootScope := func(*http.Request) verify.PermissionScope {
-		return verify.PermissionScope{Persona: authkit.RootPersona}
+		return verify.PermissionScope{GroupID: root.ID, AuthorityIssuer: cfg.Token.Issuer, Persona: root.Persona}
 	}
 	requireBanUsersPermission := authkitgin.Use(verify.RequirePermission(client, "root:users:ban", rootScope))
 	repoScope := func(c *gin.Context) verify.PermissionScope {
-		return verify.PermissionScope{Persona: "repo", Instance: c.Param("repo")}
+		group, err := client.GroupInstanceForSlug(c.Request.Context(), "repo", c.Param("repo"))
+		if err != nil { return verify.PermissionScope{} }
+		return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: cfg.Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 	}
 	requireDeployPermission := authkitgin.RequirePermission(client, "repo:models:deploy", repoScope)
 	sensitive := authkitgin.Use(verify.Sensitive())
@@ -514,6 +518,7 @@ server ticks it itself).
 ```go
 func mountAdvancedAuthExamples(
 	router *gin.Engine,
+	authorityIssuer string, // this AuthKit deployment's configured Token.Issuer
 	client authkit.Client,
 	requireAuth gin.HandlerFunc,
 	requireUser gin.HandlerFunc,
@@ -529,8 +534,10 @@ func mountAdvancedAuthExamples(
 		}, nil
 	}
 
-	rootScope := func(*http.Request) verify.PermissionScope {
-		return verify.PermissionScope{Persona: authkit.RootPersona}
+	rootScope := func(r *http.Request) verify.PermissionScope {
+		group, err := client.GroupInstanceForSlug(r.Context(), authkit.RootPersona, "")
+		if err != nil { return verify.PermissionScope{} }
+		return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: authorityIssuer, Persona: group.Persona}
 	}
 	requireRootRead := authkitgin.Use(verify.RequirePermission(client, "root:resources:read", rootScope))
 	requireRootCredentialsManage := authkitgin.Use(verify.RequirePermission(client, "root:credentials:manage", rootScope))
@@ -861,3 +868,17 @@ POST /api/v1/register
 GET  /api/v1/capabilities
 POST /api/v1/oidc/{provider}/link/start
 ```
+
+### Immutable permission scopes
+
+Resolve each request's group name once and pass its UUID to `PermissionScope.GroupID`.
+`AuthorityIssuer` is the receiving AuthKit deployment's configured issuer, not a remote
+application's signing issuer. Names in `Persona`/`Instance` describe the resolved group;
+an old or newly claimed spelling never transfers an API key or application's authority.
+Missing UUID/authority bindings deny. Human authority uses live `CanOnGroup` assignments.
+
+`RequirePermission` puts its captured scope in the handler context; read it with
+`PermissionScopeFromContext` instead of resolving the path again. A trusted custom adapter
+that calls `AllowLive` can propagate the same successful scope with `WithPermissionScope`.
+That setter carries metadata and does not perform authorization. Unbound delegated tokens
+retain their explicit issuer-trust and permission-ceiling contract.
