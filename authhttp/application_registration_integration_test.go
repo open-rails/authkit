@@ -26,6 +26,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -134,7 +135,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, true, body["created"])
 
 	// Service-owned org: the application principal owns its own group.
-	can, err := core.Can(ctx, appID, embedded.SubjectKindRemoteApp, "org", slug, embedded.PermSettingsManage("org"))
+	can, err := core.Can(ctx, appID, embedded.SubjectKindRemoteApp, "org", slug, authcore.PermSettingsManage("org"))
 	require.NoError(t, err)
 	require.True(t, can, "the application principal must own its service-owned org")
 

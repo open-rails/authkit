@@ -17,7 +17,7 @@ import (
 
 // TestPasswordLogin_LegacyResetRequired drives the full HTTP handler against a
 // real database: a user whose stored hash is flagged
-// embedded.HashAlgoLegacyResetRequired must get 401 with the machine-readable code
+// authcore.HashAlgoLegacyResetRequired must get 401 with the machine-readable code
 // "password_reset_required" (same status family as invalid_credentials; only
 // the body code differs, and only for this flagged cohort). Skips when
 // AUTHKIT_TEST_DATABASE_URL is unset.
@@ -47,7 +47,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
-	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "8RmkP1jcmYBbE", embedded.HashAlgoLegacyResetRequired, nil))
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "8RmkP1jcmYBbE", authcore.HashAlgoLegacyResetRequired, nil))
 
 	for _, identifier := range []string{email, "legacyresetrequiredhttp"} {
 		w := httptest.NewRecorder()

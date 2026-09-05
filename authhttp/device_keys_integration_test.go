@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authkitmigrate"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -152,7 +153,7 @@ func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
 	enrolled := finishDeviceEnrollment(t, srv, sender, enrollment, privateKey)
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelPassword, claims["acr"])
+	require.Equal(t, authcore.AssuranceLevelPassword, claims["acr"])
 	require.Equal(t, enrolled.DeviceKey.ID, claims["device_key_id"])
 	require.NotEmpty(t, claims["auth_time"])
 	require.NotEmpty(t, claims["sub"])

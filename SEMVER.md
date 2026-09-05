@@ -134,7 +134,10 @@ it needs — plus the public data/result types, config, constants, sentinel erro
 permission/API-key primitives. The concrete in-process implementation is the **`embedded`**
 facade: `embedded.New(cfg, pg, …) (*embedded.Client, error)` returns a `*Client` that
 satisfies `authkit.Client`, and `embedded` re-exports (via aliases) the service-side
-constructors, options, and types hosts need. The full service implementation lives in
+constructors, options, and types hosts need — and only those: an alias stays because a
+host or this repo names it, or because it is a `Config` field, option parameter or
+host-implemented interface type a host must be able to write down (#333 pruned the
+rest). The full service implementation lives in
 **`internal/authcore`** (driven by the `authkit/authhttp` transport) and is **out of contract**
 (§9). Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers
 implement it.

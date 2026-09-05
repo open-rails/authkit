@@ -9,7 +9,6 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
@@ -74,7 +73,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &enrolled))
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email", "otp", "mfa"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, authcore.AssuranceLevelMFA, claims["acr"])
 	require.Equal(t, user.ID, claims["sub"])
 
 	var keys int
