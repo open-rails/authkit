@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +18,7 @@ import (
 // against both the memory store and a real Redis.
 func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 	forEachStore(t, func(t *testing.T, store ephemeralStore) {
-		pool := newServerTestPool(t)
+		pool := testdb.Pool(t)
 		ctx := context.Background()
 		emailSender := &captureEmailSender{}
 		opts := append(store.engineOpts(), embedded.WithEmailSender(emailSender))

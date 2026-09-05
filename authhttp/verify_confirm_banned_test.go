@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // lacked the ErrUserBanned→401 mapping the email path had, so a banned user hit a
 // generic 500. This pins the unified behaviour.
 func TestPhoneVerifyConfirm_BannedUserGets401(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	smsSender := &captureSMSSender{}
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithSMSSender(smsSender)), WithoutRateLimiter())

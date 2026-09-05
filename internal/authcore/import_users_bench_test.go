@@ -16,7 +16,7 @@ import (
 // TestImportUsers_Benchmark is a throughput probe (not a unit test), built only
 // with `-tags importbench` so the default suite never skips it. It imports N
 // synthetic users (default 100k, override with AUTHKIT_IMPORT_BENCH_N), reports
-// users/sec, then deletes them. Needs AUTHKIT_TEST_DATABASE_URL (via testPG).
+// users/sec, then deletes them. Needs AUTHKIT_TEST_DATABASE_URL (via testdb.Pool).
 func TestImportUsers_Benchmark(t *testing.T) {
 	svc, ctx := importTestService(t)
 

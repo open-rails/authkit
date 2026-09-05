@@ -144,7 +144,7 @@ func (s *Service) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey
 	}
 
 	now := time.Now().UTC()
-	result := DeviceKeyChallenge{ID: randB64(32), Challenge: randB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	result := DeviceKeyChallenge{ID: RandB64(32), Challenge: RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
 	code := randAlphanumeric(6)
 	record := deviceKeyEnrollment{
 		Email: email, PublicKey: publicKey, Label: label,
@@ -180,7 +180,7 @@ func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, c
 	if err != nil || !ok {
 		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	if !secretHashEqual(record.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+	if !SecretEqual(record.CodeHash, sha256Hex(strings.TrimSpace(code))) {
 		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
@@ -393,7 +393,7 @@ FROM profiles.user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
 		return DeviceKeyChallenge{}, err
 	}
 	now := time.Now().UTC()
-	result := DeviceKeyChallenge{ID: randB64(32), Challenge: randB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	result := DeviceKeyChallenge{ID: RandB64(32), Challenge: RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
 	record.Challenge, record.ExpiresAt = result.Challenge, result.ExpiresAt
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyLogin+result.ID, record, deviceKeyChallengeTTL); err != nil {
 		return DeviceKeyChallenge{}, err

@@ -21,6 +21,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -29,7 +30,7 @@ const documentsTestType = "example.entitlements/v1"
 // newDocumentsTestStack boots client + published document + server + mount.
 func newDocumentsTestStack(t *testing.T, cfg embedded.Config, payload string) (*embedded.Client, *documents.Service, *Service, http.Handler) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	client := newServerClient(t, cfg, pool)
 	docSvc, err := documents.NewService(context.Background(), documents.ServiceConfig{
 		Type:      documentsTestType,
@@ -120,7 +121,9 @@ func TestDocumentsRoute_EndToEnd(t *testing.T) {
 		"an authenticated remote application NOT in Readers must be denied")
 	user, err := srv.svc.CreateUser(context.Background(), "docs-user-"+suffix+"@test.example", "docsuser"+suffix)
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = client.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, user.ID) })
+	t.Cleanup(func() {
+		_, _ = client.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, user.ID)
+	})
 	userToken, _, err := srv.svc.MintAccessToken(context.Background(), user.ID, nil)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, getDocument(h, http.MethodGet, digest, userToken, nil).Code,
@@ -160,7 +163,7 @@ func TestDocumentsRoute_EndToEnd(t *testing.T) {
 }
 
 func TestDocumentsRoute_DigestImmutabilityAtTheTable(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	client := newServerClient(t, cfg, pool)
@@ -199,7 +202,7 @@ func TestDocumentsRoute_DigestImmutabilityAtTheTable(t *testing.T) {
 }
 
 func TestNewServerRefusesDocumentsConfigMismatch(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	// Providers without readers: never a public route, never a 401-everything

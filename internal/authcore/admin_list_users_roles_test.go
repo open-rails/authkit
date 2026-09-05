@@ -6,13 +6,15 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestAdminListUsers_RoleEnrichmentParity verifies the batched root-role enrichment
 // returns exactly what the per-user path (listRoleSlugsByUser) would, including the
 // empty case — guarding the N+1 → single-query rewrite against behavior drift.
 func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
@@ -62,7 +64,7 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 }
 
 func TestAdminListUsers_MarksRemovedRootRoles(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))

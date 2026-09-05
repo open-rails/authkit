@@ -3,12 +3,14 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #125: mfa_settings no longer mirrors per-factor data; the displayed
 // method/phone are derived from the default row in mfa_factors.
 func TestMFASettingsDeriveFromDefaultFactor(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -49,7 +51,7 @@ func TestMFASettingsDeriveFromDefaultFactor(t *testing.T) {
 // no enabled=false tombstone, and re-enrolling the same method does not
 // accumulate dead rows.
 func TestMFAFactorHardDelete(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

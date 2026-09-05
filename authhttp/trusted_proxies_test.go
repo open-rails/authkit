@@ -23,7 +23,7 @@ func TestWithTrustedProxies(t *testing.T) {
 	cfg := newServerTestConfig()
 	build := func(t *testing.T, opts ...Option) *Service {
 		t.Helper()
-		srv, err := NewServer(newServerClient(t, cfg, newTestPool(t)), opts...)
+		srv, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), opts...)
 		require.NoError(t, err)
 		return srv
 	}
@@ -78,9 +78,9 @@ func TestWithTrustedProxies(t *testing.T) {
 	})
 
 	t.Run("invalid CIDR fails NewServer", func(t *testing.T) {
-		_, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithTrustedProxies("not-a-cidr"))
+		_, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithTrustedProxies("not-a-cidr"))
 		require.Error(t, err)
-		_, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithCloudflareProxies("not-a-cidr"))
+		_, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithCloudflareProxies("not-a-cidr"))
 		require.Error(t, err)
 	})
 }
@@ -89,7 +89,7 @@ func TestWithTrustedProxies(t *testing.T) {
 // CF-Connecting-IP behind a plain trusted proxy cannot rotate the per-IP
 // rate-limit key, while the same header from a Cloudflare peer does select it.
 func TestClientIPTrustScope_LimiterKey(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	post := func(srv *Service, peer, cfIP string, n int) int {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/reset/request", strings.NewReader(fmt.Sprintf(`{"identifier":"spoof-%d@example.com"}`, n)))
@@ -122,7 +122,9 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 	prod := newServerTestConfig()
 	prod.Environment = "production"
-	prodClient := func() *embedded.Client { return newServerClient(t, prod, newTestPool(t), embedded.WithRedis(rdb)) }
+	prodClient := func() *embedded.Client {
+		return newServerClient(t, prod, testdb.UnlockedPool(t), embedded.WithRedis(rdb))
+	}
 
 	_, err := NewServer(prodClient(), WithRedis(rdb))
 	require.Error(t, err)
@@ -139,7 +141,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	}
 
 	// Dev stays posture-free.
-	_, err = NewServer(newServerClient(t, newServerTestConfig(), newTestPool(t)))
+	_, err = NewServer(newServerClient(t, newServerTestConfig(), testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 }
 
@@ -147,7 +149,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 // rate-limit key resolves to a private peer that carries forwarded headers, one
 // ERROR line is logged per process; declaring the proxy silences it.
 func TestUndeclaredProxyTripwire(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	var buf bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))

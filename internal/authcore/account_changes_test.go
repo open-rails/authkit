@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +17,7 @@ import (
 // not a wrong code, so the error is deliberately not ErrTokenUnverifiable.
 // Skips without a test database.
 func TestConfirmContactChange_RequiresEphemeralStore(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	require.False(t, svc.useEphemeralStore())
 

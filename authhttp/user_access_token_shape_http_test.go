@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -53,7 +54,7 @@ func assertSlimUserAccessClaims(t *testing.T, claims jwt.MapClaims) {
 
 func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	const email = "slim-token-shape-http@example.com"
 	const username = "slimtokenshapehttp"
 	const pass = "correct-horse-battery-97"

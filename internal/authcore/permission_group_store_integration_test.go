@@ -3,6 +3,8 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestPermissionGroupStore_WalkAndAuthorize exercises the DB-backed engine
@@ -10,7 +12,7 @@ import (
 // which must point at a DB migrated through 008). Everything runs in a single
 // transaction that is rolled back, so it leaves no residue.
 func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)

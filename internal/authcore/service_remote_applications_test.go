@@ -13,31 +13,6 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// testPG returns a pool against AUTHKIT_TEST_DATABASE_URL, or skips. The
-// Postgres migrations in migrations/postgres must already be applied.
-func testPG(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	conn, err := pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("acquire test db lock connection: %v", err)
-	}
-	if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`); err != nil {
-		conn.Release()
-		t.Fatalf("acquire test db lock: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
-		conn.Release()
-	})
-	return pool
-}
-
 // createTestGroup ensures the root permission-group exists and returns its id
 // for a remote_application fixture (#111: remote-apps are group-nested; their
 // permission_group_id FK just needs to point at a live group). The slug arg is
@@ -53,7 +28,7 @@ func createTestGroup(t *testing.T, ctx context.Context, svc *Service, pool *pgxp
 }
 
 func TestRemoteApplicationRoundTrip(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
@@ -131,7 +106,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 }
 
 func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
@@ -226,7 +201,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 // principal persists its key list, round-trips through Get, and mode switches
 // atomically clear the other trust source (#74).
 func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 	pemKey := testPublicKeyPEM(t)

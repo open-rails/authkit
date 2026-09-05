@@ -7,13 +7,15 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #304: a host table referencing profiles.users(id) WITHOUT ON DELETE CASCADE
 // must abort the hard delete as one unit — typed ErrUserReferenced, user row,
 // group roles and sessions all intact — and succeed once the reference is gone.
 func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test", RefreshTokenDuration: time.Hour}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {

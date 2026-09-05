@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +54,7 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 
 func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), WithoutRateLimiter())
 	require.NoError(t, err)
 

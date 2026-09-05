@@ -22,7 +22,7 @@ func (noSNS) ResolvePrimaryName(context.Context, string) (string, error) { retur
 // signed message replayed within the TTL is refused because the nonce was
 // consumed — on the memory cache and on Redis.
 func TestVerifySIWSAndLoginConsumesChallengeOnce(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, "siws-replay")
 	if err != nil {

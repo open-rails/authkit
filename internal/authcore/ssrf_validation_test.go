@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestValidateJWKSURI_Accepted(t *testing.T) {
@@ -147,7 +149,7 @@ func TestNormalizeRemoteAppTrustSource_DevKeepsXORRule(t *testing.T) {
 // #257 (DB): registration accepts a loopback http jwks_uri only in dev
 // environments; staging/production reject with the unchanged messages.
 func TestUpsertRemoteApplication_DevLoopbackJWKS(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	dev := mustNewService(t, Config{Environment: "dev", Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))

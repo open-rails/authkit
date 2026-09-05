@@ -8,6 +8,7 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +56,7 @@ func (c *codeCaptureEmailSender) code(email string) string {
 // and each account is created from its own username/password. The collision is
 // forced by re-issuing B's record under A's code (the RNG outcome, nothing else).
 func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	sender := &codeCaptureEmailSender{}
 	svc := mustNewService(t,

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +17,7 @@ import (
 // methods. An OAuth2 IdP silently re-authorizes an approved app, so completing
 // it proves nothing fresh.
 func TestStepUpRefusesOAuth2ProvidersAndKeepsOIDC(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)

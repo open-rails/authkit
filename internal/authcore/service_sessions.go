@@ -83,7 +83,7 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 		return "", "", nil, errors.New("postgres not configured")
 	}
 	// Generate token
-	rt := randB64(32)
+	rt := RandB64(32)
 	hash := s.hashRefresh(rt)
 	var expPtr *time.Time
 	if s.cfg.Token.RefreshTokenDuration > 0 {
@@ -198,7 +198,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	// The rotation also seals the successor under the token it replaces (ak#274), so
 	// that a racer who presents the same predecessor an instant from now is handed
 	// THIS successor rather than a second chain of its own.
-	newTok := randB64(32)
+	newTok := RandB64(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
 		NewTokenHash:             newHash,

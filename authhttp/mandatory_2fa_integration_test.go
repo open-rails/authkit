@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
@@ -17,7 +19,7 @@ import (
 )
 
 func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
 	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
@@ -77,7 +79,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 // tied to Mode==Required for every user, not to per-role holders under
 // Optional.
 func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	bootstrapCfg := mandatory2FATestConfig()

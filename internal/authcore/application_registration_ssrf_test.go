@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ import (
 // metadata address never gets a connection. Schemes, IP literals and
 // non-public names are refused earlier and never reach the resolver.
 func TestRegisterApplicationFromDomainGuardsDialOutsideDev(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, "ssrf-kid")
 	require.NoError(t, err)

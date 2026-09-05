@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"context"
 	"crypto"
 	"sync"
 	"testing"
@@ -45,26 +44,6 @@ func newServerTestConfig() embedded.Config {
 	}
 }
 
-func newServerTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	conn, err := pool.Acquire(context.Background())
-	require.NoError(t, err)
-	_, err = conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`)
-	if err != nil {
-		conn.Release()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
-		conn.Release()
-	})
-	return pool
-}
-
 // newServerClient builds the embedded engine that a client-first NewServer wraps
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
 func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...embedded.Option) *embedded.Client {
@@ -89,7 +68,7 @@ func TestNewServer_RequiresPostgres(t *testing.T) {
 // #108: functional options are applied INSIDE the constructor (before return),
 // and #106: conditional validation rejects production without a Redis store.
 func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 
 	// Option takes effect at construction.
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
@@ -126,7 +105,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 	cfg.Registration = embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired}
 
 	// Engine built with NO email/SMS sender.
-	client := newServerClient(t, cfg, newTestPool(t))
+	client := newServerClient(t, cfg, testdb.UnlockedPool(t))
 
 	// The call under test must return an error and must NOT panic; if it panicked
 	// the test binary would crash, so reaching require.Error already proves no panic.
@@ -136,7 +115,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 	require.Contains(t, err.Error(), "no email or SMS sender")
 
 	// Wiring a sender on the engine makes the same construction succeed.
-	withSender := newServerClient(t, cfg, newTestPool(t), embedded.WithEmailSender(testEmailSender{}))
+	withSender := newServerClient(t, cfg, testdb.UnlockedPool(t), embedded.WithEmailSender(testEmailSender{}))
 	srv, err = NewServer(withSender, WithoutRateLimiter())
 	require.NoError(t, err, "Required verification with a sender must construct cleanly")
 	require.NotNil(t, srv)
@@ -154,7 +133,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 
 	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
 	// (which previously only checked the HTTP side) must now pass via reuse.
-	client := newServerClient(t, prodCfg, newTestPool(t), embedded.WithRedis(rdb))
+	client := newServerClient(t, prodCfg, testdb.UnlockedPool(t), embedded.WithRedis(rdb))
 	srv, err := NewServer(client, WithDirectPeerIP())
 	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")
 	require.NotNil(t, srv)
@@ -163,7 +142,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
 	other := testdb.ScratchRedis(t)
 	override, err := NewServer(
-		newServerClient(t, prodCfg, newTestPool(t), embedded.WithRedis(rdb)),
+		newServerClient(t, prodCfg, testdb.UnlockedPool(t), embedded.WithRedis(rdb)),
 		WithRedis(other), WithDirectPeerIP(),
 	)
 	require.NoError(t, err)
@@ -177,7 +156,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 func TestNewServer_RateLimitOverrides(t *testing.T) {
 	override := ratelimit.Limit{Limit: 3, Window: time.Minute}
 	srv, err := NewServer(
-		newServerClient(t, newServerTestConfig(), newTestPool(t)),
+		newServerClient(t, newServerTestConfig(), testdb.UnlockedPool(t)),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{RLPasswordLogin: override}),
 	)
 	require.NoError(t, err)

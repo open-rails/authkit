@@ -3,10 +3,12 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestAssignRoleBySlug_AllowsOwnerGenesis(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // mkUnlinkUser creates a user with the given provider slugs linked, and optionally
@@ -45,7 +47,7 @@ func (s *Service) providerCount(t *testing.T, ctx context.Context, userID string
 // TestUnlinkProviderUnlessLast_Guard: a password-less user with one provider cannot
 // unlink it (would strip the last login method); the row survives.
 func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google")
@@ -65,7 +67,7 @@ func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
 // TestUnlinkProviderUnlessLast_Allowed: with a password (a remaining login method),
 // the single provider can be unlinked.
 func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, true, "google")
@@ -83,7 +85,7 @@ func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
 // providers, hit by two concurrent unlinks of the DIFFERENT providers, must end up
 // with at least one login method (exactly one unlink succeeds) — the L1 lockout.
 func TestUnlinkProviderUnlessLast_ConcurrentNeverZero(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google", "github")

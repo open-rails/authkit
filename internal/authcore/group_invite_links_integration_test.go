@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // setupInviteLinkTest builds a Service with invite links ENABLED (open
@@ -13,7 +14,7 @@ import (
 // "member" role), and a single org group "acme". Returns the service + pool.
 func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpool.Pool, context.Context) {
 	t.Helper()
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invite_links`)
@@ -197,7 +198,7 @@ func TestInviteLink_GatingDisabled(t *testing.T) {
 // full owner); an unauthorized user cannot mint at all; an owner can. Mirrors
 // TestAssignRoleBySlugAs_NoEscalation_DB on the invite surface.
 func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invite_links`)

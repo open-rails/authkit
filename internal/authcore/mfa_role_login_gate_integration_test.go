@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #249 follow-up: an MFA-required role can be assigned while TwoFactor.Mode is
@@ -17,7 +19,7 @@ import (
 // (ExchangeRefreshToken), without gating anyone else, and that Mode=Disabled
 // stays completely gate-free throughout.
 func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })

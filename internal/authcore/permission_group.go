@@ -35,11 +35,6 @@ const (
 // action): a letter followed by letters/digits/hyphens.
 var segmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// instanceSlugRe admits lowercase alnum with internal hyphens/dots (#264:
-// application service-owned orgs use slug = domain); max 253, no consecutive
-// dots (checked below).
-var instanceSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
-
 func validateGroupInstanceSlug(persona, slug string) error {
 	if persona == RootPersona {
 		if slug != "" {
@@ -47,7 +42,7 @@ func validateGroupInstanceSlug(persona, slug string) error {
 		}
 		return nil
 	}
-	if len(slug) > 253 || !instanceSlugRe.MatchString(slug) || strings.Contains(slug, "..") {
+	if !validSlug(slug) {
 		return fmt.Errorf("resource slug %q must be lowercase URL-safe", slug)
 	}
 	return nil

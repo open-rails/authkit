@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +41,7 @@ func meAvailabilityFor(t *testing.T, shape meProfileShape, action string) meAvai
 }
 
 func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool)
 	srv, err := NewServer(client, WithoutRateLimiter())

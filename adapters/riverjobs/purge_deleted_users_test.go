@@ -9,32 +9,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
 )
-
-// testPG mirrors core's DB-backed test gating: it returns a pool against
-// AUTHKIT_TEST_DATABASE_URL, or skips. The schema in
-// migrations/postgres/0001_auth_schema.up.sql must already be applied.
-func testPG(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
 
 // TestPurgeCandidateSelectionBoundary verifies the purge worker's candidate
 // selection: a user whose deleted_at is older than the retention cutoff is
 // selected for purge, while one inside the retention window is not. This is the
 // security-critical boundary that decides which soft-deleted users get hard-deleted.
 func TestPurgeCandidateSelectionBoundary(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.UnlockedPool(t)
 	svc, svcErr := embedded.New(embedded.Config{
 		Token: embedded.TokenConfig{
 			Issuer:            "https://test",

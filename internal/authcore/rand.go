@@ -12,7 +12,9 @@ import (
 // Random token / code generation and a hashing helper shared across the
 // verification, reset, and pending-change flows.
 
-func randB64(n int) string {
+// RandB64 returns n random bytes as unpadded URL-safe base64: the one token
+// generator for every one-time secret the engine and the HTTP layer mint.
+func RandB64(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
@@ -56,17 +58,19 @@ func randAlphanumeric(n int) string {
 	return code
 }
 
-func sha256Hex(s string) string {
+func sha256Raw(s string) []byte {
 	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
+	return sum[:]
 }
 
-// secretHashEqual compares two sha256Hex digests of one-time secrets without
-// short-circuiting on the first differing byte. Differing lengths compare
-// unequal. Behaviourally identical to ==; the point is that whether a given
-// secret comparison is constant-time stops being a per-call-site judgement.
-// api_keys.go and the OAuth state cookie already compare this way.
-func secretHashEqual(a, b string) bool {
+func sha256Hex(s string) string { return hex.EncodeToString(sha256Raw(s)) }
+
+// SecretEqual compares two secrets — or their digests — without
+// short-circuiting on the first differing byte; differing lengths compare
+// unequal. It exists so whether a secret comparison is constant-time is never a
+// per-call-site judgement: one-time-code digests, the API-key secret and the
+// OAuth state cookie all compare through it.
+func SecretEqual[T ~string | ~[]byte](a, b T) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 

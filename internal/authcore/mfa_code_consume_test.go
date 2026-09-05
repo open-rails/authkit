@@ -69,7 +69,7 @@ func TestConsumeMFAStepUpCode_AtomicSingleUse(t *testing.T) {
 
 // Verify2FAChallenge is the third site whose digest comparison went constant-time
 // (ak#275, ae/2fa-constant-time-compare). It had no coverage at all; this pins the
-// accept/reject behaviour the switch to secretHashEqual must not change. Unlike the
+// accept/reject behaviour the switch to SecretEqual must not change. Unlike the
 // code paths above the challenge is NOT consumed on a wrong guess, so a rejected
 // attempt must leave the real challenge still redeemable.
 func TestVerify2FAChallenge_AcceptsIssuedRejectsOther(t *testing.T) {

@@ -28,7 +28,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		ttl = time.Hour
 	}
 
-	token := randB64(32)
+	token := RandB64(32)
 	hash := sha256Hex(token)
 	if err := s.createResetToken(ctx, u.ID, hash, time.Now().Add(ttl)); err != nil {
 		// Internal error, but do not reveal anything about whether user exists.
@@ -151,7 +151,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		ttl = time.Hour
 	}
 
-	token := randB64(32)
+	token := RandB64(32)
 	hash := sha256Hex(token)
 	if err := s.createResetToken(ctx, u.ID, hash, time.Now().Add(ttl)); err != nil {
 		return err

@@ -10,11 +10,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userID := mkBareUser(t, ctx, svc, "imported-solana")
@@ -104,7 +105,7 @@ func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 }
 
 func TestImportUnverifiedSolanaLinksReportsIdempotenceAndConflicts(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userA := mkBareUser(t, ctx, svc, "import-solana-a")
@@ -148,7 +149,7 @@ func TestImportUnverifiedSolanaLinksReportsIdempotenceAndConflicts(t *testing.T)
 }
 
 func TestImportedSolanaLinkCanBeUnlinkedWithoutAnotherCredential(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userID := mkBareUser(t, ctx, svc, "import-solana-unlink")
@@ -172,7 +173,7 @@ func TestImportedSolanaLinkCanBeUnlinkedWithoutAnotherCredential(t *testing.T) {
 }
 
 func TestImportedSolanaLinkCanLoginOnlyAfterValidSIWSProof(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, "solana-import-test")
 	if err != nil {

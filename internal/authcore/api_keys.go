@@ -3,8 +3,6 @@ package authcore
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"math/big"
 	"strings"
@@ -60,11 +58,6 @@ func randBase62(n int) (string, error) {
 		out[i] = base62Alphabet[idx.Int64()]
 	}
 	return string(out), nil
-}
-
-func sha256Raw(s string) []byte {
-	sum := sha256.Sum256([]byte(s))
-	return sum[:]
 }
 
 // APIKey is the non-secret metadata view of an API key. The secret is never
@@ -337,8 +330,7 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 		return ResolvedAPIKey{}, err
 	}
 
-	// Constant-time secret comparison.
-	if subtle.ConstantTimeCompare(secretHash, sha256Raw(secret)) != 1 {
+	if !SecretEqual(secretHash, sha256Raw(secret)) {
 		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
 	if revokedAt != nil {

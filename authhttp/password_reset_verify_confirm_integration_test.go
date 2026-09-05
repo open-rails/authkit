@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
@@ -179,7 +180,7 @@ func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
 }
 
 func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeralStore) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
@@ -232,7 +233,7 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 }
 
 func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender)), WithoutRateLimiter())
@@ -290,7 +291,7 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 }
 
 func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
@@ -337,7 +338,7 @@ func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
 }
 
 func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
@@ -388,7 +389,7 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 }
 
 func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}

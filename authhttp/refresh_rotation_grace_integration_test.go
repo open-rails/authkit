@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testclock"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,7 +46,7 @@ type graceHarness struct {
 
 func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Token.RefreshRotationGrace = grace
 	// Wall-following: the rotation timestamp the window is measured against is

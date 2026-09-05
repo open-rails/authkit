@@ -134,7 +134,7 @@ func TestParseBootstrapManifestExample(t *testing.T) {
 }
 
 func TestApplyBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -193,7 +193,7 @@ func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {
 // #136: the bootstrap apex is seeded as a root permission-group OWNER (root:*),
 // seed-if-absent; reconcile is idempotent.
 func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -243,7 +243,7 @@ func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
 }
 
 func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://auth.example"}}, Keyset{}, WithPostgres(pool))
 
@@ -294,7 +294,7 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 }
 
 func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -348,7 +348,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 }
 
 func TestApplyBootstrapManifestFileLoadsAndAppliesYAML(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

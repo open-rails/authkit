@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
@@ -72,7 +73,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 }
 
 func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_membership_invites`)
@@ -139,7 +140,7 @@ func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 // a user without usable 2FA cannot establish or refresh a session until they enroll,
 // independent of any per-role RequiresMFA.
 func TestRequireMFAEnrollmentForcesEnrollment(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	user := insertBareUser(t, pool)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.refresh_sessions WHERE user_id=$1::uuid`, user) })

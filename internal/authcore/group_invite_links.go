@@ -17,10 +17,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	authkit "github.com/open-rails/authkit"
 	"net/url"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
 
 	"github.com/jackc/pgx/v5"
 
@@ -137,7 +138,7 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
 
-	code := randB64(32)
+	code := RandB64(32)
 	codeHash := sha256Hex(code)
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string

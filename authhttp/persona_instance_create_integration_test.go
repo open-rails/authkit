@@ -19,6 +19,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +55,7 @@ func instanceCreateTestConfig() embedded.Config {
 
 func newInstanceCreateServer(t *testing.T, opts ...Option) (*Service, *embedded.Client) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, instanceCreateTestConfig(), pool)
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
@@ -223,7 +224,7 @@ func TestInstanceCreate_VelocityLimits(t *testing.T) {
 }
 
 func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	refuse := errors.New("payment required")
 	var refusedSubject string

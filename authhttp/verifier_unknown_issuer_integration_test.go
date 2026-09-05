@@ -14,6 +14,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -23,7 +24,7 @@ import (
 // per-issuer verifier state.
 func TestVerifier_UnknownIssuerFlood_BoundedStoreLoad(t *testing.T) {
 	counter := newQueryCounter("RemoteApplicationsEnabled", "RemoteApplicationByIssuer")
-	pool := newTracedServerTestPool(t, counter)
+	pool := testdb.PoolWithTracer(t, counter)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "garbage-kid")
@@ -61,7 +62,7 @@ func TestVerifier_UnknownIssuerFlood_BoundedStoreLoad(t *testing.T) {
 // snapshot was taken becomes visible within one snapshot TTL, and registration
 // refuses an issuer the verifier would never consult the store for.
 func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
 	srv, err := NewServer(client)

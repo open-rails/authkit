@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestIssueRefreshSession_CapHoldsUnderConcurrency: with SessionMaxPerUser=N, firing
@@ -12,7 +14,7 @@ import (
 // count==N, evicted the same one oldest, and inserted), so the user could exceed the
 // cap; the per-user advisory lock + single transaction make the cap an invariant.
 func TestIssueRefreshSession_CapHoldsUnderConcurrency(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ks := testKeySource(t)
 	const maxSessions = 3
 	svc, err := NewFromConfig(Config{

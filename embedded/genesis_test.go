@@ -7,22 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
-
-func newGenesisTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	return pool
-}
 
 // testKeys builds explicit signing keys (no dev-key generation, nothing
 // persisted under the package directory).
@@ -39,7 +29,7 @@ func newGenesisTestClient(t *testing.T) *Client {
 		Keys:         testKeys(t),
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
 		Registration: RegistrationConfig{Verification: RegistrationVerificationNone},
-	}, newGenesisTestPool(t))
+	}, testdb.UnlockedPool(t))
 	require.NoError(t, err)
 	return client
 }

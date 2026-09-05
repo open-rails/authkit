@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestUserProfileLinks verifies the service method that GET /me now uses (instead of
 // a raw db handle in the HTTP layer) returns the user's linked provider slugs and
 // username aliases — the data the /me response maps to linked_providers/user_aliases.
 func TestUserProfileLinks(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

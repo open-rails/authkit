@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestRBACDriftReportCountsOrphanedAuthorityRows(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))

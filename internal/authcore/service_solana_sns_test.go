@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestNormalizeSolanaSNSName(t *testing.T) {
@@ -88,7 +89,7 @@ func TestDefaultSolanaSNSResolverIgnoresStaleFavorite(t *testing.T) {
 }
 
 func TestSolanaSNSResolveAndStore(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
@@ -122,7 +123,7 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 }
 
 func TestSolanaSNSUsesFreshCache(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
@@ -156,7 +157,7 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 }
 
 func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
@@ -208,7 +209,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 }
 
 func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address

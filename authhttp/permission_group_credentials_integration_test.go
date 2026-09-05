@@ -3,16 +3,18 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit/verify"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,7 +47,7 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 
 func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool, opts...)
@@ -63,7 +65,7 @@ func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Serv
 
 func newInviteOnlyCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	cfg := credTestConfig()

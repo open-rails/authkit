@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ import (
 // harness, so rollback atomicity is reasoned from the code: all three writes run on
 // one pgx.Tx; any write error returns before Commit and the deferred Rollback fires.
 func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -46,7 +47,7 @@ func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 // the user row, password row, and phone-verified flag as a single atomic operation.
 // Same happy-path scope and rollback reasoning as the email case.
 func TestCreatePhoneRegistrationUserAtomic(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

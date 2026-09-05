@@ -3,7 +3,6 @@ package authhttp
 import (
 	"context"
 	"crypto"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -11,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/jwtkit"
@@ -155,7 +157,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
+	svc, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 
 	h := svc.apiHandler()
@@ -182,7 +184,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Opt-out: disabling limiter should never rate limit.
-	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
+	svc, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h = svc.apiHandler()
 	for i := 0; i < 50; i++ {
@@ -195,7 +197,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Private Docker/proxy peers are rate-limited by default instead of failing open.
-	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
+	svc, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {
@@ -219,7 +221,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
-	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
+	svc, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {
@@ -243,7 +245,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	// When behind a trusted proxy, accept forwarded headers and enforce limits on the client IP.
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted, nil)))
+	svc, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted, nil)))
 	require.NoError(t, err)
 	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {

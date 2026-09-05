@@ -8,11 +8,12 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	for _, sameMethod := range []bool{false, true} {

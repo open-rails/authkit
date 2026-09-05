@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func getWithToken(t *testing.T, url, token string) (int, string) {
 }
 
 func TestRequiredLive_GateAndFreshness_DB(t *testing.T) {
-	pool := newServerTestPool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
+	pool := testdb.Pool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
 	ctx := context.Background()
 	svc, ver := newLivenessTestEngine(t, pool, "https://liveness-gate.example.com")
 	ver.WithLiveness(svc)
@@ -174,7 +175,7 @@ func (errLiveness) UserLivenessByIDs(context.Context, []string) (map[string]auth
 }
 
 func TestRequiredLive_FailsClosedOnLookupError_DB(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc, ver := newLivenessTestEngine(t, pool, "https://liveness-failclosed.example.com")
 
@@ -215,7 +216,7 @@ func TestRequiredLive_RefusesToBuildWithoutLivenessSource(t *testing.T) {
 // #267's composition requirement: "live AND permitted" is one library call, so a
 // host cannot get the two gates out of order or ship only half of them.
 func TestAllowLive_DeniesBannedUserWhoStillHoldsThePermission_DB(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc, ver := newLivenessTestEngine(t, pool, "https://allowlive.example.com")
 	ver.WithLiveness(svc)

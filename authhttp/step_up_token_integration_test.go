@@ -3,10 +3,12 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"testing"
 	"time"
+
+	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
@@ -15,7 +17,7 @@ import (
 
 func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
@@ -57,7 +59,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 // assurance, so a later MFA-required step-up gate still passes.
 func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
@@ -92,7 +94,7 @@ func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 }
 
 func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
@@ -145,7 +147,7 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 }
 
 func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
@@ -267,7 +269,7 @@ func requireStepUp2FAOptions(t *testing.T, got stepUpOptionsTestShape, methods [
 // so the stateless Sensitive() gate can require 2FA from enrolled users without a DB call.
 func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 

@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 )
 
 // importTestService builds a DB-backed Service for ImportUsers tests. Skips
-// without AUTHKIT_TEST_DATABASE_URL (via testPG).
+// without AUTHKIT_TEST_DATABASE_URL (via testdb.Pool).
 func importTestService(t *testing.T) (*Service, context.Context) {
 	t.Helper()
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	return mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool)), context.Background()
 }
 

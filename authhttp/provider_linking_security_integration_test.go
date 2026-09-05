@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -110,7 +111,7 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 	for _, kind := range []string{"oidc", "oauth2"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			pool := newServerTestPool(t)
+			pool := testdb.Pool(t)
 			settings := newServerTestConfig()
 			settings.SolanaNetwork = "devnet"
 			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
@@ -157,7 +158,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 	for _, kind := range []string{"oidc", "oauth2"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			pool := newServerTestPool(t)
+			pool := testdb.Pool(t)
 			sender := &captureEmailSender{}
 			srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
 			require.NoError(t, err)
@@ -210,7 +211,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 	for _, kind := range []string{"oidc", "oauth2"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			pool := newServerTestPool(t)
+			pool := testdb.Pool(t)
 			settings := newServerTestConfig()
 			settings.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
 			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
@@ -242,7 +243,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 
 func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	settings := newServerTestConfig()
 	settings.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	settings.SolanaNetwork = "devnet"

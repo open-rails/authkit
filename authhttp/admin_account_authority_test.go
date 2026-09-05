@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ import (
 // privileged account), while peers and ordinary users stay reachable and the
 // owner keeps full reach. Real admin handlers, real permission-group store.
 func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	s := newAdminServiceWithRoles(t, pool, authcore.RoleDef{Name: "operator", Permissions: authcore.IntrinsicRootPermissions()})
 

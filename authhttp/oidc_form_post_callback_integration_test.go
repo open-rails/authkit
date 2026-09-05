@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #295: a response_mode=form_post provider (Apple) returns code/state as a
@@ -20,7 +21,7 @@ import (
 // every other provider on the Lax cookie.
 func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Frontend.BaseURL = "https://auth.example"
 	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
@@ -121,19 +122,19 @@ func TestNewServerRefusesFormPostWithoutHTTPS(t *testing.T) {
 	// Explicit http BaseURL.
 	cfg := base()
 	cfg.Frontend.BaseURL = "http://auth.example"
-	_, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
+	_, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	// BaseURL defaulted from an http issuer.
 	cfg = base()
 	cfg.Token.Issuer = "http://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
+	_, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	cfg = base()
 	cfg.Frontend.BaseURL = "https://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
+	_, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 }

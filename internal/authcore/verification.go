@@ -73,7 +73,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	}
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
+	linkToken := RandB64(32)
 	linkTokenHash := sha256Hex(linkToken)
 	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
 		return err
@@ -212,7 +212,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 	// Generate a numeric code for manual entry + a high-entropy link token.
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
+	linkToken := RandB64(32)
 	linkHash := sha256Hex(linkToken)
 	if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, ttl); err != nil {
 		return err

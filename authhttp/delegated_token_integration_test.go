@@ -31,6 +31,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -174,7 +175,7 @@ func callResource(t *testing.T, client *http.Client, url, token string, headers 
 }
 
 func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
@@ -452,7 +453,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 }
 
 func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
