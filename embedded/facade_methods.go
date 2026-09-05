@@ -155,14 +155,6 @@ func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 	return s.impl.UserLivenessByIDs(ctx, ids)
 }
 
-func (s *Client) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
-	return s.impl.GetUserMetadata(ctx, userID)
-}
-
-func (s *Client) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
-	return s.impl.PatchUserMetadata(ctx, userID, patch)
-}
-
 func (s *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
 	return s.impl.UpdateAvatarURL(ctx, id, avatarURL)
 }
