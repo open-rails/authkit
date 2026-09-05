@@ -15,7 +15,7 @@ func TestResolvedGroupContextKeepsEmbeddedMutationsOnAuthorizedUUID(t *testing.T
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
 	zero := time.Duration(0)
-	client, err := embedded.New(embedded.Config{Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}, Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}, RBAC: []embedded.PersonaDef{{Name: "merchant", Parent: embedded.RootPersona, Capabilities: embedded.PersonaCapabilities{APIKeys: true}, Roles: []embedded.RoleDef{{Name: "reader", Permissions: []string{"merchant:catalog:read"}}}}}}, embedded.Deps{Postgres: pg.Pool})
+	client, err := embedded.New(embedded.Config{Ephemeral: embedded.EphemeralConfig{AllowMemory: true}, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}, Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}, RBAC: []embedded.PersonaDef{{Name: "merchant", Parent: embedded.RootPersona, Capabilities: embedded.PersonaCapabilities{APIKeys: true}, Roles: []embedded.RoleDef{{Name: "reader", Permissions: []string{"merchant:catalog:read"}}}}}}, embedded.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	_, err = client.EnsureRootGroup(ctx)

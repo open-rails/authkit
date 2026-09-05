@@ -15,7 +15,7 @@ import (
 // background, so buckets for keys that never return are reclaimed after their
 // window; Close stops the sweep.
 func TestNewServer_MemoryLimiterSweepsIdleBuckets(t *testing.T) {
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), testdb.Pool(t)),
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), testdb.Pool(t)),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{"login": {Limit: 5, Window: 20 * time.Millisecond}}),
 		withMemoryLimiterSweep(10*time.Millisecond))
 	require.NoError(t, err)

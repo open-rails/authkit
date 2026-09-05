@@ -114,7 +114,7 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 			pool := testdb.Pool(t)
 			settings := newServerTestConfig()
 			settings.SolanaNetwork = "devnet"
-			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
+			srv, err := newServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			userID, stale := stalePasswordUserToken(t, srv, pool, "link-guard", "Correct-password-12345")
@@ -160,7 +160,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			ctx := context.Background()
 			pool := testdb.Pool(t)
 			sender := &captureEmailSender{}
-			srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
+			srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			email := uniqueEmail("unverified-provider")
@@ -214,7 +214,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 			pool := testdb.Pool(t)
 			settings := newServerTestConfig()
 			settings.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
-			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
+			srv, err := newServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			identity := providerTestIdentity{Subject: "invite-user-" + uniqueSuffix(), Email: uniqueEmail("unverified-invite")}
@@ -247,7 +247,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	settings := newServerTestConfig()
 	settings.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	settings.SolanaNetwork = "devnet"
-	srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	cfg := newSecurityTestProvider(t, srv, false)
 	userID, _ := stalePasswordUserToken(t, srv, pool, "provider-mfa", "Correct-password-12345")

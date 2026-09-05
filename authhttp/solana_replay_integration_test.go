@@ -31,7 +31,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	cfg := newServerTestConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*
 	opts := append(store.engineOpts(), withSolanaSNSResolver(noSNSResolver{}))
-	srv, err := NewServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)

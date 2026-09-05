@@ -24,7 +24,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("totp-http")
@@ -96,7 +96,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("multi-2fa")

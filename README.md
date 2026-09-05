@@ -157,22 +157,22 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 		SolanaNetwork: "mainnet",
 	}
 
-	// One call builds the embedded engine AND the HTTP transport over it.
-	// Engine dependencies (Redis, senders, entitlements, …) ride in via WithEngine.
-	srv, client, err := authhttp.New(cfg, pg,
-		authhttp.WithEngine(embedded.WithRedis(rdb), embedded.WithEmailSender(mailer)),
+	// The engine takes its runtime dependencies as one Deps value; the HTTP
+	// transport over it takes one Config.
+	client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	srv, err := authhttp.New(client, authhttp.Config{
 		// Trust X-Forwarded-For only from infrastructure that appends it. Add
-		// WithCloudflareProxies(<Cloudflare egress CIDRs>) ONLY where Cloudflare
+		// CloudflareProxies (<Cloudflare egress CIDRs>) ONLY where Cloudflare
 		// fronts the origin; CF-Connecting-IP is never trusted from other proxies.
-		// Production-like environments REQUIRE an IP posture: one of these, or
-		// WithDirectPeerIP() when nothing sits in front (otherwise every client
-		// behind an undeclared proxy shares one rate-limit bucket).
-		authhttp.WithTrustedProxies("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"),
-		authhttp.WithLanguageConfig(authhttp.LanguageConfig{
-			Supported: []string{"en", "es"},
-			Default:   "en",
-		}),
-	)
+		// A client-IP posture is REQUIRED: one of these, or DirectPeerIP when
+		// nothing sits in front (otherwise every client behind an undeclared
+		// proxy shares one rate-limit bucket).
+		TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+		Languages:      authhttp.LanguageConfig{Supported: []string{"en", "es"}, Default: "en"},
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -318,15 +318,18 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 This exposes AuthKit routes such as `/api/v1/token`, `/api/v1/me`, and
 `/.well-known/jwks.json`.
 
-Redis is passed once, on the engine (`embedded.WithRedis`); the HTTP layer
-adopts it automatically (#210) — `authhttp.WithRedis` is only an override.
+Redis is passed once, on the engine (`embedded.Deps.Redis`); the HTTP layer
+adopts it automatically (#210) — `authhttp.Config.Redis` is only an override.
 
-Two-step construction: hosts that need to hold or decorate the engine
-separately build it first, then wrap it:
+Every dev-only behaviour is an explicit config field with the safe default —
+`Keys.AllowEphemeralDevKeys`, `Ephemeral.AllowMemory` (required when no Redis
+is wired), `Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`
+— and `authhttp.Config` always needs a client-IP posture. The library has no
+environment notion; a binary maps its own env onto these fields.
 
 ```go
-client, err := embedded.New(cfg, pg, embedded.WithRedis(rdb), embedded.WithEmailSender(mailer))
-srv, err := authhttp.NewServer(client, authhttp.WithTrustedProxies("10.0.0.0/8"))
+client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
+srv, err := authhttp.New(client, authhttp.Config{TrustedProxies: []string{"10.0.0.0/8"}})
 ```
 
 The returned `client` is the host's `authkit.Client` for in-process operations.
@@ -633,7 +636,7 @@ docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
     Issuer: cfg.Token.Issuer, Audiences: cfg.Delegated.Audiences,
     Signer: client, Store: client.DocumentStore(),
 })
-srv, err := authhttp.NewServer(client, authhttp.WithDocuments(docSvc))
+srv, err := authhttp.New(client, authhttp.Config{Documents: []authhttp.DocumentProvider{docSvc}, DirectPeerIP: true})
 ```
 
 `MountHandler` then serves `GET|HEAD /.well-known/authkit/documents/{digest}`
@@ -646,7 +649,7 @@ providers/readers mismatch refuses at boot.
 
 `POST /delegated/token` (`RouteDelegated`, mounted when
 `Config.Delegated.Audiences` is set; construction refuses the route without
-`embedded.WithDelegatedAuthorization`) mints certificate-bound delegated tokens
+`embedded.Deps.DelegatedAuthorization`) mints certificate-bound delegated tokens
 (RFC 8705, ak#277) for the authenticated user:
 
 ```json
@@ -671,13 +674,13 @@ delegated token still carries a fresh uuidv7 `jti` (ak#270). Host semantics
 enter through ONE seam:
 
 ```go
-embedded.WithDelegatedAuthorization(func(ctx context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+deps.DelegatedAuthorization = func(ctx context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
     // req: UserID, clamped Audiences/TTL, DelegateCertificate (+ its SHA-256), RequestedGrant.
     if !policy.MayDelegate(ctx, req.UserID, req.RequestedGrant) {
         return authkit.DelegationGrant{}, authkit.ErrDelegationRefused // 403 delegation_refused; any other error is 503
     }
     return authkit.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"entitlement": tier}}, nil
-})
+}
 ```
 
 The delegate presents the token as a normal bearer over mTLS. `verify.Required`,
@@ -718,7 +721,7 @@ Re-registering the same domain is idempotent: it re-proves the root and
 refreshes issuer/keys/config from the re-fetched document (the boot-time
 self-heal); the slug is never changed by a refresh. Per-IP and per-domain
 rate limits apply (`application_register` bucket);
-`embedded.WithApplicationAdmission` injects a host admission predicate — cost
+`embedded.Deps.ApplicationAdmission` injects a host admission predicate — cost
 gates (allowances, card-on-file) are the host's, anti-spam velocity caps are
 authkit's.
 

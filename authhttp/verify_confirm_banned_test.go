@@ -17,7 +17,7 @@ func TestPhoneVerifyConfirm_BannedUserGets401(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	phone := uniquePhone()

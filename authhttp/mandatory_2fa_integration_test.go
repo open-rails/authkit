@@ -22,7 +22,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)
@@ -84,7 +84,7 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 
 	bootstrapCfg := mandatory2FATestConfig()
 	bootstrapCfg.TwoFactor = embedded.TwoFactorConfig{Mode: embedded.TwoFactorDisabled}
-	bootstrapSrv, err := NewServer(newServerClient(t, bootstrapCfg, pool), WithoutRateLimiter())
+	bootstrapSrv, err := newServer(newServerClient(t, bootstrapCfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, bootstrapSrv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = bootstrapSrv.svc.EnsureRootGroup(ctx)
@@ -108,7 +108,7 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 	// The host re-enables 2FA (Mode: Optional). A fresh server sharing the
 	// same DB state models a config-only redeploy: Mode is read fresh on
 	// every request, so nothing above is mutated by the flip.
-	optionalSrv, err := NewServer(newServerClient(t, mandatory2FATestConfig(), pool), WithoutRateLimiter())
+	optionalSrv, err := newServer(newServerClient(t, mandatory2FATestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	w = login(t, optionalSrv, "mfa-gate-role-disabled", unenrolledID)
@@ -124,6 +124,7 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 
 func mandatory2FATestConfig() embedded.Config {
 	cfg := newServerTestConfig()
+	cfg.Registration.AllowMissingSenders = true // 2FA codes are read from the engine, not delivered
 	cfg.RBAC = []embedded.PersonaDef{{
 		Name: embedded.RootPersona,
 		Roles: []embedded.RoleDef{{

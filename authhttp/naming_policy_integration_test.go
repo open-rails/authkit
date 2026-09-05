@@ -32,7 +32,7 @@ func namingHTTPServer(t *testing.T, policy authkit.NamingConfig, opts ...coreOpt
 	require.NoError(t, client.SeedPermissionGroupContainment(context.Background()))
 	_, err = client.EnsureRootGroup(context.Background())
 	require.NoError(t, err)
-	srv, err := NewServer(client, WithoutRateLimiter())
+	srv, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, client, func(now time.Time) { clock.Store(now.UnixMicro()) }
 }

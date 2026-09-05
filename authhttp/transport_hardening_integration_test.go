@@ -28,7 +28,7 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
-	srv, err := NewServer(client)
+	srv, err := newServer(client)
 	require.NoError(t, err)
 	core := embedded.Unwrap(client)
 	gid, err := core.EnsureRootGroup(ctx)
@@ -67,7 +67,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 	cfg.Frontend.BaseURL = "https://app.example/"
 	cfg.Frontend.VerifyPath = "/verify"
 	cfg.Frontend.PasswordResetPath = "/reset"
-	srv, err := NewServer(newServerClient(t, cfg, testdb.Pool(t)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, testdb.Pool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h := srv.apiHandler()
 
@@ -93,7 +93,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 	pool := testdb.Pool(t)
 	rdb := testdb.ScratchRedis(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withRedis(rdb)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withRedis(rdb)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	w := serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"nobody@example.com","code":"000000"}`)
@@ -120,7 +120,7 @@ func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	srv, err := NewServer(
+	srv, err := newServer(
 		newServerClient(t, newServerTestConfig(), pool, withEmailSender(&captureEmailSender{}), withSMSSender(&captureSMSSender{})),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{
 			RLVerifyRequest: {Limit: 100, Window: time.Hour},
@@ -166,7 +166,7 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 func TestMountAnchorsMFAEnrollmentExemptRoutes(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	mounted, err := MountHandler(srv, MountOptions{APIPrefix: "/api/v1"})
 	require.NoError(t, err)

@@ -17,7 +17,7 @@ func TestEmailVerifyConfirm_CodeIsEmailScoped(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	victim := uniqueEmail("f1-victim")

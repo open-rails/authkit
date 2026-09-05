@@ -26,7 +26,7 @@ func newPerIdentifierTestService(t *testing.T) *Service {
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
 	}
-	svc, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
+	svc, err := newServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 	return svc
 }

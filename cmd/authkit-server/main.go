@@ -329,24 +329,11 @@ func run() error {
 	}
 
 	deps := embedded.Deps{Postgres: pg, Redis: rdb}
-	var httpOpts []authhttp.Option
-	if rdb != nil {
-		httpOpts = append(httpOpts, authhttp.WithRedis(rdb))
-	}
-	if len(cfg.trustedProxies) > 0 {
-		httpOpts = append(httpOpts, authhttp.WithTrustedProxies(cfg.trustedProxies...))
-	}
-	if len(cfg.cloudflareProxies) > 0 {
-		httpOpts = append(httpOpts, authhttp.WithCloudflareProxies(cfg.cloudflareProxies...))
-	}
-	if cfg.directPeerIP || (devMode && len(cfg.trustedProxies) == 0 && len(cfg.cloudflareProxies) == 0) {
-		httpOpts = append(httpOpts, authhttp.WithDirectPeerIP())
-	}
-	if len(cfg.languages) > 0 || cfg.defaultLanguage != "" {
-		httpOpts = append(httpOpts, authhttp.WithLanguageConfig(authhttp.LanguageConfig{
-			Supported: cfg.languages,
-			Default:   cfg.defaultLanguage,
-		}))
+	httpCfg := authhttp.Config{
+		TrustedProxies:    cfg.trustedProxies,
+		CloudflareProxies: cfg.cloudflareProxies,
+		DirectPeerIP:      cfg.directPeerIP || (devMode && len(cfg.trustedProxies) == 0 && len(cfg.cloudflareProxies) == 0),
+		Languages:         authhttp.LanguageConfig{Supported: cfg.languages, Default: cfg.defaultLanguage},
 	}
 	if devMode && manifest != nil && len(manifest.Dev.StaticEntitlements) > 0 {
 		deps.Entitlements = staticDevEntitlements{names: manifest.Dev.StaticEntitlements}
@@ -374,7 +361,7 @@ func run() error {
 		}
 	}
 
-	svc, err := authhttp.NewServer(client, httpOpts...)
+	svc, err := authhttp.New(client, httpCfg)
 	if err != nil {
 		return fmt.Errorf("build authkit http server: %w", err)
 	}

@@ -31,17 +31,6 @@ type DocumentProvider interface {
 	EnsureSigningKID(ctx context.Context, tokenKID string) error
 }
 
-// WithDocuments wires published-document providers (normally *documents.Service
-// values) into the HTTP layer: MountHandler serves their documents at
-// GET|HEAD /.well-known/authkit/documents/{digest} (RouteDocuments), and the
-// delegated-token mint route stamps and KID-reconciles their digests (#261).
-// Requires Config.Documents.Readers — NewServer refuses providers with no
-// authorized readers (publication is never public) and reader slugs with no
-// providers (dead config).
-func WithDocuments(providers ...DocumentProvider) Option {
-	return func(s *Service) { s.documentProviders = append(s.documentProviders, providers...) }
-}
-
 // documentsHandler builds the publication handler over every wired provider.
 // Authorization: the request must verify as a remote application pinned by
 // Config.Documents.Readers (id, proven domain, or root-registered issuer —

@@ -21,7 +21,7 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 		ctx := context.Background()
 		emailSender := &captureEmailSender{}
 		opts := append(store.engineOpts(), withEmailSender(emailSender))
-		srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
+		srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 		require.NoError(t, err)
 
 		newVerification := func(prefix string) (email, code string) {

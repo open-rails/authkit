@@ -44,7 +44,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool)
-	srv, err := NewServer(client, WithoutRateLimiter())
+	srv, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("profile-surface")

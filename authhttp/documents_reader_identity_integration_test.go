@@ -93,7 +93,7 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 		t.Cleanup(func() {
 			_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 		})
-		srv, err := NewServer(client, WithDocuments(docSvc))
+		srv, err := newServer(client, WithDocuments(docSvc))
 		require.NoError(t, err)
 		h, err := MountHandler(srv, MountOptions{})
 		require.NoError(t, err)

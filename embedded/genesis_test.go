@@ -29,6 +29,7 @@ func newGenesisTestClient(t *testing.T) *Client {
 		Keys:         testKeys(t),
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
 		Registration: RegistrationConfig{Verification: RegistrationVerificationNone},
+		Ephemeral:    EphemeralConfig{AllowMemory: true},
 	}, Deps{Postgres: testdb.UnlockedPool(t)})
 	require.NoError(t, err)
 	return client

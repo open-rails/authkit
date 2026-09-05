@@ -212,7 +212,7 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 }
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
-	s, err := NewServer(newServerClient(t, embedded.Config{
+	s, err := newServer(newServerClient(t, embedded.Config{
 		Keys: testKeys(),
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",

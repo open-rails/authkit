@@ -14,7 +14,7 @@ import (
 func newPhoneVerifyTestService(t *testing.T) *Service {
 	t.Helper()
 	return mustNewService(t,
-		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
+		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}},
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
 	)

@@ -52,7 +52,7 @@ func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts
 	require.NoError(t, err)
 	sender := &captureEmailSender{}
 	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
-	srv, err := NewServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, sender
 }
@@ -529,7 +529,7 @@ func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
 	require.Equal(t, "hub_v2", searchPath)
 
 	sender := &captureEmailSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
 	require.NoError(t, err)
 	email := uniqueEmail("device-key-search-path")
 	publicKey, privateKey := newDeviceKey(t)

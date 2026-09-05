@@ -17,7 +17,7 @@ import (
 func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-password")
@@ -59,7 +59,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-nodowngrade")
@@ -97,7 +97,7 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-totp")
@@ -150,7 +150,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-options")
@@ -269,7 +269,7 @@ func requireStepUp2FAOptions(t *testing.T, got stepUpOptionsTestShape, methods [
 func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("mfa-enrolled"), "mfaenrolled"+uniqueSuffix())

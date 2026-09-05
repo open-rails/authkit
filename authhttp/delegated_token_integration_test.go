@@ -216,7 +216,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 	})
-	srv, err := NewServer(client, WithDocuments(docSvc))
+	srv, err := newServer(client, WithDocuments(docSvc))
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)
@@ -440,13 +440,13 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// an authorizer without a route is dead wiring.
 	noAuthorizer := newServerTestConfig()
 	noAuthorizer.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
-	_, err = NewServer(newServerClient(t, noAuthorizer, pool))
-	require.ErrorContains(t, err, "WithDelegatedAuthorization")
-	_, err = NewServer(newServerClient(t, newServerTestConfig(), pool, withDelegatedAuthorization(authorizer)))
+	_, err = newServer(newServerClient(t, noAuthorizer, pool))
+	require.ErrorContains(t, err, "Deps.DelegatedAuthorization")
+	_, err = newServer(newServerClient(t, newServerTestConfig(), pool, withDelegatedAuthorization(authorizer)))
 	require.ErrorContains(t, err, "Delegated.Audiences is empty")
 
 	// A server with no Delegated config does not mount the route at all.
-	bare, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
+	bare, err := newServer(newServerClient(t, newServerTestConfig(), pool))
 	require.NoError(t, err)
 	bareHandler, err := MountHandler(bare, MountOptions{})
 	require.NoError(t, err)
@@ -481,7 +481,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, digest)
 	})
-	srv, err := NewServer(client, WithDocuments(docSvc))
+	srv, err := newServer(client, WithDocuments(docSvc))
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)

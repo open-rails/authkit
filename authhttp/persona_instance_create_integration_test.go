@@ -61,7 +61,7 @@ func newInstanceCreateServer(t *testing.T, opts ...Option) (*Service, *embedded.
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	_, err := client.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	srv, err := NewServer(client, opts...)
+	srv, err := newServer(client, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona = 'org'`)
@@ -247,7 +247,7 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	_, err := client.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	srv, err := NewServer(client, WithoutRateLimiter())
+	srv, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona = 'org'`)

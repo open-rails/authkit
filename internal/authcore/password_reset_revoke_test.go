@@ -25,7 +25,8 @@ func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 			IssuedAudiences:   []string{"app"},
 			ExpectedAudiences: []string{"app"},
 		},
-		Keys: KeysConfig{Source: ks},
+		Keys:      KeysConfig{Source: ks},
+		Ephemeral: EphemeralConfig{AllowMemory: true},
 	}, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)

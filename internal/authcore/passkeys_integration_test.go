@@ -30,6 +30,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 			RPDisplayName: "Example",
 			Origins:       []string{"https://example.org"},
 		},
+		Ephemeral: EphemeralConfig{AllowMemory: true},
 	}
 	svc, err := newFromConfig(cfg, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {

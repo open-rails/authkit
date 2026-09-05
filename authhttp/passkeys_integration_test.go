@@ -34,7 +34,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 		Origins:          []string{"https://example.com"},
 		UserVerification: "preferred",
 	}
-	srv, err := NewServer(newServerClient(t, cfg, pool, store.engineOpts()...), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, store.engineOpts()...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
@@ -142,7 +142,7 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 		RPDisplayName: "Example",
 		Origins:       []string{"https://example.com"},
 	}
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-mgmt"), "passkeymgmt"+uniqueSuffix())

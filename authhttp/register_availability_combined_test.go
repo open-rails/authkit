@@ -33,7 +33,7 @@ func TestRegisterAvailability_CombinedUsernameAndEmailSingleQuery(t *testing.T) 
 	counter := newQueryCounter("UserEmailOrUsernameTaken")
 	pool := testdb.PoolWithTracer(t, counter)
 	ctx := context.Background()
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	takenEmail := uniqueEmail("avail-taken")

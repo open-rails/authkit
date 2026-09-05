@@ -19,7 +19,7 @@ import (
 func TestStepUpRefusesOAuth2ProvidersAndKeepsOIDC(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

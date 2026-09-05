@@ -21,7 +21,7 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
 	sender := &captureEmailSender{}
 	opts := append(store.engineOpts(), withEmailSender(sender))
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email, pass := newCookieTestUser(t, pool, srv, "email-change")

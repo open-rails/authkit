@@ -15,7 +15,7 @@ func TestRegisterInviteOnlyRequiresAndConsumesAccountInvite(t *testing.T) {
 	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("register-invite")

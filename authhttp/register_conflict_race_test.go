@@ -14,7 +14,7 @@ import (
 // and typed username_in_use refusals for the rest — never a 500 from the raw
 // unique violation the check-then-insert race loser used to surface.
 func TestRegisterConcurrentSameUsernameIsTyped(t *testing.T) {
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), testdb.Pool(t)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), testdb.Pool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 
