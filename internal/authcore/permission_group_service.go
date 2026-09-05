@@ -373,7 +373,11 @@ func (s *Service) DeletePermissionGroup(ctx context.Context, persona, instanceSl
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
-	gid, err := st.GroupByLiveInstanceSlug(ctx, persona, strings.TrimSpace(instanceSlug))
+	reference := strings.TrimSpace(instanceSlug)
+	gid, bound, err := st.requestGroupID(ctx, persona, reference)
+	if !bound {
+		gid, err = st.GroupByLiveInstanceSlug(ctx, persona, reference)
+	}
 	if err != nil {
 		return err
 	}

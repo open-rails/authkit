@@ -20,14 +20,14 @@ const (
 // distinguish omission (defaults) from explicit false/zero. Durations use Go's
 // time.Duration in embedded configuration; the standalone boundary parses text.
 type NamingConfig struct {
-	Enabled        *bool                     `json:"enabled,omitempty"`
-	RenameInterval *time.Duration            `json:"rename_interval,omitempty"`
-	FormerNames    FormerNameRetentionConfig `json:"former_names,omitempty"`
+	Enabled        *bool                     `json:"enabled,omitempty" koanf:"enabled"`
+	RenameInterval *time.Duration            `json:"rename_interval,omitempty" koanf:"rename_interval"`
+	FormerNames    FormerNameRetentionConfig `json:"former_names,omitempty" koanf:"former_names"`
 }
 
 type FormerNameRetentionConfig struct {
-	Mode     FormerNameRetentionMode `json:"mode,omitempty"`
-	Duration *time.Duration          `json:"duration,omitempty"`
+	Mode     FormerNameRetentionMode `json:"mode,omitempty" koanf:"mode"`
+	Duration *time.Duration          `json:"duration,omitempty" koanf:"duration"`
 }
 
 // NamingPolicy is the validated, immutable value used by both identity kinds.

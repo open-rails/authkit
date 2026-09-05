@@ -118,9 +118,23 @@ and ordinary rename. `WithInstanceAdmission` remains the separate creation-only
 cost/enrollment hook and is never rerun by a rename. Trusted imports retain their
 existing provisioning authority, but cannot bypass claim ownership.
 
-The portable `UserNamingState(ctx,userID)` read replaces the old host-clock
+The `UserNamingState(ctx,userID)` read replaces the old host-clock
 `TimeUntilUsernameRenameAvailable` API; no independent policy arithmetic remains
-on that surface. `CleanupExpiredAuthState` removes at most 5000 expired aliases
+on that surface. The engine’s existing `WithClock` supplies all naming timestamps. `CleanupExpiredAuthState` removes at most 5000 expired aliases
 per call through an expiry index, preserving canonical and permanent claims.
 This existing maintenance hook only removes stale storage; it never controls
 forwarding or claim eligibility.
+
+
+Trusted embedded hosts can retain a previously authorized group through
+`embedded.WithResolvedGroup(ctx, instance, originalReference)`. Pass that context
+to subsequent name-addressed group operations. The binding checks the captured
+UUID is still live and belongs to the original persona; it never substitutes a
+new owner when a name is reclaimed. Explicit UUID lifecycle APIs remain preferred
+for deferred work and retries.
+
+CLI/import/catalog callers needing only identity lookup can construct
+`embedded.NewGroupDirectory(pool, schema)` and use `GroupInstanceForSlug` or
+`GroupInstanceByID`. This read-only directory validates the schema and reuses the
+same alias queries, without constructing an issuer, loading keys, migrating,
+writing state, or starting workers. Empty schema uses `profiles`.

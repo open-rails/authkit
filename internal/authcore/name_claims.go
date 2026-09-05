@@ -13,8 +13,8 @@ import (
 )
 
 func (s *Service) namingNow() time.Time {
-	if s.namingClock != nil {
-		return s.namingClock().UTC()
+	if s.now != nil {
+		return s.now().UTC()
 	}
 	return time.Now().UTC()
 }

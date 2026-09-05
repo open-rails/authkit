@@ -128,7 +128,6 @@ type Service struct {
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.
 	nameAdmission  func(context.Context, authkit.NameAdmissionRequest) error
-	namingClock    func() time.Time
 	cfg            Config
 	verifyWarnOnce sync.Once
 

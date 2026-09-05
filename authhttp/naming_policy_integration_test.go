@@ -26,7 +26,7 @@ func namingHTTPServer(t *testing.T, policy authkit.NamingConfig, opts ...embedde
 	cfg.RBAC[1].Capabilities.APIKeys = true
 	var clock atomic.Int64
 	clock.Store(time.Now().UTC().Truncate(time.Microsecond).UnixMicro())
-	opts = append(opts, embedded.WithNamingClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
+	opts = append(opts, embedded.WithClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
 	client, err := embedded.New(cfg, pg.Pool, opts...)
 	require.NoError(t, err)
 	require.NoError(t, client.SeedPermissionGroupContainment(context.Background()))

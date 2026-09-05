@@ -19,7 +19,7 @@ func namingTestService(t *testing.T, config authkit.NamingConfig) (*Service, fun
 	pg := testdb.ScratchPostgres(t)
 	var clock atomic.Int64
 	clock.Store(time.Now().UTC().Truncate(time.Microsecond).UnixMicro())
-	svc := NewService(Config{Naming: config, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, Keyset{}, WithPostgres(pg.Pool), WithNamingClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
+	svc := NewService(Config{Naming: config, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, Keyset{}, WithPostgres(pg.Pool), WithClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
 	require.NoError(t, svc.SeedPermissionGroupContainment(context.Background()))
 	_, err := svc.EnsureRootGroup(context.Background())
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestNamingPolicyChangeDoesNotRewriteReservations(t *testing.T) {
 	start := svc.namingNow()
 	require.NoError(t, svc.UpdateUsername(ctx, user.ID, "middle"))
 	// Simulate a service restart with a different deployment policy and the same DB.
-	next := NewService(Config{Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}}, Keyset{}, WithPostgres(svc.pg), WithNamingClock(svc.namingNow))
+	next := NewService(Config{Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}}, Keyset{}, WithPostgres(svc.pg), WithClock(svc.namingNow))
 	require.NoError(t, next.UpdateUsername(ctx, user.ID, "current"))
 	_, err = next.ResolveUsername(ctx, "middle")
 	require.ErrorIs(t, err, pgx.ErrNoRows)
