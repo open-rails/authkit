@@ -126,7 +126,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 			ml.StartCleanup(ctx, sweep)
 			s.closers = append(s.closers, cancel)
 			s.rl = ml
-			slog.Info("authkit: rate limiter", "backend", "memory", "environment", cfg.Environment)
+			slog.Info("authkit: rate limiter", "backend", "memory")
 		}
 	}
 
@@ -139,10 +139,10 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		// un-enrolled user on their next request, not just at mint time.
 		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == embedded.TwoFactorRequired),
 	}
-	// SSRF guard on JWKS fetches: mandatory in every non-dev environment.
-	// Dev carve-out (#257): local federation fetches JWKS from loopback/private
-	// addresses, which the guarded dialer would refuse.
-	if !embedded.IsDevEnvironment(cfg.Environment) {
+	// SSRF guard on JWKS fetches. Applications.AllowPrivateNetworkJWKS is the
+	// local-federation carve-out (#257): loopback/private JWKS the guarded
+	// dialer would refuse.
+	if !cfg.Applications.AllowPrivateNetworkJWKS {
 		verOpts = append(verOpts, verify.WithSSRFGuard())
 	}
 	ver := verify.NewVerifier(verOpts...)
@@ -207,16 +207,11 @@ func (s *Service) validate(cfg embedded.Config) error {
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
 		return err
 	}
-	// #231: THE single dev/prod classifier — anything not explicitly dev-ish
-	// (incl. staging and unknown values) is prod-like and requires the durable
-	// ephemeral store. This was the last inline env comparison in library code.
-	if !embedded.IsDevEnvironment(cfg.Environment) {
-		if s.rd == nil && !cfg.Ephemeral.AllowMemory {
-			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...) or set Ephemeral.AllowMemory for a single-instance deployment; a memory store is otherwise dev-only", cfg.Environment)
-		}
-		if !s.clientIPExplicit && !s.directPeerIP && len(s.trustedProxies) == 0 && len(s.cloudflareProxies) == 0 {
-			return fmt.Errorf("authkit: Environment %q is production-like and requires an explicit client-IP posture — pass authhttp.WithTrustedProxies(...)/WithCloudflareProxies(...) for the proxies in front, or authhttp.WithDirectPeerIP() to assert there are none; behind an undeclared proxy every client shares one rate-limit bucket", cfg.Environment)
-		}
+	// ak#299: a client-IP posture is always declared — behind an undeclared
+	// proxy every client shares one rate-limit bucket. The memory ephemeral
+	// store was already gated by Ephemeral.AllowMemory at engine construction.
+	if !s.clientIPExplicit && !s.directPeerIP && len(s.trustedProxies) == 0 && len(s.cloudflareProxies) == 0 {
+		return fmt.Errorf("authkit: a client-IP posture is required — pass authhttp.WithTrustedProxies(...)/WithCloudflareProxies(...) for the proxies in front, or authhttp.WithDirectPeerIP() to assert there are none; behind an undeclared proxy every client shares one rate-limit bucket")
 	}
 	// #260: the published-document surface is never public and never dead
 	// config. Providers with no authorized readers would mount a route that

@@ -63,7 +63,7 @@ type RemoteAppKey = authkit.RemoteAppKey
 // a registration and returns the normalized mode. Empty mode is inferred: a key
 // list means static, otherwise jwks. It is the single validation gate so the XOR
 // rule cannot be bypassed. allowInsecureJWKS relaxes the https/private-address
-// jwks_uri checks — pass IsDevEnvironment(env) only, never true in production.
+// jwks_uri checks (Applications.AllowPrivateNetworkJWKS; local federation only).
 func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteAppKey, allowInsecureJWKS bool) (string, error) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	jwksURI = strings.TrimSpace(jwksURI)
@@ -111,7 +111,7 @@ func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteApp
 // This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
 // dialer provides a second layer against DNS rebinding at fetch time.
 //
-// allowInsecure (#257, dev environments only): permits http and
+// allowInsecure (Applications.AllowPrivateNetworkJWKS) permits http and
 // loopback/private hosts for local federation; still requires a parseable
 // http(s) URL with a host.
 func validateJWKSURI(raw string, allowInsecure bool) error {
@@ -229,7 +229,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, ErrInvalidRemoteApplication
 	}
-	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.isDevEnvironment())
+	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.cfg.Applications.AllowPrivateNetworkJWKS)
 	if err != nil {
 		return nil, err
 	}

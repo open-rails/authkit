@@ -199,7 +199,7 @@ func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ..
 		}
 	}
 	if s.appHTTPClient == nil {
-		s.appHTTPClient = newApplicationsHTTPClient(s.isDevEnvironment(), nil)
+		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}
 	s.resolveEphemeralStore()
 	return s

@@ -80,15 +80,15 @@ func (s *Service) EphemeralBackend() string {
 	return "custom"
 }
 
-// checkEphemeralBackend refuses the per-process memory store outside a dev-like
-// environment unless Ephemeral.AllowMemory opts in (#305), and logs which
-// backend is live so a mis-wired deployment is visible at startup.
+// checkEphemeralBackend refuses the per-process memory store unless
+// Ephemeral.AllowMemory opts in (#305), and logs which backend is live so a
+// mis-wired deployment is visible at startup.
 func (s *Service) checkEphemeralBackend(cfg Config) error {
 	backend := s.EphemeralBackend()
-	if backend == "memory" && !IsDevEnvironment(cfg.Environment) && !cfg.Ephemeral.AllowMemory {
-		return fmt.Errorf("authkit: in-memory ephemeral store outside a dev environment (Environment=%q): pass embedded.WithRedis, or set Ephemeral.AllowMemory for a single-instance deployment", cfg.Environment)
+	if backend == "memory" && !cfg.Ephemeral.AllowMemory {
+		return fmt.Errorf("authkit: in-memory ephemeral store without Ephemeral.AllowMemory: wire Redis, or set Ephemeral.AllowMemory for a single-instance deployment")
 	}
-	slog.Info("authkit: ephemeral store", "backend", backend, "environment", cfg.Environment)
+	slog.Info("authkit: ephemeral store", "backend", backend)
 	return nil
 }
 

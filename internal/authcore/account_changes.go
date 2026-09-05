@@ -73,7 +73,7 @@ func (s *Service) sendContactChangeVerification(ctx context.Context, userID stri
 		}
 		return nil
 	}
-	if !s.isDevEnvironment() {
+	if !s.cfg.Registration.AllowMissingSenders {
 		return unavailable
 	}
 	return nil

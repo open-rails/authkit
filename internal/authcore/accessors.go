@@ -112,13 +112,6 @@ func (s *Service) nowTime() time.Time {
 	return s.now()
 }
 
-func (s *Service) isDevEnvironment() bool {
-	if s == nil {
-		return true
-	}
-	return IsDevEnvironment(s.cfg.Environment)
-}
-
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
 

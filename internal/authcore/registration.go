@@ -123,7 +123,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
 					return "", emailDeliveryError(err)
 				}
-			} else if !s.isDevEnvironment() {
+			} else if !s.cfg.Registration.AllowMissingSenders {
 				return "", fmt.Errorf("registration verification unavailable: email sender not configured")
 			}
 		}
@@ -272,7 +272,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 					return "", smsDeliveryError(err)
 				}
 			} else {
-				if !s.isDevEnvironment() {
+				if !s.cfg.Registration.AllowMissingSenders {
 					return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
 				}
 			}

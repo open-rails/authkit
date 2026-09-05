@@ -109,6 +109,12 @@ type ApplicationsConfig struct {
 	// SelfRegistration enables the POST /applications/register surface (and
 	// the signed rotate/repoint routes). Off by default.
 	SelfRegistration bool
+	// AllowPrivateNetworkJWKS permits http and private/loopback addresses for
+	// every remote-application fetch — jwks_uri values, application documents
+	// and their domain proofs — and turns off the SSRF guard on the verifier's
+	// JWKS client. Local federation rigs only; the default (false) refuses
+	// anything that is not a public https endpoint.
+	AllowPrivateNetworkJWKS bool
 	// OrgPersona is the declared RBAC persona under which each self-registered
 	// application's SERVICE-OWNED org is created (instance_slug = the
 	// application slug; the application principal is seeded as its owner).
@@ -237,6 +243,11 @@ type RegistrationConfig struct {
 	// PasswordlessAutoRegistration lets a verified unknown contact create a
 	// no-password user during passwordless confirmation. Off by default.
 	PasswordlessAutoRegistration bool
+	// AllowMissingSenders lets verification, contact-change, password-reset and
+	// login-code flows proceed when no email/SMS sender is wired: nothing is
+	// delivered and the engine hands the code back to its caller (dev rigs read
+	// it from there). The default (false) makes a missing sender an error.
+	AllowMissingSenders bool
 	// VerificationSendTimeout bounds each in-line email/SMS provider send
 	// (registration/verification codes, password-reset links, passwordless login
 	// codes) so a misconfigured/unreachable provider cannot hang the request that
@@ -251,13 +262,12 @@ type RegistrationConfig struct {
 // EphemeralConfig governs the ephemeral (short-lived state) backend. The
 // in-memory store and rate limiter are per-process: in a multi-replica
 // deployment they give per-replica 2FA codes, pending registrations and
-// N-times rate limits, so outside a dev-like Environment construction FAILS
-// without Redis (embedded.WithRedis) unless AllowMemory is set. Like
-// KeysConfig.AllowEphemeralDevKeys, the opt-in is an explicit field, never
-// derived from the environment.
+// N-times rate limits, so construction FAILS without Redis unless AllowMemory
+// is set. Like KeysConfig.AllowEphemeralDevKeys, the opt-in is an explicit
+// field.
 type EphemeralConfig struct {
 	// AllowMemory permits the in-memory ephemeral store and rate limiter
-	// outside a dev-like Environment (single-instance deployments only).
+	// (single-instance deployments and local development only).
 	AllowMemory bool
 	// KeyPrefix namespaces every Redis key this deployment writes (ephemeral
 	// store, OIDC/SIWS caches, rate-limit counters) so several AuthKit
