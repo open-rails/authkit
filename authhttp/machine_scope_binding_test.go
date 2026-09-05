@@ -168,7 +168,7 @@ func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cl, err := ver.Verify(token)
+	cl, err := ver.Verify(context.Background(), token)
 	require.NoError(t, err)
 	require.Equal(t, "repo", cl.PermissionGroupPersona)
 	require.Equal(t, alpha, cl.PermissionGroupInstance)
@@ -229,7 +229,7 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cl, err := ver.Verify(token)
+	cl, err := ver.Verify(context.Background(), token)
 	require.NoError(t, err)
 	require.False(t, cl.BoundToPermissionGroup(), "delegated tokens must stay unbound")
 	require.Empty(t, cl.PermissionGroupPersona)

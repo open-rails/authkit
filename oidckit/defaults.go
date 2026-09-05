@@ -2,6 +2,7 @@ package oidckit
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -19,7 +20,7 @@ type RPConfig struct {
 	Scopes []string
 }
 
-func NewManagerFromProviders(providers map[string]authprovider.Provider) *Manager {
+func NewManagerFromProviders(providers map[string]authprovider.Provider, client *http.Client) *Manager {
 	cfgs := make(map[string]RPClient, len(providers))
 	for name, provider := range providers {
 		client, err := RPClientFromProvider(provider)
@@ -28,7 +29,7 @@ func NewManagerFromProviders(providers map[string]authprovider.Provider) *Manage
 		}
 		cfgs[name] = client
 	}
-	return NewManager(cfgs)
+	return NewManager(cfgs, client)
 }
 
 func RPClientFromProvider(provider authprovider.Provider) (RPClient, error) {

@@ -24,7 +24,7 @@ func TestNewManagerFromProvidersAcceptsCustomOIDCDescriptor(t *testing.T) {
 			Scopes:       []string{"email"},
 			PKCE:         true,
 		},
-	})
+	}, nil)
 	rp, ok := m.Provider("example")
 	if !ok {
 		t.Fatalf("expected example provider")
@@ -53,7 +53,7 @@ func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
 			ClientSecret: authprovider.ClientSecret{Value: "oauth-secret"},
 			Scopes:       []string{"profile"},
 		},
-	})
+	}, nil)
 	rp, ok := m.Provider("example-oauth")
 	if !ok {
 		t.Fatalf("expected example oauth provider")

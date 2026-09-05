@@ -4,19 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 // DefaultOutboundTimeout bounds the verify layer's outbound HTTP calls (JWKS
-// fetches). Mirrors authhttp's constant of the same name.
-const DefaultOutboundTimeout = 30 * time.Second
+// fetches).
+const DefaultOutboundTimeout = netguard.DefaultTimeout
 
-// defaultOutboundHTTPClient is the timeout-bounded client used when a caller
-// does not supply one via WithHTTPClient.
-var defaultOutboundHTTPClient = &http.Client{Timeout: DefaultOutboundTimeout}
+// NewSSRFGuardedClient returns a timeout-bounded *http.Client whose dialer
+// resolves the target itself and refuses any private/reserved address, so a
+// crafted jwks_uri (including DNS rebinding) can never reach internal
+// services. WithSSRFGuard installs it on a Verifier.
+func NewSSRFGuardedClient() *http.Client { return netguard.Client(netguard.DefaultTimeout, false) }
 
 // Token-type tags used by the verification layer. Sourced from jwtkit so they
 // stay in lockstep with the signer; authhttp exposes the same values via its own

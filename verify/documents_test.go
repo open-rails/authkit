@@ -61,7 +61,7 @@ func TestVerifyDocumentRoundTripAndMetadataMismatches(t *testing.T) {
 	if string(envelope.Payload) != `{"limit":7}` {
 		t.Fatalf("payload = %s", envelope.Payload)
 	}
-	if _, err := v.Verify(document.CompactJWS); err == nil {
+	if _, err := v.Verify(context.Background(), document.CompactJWS); err == nil {
 		t.Fatal("a signed document must not verify as an access token")
 	}
 

@@ -128,10 +128,10 @@ func TestCertificateBoundDelegatedToken_RequiresExactPeer(t *testing.T) {
 	token := signTyped(t, signer, DelegatedAccessTokenType, delegatedClaims(map[string]any{"cnf": jwtkit.ConfirmationClaimValue(sum)}))
 
 	// Detached from a request: no proof can exist.
-	if _, err := v.Verify(token); !errors.Is(err, ErrSenderProofRequired) {
+	if _, err := v.Verify(context.Background(), token); !errors.Is(err, ErrSenderProofRequired) {
 		t.Fatalf("token-only Verify: %v", err)
 	}
-	if _, _, err := v.VerifyDelegatedAccess(token); !errors.Is(err, ErrSenderProofRequired) {
+	if _, _, err := v.VerifyDelegatedAccess(context.Background(), token); !errors.Is(err, ErrSenderProofRequired) {
 		t.Fatalf("token-only VerifyDelegatedAccess: %v", err)
 	}
 
@@ -174,7 +174,7 @@ func TestCertificateBoundDelegatedToken_RequiresExactPeer(t *testing.T) {
 func TestUnboundDelegatedTokenIgnoresPeer(t *testing.T) {
 	v, signer := confirmationVerifier(t)
 	token := signTyped(t, signer, DelegatedAccessTokenType, delegatedClaims(nil))
-	if _, err := v.Verify(token); err != nil {
+	if _, err := v.Verify(context.Background(), token); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	for name, peer := range map[string]*x509.Certificate{"no peer": nil, "any peer": confirmationLeaf(t)} {

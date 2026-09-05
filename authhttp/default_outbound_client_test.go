@@ -6,19 +6,14 @@ import (
 	"testing"
 )
 
-// The default outbound client must carry a bounded timeout: NewVerifier and
-// NewRemoteApplicationIssuersClient must not default to http.DefaultClient,
-// which has no timeout, because a slow/hostile JWKS or registration endpoint
-// could hang a request goroutine forever.
-func TestDefaultOutboundClientHasTimeout(t *testing.T) {
-	if defaultOutboundHTTPClient == http.DefaultClient {
-		t.Fatal("default outbound client must not be http.DefaultClient (no timeout)")
-	}
-	if defaultOutboundHTTPClient.Timeout <= 0 {
-		t.Fatalf("default outbound client timeout = %v, want > 0", defaultOutboundHTTPClient.Timeout)
-	}
-	if defaultOutboundHTTPClient.Timeout != DefaultOutboundTimeout {
-		t.Fatalf("default outbound client timeout = %v, want %v", defaultOutboundHTTPClient.Timeout, DefaultOutboundTimeout)
+// Every outbound client must carry a bounded timeout: NewVerifier,
+// NewRemoteApplicationIssuersClient and the Service's OAuth2 client must not
+// default to http.DefaultClient, which has none, because a slow/hostile JWKS,
+// IdP or registration endpoint could hang a request goroutine forever.
+func TestServiceOutboundClientHasTimeout(t *testing.T) {
+	s := newTestService(t)
+	if s.outboundHTTP == nil || s.outboundHTTP == http.DefaultClient || s.outboundHTTP.Timeout <= 0 {
+		t.Fatalf("service outbound client = %+v, want a bounded non-default client", s.outboundHTTP)
 	}
 }
 

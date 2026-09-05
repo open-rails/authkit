@@ -25,6 +25,7 @@ import (
 type Service struct {
 	svc                 *authcore.Service
 	verifier            *verify.Verifier
+	outboundHTTP        *http.Client // OAuth2 token/userinfo and OIDC discovery calls
 	rd                  *redis.Client
 	rl                  RateLimiter
 	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter

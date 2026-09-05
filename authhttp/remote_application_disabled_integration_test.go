@@ -49,7 +49,7 @@ func TestDisabledRemoteApplicationTokenRejectedImmediately(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cl, err := ver.Verify(token)
+	cl, err := ver.Verify(context.Background(), token)
 	require.NoError(t, err)
 	require.Equal(t, ra.ID, cl.RemoteApplicationID)
 
@@ -57,7 +57,7 @@ func TestDisabledRemoteApplicationTokenRejectedImmediately(t *testing.T) {
 	_, err = coreSvc.UpsertRemoteApplication(ctx, app)
 	require.NoError(t, err)
 
-	_, err = ver.Verify(token)
+	_, err = ver.Verify(context.Background(), token)
 	require.Error(t, err, "a disabled application's token must fail closed immediately")
 
 	_, err = coreSvc.GetRemoteApplication(ctx, issuer)

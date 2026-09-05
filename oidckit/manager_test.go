@@ -24,7 +24,7 @@ func TestManager_RPCacheHitsOnSecondGetRP(t *testing.T) {
 			ClientSecret: "secret",
 			Scopes:       []string{"openid"},
 		},
-	})
+	}, nil)
 	m.cacheTTL = time.Hour
 
 	ctx := context.Background()
@@ -63,7 +63,7 @@ func TestManager_DynamicSecretBypassesRPCache(t *testing.T) {
 			},
 			Scopes: []string{"openid"},
 		},
-	})
+	}, nil)
 
 	ctx := context.Background()
 	redirect := "https://app.example/callback"
@@ -93,7 +93,7 @@ func TestManager_BeginWithAuthParamsAddsMaxAge(t *testing.T) {
 			ClientSecret: "secret",
 			Scopes:       []string{"openid"},
 		},
-	})
+	}, nil)
 	authURL, err := m.BeginWithAuthParams(context.Background(), "example", "state", "nonce", "", "https://app.example/callback", map[string]string{"max_age": "0"})
 	if err != nil {
 		t.Fatalf("BeginWithAuthParams: %v", err)
@@ -103,10 +103,10 @@ func TestManager_BeginWithAuthParamsAddsMaxAge(t *testing.T) {
 	}
 }
 
-func TestOutboundHTTPClientHasTimeout(t *testing.T) {
-	c := OutboundHTTPClient()
-	if c.Timeout != DefaultOutboundTimeout {
-		t.Fatalf("timeout = %v, want %v", c.Timeout, DefaultOutboundTimeout)
+func TestManagerDefaultClientHasTimeout(t *testing.T) {
+	c := NewManager(nil, nil).HTTPClient()
+	if c.Timeout <= 0 {
+		t.Fatalf("timeout = %v, want > 0", c.Timeout)
 	}
 }
 

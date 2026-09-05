@@ -207,7 +207,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	})
 
 	t.Run("delegated verifier rejects service jwt", func(t *testing.T) {
-		_, _, err := v.VerifyDelegatedAccess(serviceToken)
+		_, _, err := v.VerifyDelegatedAccess(context.Background(), serviceToken)
 		require.EqualError(t, err, "access_token_wrong_typ")
 	})
 

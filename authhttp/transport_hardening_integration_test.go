@@ -53,9 +53,9 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 		return tok
 	}
 
-	_, err = srv.Verifier().Verify(mint("other-app"))
+	_, err = srv.Verifier().Verify(context.Background(), mint("other-app"))
 	require.Error(t, err, "wrong audience must be rejected by a lazily-loaded issuer")
-	_, err = srv.Verifier().Verify(mint("test-app"))
+	_, err = srv.Verifier().Verify(context.Background(), mint("test-app"))
 	require.NoError(t, err)
 }
 

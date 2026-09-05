@@ -76,7 +76,7 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 	oldPubPEM := writeRotationKeysJSON(t, dir, "kid-old", nil)
 
 	const interval = 15 * time.Millisecond
-	src, err := jwtkit.NewFileKeySource(dir, interval)
+	src, err := jwtkit.NewFileKeySource(dir, interval, nil)
 	if err != nil {
 		t.Fatalf("NewFileKeySource: %v", err)
 	}

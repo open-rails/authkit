@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -191,13 +192,10 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
-// WithSSRFGuard installs an SSRF-guarding HTTP client that resolves DNS and
-// rejects any private/reserved IP before connecting. Use this on Verifiers that
-// fetch JWKS from user-registered (remote_application) issuers. Production
-// Services created via NewService/NewFromConfig already include this guard.
-func WithSSRFGuard() VerifierOption {
-	return WithHTTPClient(NewSSRFGuardedClient())
-}
+// WithSSRFGuard installs NewSSRFGuardedClient as the JWKS client: DNS is
+// resolved first and any private/reserved answer is refused. Use it on
+// Verifiers that fetch JWKS from user-registered (remote_application) issuers.
+func WithSSRFGuard() VerifierOption { return WithHTTPClient(NewSSRFGuardedClient()) }
 
 // WithAPIKeyPrefix sets the host application's API-key brand prefix used to
 // detect opaque shared-secret API keys in the middleware. Empty -> bare "st_".
@@ -416,7 +414,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
 		skew:             60 * time.Second,
 		algorithms:       []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"},
-		httpClient:       defaultOutboundHTTPClient,
+		httpClient:       netguard.Client(netguard.DefaultTimeout, true),
 		issuers:          map[string]issuerEntry{},
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
@@ -771,8 +769,7 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 	if wait := v.fedSnapshotFlight; wait != nil {
 		v.mu.Unlock()
 		// Waiters are released by the refresh, the caller's context, or the
-		// TTL — a stalled store never pins a request (keyForToken has no
-		// request context).
+		// TTL — a stalled store never pins a request past its own deadline.
 		select {
 		case <-wait:
 		case <-ctx.Done():
@@ -891,24 +888,26 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 // rotation, lazy-load — while carrying their own claim shape. The caller
 // registers the token's issuer via AddIssuer and parses the returned MapClaims
 // itself. Verify() is built on top of this for authkit's own user tokens.
-func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
-	mapClaims, _, err := v.verifyClaimsWithHeader(tokenStr)
+func (v *Verifier) VerifyClaims(ctx context.Context, tokenStr string) (jwt.MapClaims, error) {
+	mapClaims, _, err := v.verifyClaimsWithHeader(ctx, tokenStr)
 	return mapClaims, err
 }
 
 // Verify parses + verifies a token and returns typed Claims.
 // It enforces issuer/audience/expiry with the configured skew, plus authkit's
-// user-token invariant, on top of VerifyClaims. It is detached from any
-// request, so a certificate-bound delegated token (cnf) fails with
+// user-token invariant, on top of VerifyClaims. ctx bounds every key lookup
+// the verification needs (JWKS fetch, lazy issuer load, remote-application
+// resolution); a cancelled ctx aborts them. It is detached from any request,
+// so a certificate-bound delegated token (cnf) fails with
 // ErrSenderProofRequired here; verify those through VerifyRequest.
-func (v *Verifier) Verify(tokenStr string) (Claims, error) {
-	return v.verify(tokenStr, nil)
+func (v *Verifier) Verify(ctx context.Context, tokenStr string) (Claims, error) {
+	return v.verify(ctx, tokenStr, nil)
 }
 
 // verify is Verify with the TLS-authenticated peer certificate hash (nil when
 // the request carried none) that a `cnf.x5t#S256` claim must match exactly.
-func (v *Verifier) verify(tokenStr string, peer *[32]byte) (Claims, error) {
-	mapClaims, typ, err := v.verifyClaimsWithHeader(tokenStr)
+func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) (Claims, error) {
+	mapClaims, typ, err := v.verifyClaimsWithHeader(ctx, tokenStr)
 	if err != nil {
 		return Claims{}, err
 	}
@@ -964,7 +963,7 @@ func (v *Verifier) verify(tokenStr string, peer *[32]byte) (Claims, error) {
 				claimedPerms = []string{} // present-but-empty => narrow to nothing
 			}
 		}
-		return v.resolveRemoteApplicationSelf(context.Background(), strClaim(mapClaims, "iss"), tokenTyp, claimedPerms)
+		return v.resolveRemoteApplicationSelf(ctx, strClaim(mapClaims, "iss"), tokenTyp, claimedPerms)
 	}
 
 	// Invariant: a delegated access token MUST NOT carry a normal `sub` — no
@@ -1015,7 +1014,6 @@ func (v *Verifier) verify(tokenStr string, peer *[32]byte) (Claims, error) {
 	// that only trusts the issuer's JWKS (no remote-app store) cannot bound the
 	// claim here; it relies on its WithPermissions catalog validator instead.
 	if isDelegatedAccessTyp && len(cl.Permissions) > 0 && v.enrich != nil {
-		ctx := context.Background()
 		if ra, rerr := v.remoteApplication(ctx, cl.Issuer); rerr == nil && ra != nil {
 			authority, aerr := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 			if aerr != nil {
@@ -1038,19 +1036,19 @@ func (v *Verifier) verify(tokenStr string, peer *[32]byte) (Claims, error) {
 // token, and runs any configured permission/attributes validators. It returns
 // the typed Claims and the DelegatedPrincipal. Use it on resource servers that
 // only accept delegated access tokens and want catalog/policy enforcement.
-func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrincipal, error) {
-	return v.verifyDelegatedAccess(tokenStr, nil)
+func (v *Verifier) VerifyDelegatedAccess(ctx context.Context, tokenStr string) (Claims, DelegatedPrincipal, error) {
+	return v.verifyDelegatedAccess(ctx, tokenStr, nil)
 }
 
 // VerifyDelegatedAccessRequest is VerifyDelegatedAccess bound to the request's
 // bearer token and TLS peer certificate, the only path that accepts a
 // certificate-bound (cnf) delegated token.
 func (v *Verifier) VerifyDelegatedAccessRequest(r *http.Request) (Claims, DelegatedPrincipal, error) {
-	return v.verifyDelegatedAccess(bearerToken(r.Header.Get("Authorization")), peerCertificateSHA256(r))
+	return v.verifyDelegatedAccess(r.Context(), bearerToken(r.Header.Get("Authorization")), peerCertificateSHA256(r))
 }
 
-func (v *Verifier) verifyDelegatedAccess(tokenStr string, peer *[32]byte) (Claims, DelegatedPrincipal, error) {
-	cl, err := v.verify(tokenStr, peer)
+func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, peer *[32]byte) (Claims, DelegatedPrincipal, error) {
+	cl, err := v.verify(ctx, tokenStr, peer)
 	if err != nil {
 		return Claims{}, DelegatedPrincipal{}, err
 	}
@@ -1069,7 +1067,7 @@ func (v *Verifier) verifyDelegatedAccess(tokenStr string, peer *[32]byte) (Claim
 		}
 	}
 	if v.attrHydrate {
-		if err := v.hydrateAttributes(&cl); err != nil {
+		if err := v.hydrateAttributes(ctx, &cl); err != nil {
 			return Claims{}, DelegatedPrincipal{}, err
 		}
 		dp, _ = cl.Delegated() // refresh principal view (UserTier etc. unchanged keys)
@@ -1082,7 +1080,7 @@ func (v *Verifier) verifyDelegatedAccess(tokenStr string, peer *[32]byte) (Claim
 // miss (ErrAttributeDefNotFound) leaves the reference untouched; only a hard
 // resolver error fails. Uses the configured resolver, or a Service-backed
 // default (issuer -> remote_application -> registered definition).
-func (v *Verifier) hydrateAttributes(cl *Claims) error {
+func (v *Verifier) hydrateAttributes(ctx context.Context, cl *Claims) error {
 	if len(cl.Attributes) == 0 {
 		return nil
 	}
@@ -1098,7 +1096,7 @@ func (v *Verifier) hydrateAttributes(cl *Claims) error {
 		if !isRef {
 			continue
 		}
-		def, err := resolver(context.Background(), cl.Issuer, key, ref)
+		def, err := resolver(ctx, cl.Issuer, key, ref)
 		if err != nil {
 			if errors.Is(err, authkit.ErrAttributeDefNotFound) {
 				continue
@@ -1137,14 +1135,14 @@ func (v *Verifier) defaultAttributeResolver(ctx context.Context, issuer, _key, r
 // the already-verified token; callers must not trust typ for security decisions
 // beyond what the signature and registered-issuer checks already guarantee.
 // VerifyClaims delegates here and drops typ.
-func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, string, error) {
+func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
 		return nil, "", errors.New("missing_token")
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(token) }
+	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(ctx, token) }
 	mapClaims := jwt.MapClaims{}
 	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 	if err != nil || tok == nil || !tok.Valid {
@@ -1155,7 +1153,7 @@ func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, strin
 		// rejecting. The refetch goes through the per-issuer min-interval +
 		// single-flight guard, so a storm of bad tokens coalesces to at most one
 		// fetch per kidRefetchMin and cannot hammer the JWKS endpoint.
-		if v.forceRefreshForToken(tokenStr) {
+		if v.forceRefreshForToken(ctx, tokenStr) {
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
@@ -1363,7 +1361,7 @@ func rawStringAttribute(attrs map[string]json.RawMessage, key string) string {
 // Internal key resolution
 // ---------------------------------------------------------------------------
 
-func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
+func (v *Verifier) keyForToken(ctx context.Context, token *jwt.Token) (any, error) {
 	if token == nil {
 		return nil, errors.New("nil_token")
 	}
@@ -1381,7 +1379,7 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 		// store but not yet in this replica's in-memory cache. Fetch+register it
 		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
 		// when no remote-application source is configured this is a no-op (-> bad_issuer).
-		if v.lazyLoadIssuer(context.Background(), iss) {
+		if v.lazyLoadIssuer(ctx, iss) {
 			match = v.matchIssuer(iss)
 		}
 		if match == nil {
@@ -1390,7 +1388,7 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 	}
 
 	kid, _ := token.Header["kid"].(string)
-	return v.publicKeyFor(context.Background(), *match, kid)
+	return v.publicKeyFor(ctx, *match, kid)
 }
 
 func (v *Verifier) matchIssuer(issuer string) *issuerEntry {
@@ -1541,7 +1539,7 @@ const (
 // retry the signature check once. This is the "on a verify reject, refetch keys
 // inline and retry" resilience path — it recovers from a stale/rotated signing
 // key or a JWKS that wasn't reachable on first use.
-func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
+func (v *Verifier) forceRefreshForToken(ctx context.Context, tokenStr string) bool {
 	mc := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, mc); err != nil {
 		return false
@@ -1550,7 +1548,7 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 	if iss == "" {
 		return false
 	}
-	return v.forceRefreshIssuer(context.Background(), iss)
+	return v.forceRefreshIssuer(ctx, iss)
 }
 
 func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
