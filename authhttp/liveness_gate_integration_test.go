@@ -226,7 +226,9 @@ func TestAllowLive_DeniesBannedUserWhoStillHoldsThePermission_DB(t *testing.T) {
 	cl, err := ver.VerifyRequest(req)
 	require.NoError(t, err)
 
-	scope := verify.PermissionScope{Persona: "root"}
+	group, err := svc.GroupInstanceForSlug(ctx, "root", "")
+	require.NoError(t, err)
+	scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: svc.Config().Token.Issuer, Persona: "root"}
 	perms, err := svc.ListEffectivePermissions(ctx, u.ID, "user", "root", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, perms, "fixture must grant at least one permission for the denial to mean anything")

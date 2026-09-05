@@ -116,7 +116,9 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	}
 	scopeOf := func(inst string) func(*http.Request) verify.PermissionScope {
 		return func(*http.Request) verify.PermissionScope {
-			return verify.PermissionScope{Persona: "repo", Instance: inst}
+			group, err := coreSvc.GroupInstanceForSlug(ctx, "repo", inst)
+			require.NoError(t, err)
+			return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: coreSvc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		}
 	}
 
@@ -172,10 +174,10 @@ func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
 	require.Equal(t, alpha, cl.PermissionGroupInstance)
 	require.Contains(t, cl.Permissions, "repo:models:deploy")
 
-	allowed, err := verify.Allow(ctx, coreSvc, cl, "repo:models:deploy", verify.PermissionScope{Persona: "repo", Instance: alpha})
+	allowed, err := verify.Allow(ctx, coreSvc, cl, "repo:models:deploy", verify.PermissionScope{GroupID: gid, AuthorityIssuer: coreSvc.Config().Token.Issuer, Persona: "repo", Instance: alpha})
 	require.NoError(t, err)
 	require.True(t, allowed, "owning instance must allow")
-	allowed, err = verify.Allow(ctx, coreSvc, cl, "repo:models:deploy", verify.PermissionScope{Persona: "repo", Instance: "other"})
+	allowed, err = verify.Allow(ctx, coreSvc, cl, "repo:models:deploy", verify.PermissionScope{GroupID: "different-group", AuthorityIssuer: coreSvc.Config().Token.Issuer, Persona: "repo", Instance: "other"})
 	require.NoError(t, err)
 	require.False(t, allowed, "cross-instance must deny")
 }
@@ -249,22 +251,29 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 // key passes the root gate; a repo-bound key is denied there even if it somehow
 // carried a matching permission string.
 func TestIntrinsicRequirePermission_GroupBoundMachinePrincipal(t *testing.T) {
-	s := &Service{} // machine branch never touches s.svc
+	pool := newServerTestPool(t)
+	core := newScopeBindingCore(t, pool)
+	root, err := core.ResolveGroupIDForSlug(context.Background(), embedded.RootPersona, "")
+	require.NoError(t, err)
+	s := &Service{svc: core}
 	h := s.requirePermission(embedded.RootPersona, "", "root:users:list",
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	rootBound := &verify.Claims{
-		TokenType:              verify.APIKeyPrincipalType,
-		Permissions:            []string{"root:users:list"},
-		PermissionGroupPersona: embedded.RootPersona,
+		TokenType:                      verify.APIKeyPrincipalType,
+		Permissions:                    []string{"root:users:list"},
+		PermissionGroupPersona:         embedded.RootPersona,
+		PermissionGroupID:              root,
+		PermissionGroupAuthorityIssuer: core.Config().Token.Issuer,
 	}
 	require.Equal(t, http.StatusOK, serveWithClaims(h, rootBound).Code)
 
 	repoBound := &verify.Claims{
-		TokenType:               verify.APIKeyPrincipalType,
-		Permissions:             []string{"root:users:list"},
-		PermissionGroupPersona:  "repo",
-		PermissionGroupInstance: "alpha",
+		TokenType:              verify.APIKeyPrincipalType,
+		Permissions:            []string{"root:users:list"},
+		PermissionGroupPersona: "repo", PermissionGroupID: root,
+		PermissionGroupAuthorityIssuer: core.Config().Token.Issuer,
+		PermissionGroupInstance:        "alpha",
 	}
 	require.Equal(t, http.StatusForbidden, serveWithClaims(h, repoBound).Code)
 }

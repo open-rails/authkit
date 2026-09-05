@@ -76,9 +76,11 @@ type RemoteAppAttributeDef struct {
 // Exact-instance binding only; descendant/walk-down authority is deliberately
 // deferred.
 type RemoteApplicationAuthority struct {
-	Permissions  []string
-	Persona      string
-	InstanceSlug string
+	PermissionGroupID string
+	AuthorityIssuer   string
+	Permissions       []string
+	Persona           string
+	InstanceSlug      string
 }
 
 // RemoteApplication is a registered federation principal: an external issuer

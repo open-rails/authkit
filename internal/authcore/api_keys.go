@@ -375,6 +375,7 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 		APIKeyID:          id,
 		KeyID:             keyID,
 		PermissionGroupID: groupID,
+		AuthorityIssuer:   s.cfg.Token.Issuer,
 		Persona:           persona,
 		InstanceSlug:      instanceSlug,
 		Role:              role,

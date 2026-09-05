@@ -9,14 +9,14 @@ import (
 )
 
 type fakeChecker struct {
-	allow                                             bool
-	called                                            bool
-	gotSubject, gotKind, gotPersona, gotInst, gotPerm string
+	allow                                    bool
+	called                                   bool
+	gotSubject, gotKind, gotGroupID, gotPerm string
 }
 
-func (f *fakeChecker) Can(_ context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error) {
+func (f *fakeChecker) CanOnGroup(_ context.Context, subjectID, subjectKind, groupID, perm string) (bool, error) {
 	f.called = true
-	f.gotSubject, f.gotKind, f.gotPersona, f.gotInst, f.gotPerm = subjectID, subjectKind, persona, instanceSlug, perm
+	f.gotSubject, f.gotKind, f.gotGroupID, f.gotPerm = subjectID, subjectKind, groupID, perm
 	return f.allow, nil
 }
 
@@ -35,7 +35,9 @@ func reqWithClaims(cl Claims) *http.Request {
 	return r.WithContext(SetClaims(r.Context(), cl))
 }
 
-func rootScope(*http.Request) PermissionScope { return PermissionScope{Persona: "root"} }
+func rootScope(*http.Request) PermissionScope {
+	return PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"}
+}
 
 func TestRequirePermission_HumanUser_Allow(t *testing.T) {
 	chk := &fakeChecker{allow: true}
@@ -44,7 +46,7 @@ func TestRequirePermission_HumanUser_Allow(t *testing.T) {
 		t.Fatalf("allow: code=%d next=%v", code, next)
 	}
 	if !chk.called || chk.gotSubject != "u1" || chk.gotKind != subjectKindUser ||
-		chk.gotPersona != "root" || chk.gotPerm != "root:galleries:update" {
+		chk.gotGroupID != "root-id" || chk.gotPerm != "root:galleries:update" {
 		t.Fatalf("checker got wrong args: %+v", chk)
 	}
 }
@@ -72,13 +74,15 @@ func TestRequirePermission_TokenCarriedPerm_ShortCircuits(t *testing.T) {
 
 func TestRequirePermission_ResourceScoped_PassesInstance(t *testing.T) {
 	// resolver extracts the instance (e.g. merchant id) from the path.
-	resolve := func(*http.Request) PermissionScope { return PermissionScope{Persona: "merchant", Instance: "acme"} }
+	resolve := func(*http.Request) PermissionScope {
+		return PermissionScope{GroupID: "merchant-id", AuthorityIssuer: "https://auth.test", Persona: "merchant", Instance: "acme"}
+	}
 	chk := &fakeChecker{allow: true}
 	code, next := serveGate(RequirePermission(chk, "merchant:subscriptions:update", resolve), reqWithClaims(Claims{UserID: "u1"}))
 	if !next || code != http.StatusOK {
 		t.Fatalf("code=%d next=%v", code, next)
 	}
-	if chk.gotPersona != "merchant" || chk.gotInst != "acme" {
+	if chk.gotGroupID != "merchant-id" {
 		t.Fatalf("scope not passed through: %+v", chk)
 	}
 }
@@ -102,13 +106,17 @@ func TestRequirePermission_NilChecker_Forbidden(t *testing.T) {
 // ONLY on the exact permission-group instance it was minted on.
 func TestRequirePermission_GroupBoundPrincipal(t *testing.T) {
 	bound := Claims{
-		TokenType:               APIKeyPrincipalType,
-		Permissions:             []string{"repo:models:deploy"},
-		PermissionGroupPersona:  "repo",
-		PermissionGroupInstance: "alpha",
+		TokenType:                      APIKeyPrincipalType,
+		Permissions:                    []string{"repo:models:deploy"},
+		PermissionGroupID:              "group-alpha",
+		PermissionGroupAuthorityIssuer: "https://auth.test",
+		PermissionGroupPersona:         "repo",
+		PermissionGroupInstance:        "alpha",
 	}
 	scopeOf := func(inst string) func(*http.Request) PermissionScope {
-		return func(*http.Request) PermissionScope { return PermissionScope{Persona: "repo", Instance: inst} }
+		return func(*http.Request) PermissionScope {
+			return PermissionScope{GroupID: "group-" + inst, AuthorityIssuer: "https://auth.test", Persona: "repo", Instance: inst}
+		}
 	}
 
 	// Matching instance allows without consulting the checker.
@@ -144,15 +152,17 @@ func TestRequirePermission_GroupBoundPrincipal(t *testing.T) {
 func TestAllow_GroupBoundPrincipal(t *testing.T) {
 	ctx := context.Background()
 	bound := Claims{
-		TokenType:               RemoteApplicationTokenType,
-		Permissions:             []string{"repo:*"},
-		PermissionGroupPersona:  "repo",
-		PermissionGroupInstance: "alpha",
+		TokenType:                      RemoteApplicationTokenType,
+		Permissions:                    []string{"repo:*"},
+		PermissionGroupID:              "group-alpha",
+		PermissionGroupAuthorityIssuer: "https://auth.test",
+		PermissionGroupPersona:         "repo",
+		PermissionGroupInstance:        "alpha",
 	}
-	if ok, err := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "alpha"}); err != nil || !ok {
+	if ok, err := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{GroupID: "group-alpha", AuthorityIssuer: "https://auth.test", Persona: "repo", Instance: "alpha"}); err != nil || !ok {
 		t.Fatalf("exact scope must allow: ok=%v err=%v", ok, err)
 	}
-	if ok, _ := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "beta"}); ok {
+	if ok, _ := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{GroupID: "group-beta", AuthorityIssuer: "https://auth.test", Persona: "repo", Instance: "beta"}); ok {
 		t.Fatal("cross-instance must deny")
 	}
 	if ok, _ := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{}); ok {
@@ -160,7 +170,7 @@ func TestAllow_GroupBoundPrincipal(t *testing.T) {
 	}
 	// Unbound claims (delegated model) stay unrestricted by scope.
 	unbound := Claims{Permissions: []string{"repo:models:deploy"}}
-	if ok, _ := Allow(ctx, nil, unbound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "beta"}); !ok {
+	if ok, _ := Allow(ctx, nil, unbound, "repo:models:deploy", PermissionScope{GroupID: "group-beta", AuthorityIssuer: "https://auth.test", Persona: "repo", Instance: "beta"}); !ok {
 		t.Fatal("unbound token-carried perm must remain scope-free")
 	}
 }
@@ -170,7 +180,7 @@ func TestAllow(t *testing.T) {
 
 	// Token-carried perm: allowed without consulting the checker.
 	chk := &fakeChecker{allow: false}
-	ok, err := Allow(ctx, chk, Claims{Permissions: []string{"root:users:ban"}}, "root:users:ban", PermissionScope{Persona: "root"})
+	ok, err := Allow(ctx, chk, Claims{Permissions: []string{"root:users:ban"}}, "root:users:ban", PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"})
 	if err != nil || !ok {
 		t.Fatalf("token-carried: ok=%v err=%v", ok, err)
 	}
@@ -179,15 +189,15 @@ func TestAllow(t *testing.T) {
 	}
 
 	// Glob token grant covers a concrete perm (same matching as the gate).
-	ok, _ = Allow(ctx, &fakeChecker{}, Claims{Permissions: []string{"root:*"}}, "root:users:ban", PermissionScope{Persona: "root"})
+	ok, _ = Allow(ctx, &fakeChecker{}, Claims{Permissions: []string{"root:*"}}, "root:users:ban", PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"})
 	if !ok {
 		t.Fatal("glob grant root:* must cover root:users:ban")
 	}
 
 	// Human user: resolved via Can in the given scope.
 	chk = &fakeChecker{allow: true}
-	ok, err = Allow(ctx, chk, Claims{UserID: "u1"}, "root:users:ban", PermissionScope{Persona: "root"})
-	if err != nil || !ok || !chk.called || chk.gotPersona != "root" || chk.gotKind != subjectKindUser {
+	ok, err = Allow(ctx, chk, Claims{UserID: "u1"}, "root:users:ban", PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"})
+	if err != nil || !ok || !chk.called || chk.gotGroupID != "root-id" || chk.gotKind != subjectKindUser {
 		t.Fatalf("human allow: ok=%v err=%v chk=%+v", ok, err, chk)
 	}
 	if ok, _ := Allow(ctx, &fakeChecker{allow: false}, Claims{UserID: "u1"}, "p", PermissionScope{}); ok {
@@ -207,7 +217,7 @@ func TestAllow(t *testing.T) {
 // test proves the error wins over the verdict.
 type erroringChecker struct{ called bool }
 
-func (e *erroringChecker) Can(context.Context, string, string, string, string, string) (bool, error) {
+func (e *erroringChecker) CanOnGroup(context.Context, string, string, string, string) (bool, error) {
 	e.called = true
 	return true, errors.New("pg: connection reset by peer")
 }
@@ -222,7 +232,63 @@ func TestRequirePermission_CheckerError_DeniesAndSkipsNext(t *testing.T) {
 		t.Fatal("checker was never consulted")
 	}
 	// Allow passes the checker's error through; callers must treat it as deny.
-	if _, err := Allow(context.Background(), chk, Claims{UserID: "u1"}, "root:galleries:update", PermissionScope{Persona: "root"}); err == nil {
+	if _, err := Allow(context.Background(), chk, Claims{UserID: "u1"}, "root:galleries:update", PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"}); err == nil {
 		t.Fatal("Allow must surface the checker error")
+	}
+}
+
+func TestGroupScopeOwnershipIgnoresNamesButRequiresIssuerAndUUID(t *testing.T) {
+	base := Claims{TokenType: APIKeyPrincipalType, Permissions: []string{"repo:*"}, PermissionGroupID: "group-a", PermissionGroupAuthorityIssuer: "https://authority.test", PermissionGroupPersona: "repo", PermissionGroupInstance: "old"}
+	current := PermissionScope{GroupID: "group-a", AuthorityIssuer: "https://authority.test", Persona: "repo", Instance: "new"}
+	if ok, err := Allow(context.Background(), nil, base, "repo:models:deploy", current); err != nil || !ok {
+		t.Fatalf("rename changed ownership: %v %v", ok, err)
+	}
+	for _, mutate := range []func(*PermissionScope){
+		func(s *PermissionScope) { s.GroupID = "group-b"; s.Instance = "old" },
+		func(s *PermissionScope) { s.AuthorityIssuer = "https://other.test" },
+		func(s *PermissionScope) { s.GroupID = "" },
+		func(s *PermissionScope) { s.AuthorityIssuer = "" },
+	} {
+		scope := current
+		mutate(&scope)
+		if ok, _ := Allow(context.Background(), &fakeChecker{allow: true}, base, "repo:models:deploy", scope); ok {
+			t.Fatalf("foreign/missing identity allowed: %+v", scope)
+		}
+	}
+	for _, mutate := range []func(*Claims){
+		func(c *Claims) { c.PermissionGroupID = "" },
+		func(c *Claims) { c.PermissionGroupAuthorityIssuer = "" },
+		func(c *Claims) { c.PermissionGroupPersona = "" },
+		func(c *Claims) { c.PermissionGroupID = "group-b"; c.UserID = "human" },
+	} {
+		claims := base
+		mutate(&claims)
+		if ok, _ := Allow(context.Background(), &fakeChecker{allow: true}, claims, "repo:models:deploy", current); ok {
+			t.Fatalf("malformed binding/human fallback allowed: %+v", claims)
+		}
+	}
+}
+
+func TestRequirePermissionPassesCapturedUUIDToHandler(t *testing.T) {
+	scope := PermissionScope{GroupID: "captured-group", AuthorityIssuer: "https://auth.test", Persona: "repo", Instance: "current"}
+	called := false
+	handler := RequirePermission(&fakeChecker{allow: true}, "repo:models:deploy", func(*http.Request) PermissionScope { return scope })(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, ok := PermissionScopeFromContext(r.Context())
+		if !ok || got != scope {
+			t.Fatalf("handler scope=%+v %v", got, ok)
+		}
+		called = true
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), reqWithClaims(Claims{UserID: "user"}))
+	if !called {
+		t.Fatal("authorized handler not called")
+	}
+}
+
+func TestHumanTokenPermissionsDoNotReplaceLiveMembership(t *testing.T) {
+	checker := &fakeChecker{allow: false}
+	ok, err := Allow(context.Background(), checker, Claims{UserID: "user", Permissions: []string{"root:*"}}, "root:users:ban", rootScope(nil))
+	if err != nil || ok || !checker.called {
+		t.Fatalf("user permissions bypassed live membership: %v %v called=%v", ok, err, checker.called)
 	}
 }
