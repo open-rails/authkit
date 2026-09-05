@@ -86,18 +86,18 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, victim.ID) })
 
-	cfg := authprovider.Provider{Name: "github", Kind: authprovider.KindOAuth2, Issuer: "https://github.com/login/oauth"}
+	cfg := authprovider.GitHub("github-client", "github-secret")
 	// Attacker controls a provider identity that asserts the victim's (verified!)
 	// email — the strongest version of the attack.
-	info := oauth2UserInfo{Subject: "attacker-subject", Email: email, EmailVerified: true}
+	info := authprovider.Identity{Subject: "attacker-subject", Email: email, EmailVerified: true}
 
-	uid, created, err := s.resolveOAuthUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
+	uid, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
 	require.ErrorIs(t, err, errAccountExistsLinkRequired)
 	require.Empty(t, uid)
 	require.False(t, created)
 
 	// Crucially: the attacker identity must NOT have been linked to the victim.
-	linkedUID, _, _ := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer, "attacker-subject")
+	linkedUID, _, _ := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), "attacker-subject")
 	require.Empty(t, linkedUID, "attacker provider identity must not be linked to the victim account")
 }
 
@@ -119,12 +119,12 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, owner.ID) })
 
-	cfg := authprovider.Provider{Name: "github", Kind: authprovider.KindOAuth2, Issuer: "https://github.com/login/oauth"}
-	info := oauth2UserInfo{Subject: "owner-subject", Email: email, EmailVerified: true}
+	cfg := authprovider.GitHub("github-client", "github-secret")
+	info := authprovider.Identity{Subject: "owner-subject", Email: email, EmailVerified: true}
 
 	// Authenticated link flow: the owner is signed in (LinkUserID) and chooses to
 	// link the provider. This is allowed and binds to the owner's own account.
-	uid, created, err := s.resolveOAuthUser(
+	uid, created, err := s.resolveProviderUser(
 		httptest.NewRequest(http.MethodGet, "/", nil), cfg,
 		oidckit.StateData{LinkUserID: owner.ID}, info,
 	)
@@ -132,7 +132,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	require.Equal(t, owner.ID, uid)
 	require.False(t, created)
 
-	linkedUID, _, _ := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer, "owner-subject")
+	linkedUID, _, _ := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), "owner-subject")
 	require.Equal(t, owner.ID, linkedUID)
 }
 
@@ -153,10 +153,10 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email) })
 
-	cfg := authprovider.Provider{Name: "github", Kind: authprovider.KindOAuth2, Issuer: "https://github.com/login/oauth"}
-	info := oauth2UserInfo{Subject: "fresh-subject", Email: email, EmailVerified: false}
+	cfg := authprovider.GitHub("github-client", "github-secret")
+	info := authprovider.Identity{Subject: "fresh-subject", Email: email, EmailVerified: false}
 
-	uid, created, err := s.resolveOAuthUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
+	uid, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
 	require.NoError(t, err)
 	require.NotEmpty(t, uid)
 	require.True(t, created)
@@ -168,7 +168,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	byEmail, err := coreSvc.GetUserByEmail(ctx, email)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.Nil(t, byEmail)
-	owner, providerEmail, err := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer, info.Subject)
+	owner, providerEmail, err := coreSvc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), info.Subject)
 	require.NoError(t, err)
 	require.Equal(t, uid, owner)
 	require.NotNil(t, providerEmail)

@@ -134,9 +134,6 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 
 func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Request) {
 	provider := strings.TrimSpace(r.PathValue("provider"))
-	if s.rateLimited(w, r, RLOIDCStart) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
@@ -148,63 +145,31 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	}
 	_ = decodeJSON(r, &body)
 
-	// #294: only an OIDC provider proves a fresh interactive login (max_age=0
-	// checked against auth_time). OAuth2 IdPs silently re-authorize an approved
-	// app, so completing them proves nothing.
-	if _, ok := s.oidcProvider(provider); !ok {
-		if _, known := s.authProvider(provider); known {
-			badRequest(w, ErrInvalidMethod)
-		} else {
-			badRequest(w, ErrUnknownProvider)
-		}
-		return
-	}
-	manager := s.oidcManager()
-	issuer, ok := manager.IssuerFor(provider)
-	if !ok || strings.TrimSpace(issuer) == "" {
+	// #294: only a provider that proves a fresh interactive login (OIDC
+	// max_age=0 checked against auth_time) is a step-up method. OAuth2 IdPs
+	// silently re-authorize an approved app, so completing them proves nothing.
+	p, known := s.provider(provider)
+	if !known {
 		badRequest(w, ErrUnknownProvider)
 		return
 	}
-	if !s.userHasLinkedIssuerProvider(r, claims.UserID, issuer, provider) {
+	if !p.SupportsStepUp() {
+		badRequest(w, ErrInvalidMethod)
+		return
+	}
+	if !s.userHasLinkedIssuerProvider(r, claims.UserID, p.Issuer(), p.Name()) {
 		badRequest(w, ErrProviderNotLinked)
 		return
 	}
-
-	state := randB64(32)
-	nonce := randB64(16)
-	verifier := ""
-	challenge := ""
-	if pc, ok := manager.Provider(provider); ok && pc.PKCE {
-		var err error
-		verifier, challenge, err = oidckit.GeneratePKCE()
-		if err != nil {
-			serverErr(w, ErrPKCEGenerationFailed)
-			return
-		}
-	}
-	redirectURI := s.buildRedirectURI(r, provider)
-	// AK F3: bind state to this browser (CSRF defense).
-	s.setStateCookie(w, r, provider, state)
-	startedAt := time.Now().UTC()
-	authURL, err := manager.BeginWithAuthParams(r.Context(), provider, state, nonce, challenge, redirectURI, map[string]string{"max_age": "0"})
-	if err != nil {
-		badRequest(w, ErrOIDCBeginFailed)
-		return
-	}
-	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{
-		Provider:        provider,
-		Verifier:        verifier,
-		Nonce:           nonce,
-		RedirectURI:     redirectURI,
-		StepUpUserID:    claims.UserID,
-		StepUpSessionID: claims.SessionID,
-		StepUpReturnTo:  sanitizeReturnTo(body.ReturnTo),
-		StepUpStartedAt: startedAt,
-	}); err != nil {
-		serverErr(w, ErrStateStoreFailed)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
+	s.startProviderFlow(w, r, p.Name(), flowStart{
+		params: map[string]string{"max_age": "0"},
+		stepUp: &oidckit.StateData{
+			StepUpUserID:    claims.UserID,
+			StepUpSessionID: claims.SessionID,
+			StepUpReturnTo:  sanitizeReturnTo(body.ReturnTo),
+			StepUpStartedAt: time.Now().UTC(),
+		},
+	})
 }
 
 func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, provider string) bool {
@@ -368,7 +333,7 @@ func (s *Service) stepUpMethodsWith(hasPassword bool, settings *authcore.TwoFact
 	}
 	sort.Strings(distinct)
 	for _, provider := range distinct {
-		if _, ok := s.oidcProvider(provider); ok {
+		if p, ok := s.provider(provider); ok && p.SupportsStepUp() {
 			methods = append(methods, provider)
 		}
 	}

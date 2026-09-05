@@ -135,14 +135,7 @@ func (f *fakeOIDCIdP) idToken(t *testing.T) string {
 	return signed
 }
 
-// Provider returns an OIDC-kind descriptor pointing at this IdP.
-func (f *fakeOIDCIdP) Provider(name string) authprovider.Provider {
-	return authprovider.Provider{
-		Name:         name,
-		Kind:         authprovider.KindOIDC,
-		Issuer:       f.Server.URL,
-		ClientID:     f.ClientID,
-		ClientSecret: authprovider.ClientSecret{Value: "idp-secret"},
-		Scopes:       []string{"openid", "email", "profile"},
-	}
+// Provider returns an OIDC provider pointing at this IdP.
+func (f *fakeOIDCIdP) Provider(name string, opts ...authprovider.Option) authprovider.Provider {
+	return authprovider.OIDC(name, f.Server.URL, f.ClientID, "idp-secret", opts...)
 }

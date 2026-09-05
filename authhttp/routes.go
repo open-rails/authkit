@@ -188,7 +188,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	registrationEnabled := cfg.Registration.NativeUserMode != embedded.RegistrationModeClosed
 	twoFactorEnabled := s.svc.TwoFactorEnabled()
 	solanaEnabled := strings.TrimSpace(cfg.SolanaNetwork) != ""
-	oidcEnabled := len(s.authProviders()) > 0
+	oidcEnabled := len(s.providers) > 0
 	applicationsEnabled := cfg.Applications.SelfRegistration
 	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
 	deviceKeysEnabled := cfg.DeviceKeys.Enabled
@@ -274,7 +274,7 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 	if s == nil || s.svc == nil {
 		return nil
 	}
-	if len(s.authProviders()) == 0 {
+	if len(s.providers) == 0 {
 		return nil
 	}
 	selected := routeGroupSet(groups)

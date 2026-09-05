@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,11 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/verify"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
@@ -95,13 +95,11 @@ func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)
-	return &Service{svc: coreSvc, verifier: ver, outboundHTTP: netguard.Client(netguard.DefaultTimeout, true)}
+	return &Service{svc: coreSvc, verifier: ver}
 }
 
 func enableTestOIDCProvider(s *Service) {
-	s.authProvidersByName = map[string]authprovider.Provider{
-		"google": {Name: "google", Kind: authprovider.KindOIDC},
-	}
+	setTestProviders(s, authprovider.Google("google-client", "google-secret"))
 }
 
 // newTestPool connects to the shared integration database (testdb.URL) without
@@ -231,24 +229,15 @@ func TestServiceStateCachePersistsWithoutRedis(t *testing.T) {
 func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	s := newTestService(t)
 	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+	s.providers, err = providerRegistry([]authprovider.Provider{
 		authprovider.Discord("discord-client", "discord-secret"),
 		authprovider.GitHub("github-client", "github-secret"),
-		{
-			Name:         "custom-oauth",
-			Kind:         authprovider.KindOAuth2,
-			Issuer:       "https://custom.example",
-			ClientID:     "custom-client",
-			ClientSecret: authprovider.ClientSecret{Value: "custom-secret"},
-			AuthorizeURL: "https://custom.example/oauth/authorize",
-			TokenURL:     "https://custom.example/oauth/token",
-			UserInfoURL:  "https://custom.example/me",
-			Scopes:       []string{"profile"},
-			PKCE:         true,
-		},
+		authprovider.OAuth2("custom-oauth", "https://custom.example",
+			authprovider.Endpoint{AuthorizeURL: "https://custom.example/oauth/authorize", TokenURL: "https://custom.example/oauth/token"},
+			"custom-client", "custom-secret", testUserInfo("https://custom.example/me"),
+			authprovider.WithScopes("profile"), authprovider.WithPKCE(true)),
 	})
 	require.NoError(t, err)
-	s.resetOIDCManagerForTest()
 	h := s.oidcHandler()
 
 	tests := []struct {
@@ -286,11 +275,10 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 func configureGitHubOAuthForTest(t *testing.T, s *Service) {
 	t.Helper()
 	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+	s.providers, err = providerRegistry([]authprovider.Provider{
 		authprovider.GitHub("github-client", "github-secret"),
 	})
 	require.NoError(t, err)
-	s.resetOIDCManagerForTest()
 }
 
 func TestBuildFrontendCallbackURL(t *testing.T) {

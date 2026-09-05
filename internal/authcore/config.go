@@ -300,12 +300,9 @@ type KeysConfig struct {
 
 // IdentityConfig declares external OAuth2/OIDC identity providers.
 type IdentityConfig struct {
-	// Providers is the list of external identity providers — a provider is a
-	// provider, there is no built-in-vs-custom split (#143). Use a built-in
-	// constructor for the common ones (authprovider.Google/Apple/Discord/GitHub,
-	// which need only client id/secret and derive standard scopes/mapping) or a
-	// full authprovider.Provider descriptor for any other OAuth2/OIDC provider.
-	// Each provider carries its own Name.
+	// Providers are the external identity providers: authprovider.Google/
+	// Apple/Discord/GitHub for the built-ins, authprovider.OIDC/OAuth2 for any
+	// other IdP. Each provider owns its quirks and carries its own Name.
 	Providers []authprovider.Provider
 }
 

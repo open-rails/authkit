@@ -40,19 +40,10 @@ func TestStepUpRefusesOAuth2ProvidersAndKeepsOIDC(t *testing.T) {
 	}))
 	t.Cleanup(idp.Close)
 
-	srv.authProvidersByName = map[string]authprovider.Provider{
-		"google": {
-			Name: "google", Kind: authprovider.KindOIDC, Issuer: idp.URL,
-			ClientID: "google-client", ClientSecret: authprovider.ClientSecret{Value: "google-secret"},
-		},
-		"discord": {
-			Name: "discord", Kind: authprovider.KindOAuth2, Issuer: "https://discord.com",
-			ClientID: "discord-client", ClientSecret: authprovider.ClientSecret{Value: "discord-secret"},
-			AuthorizeURL: "https://discord.com/oauth2/authorize", TokenURL: "https://discord.com/api/oauth2/token",
-			UserInfoURL: "https://discord.com/api/users/@me",
-		},
-	}
-	srv.resetOIDCManagerForTest()
+	setTestProviders(srv,
+		authprovider.OIDC("google", idp.URL, "google-client", "google-secret"),
+		authprovider.Discord("discord-client", "discord-secret"),
+	)
 
 	const pass = "Correct-password-12345"
 	userID, staleToken := stalePasswordUserToken(t, srv, pool, "oauth2-stepup", pass)

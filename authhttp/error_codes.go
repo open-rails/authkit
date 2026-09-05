@@ -155,9 +155,6 @@ const (
 	// ErrEntitlementFilterUnavailable is the entitlement_filter_unavailable AuthKit HTTP wire error code.
 	ErrEntitlementFilterUnavailable ErrorCode = "entitlement_filter_unavailable"
 
-	// ErrExchangeFailed is the exchange_failed AuthKit HTTP wire error code.
-	ErrExchangeFailed ErrorCode = "exchange_failed"
-
 	// ErrFailedToBan is the failed_to_ban AuthKit HTTP wire error code.
 	ErrFailedToBan ErrorCode = "failed_to_ban"
 
@@ -490,9 +487,6 @@ const (
 
 	// ErrUserNotFound is the user_not_found AuthKit HTTP wire error code.
 	ErrUserNotFound ErrorCode = "user_not_found"
-
-	// ErrUserinfoFailed is the userinfo_failed AuthKit HTTP wire error code.
-	ErrUserinfoFailed ErrorCode = "userinfo_failed"
 
 	// ErrUsernameCannotContainAt is the username_cannot_contain_at AuthKit HTTP wire error code.
 	ErrUsernameCannotContainAt ErrorCode = embedded.ErrCodeUsernameCannotContainAt

@@ -29,13 +29,10 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	idp := newFakeOIDCIdP(t, "idp-client")
 	subject := "apple-" + uniqueSuffix()
 	idp.SetIdentity(subject, uniqueEmail("apple"), true, nil)
-	apple := idp.Provider("apple")
-	apple.ExtraAuthParams = map[string]string{"response_mode": "form_post"}
-	srv.authProvidersByName = map[string]authprovider.Provider{
-		"apple":  apple,
-		"google": idp.Provider("google"),
-	}
-	srv.resetOIDCManagerForTest()
+	setTestProviders(srv,
+		idp.Provider("apple", authprovider.WithAuthParams(map[string]string{"response_mode": "form_post"})),
+		idp.Provider("google"),
+	)
 	h := srv.oidcHandler()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
@@ -117,7 +114,7 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 func TestNewServerRefusesFormPostWithoutHTTPS(t *testing.T) {
 	base := func() embedded.Config {
 		cfg := newServerTestConfig()
-		cfg.Identity = embedded.IdentityConfig{Providers: []authprovider.Provider{authprovider.Apple("apple-client", "apple-secret")}}
+		cfg.Identity = embedded.IdentityConfig{Providers: []authprovider.Provider{authprovider.Apple("apple-client", authprovider.AppleSecret{Static: "apple-secret"})}}
 		return cfg
 	}
 

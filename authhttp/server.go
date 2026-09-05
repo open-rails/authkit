@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/netguard"
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
@@ -81,8 +80,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 
 	// HTTP-level defaults set BEFORE options so an option can override them.
 	s := &Service{
-		clientIP:     DefaultClientIP(),
-		outboundHTTP: netguard.Client(netguard.DefaultTimeout, true),
+		clientIP: DefaultClientIP(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -155,14 +153,14 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	ver.WithService(coreSvc)
 	s.verifier = ver
 
-	authProvidersByName, err := buildAuthProvidersMap(cfg.Identity.Providers)
+	providers, err := providerRegistry(cfg.Identity.Providers)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireHTTPSForFormPost(authProvidersByName, cfg.Frontend.BaseURL); err != nil {
+	if err := requireHTTPSForFormPost(providers, cfg.Frontend.BaseURL); err != nil {
 		return nil, err
 	}
-	s.authProvidersByName = authProvidersByName
+	s.providers = providers
 	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
 	s.memSIWSCache = memorystore.NewSIWSCache(15 * time.Minute)
 
