@@ -428,6 +428,10 @@ func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 	return s.impl.DeleteGroupInstanceByID(ctx, groupID, opts)
 }
 
+func (s *Client) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []authkit.ImportUnverifiedSolanaLinkInput) (authkit.ImportUnverifiedSolanaLinksResult, error) {
+	return s.impl.ImportUnverifiedSolanaLinks(ctx, inputs)
+}
+
 // GroupNamingState describes effective policy and still-reserved former names.
 // The host authorizes access to the captured UUID before calling this read.
 func (s *Client) GroupNamingState(ctx context.Context, groupID string) (authkit.NamingState, error) {

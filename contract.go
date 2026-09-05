@@ -263,6 +263,38 @@ type ImportUsersResult struct {
 	Rejected int
 }
 
+// ImportUnverifiedSolanaLinkStatus is the per-row outcome of a legacy Solana
+// identity import.
+type ImportUnverifiedSolanaLinkStatus string
+
+// ImportUnverifiedSolanaLinkInput is a migration-only Solana identity claim.
+// Importing reserves the address but does not make it a login method; the user
+// must prove ownership through the normal SIWS flow before AuthKit trusts it.
+type ImportUnverifiedSolanaLinkInput struct {
+	UserID          string
+	Address         string
+	Source          string
+	SourceID        string
+	SourceCreatedAt *time.Time
+}
+
+// ImportUnverifiedSolanaLinkResult is the outcome for one input row.
+type ImportUnverifiedSolanaLinkResult struct {
+	Index   int
+	UserID  string
+	Address string
+	Status  ImportUnverifiedSolanaLinkStatus
+	Reason  string
+}
+
+// ImportUnverifiedSolanaLinksResult aggregates per-row wallet import outcomes.
+type ImportUnverifiedSolanaLinksResult struct {
+	Results  []ImportUnverifiedSolanaLinkResult
+	Inserted int
+	Skipped  int
+	Rejected int
+}
+
 type MFAStatus struct {
 	Enabled        bool
 	Satisfied      bool
@@ -456,6 +488,12 @@ type ServiceJWTMintOptions struct {
 	IssuedAt    time.Time
 	JTI         string
 }
+
+const (
+	ImportUnverifiedSolanaLinkInserted ImportUnverifiedSolanaLinkStatus = "inserted"
+	ImportUnverifiedSolanaLinkSkipped  ImportUnverifiedSolanaLinkStatus = "skipped"
+	ImportUnverifiedSolanaLinkRejected ImportUnverifiedSolanaLinkStatus = "rejected"
+)
 
 const (
 	ImportStatusInserted   ImportUserStatus = "inserted"

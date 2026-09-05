@@ -44,7 +44,7 @@ func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
 	if account == nil || account.Address != currentAddress || !account.Verified {
 		t.Fatalf("current wallet changed after rejected replacement: %#v", account)
 	}
-	if _, found, err := svc.solanaLinkUserID(ctx, replacementWallet.Account.Address); err != nil || found {
+	if _, _, found, err := svc.getSolanaProviderLinkAny(ctx, replacementWallet.Account.Address); err != nil || found {
 		t.Fatalf("replacement wallet persisted: found=%v err=%v", found, err)
 	}
 }
