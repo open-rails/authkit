@@ -56,6 +56,18 @@ func requireEnv(t testing.TB, keys ...string) string {
 // infrastructure by accident.
 func ScratchPostgres(t testing.TB) *Postgres {
 	t.Helper()
+	return scratchPostgres(t, true)
+}
+
+// EmptyScratchPostgres is ScratchPostgres without the migrations, for tests
+// that seed a ledger of their own before migrating.
+func EmptyScratchPostgres(t testing.TB) *Postgres {
+	t.Helper()
+	return scratchPostgres(t, false)
+}
+
+func scratchPostgres(t testing.TB, migrate bool) *Postgres {
+	t.Helper()
 	baseURL := requireEnv(t, "QUERY_TEST_DATABASE_URL", "AUTHKIT_TEST_DATABASE_URL", "SQLC_DATABASE_URL")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -97,7 +109,9 @@ func ScratchPostgres(t testing.TB) *Postgres {
 		}
 	})
 
-	ApplyMigrations(t, ctx, testURL)
+	if migrate {
+		ApplyMigrations(t, ctx, testURL)
+	}
 	return pg
 }
 

@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/open-rails/migratekit"
 )
 
 func sqlFiles(t *testing.T, fsys fs.FS) map[string]string {
@@ -111,6 +113,21 @@ func TestFSForSchemaRejectsInvalidNames(t *testing.T) {
 	for _, schema := range []string{"Profiles", "1abc", "a-b", "a b", `a"b`, "a;b", strings.Repeat("a", 64)} {
 		if _, err := FSForSchema(schema); err == nil {
 			t.Errorf("FSForSchema(%q) should error", schema)
+		}
+	}
+}
+
+// Every migration carries a migratekit parent link, embedded and rendered
+// alike, so a new file without one (or a rendered chain whose links no longer
+// match) fails here rather than at a host's boot.
+func TestChainLinksVerify(t *testing.T) {
+	rendered, err := FSForSchema("openrails_auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, fsys := range map[string]fs.FS{"embedded": FS, "rendered": rendered} {
+		if _, err := migratekit.Load(fsys, ".", migratekit.RequireParentLinks()); err != nil {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }

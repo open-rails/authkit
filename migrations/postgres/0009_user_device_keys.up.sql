@@ -1,3 +1,4 @@
+-- parent: 8 sha256:a97b4962fec3f0b47ddec76c7c88d22d7eea99ddf66dde962af13243cef6e3f6
 -- ak#278: public keys held by native clients. Private keys never enter AuthKit.
 CREATE TABLE IF NOT EXISTS profiles.user_device_keys (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),

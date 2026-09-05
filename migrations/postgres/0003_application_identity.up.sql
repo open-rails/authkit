@@ -1,3 +1,4 @@
+-- parent: 2 sha256:51a6baf7d907a2d1326cd03424481bf0d857f12a51f4aec5b88e0d4d64d15ad3
 -- ak#264: application self-registration + naming doctrine.
 --
 -- Identity is the uuid (v7, both tables already key on it); slugs are meaningful

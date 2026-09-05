@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"strings"
 	"testing/fstest"
+
+	"github.com/open-rails/migratekit"
 )
 
 //go:embed *.sql
@@ -57,22 +60,28 @@ func FSForSchema(schema string) (fs.FS, error) {
 	if len(schema) > 63 || !schemaNameRE.MatchString(schema) {
 		return nil, fmt.Errorf("authkit/migrations: invalid schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", schema)
 	}
-	entries, err := fs.ReadDir(migrationFS, ".")
+	ms, err := migratekit.LoadFromFS(migrationFS)
 	if err != nil {
 		return nil, err
 	}
+	// Rendering changes every body, so the `-- parent:` links are rebuilt over
+	// the rendered digests to keep the chain verifiable.
 	rendered := fstest.MapFS{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		b, err := fs.ReadFile(migrationFS, e.Name())
-		if err != nil {
-			return nil, err
-		}
-		rendered[e.Name()] = &fstest.MapFile{
-			Data: schemaWordRE.ReplaceAll(b, []byte(schema)),
-		}
+	header := "-- parent: root"
+	for _, m := range ms {
+		content := header + "\n" + schemaWordRE.ReplaceAllString(withoutParentHeader(m.Content), schema)
+		rendered[m.Name] = &fstest.MapFile{Data: []byte(content)}
+		header = fmt.Sprintf("-- parent: %s sha256:%s", migratekit.Prefix(m.Name), migratekit.ContentDigest(content))
 	}
 	return rendered, nil
+}
+
+func withoutParentHeader(content string) string {
+	if !strings.HasPrefix(content, "-- parent:") {
+		return content
+	}
+	if i := strings.IndexByte(content, '\n'); i >= 0 {
+		return content[i+1:]
+	}
+	return ""
 }

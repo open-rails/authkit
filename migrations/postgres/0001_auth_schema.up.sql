@@ -1,3 +1,4 @@
+-- parent: root
 -- AuthKit PostgreSQL schema.
 -- PostgreSQL 18+ is required for native uuidv7() defaults.
 

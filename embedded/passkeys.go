@@ -168,6 +168,9 @@ func (s *Client) webAuthn() (*webauthn.WebAuthn, error) {
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			UserVerification: s.passkeyUserVerification(),
 		},
+		// No extension is requested and no output is read, so a client that
+		// volunteers one must not fail the ceremony.
+		ExtensionsUnsolicitedOutputPolicy: protocol.UnsolicitedOutputPolicyIgnore,
 	})
 }
 
@@ -352,7 +355,9 @@ func (s *Client) finishDiscoverableAssertion(ctx context.Context, purpose string
 		return VerifiedPasskey{}, err
 	}
 	user := webUser.(passkeyUser)
-	if !cred.Flags.UserVerified {
+	// cred.Flags.UserVerified is the latched uvInitialized record, not this
+	// assertion's flag; the requirement is per ceremony.
+	if !parsed.Response.AuthenticatorData.Flags.UserVerified() {
 		return VerifiedPasskey{}, ErrPasskeyUserVerificationRequired
 	}
 	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {

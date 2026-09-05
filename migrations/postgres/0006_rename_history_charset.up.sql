@@ -1,3 +1,4 @@
+-- parent: 5 sha256:835c36f3c6d2251f9ee8f19637432470855f9f9e8bb30cd7c9b25696d2bbb225
 -- ak#273 (GitHub open-rails/authkit#69): the rename-history CHECK contradicted
 -- the username validator, so a legal account could never be renamed.
 --

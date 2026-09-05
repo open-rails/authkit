@@ -1,3 +1,4 @@
+-- parent: 4 sha256:d0cbb69cfd643ed065d27a6d2301ab09eeb363ca1f3c4af3270b387eb06fcc42
 -- ak#260: AuthKit-owned signed-document store.
 --
 -- One row per published immutable document (documents.SignedDocument). The
