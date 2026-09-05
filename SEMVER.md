@@ -736,7 +736,7 @@ When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
 2. **Dev-gen** — auto-generates an in-memory keypair (written to
    `<Keys.Path>/keys.json` only when `Keys.Path` is explicit), ONLY with the
    explicit `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
-   The opt-in is deliberately independent of `Environment`.
+   The opt-in is an explicit field, never inferred.
 
 Hosts with in-memory key material pass an explicit `Keys.Source`
 (`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The `cmd/authkit-server`
@@ -763,7 +763,9 @@ an optional field with a backward-compatible zero-value default is MINOR.
   frontends read `location.hash`, never the query (ak#324).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
   default `none`), `NativeUserMode` (`open` default; non-open disables public signup),
-  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false).
+  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false),
+  `AllowMissingSenders` (default false: a flow that needs an unwired email/SMS sender
+  is an error; true lets it proceed undelivered — dev rigs only).
   The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.
 - **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
   `ErrMissingSigner`, verification/JWKS still work), `AllowEphemeralDevKeys` (default
@@ -781,10 +783,12 @@ an optional field with a backward-compatible zero-value default is MINOR.
   must equal `RPID` or be a subdomain of it), `UserVerification` (`preferred` default |
   `required` | `discouraged`). Requires a valid `Frontend.BaseURL` origin to be usable.
 - **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
-- **Top-level**: `Environment` (single classifier `IsDevEnvironment`, #231: only
-  `dev`/`development`/`local`/`test`/empty are dev; everything else — incl. `staging` —
-  is prod-like/fail-closed), `Schema`, `SolanaNetwork`, `SessionEventRetention`
+- **Top-level**: `Schema`, `SolanaNetwork` (empty ⇒ mainnet), `SessionEventRetention`
   (session-event history retention, #245: 0 ⇒ default 365 days; negative ⇒ keep forever).
+  There is no `Environment` (#314): every formerly env-gated behaviour is an explicit
+  field with the safe default — `Keys.AllowEphemeralDevKeys`, `Ephemeral.AllowMemory`,
+  `Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`, and the
+  mandatory `authhttp` client-IP posture.
 
 The constructor-injected dependencies (`WithPostgres`/`WithRedis`/`WithEmailSender`/
 `WithSMSSender`/`WithEntitlements`/…) are covered as Plane A options.

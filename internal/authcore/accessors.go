@@ -17,10 +17,7 @@ import (
 )
 
 // Plain accessors and small setters on Service: keys/JWKS, config, the DB pool
-// and schema, and the verify-time Keyfunc. IsDevEnvironment is THE single
-// dev/prod classifier (#231): pure logic on a config-provided string, callable
-// before a Service exists (e.g. from service_solana.go during options
-// resolution), with a nil-safe Service method wrapper used everywhere else.
+// and schema, and the verify-time Keyfunc.
 
 // JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
 // KeySource on every call, so a rotation is reflected on the very next request
@@ -148,20 +145,3 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
 // should prefer the WithEntitlements construction option instead.
 func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
-
-// IsDevEnvironment is THE dev/prod classifier (#231) — the single function all
-// dev-vs-prod behavior switches on (the standalone binary maps AUTHKIT_ENV
-// through it too; there are deliberately no other classifiers). Only
-// explicitly dev-ish values count as development: "dev", "development",
-// "local", "test" — plus the empty string, so zero-config embedding keeps dev
-// ergonomics (deployments must set Environment). EVERYTHING else — including
-// "staging" and unknown/misspelled values — is prod-like, i.e. fail-closed.
-// NOTE: ephemeral signing-key generation is NOT tied to this classifier; it
-// requires the explicit KeysConfig.AllowEphemeralDevKeys opt-in.
-func IsDevEnvironment(env string) bool {
-	switch strings.ToLower(strings.TrimSpace(env)) {
-	case "", "dev", "development", "local", "test":
-		return true
-	}
-	return false
-}

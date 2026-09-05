@@ -66,15 +66,6 @@ type Config struct {
 	// construction (authhttp.NewServer), fail-closed like the publisher itself.
 	Documents DocumentsConfig
 
-	// Environment is a host-provided runtime mode string used for dev/prod
-	// behavior checks via IsDevEnvironment, the single classifier (#231): only
-	// "dev", "development", "local", "test" (and empty, preserving zero-config
-	// dev ergonomics) count as development; EVERYTHING else — including
-	// "staging" — is treated as production-like (fail-closed). NOTE: ephemeral
-	// signing-key generation is NOT tied to this field — it requires the
-	// explicit Keys.AllowEphemeralDevKeys opt-in.
-	Environment string
-
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
 	// "profiles" (the historical hard-coded name). Set it when multiple apps
 	// embed AuthKit against the same database and must not share auth tables
@@ -85,7 +76,7 @@ type Config struct {
 	Schema string
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
-	// Empty derives a default from Environment. Solana Name Service (SNS)
+	// Empty defaults to mainnet. Solana Name Service (SNS)
 	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
 	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
 	SolanaNetwork string

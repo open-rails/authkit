@@ -40,7 +40,7 @@ func newServerTestConfig() embedded.Config {
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
-		// Environment empty => dev => signing keys are auto-generated.
+		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
 	}
 }
 
@@ -76,22 +76,22 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	require.NotNil(t, srv.svc, "core engine wired")
 	require.Nil(t, srv.rl, "WithoutRateLimiter option must be applied at construction")
 
-	// Production without Redis fails at the ENGINE (#305): the memory ephemeral
+	// No Redis and no opt-in fails at the ENGINE (#305): the memory ephemeral
 	// store is refused before authhttp is ever reached.
 	prodCfg := newServerTestConfig()
-	prodCfg.Environment = "production"
+	prodCfg.Ephemeral = embedded.EphemeralConfig{}
 	_, err = embedded.New(prodCfg, pool)
-	require.Error(t, err, "production without a Redis store must fail engine construction")
+	require.Error(t, err, "no Redis store and no opt-in must fail engine construction")
 	require.Contains(t, err.Error(), "Ephemeral.AllowMemory")
 
 	// The explicit single-instance opt-in permits memory at both layers.
 	memCfg := prodCfg
 	memCfg.Ephemeral = embedded.EphemeralConfig{AllowMemory: true}
 	memSrv, err := NewServer(newServerClient(t, memCfg, pool), WithDirectPeerIP())
-	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends outside dev")
+	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends")
 	memSrv.Close()
 
-	// Production WITH Redis passes.
+	// Redis passes without the opt-in.
 	rdb := testdb.ScratchRedis(t)
 	_, err = NewServer(newServerClient(t, prodCfg, pool, embedded.WithRedis(rdb)), WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err, "production with Redis must pass validation")
@@ -129,10 +129,10 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 
 	prodCfg := newServerTestConfig()
-	prodCfg.Environment = "production"
+	prodCfg.Ephemeral = embedded.EphemeralConfig{}
 
-	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
-	// (which previously only checked the HTTP side) must now pass via reuse.
+	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Validation
+	// (which previously only checked the HTTP side) must pass via reuse.
 	client := newServerClient(t, prodCfg, testdb.UnlockedPool(t), embedded.WithRedis(rdb))
 	srv, err := NewServer(client, WithDirectPeerIP())
 	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")

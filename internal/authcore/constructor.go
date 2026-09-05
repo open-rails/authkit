@@ -39,7 +39,6 @@ const (
 // test configs stay constructible through NewService.
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
-	cfg.Environment = strings.TrimSpace(cfg.Environment)
 	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
 
 	// #307: one Redis namespace per deployment, derived from the schema unless

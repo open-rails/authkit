@@ -116,15 +116,13 @@ func TestClientIPTrustScope_LimiterKey(t *testing.T) {
 	})
 }
 
-// TestNewServer_RequiresClientIPPosture pins ak#299: a production-like
-// environment must declare how the client IP is derived, or construction fails.
+// TestNewServer_RequiresClientIPPosture pins ak#299: the host must declare how
+// the client IP is derived, or construction fails.
 func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 	prod := newServerTestConfig()
-	prod.Environment = "production"
-	prodClient := func() *embedded.Client {
-		return newServerClient(t, prod, testdb.UnlockedPool(t), embedded.WithRedis(rdb))
-	}
+	prod.Ephemeral = embedded.EphemeralConfig{}
+	prodClient := func() *embedded.Client { return newServerClient(t, prod, testdb.UnlockedPool(t), embedded.WithRedis(rdb)) }
 
 	_, err := NewServer(prodClient(), WithRedis(rdb))
 	require.Error(t, err)
@@ -140,9 +138,10 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 		require.NoError(t, err, name)
 	}
 
-	// Dev stays posture-free.
+	// The memory store changes nothing: the posture is always required.
 	_, err = NewServer(newServerClient(t, newServerTestConfig(), testdb.UnlockedPool(t)))
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "client-IP posture")
 }
 
 // TestUndeclaredProxyTripwire pins the runtime half of ak#299: when the

@@ -1,8 +1,7 @@
 package authcore
 
 // #231/#232 construction-level tests: fail-closed key resolution (ephemeral
-// dev keys are an explicit opt-in, never inferred from env or Environment),
-// the single dev/prod classifier, and the <Keys.Path>/totp.key wiring.
+// dev keys are an explicit opt-in) and the <Keys.Path>/totp.key wiring.
 
 import (
 	"crypto/x509"
@@ -29,9 +28,6 @@ func minimalKeysTestConfig() Config {
 func TestNewFromConfigFailsClosedWithoutKeysOrOptIn(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: t.TempDir()} // no keys.json, no opt-in
-	// Even a "dev" Environment must NOT unlock key generation (#231): the
-	// classifier and the ephemeral-keys opt-in are deliberately independent.
-	cfg.Environment = "dev"
 
 	if _, err := NewFromConfig(cfg, nil); err == nil {
 		t.Fatal("expected hard error with no keys and no AllowEphemeralDevKeys opt-in")
@@ -80,22 +76,6 @@ func TestNewFromConfigLoadsKeysJSON(t *testing.T) {
 	}
 	if _, ok := svc.PublicKeysByKID()["cfg-kid"]; !ok {
 		t.Fatalf("expected cfg-kid in keyset, have %v", svc.PublicKeysByKID())
-	}
-}
-
-func TestIsDevEnvironmentSingleClassifier(t *testing.T) {
-	dev := []string{"", "dev", "Development", "local", "TEST", "  dev  "}
-	for _, e := range dev {
-		if !IsDevEnvironment(e) {
-			t.Errorf("IsDevEnvironment(%q) = false, want true", e)
-		}
-	}
-	// Everything else — including staging and unknown values — is prod-like.
-	prodLike := []string{"prod", "production", "staging", "stage", "qa", "preprod", "banana"}
-	for _, e := range prodLike {
-		if IsDevEnvironment(e) {
-			t.Errorf("IsDevEnvironment(%q) = true, want false (fail-closed)", e)
-		}
 	}
 }
 

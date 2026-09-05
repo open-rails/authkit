@@ -52,9 +52,6 @@ func solanaChainIDForConfig(cfg Config) string {
 	if n := normalizeSolanaNetwork(cfg.SolanaNetwork); n != "" {
 		return n
 	}
-	if IsDevEnvironment(cfg.Environment) {
-		return "testnet"
-	}
 	return "mainnet"
 }
 

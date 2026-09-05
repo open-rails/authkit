@@ -153,7 +153,6 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 				},
 			},
 		},
-		Environment:   "production",
 		Schema:        "profiles",
 		SolanaNetwork: "mainnet",
 	}

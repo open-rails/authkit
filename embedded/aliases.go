@@ -96,7 +96,6 @@ const TwoFactorRequired = authcore.TwoFactorRequired
 // #136 no-escalation role-assignment errors.
 var IntrinsicRootPermissions = authcore.IntrinsicRootPermissions
 var IntrinsicRootPersona = authcore.IntrinsicRootPersona
-var IsDevEnvironment = authcore.IsDevEnvironment
 var LoadBootstrapManifestFile = authcore.LoadBootstrapManifestFile
 var MintRemoteApplicationAccessToken = authcore.MintRemoteApplicationAccessToken
 var MintServiceJWT = authcore.MintServiceJWT

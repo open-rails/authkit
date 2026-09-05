@@ -88,7 +88,7 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 	require.NoError(t, err)
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV())}, coreOpts...)
-	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: policy}, Environment: "test"}, ks, opts...)
+	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: policy}}, ks, opts...)
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, verify.IssuerOptions{

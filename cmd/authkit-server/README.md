@@ -22,7 +22,7 @@ exercise the real HTTP surface.
 | `AUTHKIT_ACTIVE_KEY_ID` / `AUTHKIT_ACTIVE_PRIVATE_KEY_PEM` | no | — | Inline signing key material; wins over `keys.json` when set (both required together) |
 | `AUTHKIT_PUBLIC_KEYS` | no | — | JSON map `kid -> public-key PEM` of extra verification keys kept in the JWKS (rotation) |
 | `AUTHKIT_SCHEMA` | no | `profiles` | Postgres schema |
-| `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). Non-dev requires real keys and Redis |
+| `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). A dev value turns on the library's explicit dev opt-ins (`Keys.AllowEphemeralDevKeys`, `Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`, `Ephemeral.AllowMemory` when no Redis is set, a direct-peer IP posture when no proxies are set); non-dev requires real keys, Redis and an IP posture |
 | `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state); pair with `AUTHKIT_REDIS_PASSWORD` when the server requires auth |
 | `AUTHKIT_REDIS_URL` | no | — | Full `redis://`/`rediss://` URL (password, TLS, and db ride in the URL); mutually exclusive with `AUTHKIT_REDIS_ADDR` |
 | `AUTHKIT_REDIS_PASSWORD` | no | — | Password for `AUTHKIT_REDIS_ADDR` deployments (URL form carries its own) |
@@ -59,9 +59,10 @@ reviewable YAML, read at every boot (not part of the apply-once seed). A
 ## Env doctrine (#231)
 
 The AuthKit **library reads no environment variables** — this binary is the one
-place env is read, once, in `loadConfig`. It maps `AUTHKIT_ENV` through the
-single classifier (`embedded.IsDevEnvironment`) and, in a dev env, sets
-`Keys.AllowEphemeralDevKeys` so `go run ./cmd/authkit-server` still boots with
+place env is read, once, in `loadConfig`. The library carries no environment
+notion (#314): every dev behaviour is an explicit config field, and this binary
+maps a dev `AUTHKIT_ENV` onto those fields — among them
+`Keys.AllowEphemeralDevKeys`, so `go run ./cmd/authkit-server` still boots with
 auto-generated dev signing keys (in memory; set `AUTHKIT_KEYS_PATH` to persist
 them as `keys.json` across restarts). In any
 non-dev env with no keys configured, the server **refuses to boot**.
