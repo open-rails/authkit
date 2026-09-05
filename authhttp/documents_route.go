@@ -12,7 +12,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -76,7 +75,7 @@ func (s *Service) documentsHandler() http.Handler {
 		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootDomain &&
 			byDomain[strings.ToLower(claims.RemoteApplicationDomain)]:
 		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootManual &&
-			claims.PermissionGroupPersona == embedded.RootPersona && byIssuer[claims.Issuer]:
+			authkit.Persona(claims.PermissionGroupPersona) == authkit.RootPersona && byIssuer[claims.Issuer]:
 		default:
 			return documents.ErrUnauthorized
 		}

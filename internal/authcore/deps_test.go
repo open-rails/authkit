@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -32,7 +33,7 @@ func WithDelegatedAuthorization(a DelegationAuthorizer) Option {
 func WithApplicationAdmission(pred func(ctx context.Context, domain string) error) Option {
 	return func(d *Deps) { d.ApplicationAdmission = pred }
 }
-func WithInstanceAdmission(pred func(ctx context.Context, persona, instanceSlug, subject string) error) Option {
+func WithInstanceAdmission(pred func(ctx context.Context, group authkit.GroupRef, subject string) error) Option {
 	return func(d *Deps) { d.InstanceAdmission = pred }
 }
 

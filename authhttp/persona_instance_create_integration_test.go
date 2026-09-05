@@ -31,12 +31,12 @@ import (
 func instanceCreateTestConfig() embedded.Config {
 	cfg := newServerTestConfig()
 	cfg.RBAC = []embedded.PersonaDef{
-		{Name: embedded.RootPersona, Roles: []embedded.RoleDef{
+		{Name: authkit.RootPersona, Roles: []embedded.RoleDef{
 			{Name: "site-admin", Permissions: []string{"root:resources:read"}},
 		}},
 		{
 			Name:         "org",
-			Parent:       embedded.RootPersona,
+			Parent:       authkit.RootPersona,
 			Capabilities: embedded.PersonaCapabilities{RemoteApplications: true},
 			Roles: []embedded.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
@@ -101,7 +101,7 @@ func TestInstanceCreate_RouteMountedOnlyWhenEnabled(t *testing.T) {
 	requireRoute(t, on.APIRoutes(RoutePermissionGroups), http.MethodPost, "/org")
 
 	off := newTestServiceWithRBAC(t, embedded.PersonaDef{
-		Name: "team", Parent: embedded.RootPersona,
+		Name: "team", Parent: authkit.RootPersona,
 		Roles: []embedded.RoleDef{{Name: "member", Permissions: []string{"team:catalog:read"}}},
 	})
 	requireNoRoute(t, off.APIRoutes(RoutePermissionGroups), http.MethodPost, "/team")
@@ -122,10 +122,10 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	// #269: the instance's uuid rides the create response — it is the join key
 	// a host carries into its own ledger, and creation is where it learns the
 	// instance exists.
-	acmeID, err := client.ResolveGroupIDForSlug(ctx, "org", "acme")
+	acmeID, err := client.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"})
 	require.NoError(t, err)
 	require.Equal(t, acmeID, res.GroupID)
-	can, err := client.Can(ctx, owner, embedded.SubjectKindUser, "org", "acme", "org:members:manage")
+	can, err := client.Can(ctx, authkit.UserSubject(owner), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, can, "creator must hold the owner role in the created instance")
 
@@ -141,7 +141,7 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 
 	// Member re-run: a NON-owner member also gets the idempotent return.
 	member, memberToken := newInstanceTestUser(t, srv, "orgmember")
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "acme", member, embedded.SubjectKindUser, "member"))
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(member), "member"))
 	w = postOrg(srv, memberToken, `{"slug":"acme"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	res = instanceCreateResponse{}
@@ -232,11 +232,11 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	// namespace outright — "never creatable through this route, by anyone" is
 	// not expressible with ReservedSlugs, which only escalates.
 	client := newServerClient(t, instanceCreateTestConfig(), pool,
-		withInstanceAdmission(func(_ context.Context, persona, instanceSlug, subject string) error {
-			if persona != "org" {
+		withInstanceAdmission(func(_ context.Context, group authkit.GroupRef, subject string) error {
+			if group.Persona != "org" {
 				return nil
 			}
-			if instanceSlug == "bootstrap-owned" {
+			if group.Instance == "bootstrap-owned" {
 				return errors.New("namespace is owned by the platform bootstrap")
 			}
 			if subject == refusedSubject {
@@ -280,7 +280,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 
 	w := postOrg(srv, ownerToken, `{"slug":"approles"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	gid, err := client.ResolveGroupIDForSlug(ctx, "org", "approles")
+	gid, err := client.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: "approles"})
 	require.NoError(t, err)
 
 	// Register a remote application controlled by the group (dev environment
@@ -303,7 +303,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 	// Assign: 200, and the application principal now holds the role's grants.
 	w = serveAuthJSON(srv, http.MethodPut, rolePath("approles", app.Slug, "member"), ``, ownerToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	can, err := client.Can(ctx, app.ID, embedded.SubjectKindRemoteApp, "org", "approles", "org:catalog:read")
+	can, err := client.Can(ctx, authkit.RemoteAppSubject(app.ID), authkit.GroupRef{Persona: "org", Instance: "approles"}, "org:catalog:read")
 	require.NoError(t, err)
 	require.True(t, can, "remote application must hold the assigned role's grants")
 
@@ -315,7 +315,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 	_, otherToken := newInstanceTestUser(t, srv, "orgappother")
 	w = postOrg(srv, otherToken, `{"slug":"otherorg"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	otherGID, err := client.ResolveGroupIDForSlug(ctx, "org", "otherorg")
+	otherGID, err := client.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: "otherorg"})
 	require.NoError(t, err)
 	foreign, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
 		Slug:              "fapp" + uniqueSuffix(),
@@ -334,7 +334,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 	// the route gate — but NOT org:catalog:read) cannot hand the app a role
 	// conferring authority above their own.
 	bounded, boundedToken := newInstanceTestUser(t, srv, "orgappbounded")
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "approles", bounded, embedded.SubjectKindUser, "credential-manager"))
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "approles"}, authkit.UserSubject(bounded), "credential-manager"))
 	w = serveAuthJSON(srv, http.MethodPut, rolePath("approles", app.Slug, "member"), ``, boundedToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 
@@ -399,7 +399,7 @@ func TestInstanceDescriptor_GroupIDIsKnowableAndGated(t *testing.T) {
 	// Gated on <persona>:settings:read: a plain member is refused the
 	// descriptor...
 	member, memberToken := newInstanceTestUser(t, srv, "orgdescmember")
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "ledger-inc", member, embedded.SubjectKindUser, "member"))
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "ledger-inc"}, authkit.UserSubject(member), "member"))
 	rec, _ = getDescriptor(memberToken, "/org/ledger-inc")
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 

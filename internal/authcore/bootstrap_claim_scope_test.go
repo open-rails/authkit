@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	migrations "github.com/open-rails/authkit/migrations/postgres"
 	"github.com/open-rails/migratekit"
@@ -27,14 +28,14 @@ func bootstrapClaimNames(t *testing.T, ctx context.Context, pg *testdb.Postgres)
 
 func rootRolesOf(t *testing.T, ctx context.Context, svc *Service, userID string) []string {
 	t.Helper()
-	members, err := svc.ListGroupMembers(ctx, RootPersona, "")
+	members, err := svc.ListGroupMembers(ctx, authkit.RootGroup())
 	if err != nil && !errors.Is(err, ErrGroupNotFound) {
 		t.Fatalf("list root members: %v", err)
 	}
 	var roles []string
 	for _, m := range members {
 		if m.SubjectID == userID {
-			roles = append(roles, m.Role)
+			roles = append(roles, string(m.Role))
 		}
 	}
 	return roles
@@ -70,7 +71,7 @@ func TestBootstrapClaimSecondNameOnClaimedDatabaseIsAlreadyApplied(t *testing.T)
 
 	second := BootstrapManifest{Users: []BootstrapManifestUser{
 		{Username: "genesis", Email: "genesis@example.com", EmailVerified: true,
-			Password: &BootstrapUserPassword{Plaintext: seeded, Enforce: true}, RootRole: OwnerRoleName},
+			Password: &BootstrapUserPassword{Plaintext: seeded, Enforce: true}, RootRole: string(OwnerRoleName)},
 		{Username: "second-app", Email: "second@example.com", EmailVerified: true},
 	}}
 	res, err = svc.ApplyBootstrapManifest(ctx, second, BootstrapReconcileOptions{StartupOnly: true, Name: "openrails"})
@@ -108,7 +109,7 @@ func TestBootstrapClaimGraphWithoutAnyClaimRefuses(t *testing.T) {
 	}
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
 		Username: "existing", Email: "existing@example.com", EmailVerified: true,
-		Password: &BootstrapUserPassword{Plaintext: "bootstrap-password-1"}, RootRole: OwnerRoleName,
+		Password: &BootstrapUserPassword{Plaintext: "bootstrap-password-1"}, RootRole: string(OwnerRoleName),
 	}}}
 	for _, name := range []string{"default", "openrails"} {
 		_, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: name})
@@ -179,7 +180,7 @@ func TestBootstrapClaimBackfillMigrationUnlocksPreClaimDatabase(t *testing.T) {
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
 		Username: "legacy", Email: "legacy@example.com", EmailVerified: true,
-		Password: &BootstrapUserPassword{Plaintext: "bootstrap-password-1"}, RootRole: OwnerRoleName,
+		Password: &BootstrapUserPassword{Plaintext: "bootstrap-password-1"}, RootRole: string(OwnerRoleName),
 	}}}
 	for _, name := range []string{"default", "openrails"} {
 		res, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: name})

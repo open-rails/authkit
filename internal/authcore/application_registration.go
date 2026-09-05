@@ -239,7 +239,7 @@ func (s *Service) validateApplicationDocument(doc *ApplicationDocument, host str
 		return nil, ErrReservedIssuer
 	}
 
-	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(doc.JWKSURI), "", doc.PublicKeys, isDev)
+	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(doc.JWKSURI), "", doc.PublicKeys, TrustSourcePolicy{AllowPrivateNetworkJWKS: isDev})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrApplicationDocumentInvalid, err)
 	}
@@ -280,7 +280,7 @@ func (s *Service) applicationsEnabled() (PersonaDef, error) {
 	if !s.cfg.Applications.SelfRegistration {
 		return PersonaDef{}, ErrApplicationRegistrationDisabled
 	}
-	persona := strings.TrimSpace(s.cfg.Applications.OrgPersona)
+	persona := authkit.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
 	if !ok || persona == RootPersona || td.Parent != RootPersona {
 		return PersonaDef{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared persona parented by root", ErrApplicationRegistrationDisabled, persona)
@@ -367,7 +367,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 			if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, app.DisplayName); err != nil {
 				return nil, err
 			}
-			if err := st.AssignRole(ctx, row.PermissionGroupID, row.ID, SubjectKindRemoteApp, OwnerRoleName); err != nil {
+			if err := st.AssignRole(ctx, row.PermissionGroupID, authkit.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
 				return nil, err
 			}
 		}
@@ -402,7 +402,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if available, err := st.InstanceSlugAvailable(ctx, td.Name, app.Slug); err != nil {
+	if available, err := st.InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: td.Name, Instance: app.Slug}); err != nil {
 		return nil, err
 	} else if !available {
 		return nil, ErrApplicationSlugConflict
@@ -411,7 +411,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	if err != nil {
 		return nil, err
 	}
-	gid, err := st.CreateGroupNamed(ctx, td.Name, rootGID, app.Slug, app.DisplayName)
+	gid, err := st.CreateGroupNamed(ctx, authkit.GroupRef{Persona: td.Name, Instance: app.Slug}, rootGID, app.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +438,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	}
 	// Service-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
-	if err := st.AssignRole(ctx, gid, row.ID, SubjectKindRemoteApp, OwnerRoleName); err != nil {
+	if err := st.AssignRole(ctx, gid, authkit.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -452,7 +452,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	}, nil
 }
 
-func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (persona, instanceSlug string, err error) {
+func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (persona authkit.Persona, instanceSlug string, err error) {
 	if groupID == "" {
 		return "", "", nil
 	}
@@ -632,7 +632,7 @@ func (s *Service) RotateApplicationSigned(ctx context.Context, slug, compactJWS 
 	if err != nil {
 		return nil, err
 	}
-	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(req.JWKSURI), "", req.PublicKeys, s.cfg.Applications.AllowPrivateNetworkJWKS)
+	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(req.JWKSURI), "", req.PublicKeys, s.trustSourcePolicy())
 	if err != nil {
 		return nil, err
 	}

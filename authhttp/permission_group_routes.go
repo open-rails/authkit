@@ -25,8 +25,8 @@ import (
 	"github.com/open-rails/authkit/embedded"
 )
 
-func (s *Service) groupCan(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error) {
-	return s.svc.Can(r.Context(), subjectID, embedded.SubjectKindUser, persona, instanceSlug, perm)
+func (s *Service) groupCan(r *http.Request, subjectID string, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
+	return s.svc.Can(r.Context(), authkit.UserSubject(subjectID), group, perm)
 }
 
 // notImplemented is the wire code for a generated route whose operation is not
@@ -101,7 +101,7 @@ func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 		persona := persona
 		specs = append(specs, RouteSpec{
 			Method:  http.MethodPost,
-			Path:    "/" + persona,
+			Path:    "/" + string(persona),
 			Group:   RoutePermissionGroups,
 			Auth:    AuthRequired,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.groupInstanceCreate(w, r, persona) }),
@@ -116,7 +116,7 @@ func (s *Service) hasUserVisibleMemberships() bool {
 	}
 	schema := s.svc.PermissionGroupSchema()
 	for _, persona := range schema.Personas() {
-		if persona != embedded.RootPersona {
+		if persona != authkit.RootPersona {
 			return true
 		}
 	}
@@ -129,7 +129,7 @@ func (s *Service) hasInviteLinkSupport() bool {
 	}
 	schema := s.svc.PermissionGroupSchema()
 	for _, persona := range schema.Personas() {
-		if persona != embedded.RootPersona {
+		if persona != authkit.RootPersona {
 			return true
 		}
 	}
@@ -179,7 +179,7 @@ func pathParam(r *http.Request, name string) string {
 // generatedGroupHandler returns the handler for one generated route. It:
 //  1. extracts the caller's verified claims (401 if absent);
 //  2. resolves persona + :instance_slug from the route/path;
-//  3. authorizes via svc.Can(caller, "user", persona, instance_slug, route.Perm)
+//  3. authorizes via svc.Can(caller, group, route.Perm)
 //     (403 on deny);
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
@@ -198,7 +198,8 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			return
 		}
 
-		instance, err := s.svc.GroupInstanceForSlug(r.Context(), gr.Persona, instanceSlug)
+		group := authkit.GroupRef{Persona: gr.Persona, Instance: instanceSlug}
+		instance, err := s.svc.GroupInstanceForSlug(r.Context(), group)
 		if errors.Is(err, authkit.ErrGroupNotFound) {
 			forbidden(w, ErrForbidden)
 			return
@@ -210,7 +211,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		r = r.WithContext(authcore.WithResolvedGroup(r.Context(), instance, instanceSlug))
 
 		// Authorize: the caller (a user) must hold route.Perm on this group.
-		allowed, err := s.groupCan(r, claims.UserID, gr.Persona, instanceSlug, gr.Perm)
+		allowed, err := s.groupCan(r, claims.UserID, group, gr.Perm)
 		if err != nil {
 			serverErr(w, ErrDatabaseError)
 			return
@@ -224,43 +225,43 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		w.Header().Set("X-AuthKit-Canonical-Instance", instance.InstanceSlug)
 		switch op {
 		case opMembersList:
-			s.groupMembersList(w, r, gr.Persona, instanceSlug)
+			s.groupMembersList(w, r, group)
 		case opMemberAdd:
-			s.groupMemberAdd(w, r, gr.Persona, instanceSlug)
+			s.groupMemberAdd(w, r, group)
 		case opMemberRemove:
-			s.groupMemberRemove(w, r, gr.Persona, instanceSlug, pathParam(r, "user"))
+			s.groupMemberRemove(w, r, group, pathParam(r, "user"))
 		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, gr.Persona, instanceSlug, pathParam(r, "user"), pathParam(r, "role"))
+			s.groupMemberRole(w, r, group, pathParam(r, "user"), authkit.Role(pathParam(r, "role")))
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
 		case opRoleDefine:
-			s.groupCustomRoleDefine(w, r, gr.Persona, instanceSlug)
+			s.groupCustomRoleDefine(w, r, group)
 		case opRoleDelete:
-			s.groupCustomRoleDelete(w, r, gr.Persona, instanceSlug, pathParam(r, "role"))
+			s.groupCustomRoleDelete(w, r, group, authkit.Role(pathParam(r, "role")))
 		case opAPIKeysList:
-			s.groupAPIKeyList(w, r, gr.Persona, instanceSlug)
+			s.groupAPIKeyList(w, r, group)
 		case opAPIKeyMint:
-			s.groupAPIKeyMint(w, r, gr.Persona, instanceSlug, claims.UserID)
+			s.groupAPIKeyMint(w, r, group, claims.UserID)
 		case opAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "key"))
+			s.groupAPIKeyRevoke(w, r, group, pathParam(r, "key"))
 		case opRemoteAppsList:
-			s.groupRemoteAppList(w, r, gr.Persona, instanceSlug)
+			s.groupRemoteAppList(w, r, group)
 		case opRemoteAppRegister:
-			s.groupRemoteAppRegister(w, r, gr.Persona, instanceSlug)
+			s.groupRemoteAppRegister(w, r, group)
 		case opRemoteAppDelete:
-			s.groupRemoteAppDelete(w, r, gr.Persona, instanceSlug, pathParam(r, "app"))
+			s.groupRemoteAppDelete(w, r, group, pathParam(r, "app"))
 		case opRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, gr.Persona, instanceSlug, pathParam(r, "app"), pathParam(r, "role"))
+			s.groupRemoteAppRole(w, r, group, pathParam(r, "app"), authkit.Role(pathParam(r, "role")))
 		case opInviteLinkList:
-			s.groupInviteLinkList(w, r, gr.Persona, instanceSlug)
+			s.groupInviteLinkList(w, r, group)
 		case opInviteLinkMint:
-			s.groupInviteLinkMint(w, r, gr.Persona, instanceSlug, claims.UserID)
+			s.groupInviteLinkMint(w, r, group, claims.UserID)
 		case opInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "link"))
+			s.groupInviteLinkRevoke(w, r, group, pathParam(r, "link"))
 		case opGroupUpdate:
-			s.groupUpdate(w, r, gr.Persona, instanceSlug)
+			s.groupUpdate(w, r, group)
 		case opGroupRead:
-			s.groupInstanceDescriptor(w, r, gr.Persona, instanceSlug)
+			s.groupInstanceDescriptor(w, r, group)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, notImplemented)

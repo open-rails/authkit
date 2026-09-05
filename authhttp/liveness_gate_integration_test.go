@@ -127,7 +127,7 @@ func TestRequiredLive_GateAndFreshness_DB(t *testing.T) {
 		// carries the old values; the gate must hand the handler the new ones.
 		renamed := "renamed" + suffix
 		require.NoError(t, svc.UpdateUsername(ctx, liveID, renamed))
-		require.NoError(t, svc.SetEmailVerified(ctx, liveID, true))
+		require.NoError(t, svc.MarkEmailVerified(ctx, liveID))
 
 		code, body := getWithToken(t, live.URL, liveTok)
 		require.Equal(t, http.StatusOK, code, body)
@@ -224,7 +224,7 @@ func TestAllowLive_DeniesBannedUserWhoStillHoldsThePermission_DB(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	u, err := svc.CreateUser(ctx, "al"+suffix+"@example.com", "al"+suffix)
 	require.NoError(t, err)
-	require.NoError(t, svc.AssignGroupRoleGenesis(ctx, "root", "", u.ID, "user", "owner"))
+	require.NoError(t, svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(u.ID), "owner"))
 
 	tok, _, err := svc.MintAccessToken(ctx, u.ID, nil)
 	require.NoError(t, err)
@@ -233,26 +233,26 @@ func TestAllowLive_DeniesBannedUserWhoStillHoldsThePermission_DB(t *testing.T) {
 	cl, err := ver.VerifyRequest(req)
 	require.NoError(t, err)
 
-	group, err := svc.GroupInstanceForSlug(ctx, "root", "")
+	group, err := svc.GroupInstanceForSlug(ctx, authkit.RootGroup())
 	require.NoError(t, err)
 	scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: svc.Config().Token.Issuer, Persona: "root"}
-	perms, err := svc.ListEffectivePermissions(ctx, u.ID, "user", "root", "")
+	perms, err := svc.ListEffectivePermissions(ctx, authkit.UserSubject(u.ID), authkit.RootGroup())
 	require.NoError(t, err)
 	require.NotEmpty(t, perms, "fixture must grant at least one permission for the denial to mean anything")
 	perm := perms[0]
 
-	allowed, err := ver.AllowLive(ctx, svc, cl, perm, scope)
+	allowed, err := ver.AllowLive(ctx, svc, cl, authkit.Perm(perm), scope)
 	require.NoError(t, err)
 	require.True(t, allowed, "a live owner holds its own effective permission")
 
 	reason := "spam"
 	require.NoError(t, svc.BanUser(ctx, u.ID, &reason, nil, u.ID))
 
-	stillPermitted, err := verify.Allow(ctx, svc, cl, perm, scope)
+	stillPermitted, err := verify.Allow(ctx, svc, cl, authkit.Perm(perm), scope)
 	require.NoError(t, err)
 	require.True(t, stillPermitted, "the permission assignment itself survives a ban — which is exactly the trap")
 
-	allowed, err = ver.AllowLive(ctx, svc, cl, perm, scope)
+	allowed, err = ver.AllowLive(ctx, svc, cl, authkit.Perm(perm), scope)
 	require.NoError(t, err)
 	require.False(t, allowed, "AllowLive must deny a banned account that still holds the permission")
 }

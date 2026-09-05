@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -21,15 +22,15 @@ func TestRequirePermission_FailsClosedWhenDatabaseIsDown(t *testing.T) {
 
 	u, err := svc.CreateUser(ctx, uniqueEmail("permfail"), "permfail"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, svc.AssignGroupRoleGenesis(ctx, "root", "", u.ID, "user", "owner"))
-	perms, err := svc.ListEffectivePermissions(ctx, u.ID, "user", "root", "")
+	require.NoError(t, svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(u.ID), "owner"))
+	perms, err := svc.ListEffectivePermissions(ctx, authkit.UserSubject(u.ID), authkit.RootGroup())
 	require.NoError(t, err)
 	require.NotEmpty(t, perms, "fixture must grant a permission so the deny is not trivial")
 	perm := perms[0]
 
-	group, err := svc.GroupInstanceForSlug(ctx, "root", "")
+	group, err := svc.GroupInstanceForSlug(ctx, authkit.RootGroup())
 	require.NoError(t, err)
-	gate := verify.RequirePermission(svc, perm, func(*http.Request) verify.PermissionScope {
+	gate := verify.RequirePermission(svc, authkit.Perm(perm), func(*http.Request) verify.PermissionScope {
 		return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: svc.Config().Token.Issuer, Persona: "root"}
 	})
 	serve := func() (int, bool) {

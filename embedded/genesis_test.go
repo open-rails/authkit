@@ -57,13 +57,13 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	require.NoError(t, err)
 
 	// FAIL CLOSED: the root owner role requires MFA; the user has not enrolled.
-	err = client.Genesis().AssignGroupRole(ctx, RootPersona, "", user.ID, SubjectKindUser, OwnerRoleName)
+	err = client.Genesis().AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), authkit.OwnerRole)
 	require.ErrorIsf(t, err, authkit.ErrTwoFAEnrollmentRequired,
 		"Genesis().AssignGroupRole of an MFA-required role to a non-enrolled user must fail closed, got: %v", err)
-	err = client.Genesis().AssignRoleBySlug(ctx, user.ID, OwnerRoleName)
+	err = client.Genesis().AssignRoleBySlug(ctx, user.ID, authkit.OwnerRole)
 	require.ErrorIsf(t, err, authkit.ErrTwoFAEnrollmentRequired,
 		"Genesis().AssignRoleBySlug of an MFA-required role to a non-enrolled user must fail closed, got: %v", err)
-	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
+	require.NotContains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
 
 	// Enroll 2FA; the SAME calls now succeed.
 	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
@@ -71,17 +71,17 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 
 	// Genesis().AssignGroupRole grants with NO actor check; RemoveRoleBySlug
 	// revokes the same way.
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, RootPersona, "", user.ID, SubjectKindUser, OwnerRoleName))
-	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
-	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, OwnerRoleName))
-	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), authkit.OwnerRole))
+	require.Contains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
+	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, authkit.OwnerRole))
+	require.NotContains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
 
 	// Genesis().AssignRoleBySlug is the single-role-slug shorthand over the
 	// root persona, same actor-unchecked seam.
-	require.NoError(t, client.Genesis().AssignRoleBySlug(ctx, user.ID, OwnerRoleName))
-	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
-	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, OwnerRoleName))
-	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
+	require.NoError(t, client.Genesis().AssignRoleBySlug(ctx, user.ID, authkit.OwnerRole))
+	require.Contains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
+	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, authkit.OwnerRole))
+	require.NotContains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
 }
 
 // rootRoles reads one user's live root-group roles via the batch RoleSlugsByUsers (#220).

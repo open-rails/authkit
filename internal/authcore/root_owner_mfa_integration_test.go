@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -30,16 +31,16 @@ func TestRootOwnerRequiresMFA_AssignmentBlockedThenAllowed_DB(t *testing.T) {
 	}
 
 	user := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", user, SubjectKindUser, OwnerRoleName); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user), OwnerRoleName); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign root owner without MFA = %v, want ErrTwoFAEnrollmentRequired", err)
 	}
 	if _, err := svc.Enable2FA(ctx, user, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", user, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user), OwnerRoleName); err != nil {
 		t.Fatalf("assign root owner after MFA: %v", err)
 	}
-	if ok, err := svc.Can(ctx, user, SubjectKindUser, RootPersona, "", PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(user), authkit.RootGroup(), PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("root owner should hold root:* after assignment; got %v,%v", ok, err)
 	}
 }
@@ -55,7 +56,7 @@ func TestRootOwnerRequiresMFA_ExplicitOverrideAllowsUnenrolledAssignment_DB(t *t
 	gs, err := NewGroupSchema(PersonaDef{
 		Name: RootPersona,
 		Roles: []RoleDef{
-			{Name: OwnerRoleName, Permissions: []string{OwnerGrant(RootPersona)}, RequiresMFA: false},
+			{Name: OwnerRoleName, Permissions: []string{string(authkit.Persona(RootPersona).OwnerGrant())}, RequiresMFA: false},
 		},
 	})
 	if err != nil {
@@ -68,7 +69,7 @@ func TestRootOwnerRequiresMFA_ExplicitOverrideAllowsUnenrolledAssignment_DB(t *t
 	}
 
 	user := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", user, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user), OwnerRoleName); err != nil {
 		t.Fatalf("assign explicitly-non-MFA root owner without MFA = %v, want nil", err)
 	}
 }
@@ -91,13 +92,13 @@ func TestRootOwnerRequiresMFA_InertWhenTwoFactorDisabled_DB(t *testing.T) {
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: RootPersona, OwnerSubjectID: user}); err != nil {
 		t.Fatalf("bootstrap-seed root owner with 2FA disabled = %v, want nil (must never brick)", err)
 	}
-	if ok, err := svc.Can(ctx, user, SubjectKindUser, RootPersona, "", PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(user), authkit.RootGroup(), PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("seeded root owner should hold root:*; got %v,%v", ok, err)
 	}
 
 	// Also inert on the plain AssignGroupRole path for a second user.
 	user2 := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", user2, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user2), OwnerRoleName); err != nil {
 		t.Fatalf("assign root owner with 2FA disabled = %v, want nil", err)
 	}
 }
@@ -121,7 +122,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if _, err := svc.Enable2FA(ctx, owner1, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner1: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner1, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(owner1), OwnerRoleName); err != nil {
 		t.Fatalf("assign owner1: %v", err)
 	}
 
@@ -133,7 +134,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if err != nil || !status.Enabled {
 		t.Fatalf("sole owner's 2FA must remain enabled after a refused disable; status=%+v err=%v", status, err)
 	}
-	if ok, err := svc.Can(ctx, owner1, SubjectKindUser, RootPersona, "", PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(owner1), authkit.RootGroup(), PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("sole owner must still hold root:* after a refused disable; got %v,%v", ok, err)
 	}
 
@@ -143,7 +144,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if _, err := svc.Enable2FA(ctx, owner2, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner2: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner2, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(owner2), OwnerRoleName); err != nil {
 		t.Fatalf("assign owner2: %v", err)
 	}
 
@@ -154,10 +155,10 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if len(removed) != 1 || removed[0].Role != OwnerRoleName {
 		t.Fatalf("removed = %+v, want only the owner role", removed)
 	}
-	if ok, _ := svc.Can(ctx, owner1, SubjectKindUser, RootPersona, "", PermRootResourcesRead); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(owner1), authkit.RootGroup(), PermRootResourcesRead); ok {
 		t.Fatalf("owner1 should have lost root:* after disabling 2FA")
 	}
-	if ok, err := svc.Can(ctx, owner2, SubjectKindUser, RootPersona, "", PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(owner2), authkit.RootGroup(), PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("owner2 should be unaffected; got %v,%v", ok, err)
 	}
 }
@@ -197,7 +198,7 @@ func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
 	if _, err := enabled.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
-	if err := enabled.AssignGroupRole(ctx, "org", "acme", user, SubjectKindUser, "member"); err != nil {
+	if err := enabled.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(user), "member"); err != nil {
 		t.Fatalf("assign member: %v", err)
 	}
 
@@ -217,7 +218,7 @@ func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
 	if len(removed) != 1 || removed[0].Role != "member" {
 		t.Fatalf("removed = %+v, want only member", removed)
 	}
-	if ok, _ := disabled.Can(ctx, user, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
+	if ok, _ := disabled.Can(ctx, authkit.UserSubject(user), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); ok {
 		t.Fatalf("member role should be stripped even with 2FA Mode disabled")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -19,11 +20,11 @@ func (s *Service) GroupInstanceByID(ctx context.Context, groupID string) (GroupI
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
 // or reclaimed name cannot redirect this check to a different owner.
-func (s *Service) CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error) {
+func (s *Service) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	return s.groupStore().CanOnGroup(ctx, s.groupSchemaOrDefault(), subjectID, subjectKind, strings.TrimSpace(groupID), perm)
+	return s.groupStore().CanOnGroup(ctx, s.groupSchemaOrDefault(), subject, strings.TrimSpace(groupID), perm)
 }
 
 // DeleteGroupInstanceByID is the trusted host's lifecycle primitive. The host
@@ -39,7 +40,7 @@ func (s *Service) DeleteGroupInstanceByID(ctx context.Context, groupID string, o
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
-	if err := st.DeleteGroup(ctx, strings.TrimSpace(groupID), opts.ReleaseSlug); err != nil {
+	if err := st.DeleteGroup(ctx, strings.TrimSpace(groupID), opts); err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
 			return nil
 		}

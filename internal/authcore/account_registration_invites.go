@@ -85,9 +85,9 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	//     same mint gate as CreateGroupInviteLink). A member-manager may attach a
 	//     registration credential scoped to THIS invite without gaining general
 	//     root:users:invite authority.
-	persona := strings.TrimSpace(req.Persona)
-	instanceSlug := strings.TrimSpace(req.InstanceSlug)
-	role := strings.ToLower(strings.TrimSpace(req.Role))
+	group := authkit.GroupRef{Persona: authkit.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
+	persona := group.Persona
+	role := authkit.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	carriesRole := persona != "" && role != ""
 
 	var groupID *string
@@ -100,7 +100,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 		if !s.validRoleForPersona(sch, persona, role) {
 			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 		}
-		gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+		gid, err := s.resolveGroupID(ctx, st, group)
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
 		}
@@ -111,7 +111,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 		}
 		groupID = &gid
 	} else if requireRootInvitePermission {
-		ok, err := s.Can(ctx, invitedBy, SubjectKindUser, RootPersona, "", PermRootUsersInvite)
+		ok, err := s.Can(ctx, authkit.UserSubject(invitedBy), authkit.RootGroup(), PermRootUsersInvite)
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
 		}
@@ -127,7 +127,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	expiresAt := time.Now().UTC().Add(ttl)
 	code := RandB64(32)
 	codeHash := sha256Hex(code)
-	var roleParam *string
+	var roleParam *authkit.Role
 	if carriesRole {
 		roleParam = &role
 	}
@@ -150,7 +150,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	}
 	if carriesRole {
 		created.Persona = persona
-		created.InstanceSlug = instanceSlug
+		created.InstanceSlug = group.Instance
 		created.Role = role
 	}
 	s.sendAccountRegistrationInviteEmail(ctx, email, created.URL)
@@ -219,7 +219,9 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 	q := db.ForSchema(tx, s.dbSchema())
 
 	var inviteID string
-	var groupID, role, persona *string // group/role NULL for a plain registration invite
+	var groupID *string // group/role NULL for a plain registration invite
+	var role *authkit.Role
+	var persona *authkit.Persona
 	err = q.QueryRow(ctx,
 		`SELECT i.id::text, i.permission_group_id::text, i.role, g.persona
 		   FROM profiles.account_registration_invites i
@@ -248,15 +250,15 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 		return err
 	}
 	// register+join: grant the carried group role to the freshly-registered user.
-	if groupID != nil && role != nil && strings.TrimSpace(*groupID) != "" && strings.TrimSpace(*role) != "" {
-		p := ""
+	if groupID != nil && role != nil && strings.TrimSpace(*groupID) != "" && strings.TrimSpace(string(*role)) != "" {
+		var p authkit.Persona
 		if persona != nil {
 			p = *persona
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, *groupID, p, userID, SubjectKindUser, *role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, q, *groupID, p, authkit.UserSubject(userID), *role); err != nil {
 			return err
 		}
-		if err := NewPermissionGroupStore(q).AssignRole(ctx, *groupID, userID, SubjectKindUser, *role); err != nil {
+		if err := NewPermissionGroupStore(q).AssignRole(ctx, *groupID, authkit.UserSubject(userID), *role); err != nil {
 			return err
 		}
 	}

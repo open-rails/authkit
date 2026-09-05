@@ -3,6 +3,7 @@ package embedded
 import (
 	"context"
 
+	authkit "github.com/open-rails/authkit"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
@@ -38,29 +39,29 @@ func (s *Client) Genesis() GenesisClient {
 // and NO no-escalation enforcement. The MFA-required-role enrollment gate still
 // applies (see GenesisClient). Bootstrap/migration only. Runtime callers use
 // AssignRoleBySlugAs.
-func (g GenesisClient) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
-	return g.impl.AssignRoleBySlug(ctx, userID, slug)
+func (g GenesisClient) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+	return g.impl.AssignRoleBySlug(ctx, userID, role)
 }
 
 // RemoveRoleBySlug revokes userID's named root-persona role with NO actor check
 // and NO no-escalation enforcement. Bootstrap/migration only — see GenesisClient.
 // Runtime callers use RemoveRoleBySlugAs.
-func (g GenesisClient) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
-	return g.impl.RemoveRoleBySlug(ctx, userID, slug)
+func (g GenesisClient) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+	return g.impl.RemoveRoleBySlug(ctx, userID, role)
 }
 
 // AssignGroupRole grants a role to a subject in a permission group with NO actor
 // check and NO no-escalation enforcement. The MFA-required-role enrollment gate
 // still applies (see GenesisClient). Bootstrap/migration only. Runtime callers
 // use AssignGroupRoleAs.
-func (g GenesisClient) AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error {
-	return g.impl.AssignGroupRole(ctx, persona, instanceSlug, subjectID, subjectKind, role)
+func (g GenesisClient) AssignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	return g.impl.AssignGroupRole(ctx, group, subject, role)
 }
 
 // AssignRemoteApplicationRole grants a remote application (by id) a role in
 // its controlling group with NO actor check and NO no-escalation enforcement
 // (#308). Bootstrap/migration only — see GenesisClient. Runtime callers use
 // AssignRemoteApplicationRoleAs.
-func (g GenesisClient) AssignRemoteApplicationRole(ctx context.Context, appID, role string) error {
+func (g GenesisClient) AssignRemoteApplicationRole(ctx context.Context, appID string, role authkit.Role) error {
 	return g.impl.AssignRemoteApplicationRole(ctx, appID, role)
 }

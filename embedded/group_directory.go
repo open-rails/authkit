@@ -34,15 +34,15 @@ func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, erro
 	return &GroupDirectory{store: authcore.NewPermissionGroupStore(db.ForSchema(pool, schema))}, nil
 }
 
-func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, persona, reference string) (authkit.GroupInstance, error) {
-	persona = strings.TrimSpace(persona)
-	reference = strings.ToLower(strings.TrimSpace(reference))
+func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {
+	group.Persona = authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	group.Instance = strings.ToLower(strings.TrimSpace(group.Instance))
 	var id string
 	var err error
-	if persona == authcore.RootPersona {
+	if group.IsRoot() {
 		id, err = d.store.RootGroupID(ctx)
 	} else {
-		id, err = d.store.GroupByInstanceSlug(ctx, persona, reference)
+		id, err = d.store.GroupByInstanceSlug(ctx, group)
 	}
 	if err != nil {
 		return authkit.GroupInstance{}, err
@@ -57,6 +57,6 @@ func (d *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (auth
 // SearchGroupInstances returns canonical slugs containing query (case insensitive,
 // literal substring), ordered by (slug,id). Empty cursor starts the search; later
 // pages use the last row's slug/id. Limit defaults to50 and is capped at200.
-func (d *GroupDirectory) SearchGroupInstances(ctx context.Context, persona, query, afterSlug, afterID string, limit int) ([]authkit.GroupInstance, error) {
+func (d *GroupDirectory) SearchGroupInstances(ctx context.Context, persona authkit.Persona, query, afterSlug, afterID string, limit int) ([]authkit.GroupInstance, error) {
 	return d.store.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)
 }

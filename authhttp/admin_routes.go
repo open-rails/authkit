@@ -36,7 +36,7 @@ func adminUserListOptionsFromQuery(r *http.Request) (authkit.AdminUserListOption
 		Page:        page,
 		PageSize:    limit,
 		Search:      strings.TrimSpace(q.Get("search")),
-		Role:        strings.TrimSpace(q.Get("root_role")),
+		Role:        authkit.Role(strings.TrimSpace(q.Get("root_role"))),
 		Status:      authkit.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
 		Sort:        sort,
 		Desc:        desc,
@@ -80,15 +80,15 @@ func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
 // There is deliberately NO special "admin" authorization tier: admin authority
 // over the user directory is simply the `root:users:*` permissions on the root
 // group, gated here the same way every other permission is. Callers that gate an
-// inherently root-scoped intrinsic route pass (embedded.RootPersona, "", perm).
-func (s *Service) requirePermission(persona, instanceSlug, perm string, next http.Handler) http.Handler {
+// inherently root-scoped intrinsic route pass (authkit.RootPersona, "", perm).
+func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
 			unauthorized(w, ErrNotAuthenticated)
 			return
 		}
-		group, err := s.svc.GroupInstanceForSlug(r.Context(), persona, instanceSlug)
+		group, err := s.svc.GroupInstanceForSlug(r.Context(), group)
 		if errors.Is(err, authkit.ErrGroupNotFound) {
 			forbidden(w, ErrForbidden)
 			return
@@ -105,7 +105,7 @@ func (s *Service) requirePermission(persona, instanceSlug, perm string, next htt
 				return
 			}
 		case strings.TrimSpace(claims.UserID) != "":
-			allowed, err := s.svc.CanOnGroup(r.Context(), claims.UserID, embedded.SubjectKindUser, group.ID, perm)
+			allowed, err := s.svc.CanOnGroup(r.Context(), authkit.UserSubject(claims.UserID), group.ID, perm)
 			if err != nil {
 				serverErr(w, ErrDatabaseError)
 				return

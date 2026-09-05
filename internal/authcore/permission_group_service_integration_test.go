@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -65,41 +66,41 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	}
 
 	// Owner authorizes org:repo:read on the repo via walk-up; never repo:repo:write.
-	if ok, err := svc.Can(ctx, owner, SubjectKindUser, "repo", "r1", "org:repo:read"); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(owner), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "org:repo:read"); err != nil || !ok {
 		t.Errorf("owner org:repo:read = %v,%v; want true", ok, err)
 	}
-	if ok, _ := svc.Can(ctx, owner, SubjectKindUser, "repo", "r1", "repo:repo:write"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(owner), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "repo:repo:write"); ok {
 		t.Errorf("owner must NOT hold repo:repo:write (namespace purity)")
 	}
 
 	// A per-repo collaborator: no authority until assigned, then repo-scoped only.
-	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "repo", "r1", "repo:repo:write"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(dev), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "repo:repo:write"); ok {
 		t.Errorf("dev has no authority before assignment")
 	}
-	if err := svc.AssignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "writer"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: "r1"}, authkit.UserSubject(dev), "writer"); err != nil {
 		t.Fatalf("assign writer: %v", err)
 	}
-	if ok, err := svc.Can(ctx, dev, SubjectKindUser, "repo", "r1", "repo:repo:write"); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(dev), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "repo:repo:write"); err != nil || !ok {
 		t.Errorf("dev writer should hold repo:repo:write; got %v,%v", ok, err)
 	}
-	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(dev), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); ok {
 		t.Errorf("a repo collaborator must NOT gain org-scoped authority")
 	}
 	// While assigned, ListSubjectGroups shows the repo:r1 membership.
-	if sg, err := svc.ListSubjectGroups(ctx, dev, SubjectKindUser); err != nil {
+	if sg, err := svc.ListSubjectGroups(ctx, authkit.UserSubject(dev)); err != nil {
 		t.Fatalf("ListSubjectGroups (assigned): %v", err)
 	} else if len(sg) != 1 || sg[0].Persona != "repo" || sg[0].InstanceSlug != "r1" {
 		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sg)
 	}
-	if err := svc.UnassignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "writer"); err != nil {
+	if err := svc.UnassignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: "r1"}, authkit.UserSubject(dev), "writer"); err != nil {
 		t.Fatalf("remove writer: %v", err)
 	}
-	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "repo", "r1", "repo:repo:write"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(dev), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "repo:repo:write"); ok {
 		t.Errorf("removing writer should remove the previous writer grant")
 	}
 
 	// Read surface: list a group's members + a subject's groups.
-	members, err := svc.ListGroupMembers(ctx, "org", "acme")
+	members, err := svc.ListGroupMembers(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"})
 	if err != nil {
 		t.Fatalf("ListGroupMembers: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 		t.Errorf("ListGroupMembers(org,acme) should include the owner; got %+v", members)
 	}
 	// After removal, the membership is gone.
-	sgroups, err := svc.ListSubjectGroups(ctx, dev, SubjectKindUser)
+	sgroups, err := svc.ListSubjectGroups(ctx, authkit.UserSubject(dev))
 	if err != nil {
 		t.Fatalf("ListSubjectGroups: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	}
 
 	// Role validation: repo disallows custom roles, so an unknown role is rejected.
-	if err := svc.AssignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "nonsense"); err == nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: "r1"}, authkit.UserSubject(dev), "nonsense"); err == nil {
 		t.Errorf("unknown role on a fixed-catalog persona should be rejected")
 	}
 
@@ -177,43 +178,43 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 
 	// define a custom role (as the owner — #247 requires an actor who covers
 	// roles:manage + the role's grants), assign it to a non-owner, authorize.
-	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "auditor", []string{"org:billing:read"}, false); err != nil {
+	if err := svc.DefineGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:billing:read"}}); err != nil {
 		t.Fatalf("DefineGroupCustomRole: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, "org", "acme", uid, SubjectKindUser, "auditor"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(uid), "auditor"); err != nil {
 		t.Fatalf("assign auditor: %v", err)
 	}
-	if ok, err := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(uid), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:billing:read"); err != nil || !ok {
 		t.Errorf("custom auditor role should grant org:billing:read; got %v,%v", ok, err)
 	}
-	if err := svc.RemoveGroupSubject(ctx, "org", "acme", uid, SubjectKindUser); err != nil {
+	if err := svc.RemoveGroupSubject(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(uid)); err != nil {
 		t.Fatalf("RemoveGroupSubject: %v", err)
 	}
-	if ok, _ := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(uid), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:billing:read"); ok {
 		t.Errorf("removing a member should revoke custom-role grants too")
 	}
-	if err := svc.AssignGroupRole(ctx, "org", "acme", uid, SubjectKindUser, "auditor"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(uid), "auditor"); err != nil {
 		t.Fatalf("reassign auditor: %v", err)
 	}
 	// cross-persona custom perm is rejected (namespace purity).
-	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "bad", []string{"repo:repo:read"}, false); err == nil {
+	if err := svc.DefineGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.CustomRoleDef{Role: "bad", Permissions: []string{"repo:repo:read"}}); err == nil {
 		t.Errorf("a cross-persona custom-role grant must be rejected")
 	}
-	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "bad", []string{"org:billing:write"}, false); err == nil {
+	if err := svc.DefineGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.CustomRoleDef{Role: "bad", Permissions: []string{"org:billing:write"}}); err == nil {
 		t.Errorf("an outside-catalog custom-role grant must be rejected")
 	}
 	// a bounded actor with no roles:manage authority cannot redefine or delete.
-	if err := svc.DefineGroupCustomRole(ctx, uid, "org", "acme", "auditor", []string{"org:billing:read"}, false); err == nil {
+	if err := svc.DefineGroupCustomRole(ctx, uid, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:billing:read"}}); err == nil {
 		t.Errorf("an actor without roles:manage must not be able to redefine a custom role")
 	}
-	if err := svc.DeleteGroupCustomRole(ctx, uid, "org", "acme", "auditor"); err == nil {
+	if err := svc.DeleteGroupCustomRole(ctx, uid, authkit.GroupRef{Persona: "org", Instance: "acme"}, "auditor"); err == nil {
 		t.Errorf("an actor without roles:manage must not be able to delete a custom role")
 	}
 	// delete -> the grant is gone.
-	if err := svc.DeleteGroupCustomRole(ctx, owner, "org", "acme", "auditor"); err != nil {
+	if err := svc.DeleteGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, "auditor"); err != nil {
 		t.Fatalf("DeleteGroupCustomRole: %v", err)
 	}
-	if ok, _ := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(uid), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:billing:read"); ok {
 		t.Errorf("after delete, the custom-role grant must be gone")
 	}
 }

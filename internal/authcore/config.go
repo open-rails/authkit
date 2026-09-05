@@ -110,7 +110,7 @@ type ApplicationsConfig struct {
 	// application slug; the application principal is seeded as its owner).
 	// Required when SelfRegistration is set; must be a declared non-root
 	// persona whose Parent is the root persona.
-	OrgPersona string
+	OrgPersona authkit.Persona
 }
 
 // DelegatedConfig configures the delegated-token mint route (#261/#277,

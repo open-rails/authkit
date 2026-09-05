@@ -52,7 +52,7 @@ var (
 // Pure over resolved grant sets, so it is exhaustively unit-testable.
 func grantsCoverAll(actorGrants, targetGrants []string) bool {
 	for _, tp := range targetGrants {
-		if !anyGrantCovers(actorGrants, tp) {
+		if !anyGrantCovers(actorGrants, authkit.Perm(tp)) {
 			return false
 		}
 	}
@@ -61,18 +61,18 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 
 // authorizeRoleChange enforces the #136 capability + no-escalation rules for
 // actorUserID changing (assign or unassign) targetRole in group gid of persona.
-func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID, targetRole string) error {
+func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona authkit.Persona, gid, actorUserID string, targetRole authkit.Role) error {
 	return s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermMembersManage(persona), targetRole)
 }
 
-func (s *Service) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID, capabilityPerm, targetRole string) error {
+func (s *Service) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona authkit.Persona, gid, actorUserID string, capabilityPerm authkit.Perm, targetRole authkit.Role) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
 
 	// Resolve the actor's effective grants in this group (additive walk-up union).
-	asg, err := st.WalkAssignments(ctx, gid, actorUserID, SubjectKindUser)
+	asg, err := st.WalkAssignments(ctx, gid, authkit.UserSubject(actorUserID))
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (s *Service) authorizeRoleGrant(ctx context.Context, st *PermissionGroupSto
 
 // roleGrantsForAuthz returns the permission grants a role confers in a group: a
 // catalog role's declared perms, or a custom role's stored grants.
-func (s *Service) roleGrantsForAuthz(sch *GroupSchema, persona, gid, role string, resolver CustomRoleResolver) ([]string, error) {
+func (s *Service) roleGrantsForAuthz(sch *GroupSchema, persona authkit.Persona, gid string, role authkit.Role, resolver CustomRoleResolver) ([]string, error) {
 	if r, ok := sch.Role(persona, role); ok {
 		return r.Permissions, nil
 	}
@@ -130,12 +130,12 @@ func (s *Service) roleGrantsForAuthz(sch *GroupSchema, persona, gid, role string
 // sets are supplied directly by the caller rather than resolved from a role
 // name — DefineGroupCustomRole/DeleteGroupCustomRole already have both the
 // stored old grants and the requested new ones in hand.
-func (s *Service) authorizeCustomRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID string, oldGrants, newGrants []string) error {
+func (s *Service) authorizeCustomRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona authkit.Persona, gid, actorUserID string, oldGrants, newGrants []string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
-	asg, err := st.WalkAssignments(ctx, gid, actorUserID, SubjectKindUser)
+	asg, err := st.WalkAssignments(ctx, gid, authkit.UserSubject(actorUserID))
 	if err != nil {
 		return err
 	}
@@ -164,39 +164,39 @@ func (s *Service) authorizeCustomRoleChange(ctx context.Context, st *PermissionG
 // capability + no-escalation rules against actorUserID before assigning. Runtime
 // callers (HTTP role-management endpoints) use this; genesis paths (bootstrap,
 // migration) keep using the unchecked AssignGroupRole.
-func (s *Service) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
+func (s *Service) AssignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	sch := s.groupSchemaOrDefault()
-	if !s.validRoleForPersona(sch, persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, ErrRoleNotAssignable)
+	if !s.validRoleForPersona(sch, group.Persona, role) {
+		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, ErrRoleNotAssignable)
 	}
 	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
+	if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 		return err
 	}
-	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, persona, subjectID, subjectKind, role); err != nil {
+	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, group.Persona, subject, role); err != nil {
 		return err
 	}
-	return st.AssignRole(ctx, gid, subjectID, subjectKind, role)
+	return st.AssignRole(ctx, gid, subject, role)
 }
 
 // UnassignGroupRoleAs is the actor-aware UnassignGroupRole. Revoking is gated the
 // same way (you cannot strip a role whose authority you do not hold — e.g. a
 // non-owner cannot remove an owner).
-func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
+func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
+	if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 		return err
 	}
-	return st.UnassignRole(ctx, gid, subjectID, subjectKind, role)
+	return st.UnassignRole(ctx, gid, subject, role)
 }
 
 // RemoveGroupSubjectAs is the actor-aware RemoveGroupSubject. It enforces the
@@ -205,21 +205,22 @@ func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona,
 // whose authority it does not itself hold (e.g. a non-owner cannot remove an
 // owner). Runtime callers (HTTP member-mutation) use this; the unchecked
 // RemoveGroupSubject stays for genesis/migration paths.
-func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
+func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject) error {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return err
 	}
+	subject.ID = strings.TrimSpace(subject.ID)
 	// The SINGLE role the subject holds DIRECTLY in this group (#247 — the gid
 	// entry of the walk; ancestor grants are not being removed here, so they
 	// are not authorized).
-	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
+	asg, err := st.WalkAssignments(ctx, gid, subject)
 	if err != nil {
 		return err
 	}
-	var role string
+	var role authkit.Role
 	for _, a := range asg {
 		if a.PermissionGroupID == gid {
 			role = a.Role
@@ -230,21 +231,21 @@ func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona
 	// confers (which also enforces the capability gate via authorizeRoleChange).
 	// A subject holding no role here has nothing to authorize.
 	if role != "" {
-		if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
+		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 			return err
 		}
 	}
 	if err := s.refuseIfLastOwner(ctx, st, gid, role); err != nil {
 		return err
 	}
-	return st.UnassignSubject(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
+	return st.UnassignSubject(ctx, gid, subject)
 }
 
 // refuseIfLastOwner returns ErrCannotRemoveLastAdminRole when stripping this role
 // from a subject would leave the group instance with zero owners (#193) — so neither
 // an admin removal nor a self-leave can orphan a group. Pure ownership-safety, not an
 // acceptance/consent concern.
-func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid, role string) error {
+func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid string, role authkit.Role) error {
 	if role != OwnerRoleName {
 		return nil
 	}
@@ -261,24 +262,22 @@ func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStor
 // AssignRoleBySlugAs is the actor-aware root-group convenience (the runtime
 // equivalent of assignRoleBySlug). "owner" is no longer a reserved special case:
 // it is assignable only by an actor who already holds root:* (rule 2).
-func (s *Service) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
+func (s *Service) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
 	if _, err := s.EnsureRootGroup(ctx); err != nil {
 		return err
 	}
-	role := normalizeRootRoleSlug(slug)
-	return s.AssignGroupRoleAs(ctx, actorUserID, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
+	return s.AssignGroupRoleAs(ctx, actorUserID, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }
 
 // RemoveRoleBySlugAs is the actor-aware root-group revoke.
-func (s *Service) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
+func (s *Service) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
-	role := normalizeRootRoleSlug(slug)
-	return s.UnassignGroupRoleAs(ctx, actorUserID, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
+	return s.UnassignGroupRoleAs(ctx, actorUserID, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }
 
 // RoleSlugsByUsers returns each user's LIVE configured root permission-group

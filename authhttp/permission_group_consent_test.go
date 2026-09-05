@@ -26,9 +26,9 @@ func newConsentTestService(t *testing.T) (s *Service, owner string) {
 		Keys:  testKeys(),
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{
-			{Name: "team", Parent: embedded.RootPersona, RequireConsent: true,
+			{Name: "team", Parent: authkit.RootPersona, RequireConsent: true,
 				Roles: []embedded.RoleDef{{Name: "member", Permissions: []string{"team:catalog:read"}}}},
-			{Name: "repo", Parent: embedded.RootPersona,
+			{Name: "repo", Parent: authkit.RootPersona,
 				Roles: []embedded.RoleDef{{Name: "member", Permissions: []string{"repo:catalog:read"}}}},
 		},
 	}
@@ -62,7 +62,7 @@ func memberAdd(t *testing.T, s *Service, persona, instance, owner, target string
 	r := httptest.NewRequest(http.MethodPost, "http://x/"+persona+"/"+instance+"/members", strings.NewReader(string(body)))
 	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: owner}))
 	w := httptest.NewRecorder()
-	s.groupMemberAdd(w, r, persona, instance)
+	s.groupMemberAdd(w, r, authkit.GroupRef{Persona: authkit.Persona(persona), Instance: instance})
 	return w
 }
 
@@ -84,7 +84,7 @@ func TestRequireConsent_HTTP_ForcesInvite(t *testing.T) {
 	w := memberAdd(t, s, "team", "t1", owner, target)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"invited":true`)
-	ok, err := s.svc.Can(ctx, target, embedded.SubjectKindUser, "team", "t1", "team:catalog:read")
+	ok, err := s.svc.Can(ctx, authkit.UserSubject(target), authkit.GroupRef{Persona: "team", Instance: "t1"}, "team:catalog:read")
 	require.NoError(t, err)
 	require.False(t, ok, "RequireConsent persona must not silently grant the role")
 
@@ -92,7 +92,7 @@ func TestRequireConsent_HTTP_ForcesInvite(t *testing.T) {
 	target2 := mkUser(t, s)
 	w = memberAdd(t, s, "repo", "r1", owner, target2)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	ok, err = s.svc.Can(ctx, target2, embedded.SubjectKindUser, "repo", "r1", "repo:catalog:read")
+	ok, err = s.svc.Can(ctx, authkit.UserSubject(target2), authkit.GroupRef{Persona: "repo", Instance: "r1"}, "repo:catalog:read")
 	require.NoError(t, err)
 	require.True(t, ok, "instant persona should grant the role directly")
 }

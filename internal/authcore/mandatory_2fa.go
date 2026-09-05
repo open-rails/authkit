@@ -27,9 +27,9 @@ func (e *TwoFAEnrollmentRequiredError) Unwrap() error { return ErrTwoFAEnrollmen
 
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
-	Persona           string
+	Persona           authkit.Persona
 	InstanceSlug      string
-	Role              string
+	Role              authkit.Role
 	RemovedAt         time.Time
 }
 
@@ -140,9 +140,9 @@ func (s *Service) requireSessionMFAStateWith(ctx context.Context, userID string,
 // per-group custom role's stored requires_mfa flag, looked up in gid. gid may
 // be empty when the role is known to be a catalog role at the call site (the
 // custom-role branch is then simply skipped, reporting false).
-func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid, persona, role string) (bool, error) {
-	persona = strings.TrimSpace(persona)
-	role = strings.TrimSpace(role)
+func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, role authkit.Role) (bool, error) {
+	persona = authkit.Persona(strings.TrimSpace(string(persona)))
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return def.RequiresMFA, nil
 	}
@@ -173,7 +173,11 @@ func (s *Service) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userI
 	defer rows.Close()
 	// Collect first: roleRequiresMFA may itself query q (custom roles), which
 	// cannot run while rows is open on a single-connection DBTX.
-	type assignment struct{ gid, persona, role string }
+	type assignment struct {
+		gid     string
+		persona authkit.Persona
+		role    authkit.Role
+	}
 	var assignments []assignment
 	for rows.Next() {
 		var a assignment
@@ -197,14 +201,14 @@ func (s *Service) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userI
 	return false, nil
 }
 
-func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid, persona, subjectID, subjectKind, role string) error {
+func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, subject authkit.Subject, role authkit.Role) error {
 	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
 	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
 	// its root owner. Mirrors requireSessionMFAState's gate.
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
-	if strings.TrimSpace(subjectKind) != SubjectKindUser {
+	if subject.Kind != SubjectKindUser {
 		return nil
 	}
 	needsMFA, err := s.roleRequiresMFA(ctx, q, gid, persona, role)
@@ -214,7 +218,7 @@ func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gi
 	if !needsMFA {
 		return nil
 	}
-	ok, err := userHasEnabledMFA(ctx, q, strings.TrimSpace(subjectID))
+	ok, err := userHasEnabledMFA(ctx, q, strings.TrimSpace(subject.ID))
 	if err != nil {
 		return err
 	}

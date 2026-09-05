@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -71,8 +72,8 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	// (root:*) is auto-injected.
 	gs, err := BuildSchema(IntrinsicRootPersona(
 		RoleDef{Name: "admin", Permissions: []string{PermRootUsersBan}},
-		RoleDef{Name: "member-manager", Permissions: []string{PermMembersManage(RootPersona), PermRootUsersBan}},
-		RoleDef{Name: "role-manager", Permissions: []string{PermRolesManage(RootPersona), PermRootUsersBan}},
+		RoleDef{Name: "member-manager", Permissions: []string{string(PermMembersManage(RootPersona)), PermRootUsersBan}},
+		RoleDef{Name: "role-manager", Permissions: []string{string(PermRolesManage(RootPersona)), PermRootUsersBan}},
 	))
 	if err != nil {
 		t.Fatalf("schema: %v", err)
@@ -96,7 +97,7 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	owner, adminU, memberMgr, roleMgr, target := mk("owner"), mk("admin"), mk("membermgr"), mk("rolemgr"), mk("target")
 
 	// Genesis: seed the owner via the unchecked path.
-	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(owner), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 	// target later receives "owner" through the actor-checked (still MFA-gated)
@@ -119,7 +120,7 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	if err := svc.AssignRoleBySlugAs(ctx, owner, target, "owner"); err != nil {
 		t.Fatalf("owner->owner should succeed: %v", err)
 	}
-	_ = svc.UnassignGroupRoleAs(ctx, owner, RootPersona, "", target, SubjectKindUser, "owner")
+	_ = svc.UnassignGroupRoleAs(ctx, owner, authkit.RootGroup(), authkit.UserSubject(target), "owner")
 
 	// admin lacks root:members:manage → cannot grant anything.
 	if err := svc.AssignRoleBySlugAs(ctx, adminU, target, "admin"); !errors.Is(err, ErrInsufficientRoleAuthority) {

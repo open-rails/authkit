@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -46,7 +47,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote_application roles: %v", err)
 	}
-	if !containsString(roles, OwnerRoleName) {
+	if !containsString(roles, string(OwnerRoleName)) {
 		t.Fatalf("remote_application should hold owner role, got %+v", roles)
 	}
 
@@ -55,8 +56,8 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 		t.Fatalf("resolve remote_application authority: %v", err)
 	}
 	// owner of the root persona holds the namespace-pure apex grant root:*.
-	if !containsString(authority.Permissions, OwnerGrant(RootPersona)) {
-		t.Fatalf("owner role should confer %q; got perms=%v", OwnerGrant(RootPersona), authority.Permissions)
+	if !containsString(authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant())) {
+		t.Fatalf("owner role should confer %q; got perms=%v", authkit.Persona(RootPersona).OwnerGrant(), authority.Permissions)
 	}
 }
 

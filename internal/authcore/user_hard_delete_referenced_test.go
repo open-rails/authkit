@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -27,7 +28,7 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
-	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", id, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 	if _, _, _, err := svc.insertRefreshSession(ctx, id, "test", net.ParseIP("127.0.0.1"), []string{"pwd"}); err != nil {

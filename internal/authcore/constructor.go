@@ -2,6 +2,7 @@ package authcore
 
 import (
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	stdlog "log"
 	"net/url"
 	"regexp"
@@ -279,7 +280,7 @@ func NewFromConfig(cfg Config, deps Deps) (*Service, error) {
 	// service-owned orgs off; a bad reference fails construction, not the
 	// first registration.
 	if norm.Applications.SelfRegistration {
-		persona := strings.TrimSpace(norm.Applications.OrgPersona)
+		persona := authkit.Persona(strings.TrimSpace(string(norm.Applications.OrgPersona)))
 		td, ok := gs.Persona(persona)
 		if !ok || persona == RootPersona {
 			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)

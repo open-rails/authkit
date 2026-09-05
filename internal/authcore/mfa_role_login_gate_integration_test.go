@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -51,12 +52,12 @@ func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
 	}
 
 	unenrolledHolder := insertBareUser(t, pool)
-	if err := disabled.AssignGroupRole(ctx, "org", "acme", unenrolledHolder, SubjectKindUser, "member"); err != nil {
+	if err := disabled.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(unenrolledHolder), "member"); err != nil {
 		t.Fatalf("assign member while Mode=Disabled = %v, want nil (bootstrap must never brick)", err)
 	}
 
 	enrolledHolder := insertBareUser(t, pool)
-	if err := disabled.AssignGroupRole(ctx, "org", "acme", enrolledHolder, SubjectKindUser, "member"); err != nil {
+	if err := disabled.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(enrolledHolder), "member"); err != nil {
 		t.Fatalf("assign member (enrolled-to-be) while Mode=Disabled: %v", err)
 	}
 	if _, err := disabled.Enable2FA(ctx, enrolledHolder, "email", nil, AllowAdditionalFactors); err != nil {

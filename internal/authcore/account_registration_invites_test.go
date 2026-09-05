@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 )
@@ -71,7 +72,7 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
 	inviter := insertBareUser(t, pool)
-	if err := NewPermissionGroupStore(pool).AssignRole(ctx, rootID, inviter, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := NewPermissionGroupStore(pool).AssignRole(ctx, rootID, authkit.UserSubject(inviter), OwnerRoleName); err != nil {
 		t.Fatalf("seed root owner: %v", err)
 	}
 
@@ -173,7 +174,7 @@ func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
 		t.Fatalf("GetUserByEmail: %v", err)
 	}
 	// The single consume both registered the user AND granted the org/acme role.
-	if ok, _ := svc.Can(ctx, u.ID, SubjectKindUser, "org", "acme", "org:repo:read"); !ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(u.ID), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); !ok {
 		t.Fatal("register+join did not grant the carried role on consume")
 	}
 }
@@ -189,7 +190,7 @@ func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
 	inviter := insertBareUser(t, pool)
-	if err := NewPermissionGroupStore(pool).AssignRole(ctx, rootID, inviter, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := NewPermissionGroupStore(pool).AssignRole(ctx, rootID, authkit.UserSubject(inviter), OwnerRoleName); err != nil {
 		t.Fatalf("seed root owner: %v", err)
 	}
 

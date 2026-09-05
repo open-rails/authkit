@@ -2,6 +2,7 @@ package authcore
 
 import (
 	"context"
+	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -50,7 +51,8 @@ func (s *Service) driftCustomRoles(ctx context.Context) (int, error) {
 
 	total := 0
 	for rows.Next() {
-		var persona, role string
+		var persona authkit.Persona
+		var role authkit.Role
 		var count int
 		if err := rows.Scan(&persona, &role, &count); err != nil {
 			return 0, err
@@ -80,7 +82,9 @@ func (s *Service) driftAssignedRoles(ctx context.Context, table, where string) (
 
 	total := 0
 	for rows.Next() {
-		var groupID, persona, role string
+		var groupID string
+		var persona authkit.Persona
+		var role authkit.Role
 		var count int
 		if err := rows.Scan(&groupID, &persona, &role, &count); err != nil {
 			return 0, err
@@ -116,18 +120,18 @@ func (s *Service) liveCustomRoleSet(ctx context.Context) (map[string]map[string]
 	return out, rows.Err()
 }
 
-func (s *Service) roleLive(persona, groupID, role string, custom map[string]map[string]struct{}) bool {
+func (s *Service) roleLive(persona authkit.Persona, groupID string, role authkit.Role, custom map[string]map[string]struct{}) bool {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return true
 	}
 	if !s.customRolesLive(persona, role) {
 		return false
 	}
-	_, ok := custom[groupID][role]
+	_, ok := custom[groupID][string(role)]
 	return ok
 }
 
-func (s *Service) customRolesLive(persona, role string) bool {
+func (s *Service) customRolesLive(persona authkit.Persona, role authkit.Role) bool {
 	sch := s.groupSchemaOrDefault()
 	td, ok := sch.Persona(persona)
 	if !ok || !td.Capabilities.CustomRoles {

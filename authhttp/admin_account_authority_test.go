@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	authkit "github.com/open-rails/authkit"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -34,9 +34,9 @@ func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
 		return u.ID
 	}
 	owner, operator, peer, member := mk("owner"), mk("operator"), mk("peer"), mk("member")
-	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", owner, embedded.SubjectKindUser, embedded.OwnerRoleName))
-	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", operator, embedded.SubjectKindUser, "operator"))
-	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", peer, embedded.SubjectKindUser, "operator"))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(owner), authkit.OwnerRole))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(operator), "operator"))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(peer), "operator"))
 
 	ownerTok, _, err := s.svc.MintAccessToken(ctx, owner, nil)
 	require.NoError(t, err)

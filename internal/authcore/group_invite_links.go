@@ -98,19 +98,19 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	if !s.externalInvitesEnabled() {
 		return GroupInviteLinkCreated{}, ErrExternalInvitesDisabled
 	}
-	role := strings.ToLower(strings.TrimSpace(req.Role))
+	role := authkit.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if role == "" || invitedBy == "" {
 		return GroupInviteLinkCreated{}, authkit.ErrInvalidInvite
 	}
-	persona := strings.TrimSpace(req.Persona)
-	instanceSlug := strings.TrimSpace(req.InstanceSlug)
+	group := authkit.GroupRef{Persona: authkit.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
+	persona := group.Persona
 	st := s.groupStore()
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
 		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 	}
-	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
@@ -156,11 +156,11 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 
 // ListGroupInviteLinks lists the group's invite links (active and inactive),
 // newest first. Never returns the code or its hash.
-func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]GroupInviteLink, error) {
+func (s *Service) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRef) ([]GroupInviteLink, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 
 // RevokeGroupInviteLink revokes a link by id, scoped to the group addressed by
 // (persona, instanceSlug) so a manager cannot revoke another group's link.
-func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error {
+func (s *Service) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupRef, linkID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 	if linkID == "" {
 		return authkit.ErrInvalidInvite
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return err
 	}
@@ -242,7 +242,9 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 
-	var linkID, groupID, persona, instanceSlug, role string
+	var linkID, groupID, instanceSlug string
+	var persona authkit.Persona
+	var role authkit.Role
 	var redeemedAt, expiresAt, revokedAt *time.Time
 	err = q.QueryRow(ctx,
 		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
@@ -273,10 +275,10 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 		if redeemedAt != nil {
 			return zero, ErrInviteLinkNotFound
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, groupID, persona, redeemerUserID, SubjectKindUser, role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, q, groupID, persona, authkit.UserSubject(redeemerUserID), role); err != nil {
 			return zero, err
 		}
-		if err := NewPermissionGroupStore(q).AssignRole(ctx, groupID, redeemerUserID, SubjectKindUser, role); err != nil {
+		if err := NewPermissionGroupStore(q).AssignRole(ctx, groupID, authkit.UserSubject(redeemerUserID), role); err != nil {
 			return zero, err
 		}
 		if _, err := q.Exec(ctx,
@@ -292,7 +294,7 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 }
 
 // subjectHasRole reports whether the user already holds role in the group.
-func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID, role string) (bool, error) {
+func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role authkit.Role) (bool, error) {
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM profiles.group_user_roles

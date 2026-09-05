@@ -140,7 +140,7 @@ type Service struct {
 	// instance creation (#263) — MayCreateInstance consults it. Same anti-squat
 	// split as appAdmission: authkit owns velocity limits, the host owns cost
 	// gates. Nil = allow.
-	instanceAdmission func(ctx context.Context, persona, instanceSlug, subject string) error
+	instanceAdmission func(ctx context.Context, group authkit.GroupRef, subject string) error
 
 	smsHealth smsHealth
 }

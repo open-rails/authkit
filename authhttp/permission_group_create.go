@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -20,7 +21,7 @@ type groupInstanceCreateRequest struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona string) {
+func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona authkit.Persona) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		// Instance ownership needs a user subject; machine principals cannot
@@ -41,7 +42,7 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, claims.UserID) {
 		return
 	}
-	res, err := s.svc.CreateInstanceForSubject(r.Context(), persona, body.Slug, body.DisplayName, claims.UserID)
+	res, err := s.svc.CreateInstanceForSubject(r.Context(), authkit.GroupRef{Persona: persona, Instance: body.Slug}, body.DisplayName, claims.UserID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

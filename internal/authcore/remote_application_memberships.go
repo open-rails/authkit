@@ -43,7 +43,7 @@ func (s *Service) remoteApplicationGroupID(ctx context.Context, appID string) (s
 // controlling permission-group with NO actor check (#308): reachable only via
 // bootstrap and embedded.Client.Genesis(). Runtime callers use
 // AssignRemoteApplicationRoleAs.
-func (s *Service) AssignRemoteApplicationRole(ctx context.Context, appID, role string) error {
+func (s *Service) AssignRemoteApplicationRole(ctx context.Context, appID string, role authkit.Role) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -51,11 +51,11 @@ func (s *Service) AssignRemoteApplicationRole(ctx context.Context, appID, role s
 	if err != nil {
 		return err
 	}
-	role = strings.ToLower(strings.TrimSpace(role))
+	role = authkit.Role(strings.ToLower(strings.TrimSpace(string(role))))
 	if role == "" {
 		return fmt.Errorf("role is required")
 	}
-	var persona string
+	var persona authkit.Persona
 	q := db.ForSchema(s.pg, s.dbSchema())
 	if err := q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id = $1::uuid`, gid).Scan(&persona); err != nil {
 		return err
@@ -63,7 +63,7 @@ func (s *Service) AssignRemoteApplicationRole(ctx context.Context, appID, role s
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 	}
-	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
+	return s.groupStore().AssignRole(ctx, gid, authkit.RemoteAppSubject(strings.TrimSpace(appID)), role)
 }
 
 // remoteApplicationRoles returns the roles a remote_application holds in its
@@ -77,14 +77,14 @@ func (s *Service) remoteApplicationRoles(ctx context.Context, appID string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	asg, err := s.groupStore().WalkAssignments(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+	asg, err := s.groupStore().WalkAssignments(ctx, gid, authkit.RemoteAppSubject(strings.TrimSpace(appID)))
 	if err != nil {
 		return nil, err
 	}
 	var roles []string
 	for _, a := range asg {
 		if a.Role != "" {
-			roles = append(roles, a.Role)
+			roles = append(roles, string(a.Role))
 		}
 	}
 	if len(roles) == 0 {
@@ -124,7 +124,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	out.PermissionGroupID = gid
 	out.AuthorityIssuer = s.cfg.Token.Issuer
 	st := s.groupStore()
-	asg, err := st.WalkAssignments(ctx, gid, appID, SubjectKindRemoteApp)
+	asg, err := st.WalkAssignments(ctx, gid, authkit.RemoteAppSubject(appID))
 	if err != nil {
 		return authkit.RemoteApplicationAuthority{}, err
 	}

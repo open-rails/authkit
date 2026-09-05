@@ -31,15 +31,15 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	operatorID := mustPasswordUser(t, srv, "mfa-required-operator")
 	_, err = srv.svc.Enable2FA(ctx, operatorID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", operatorID, embedded.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "admin"))
 
 	adminID := mustPasswordUser(t, srv, "mfa-required-admin")
-	err = srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin")
+	err = srv.svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(adminID), "admin")
 	require.True(t, errors.Is(err, authkit.ErrTwoFAEnrollmentRequired), "assign without MFA = %v", err)
 
 	_, err = srv.svc.Enable2FA(ctx, adminID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(adminID), "admin"))
 
 	w := login(t, srv, "mfa-required-admin", adminID)
 	challenge := requireTwoFARequired(t, w)
@@ -84,7 +84,7 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 	// Bootstrap: assign the MFA-required "admin" role to a never-enrolled
 	// user while 2FA is fully disabled — the assignment gate is inert here.
 	unenrolledID := mustPasswordUser(t, bootstrapSrv, "mfa-gate-role-disabled")
-	require.NoError(t, bootstrapSrv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", unenrolledID, embedded.SubjectKindUser, "admin"))
+	require.NoError(t, bootstrapSrv.svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(unenrolledID), "admin"))
 
 	// Still Mode=Disabled: login succeeds with no 2FA challenge at all.
 	w := login(t, bootstrapSrv, "mfa-gate-role-disabled", unenrolledID)
@@ -116,7 +116,7 @@ func mandatory2FATestConfig() embedded.Config {
 	cfg := newServerTestConfig()
 	cfg.Registration.AllowMissingSenders = true // 2FA codes are read from the engine, not delivered
 	cfg.RBAC = []embedded.PersonaDef{{
-		Name: embedded.RootPersona,
+		Name: authkit.RootPersona,
 		Roles: []embedded.RoleDef{{
 			Name:        "admin",
 			Permissions: []string{"root:*"},

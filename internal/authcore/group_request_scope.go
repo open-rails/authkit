@@ -10,7 +10,10 @@ import (
 )
 
 type groupRequestScopeKey struct{}
-type groupRequestScope struct{ persona, reference, id string }
+type groupRequestScope struct {
+	persona       authkit.Persona
+	reference, id string
+}
 
 // WithResolvedGroup binds the address already resolved by an HTTP request to its
 // immutable target. It confers no permission: the caller must still authorize.
@@ -21,13 +24,13 @@ func WithResolvedGroup(ctx context.Context, instance authkit.GroupInstance, refe
 	return context.WithValue(ctx, groupRequestScopeKey{}, groupRequestScope{persona: instance.Persona, reference: strings.ToLower(strings.TrimSpace(reference)), id: instance.ID})
 }
 
-func (st *PermissionGroupStore) requestGroupID(ctx context.Context, persona, reference string) (string, bool, error) {
+func (st *PermissionGroupStore) requestGroupID(ctx context.Context, g authkit.GroupRef) (string, bool, error) {
 	scope, ok := ctx.Value(groupRequestScopeKey{}).(groupRequestScope)
-	if !ok || scope.persona != persona || scope.reference != strings.ToLower(strings.TrimSpace(reference)) {
+	if !ok || scope.persona != g.Persona || scope.reference != strings.ToLower(strings.TrimSpace(g.Instance)) {
 		return "", false, nil
 	}
 	var id string
-	err := st.q.QueryRow(ctx, `SELECT id::text FROM profiles.permission_groups WHERE id=$1::uuid AND persona=$2`, scope.id, persona).Scan(&id)
+	err := st.q.QueryRow(ctx, `SELECT id::text FROM profiles.permission_groups WHERE id=$1::uuid AND persona=$2`, scope.id, g.Persona).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", true, ErrGroupNotFound
 	}

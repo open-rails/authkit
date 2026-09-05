@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -39,8 +40,8 @@ func TestAccountAuthority_NoEscalation_DB(t *testing.T) {
 		return id
 	}
 	owner, operator, peer, member := mk("owner"), mk("operator"), mk("peer"), mk("member")
-	for id, role := range map[string]string{owner: OwnerRoleName, operator: "operator", peer: "operator"} {
-		if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", id, SubjectKindUser, role); err != nil {
+	for id, role := range map[string]string{owner: string(OwnerRoleName), operator: "operator", peer: "operator"} {
+		if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), authkit.Role(role)); err != nil {
 			t.Fatalf("seed %s: %v", role, err)
 		}
 	}

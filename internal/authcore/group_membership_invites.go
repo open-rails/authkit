@@ -27,9 +27,9 @@ var ErrGroupMembershipInviteNotFound = errors.New("group_membership_invite_not_f
 // GroupMembershipInvite is a pending known-user group invite.
 type GroupMembershipInvite struct {
 	ID           string
-	Persona      string
+	Persona      authkit.Persona
 	InstanceSlug string
-	Role         string
+	Role         authkit.Role
 	InvitedBy    string
 	ExpiresAt    time.Time
 	CreatedAt    time.Time
@@ -39,13 +39,14 @@ type GroupMembershipInvite struct {
 // actor must hold the same no-escalation authority required to assign the role
 // directly; the role is granted only when the invitee accepts. Idempotent on a
 // pending (group, user, role) — a duplicate invite returns the existing one.
-func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID, persona, instanceSlug, targetUserID, role string) (GroupMembershipInvite, error) {
+func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID string, group authkit.GroupRef, targetUserID string, role authkit.Role) (GroupMembershipInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupMembershipInvite{}, err
 	}
+	persona := group.Persona
 	actorUserID = strings.TrimSpace(actorUserID)
 	targetUserID = strings.TrimSpace(targetUserID)
-	role = strings.TrimSpace(role)
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	if actorUserID == "" || targetUserID == "" || role == "" {
 		return GroupMembershipInvite{}, authkit.ErrInvalidInvite
 	}
@@ -54,7 +55,7 @@ func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID, 
 		return GroupMembershipInvite{}, authkit.ErrInvalidRole
 	}
 	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return GroupMembershipInvite{}, err
 	}
@@ -80,7 +81,7 @@ func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID, 
 		return GroupMembershipInvite{}, err
 	}
 	return GroupMembershipInvite{
-		ID: id, Persona: persona, InstanceSlug: strings.TrimSpace(instanceSlug),
+		ID: id, Persona: persona, InstanceSlug: strings.TrimSpace(group.Instance),
 		Role: role, InvitedBy: actorUserID, ExpiresAt: expiresAt, CreatedAt: createdAt,
 	}, nil
 }
@@ -139,7 +140,9 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
-	var gid, role, persona string
+	var gid string
+	var role authkit.Role
+	var persona authkit.Persona
 	err = q.QueryRow(ctx,
 		`SELECT i.permission_group_id::text, i.role, g.persona
 		   FROM profiles.group_membership_invites i
@@ -157,10 +160,10 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 	}
 	// A role requiring MFA can only be held by an enrolled user (checked at accept,
 	// not invite time, since enrollment can change in between).
-	if err := s.requireMFAForRoleAssignment(ctx, q, gid, persona, userID, SubjectKindUser, role); err != nil {
+	if err := s.requireMFAForRoleAssignment(ctx, q, gid, persona, authkit.UserSubject(userID), role); err != nil {
 		return err
 	}
-	if err := NewPermissionGroupStore(q).AssignRole(ctx, gid, userID, SubjectKindUser, role); err != nil {
+	if err := NewPermissionGroupStore(q).AssignRole(ctx, gid, authkit.UserSubject(userID), role); err != nil {
 		return err
 	}
 	if _, err := q.Exec(ctx,
