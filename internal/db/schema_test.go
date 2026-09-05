@@ -162,13 +162,13 @@ func scanSchemaRefs(t *testing.T, dir string, suffixes ...string) {
 // schema must be written exactly as `profiles.<object>`. A bare or quoted
 // reference (e.g. table_schema = 'profiles') would silently escape the rewrite.
 // Covers BOTH this package's sqlc sources/generated constants AND the hand-written
-// raw SQL in internal/authcore (permission-group store, api-keys, invite-links,
+// raw SQL in embedded (permission-group store, api-keys, invite-links,
 // the AdminListUsers assembly), which is where most schema-qualified SQL now lives
 // and which sqlc vet does not validate.
 func TestAllSQLSchemaReferencesAreDotQualified(t *testing.T) {
 	scanSchemaRefs(t, ".", ".sql.go", ".sql")
 	scanSchemaRefs(t, "queries", ".sql.go", ".sql")
-	scanSchemaRefs(t, filepath.Join("..", "authcore"), ".go")
+	scanSchemaRefs(t, filepath.Join("..", "..", "embedded"), ".go")
 }
 
 // TestSchemaQualifierGuardCatchesBareRef is a negative self-test: it proves the

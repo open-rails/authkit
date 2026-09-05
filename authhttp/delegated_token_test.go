@@ -1,7 +1,7 @@
 package authhttp
 
 // #261 unit matrices for the request-time clamps. The boot-time triple
-// validation lives in internal/authcore (normalizeDelegatedConfig); these
+// validation lives in embedded (normalizeDelegatedConfig); these
 // cover the per-request mechanics: audience-subset clamp and TTL clamp.
 
 import (
