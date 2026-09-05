@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +83,7 @@ func bodyRefreshToken(t *testing.T, w *httptest.ResponseRecorder) string {
 // TestRefreshCookie_OptOutIsUnchanged is the compatibility guard: a host that
 // does not set MountOptions.RefreshCookie must see exactly today's behaviour.
 func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
@@ -106,7 +107,7 @@ func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
 // TestRefreshCookie_BrowserLifecycle walks the real browser path: password
 // login, a body-less refresh, rotation, and logout.
 func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
@@ -175,7 +176,7 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 // TestRefreshCookie_SourceResolutionAndGates pins the rules that decide whether
 // a cookie is honored at all.
 func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
@@ -249,7 +250,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 	for _, tc := range []struct{ name, ui string }{{"fragment", ""}, {"popup", "popup"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			pool := newServerTestPool(t)
+			pool := testdb.Pool(t)
 			srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 			require.NoError(t, err)
 

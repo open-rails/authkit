@@ -3,12 +3,14 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // Hard-deleting a user clears the group role-assignments they hold through
 // group_user_roles.user_id ON DELETE CASCADE (#304: no explicit sweep).
 func TestAdminDeleteUserClearsGroupData(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)

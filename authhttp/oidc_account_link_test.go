@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -58,20 +57,11 @@ func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
 	require.Contains(t, w.Header().Get("Location"), "error=auth_required_for_link")
 }
 
-func newAccountLinkPG(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	return pool
-}
-
 // The core takeover assertion: when a local account already owns the asserted
 // email, resolveOAuthUser refuses (errAccountExistsLinkRequired) and creates NO
 // link to the attacker's provider identity.
 func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
-	pool := newAccountLinkPG(t)
+	pool := testdb.UnlockedPool(t)
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
@@ -104,7 +94,7 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 // The explicit link flow (authenticated session, sd.LinkUserID set) still links
 // even when the email collides — that is the supported, safe path.
 func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
-	pool := newAccountLinkPG(t)
+	pool := testdb.UnlockedPool(t)
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
@@ -140,7 +130,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 // unverified (or absent) email_verified claim must NOT mark the new account's
 // email verified.
 func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
-	pool := newAccountLinkPG(t)
+	pool := testdb.UnlockedPool(t)
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},

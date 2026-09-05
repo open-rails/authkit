@@ -5,6 +5,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +61,7 @@ func TestNewServerPrebuildsProviders(t *testing.T) {
 			},
 		},
 	}
-	s, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
+	s, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 
 	github, ok := s.provider("GitHub")

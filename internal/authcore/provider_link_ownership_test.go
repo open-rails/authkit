@@ -8,6 +8,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // mkBareUser inserts a username-only user and returns its id, with cleanup.
@@ -45,7 +46,7 @@ func (s *Service) providerOwner(t *testing.T, ctx context.Context, issuer, subje
 // constrained to the same user_id, so the cross-user attempt returns
 // ErrProviderAlreadyLinked and B's row is left untouched (no cross-user write).
 func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -77,7 +78,7 @@ func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
 // Re-linking the same (issuer, subject) for the SAME user updates email/slug and
 // stays a single row (idempotent).
 func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -106,7 +107,7 @@ func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 // Changing the subject requires an explicit unlink; unique constraints prevent
 // concurrent replacements from deleting an existing login credential.
 func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -131,7 +132,7 @@ func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
 }
 
 func TestConcurrentProviderLinksDoNotReplaceEachOther(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	user := mkBareUser(t, ctx, svc, "concurrent")

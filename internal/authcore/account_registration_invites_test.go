@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -61,7 +62,7 @@ func TestSendAccountRegistrationInviteEmail_DeliversToHostSender(t *testing.T) {
 }
 
 func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	sender := &inviteCaptureEmailSender{}
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool), WithEmailSender(sender))
@@ -180,7 +181,7 @@ func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
 // #147 FINAL: the stranger invite is UNBOUND — a valid single-use code lets the
 // holder register under ANY email, not only the address it was delivered to.
 func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	rootID, err := svc.EnsureRootGroup(ctx)

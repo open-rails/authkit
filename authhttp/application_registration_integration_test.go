@@ -26,6 +26,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -82,7 +83,7 @@ func postJSON(t *testing.T, h http.Handler, path string, body map[string]any) (*
 }
 
 func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
@@ -166,7 +167,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 }
 
 func TestGroupSlugRenameTombstones(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 

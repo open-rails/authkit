@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +27,7 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 }
 
 func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*

@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authkitmigrate"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +46,7 @@ func deviceKeyTestServer(t *testing.T, engineOpts ...embedded.Option) (*Service,
 
 func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	_, err := authkitmigrate.New(pool, nil).Migrate(context.Background())
 	require.NoError(t, err)
 	sender := &captureEmailSender{}
@@ -513,11 +513,11 @@ func TestDeviceKeyEnrollmentConcurrentFinishAcceptsOnce(t *testing.T) {
 
 func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
 	ctx := context.Background()
-	basePool := newServerTestPool(t)
+	basePool := testdb.Pool(t)
 	_, err := authkitmigrate.New(basePool, nil).Migrate(ctx)
 	require.NoError(t, err)
 
-	config, err := pgxpool.ParseConfig(os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
+	config, err := pgxpool.ParseConfig(testdb.URL(t))
 	require.NoError(t, err)
 	config.ConnConfig.RuntimeParams["search_path"] = "hub_v2"
 	pool, err := pgxpool.NewWithConfig(ctx, config)

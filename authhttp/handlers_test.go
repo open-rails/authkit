@@ -13,11 +13,9 @@ import (
 
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
@@ -100,18 +98,6 @@ func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
 
 func enableTestOIDCProvider(s *Service) {
 	setTestProviders(s, authprovider.Google("google-client", "google-secret"))
-}
-
-// newTestPool connects to the shared integration database (testdb.URL) without
-// the advisory lock newServerTestPool takes, so a test may hold several pools at
-// once. It replaces the former phantom-DSN pool: any query a handler happens to
-// issue now runs against the real store.
-func newTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testdb.URL(t))
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	return pool
 }
 
 func TestJWKSHandler(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -91,8 +92,8 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		popupNonce = r.URL.Query().Get("popup_nonce")
 	}
 
-	state := randB64(32)
-	nonce := randB64(16)
+	state := authcore.RandB64(32)
+	nonce := authcore.RandB64(16)
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error

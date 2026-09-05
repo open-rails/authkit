@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // be rejected, so a guessed code can't confirm whichever account happens to hold
 // it. The correct (email, code) pair still succeeds.
 func TestEmailVerifyConfirm_CodeIsEmailScoped(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender)), WithoutRateLimiter())

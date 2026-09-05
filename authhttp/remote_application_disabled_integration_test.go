@@ -11,6 +11,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -19,7 +20,7 @@ import (
 // next verification, not at the next LoadRemoteApplications reconcile. Real
 // engine + Postgres; the issuer stays registered with valid keys throughout.
 func TestDisabledRemoteApplicationTokenRejectedImmediately(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	coreSvc := newScopeBindingCore(t, pool)
 

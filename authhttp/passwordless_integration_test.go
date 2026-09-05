@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +24,7 @@ type passwordlessTokenBody struct {
 
 func passwordlessTestServer(t *testing.T, autoRegister bool) (*Service, *captureEmailSender, *captureSMSSender) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Frontend.PasswordlessPath = "/wallet/login"
 	cfg.Registration.PasswordlessLogin = true
@@ -65,7 +66,7 @@ func TestPasswordlessEmailOTPCreateIfMissingNoPasswordRow(t *testing.T) {
 
 func TestPasswordlessInviteOnlyRequiresAndConsumesAccountInvite(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
 	cfg.Registration.PasswordlessLogin = true
@@ -208,7 +209,7 @@ func TestPasswordlessSMSOTPAndMagicLink(t *testing.T) {
 
 func TestPasswordlessDisabledAntiEnumerationAndCodeAttemptCap(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	disabledSrv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	w := serveJSON(disabledSrv, http.MethodPost, "/passwordless/start", `{"identifier":"`+uniqueEmail("pwless-disabled")+`"}`)

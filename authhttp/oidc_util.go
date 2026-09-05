@@ -1,10 +1,7 @@
 package authhttp
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"net/url"
@@ -12,13 +9,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 )
-
-func randB64(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
-}
 
 // buildRedirectURI computes the OAuth/OIDC redirect_uri for this request's flow.
 //
@@ -146,7 +138,7 @@ func stateCookieMatches(r *http.Request, state string) bool {
 	if err != nil || c == nil || c.Value == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(state)) == 1
+	return authcore.SecretEqual(c.Value, state)
 }
 
 // cookieSecure reports whether auth cookies should carry the Secure attribute:

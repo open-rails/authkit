@@ -125,7 +125,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 		ttl = defaultAccountRegistrationInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-	code := randB64(32)
+	code := RandB64(32)
 	codeHash := sha256Hex(code)
 	var roleParam *string
 	if carriesRole {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +18,7 @@ import (
 // flow's cookie. A real cookie jar plays the browser.
 func TestParallelOIDCFlowsBothCompleteIntegration(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 

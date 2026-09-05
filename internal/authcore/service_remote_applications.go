@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -20,13 +19,8 @@ import (
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
-// remoteAppSlugRe validates a remote_application slug: lowercase alnum with
-// internal hyphens/dots (#264: domain-registered applications use slug =
-// domain, so slugs are DNS-name shaped; max 253, no consecutive dots).
-var remoteAppSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
-
 func validateRemoteAppSlug(slug string) error {
-	if slug == "" || len(slug) > 253 || !remoteAppSlugRe.MatchString(slug) || strings.Contains(slug, "..") {
+	if !validSlug(slug) {
 		return ErrInvalidRemoteApplication
 	}
 	return nil

@@ -449,7 +449,7 @@ func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string
 	if !s.useEphemeralStore() {
 		return "", fmt.Errorf("ephemeral store not configured")
 	}
-	challenge := randB64(32)
+	challenge := RandB64(32)
 	hash := sha256Hex(challenge)
 	if err := s.storeMFAChallenge(ctx, userID, hash, 10*time.Minute); err != nil {
 		return "", err
@@ -469,7 +469,7 @@ func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge stri
 	if err != nil || !ok {
 		return false, err
 	}
-	return secretHashEqual(stored, sha256Hex(challenge)), nil
+	return SecretEqual(stored, sha256Hex(challenge)), nil
 }
 
 // Clear2FAChallenge removes the stored challenge after successful 2FA verification.

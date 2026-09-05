@@ -9,12 +9,13 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func TestBanRevokesHeldCredentials(t *testing.T) {
 }
 
 func testBanRevokesHeldCredentials(t *testing.T, store ephemeralStore) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), WithoutRateLimiter())
 	require.NoError(t, err)

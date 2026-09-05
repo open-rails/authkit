@@ -17,6 +17,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -77,7 +78,7 @@ func bearerStatus(t *testing.T, h http.Handler, token string) int {
 // An API key minted on repo instance "alpha" passes the verify.RequirePermission
 // gate only on scope {repo, alpha}: cross-instance and unresolvable scopes deny.
 func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	coreSvc := newScopeBindingCore(t, pool)
 
@@ -130,7 +131,7 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 // A remote-application access token is bound to the group instance its
 // remote_application row is nested under, resolved server-side at verify.
 func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	coreSvc := newScopeBindingCore(t, pool)
 
@@ -189,7 +190,7 @@ func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
 // verified delegated token must stay UNBOUND and its token-carried permissions
 // must remain valid on ANY scope.
 func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	coreSvc := newScopeBindingCore(t, pool)
 
@@ -251,7 +252,7 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 // key passes the root gate; a repo-bound key is denied there even if it somehow
 // carried a matching permission string.
 func TestIntrinsicRequirePermission_GroupBoundMachinePrincipal(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	core := newScopeBindingCore(t, pool)
 	root, err := core.ResolveGroupIDForSlug(context.Background(), embedded.RootPersona, "")
 	require.NoError(t, err)

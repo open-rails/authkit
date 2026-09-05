@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
@@ -39,7 +40,7 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 
 func TestProviderUnlinkRequiresFreshAuthOrPassword(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 

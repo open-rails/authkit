@@ -8,6 +8,7 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +32,7 @@ func TestTOTPCodeMatching(t *testing.T) {
 }
 
 func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t,
 		Config{Token: TokenConfig{Issuer: "https://test"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: []byte("0123456789abcdef")}},

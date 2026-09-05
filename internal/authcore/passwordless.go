@@ -114,7 +114,7 @@ func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRe
 		rec.CodeHash = sha256Hex(code)
 	}
 	if mode == PasswordlessModeLink || mode == PasswordlessModeBoth {
-		linkToken = randB64(32)
+		linkToken = RandB64(32)
 		rec.LinkHash = sha256Hex(linkToken)
 	}
 	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
@@ -137,7 +137,7 @@ func (s *Service) ConfirmPasswordlessCode(ctx context.Context, identifier, code 
 		return PasswordlessConfirmResult{}, err
 	}
 	rec, ok, err := s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, normalized))
-	if err != nil || !ok || !secretHashEqual(rec.CodeHash, sha256Hex(code)) {
+	if err != nil || !ok || !SecretEqual(rec.CodeHash, sha256Hex(code)) {
 		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
 	}
 	result, err := s.consumePasswordlessChallenge(ctx, rec)
@@ -154,7 +154,7 @@ func (s *Service) ConfirmPasswordlessToken(ctx context.Context, token string) (P
 		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
 	}
 	rec, ok, err := s.loadPasswordlessChallenge(ctx, key)
-	if err != nil || !ok || !secretHashEqual(rec.LinkHash, linkHash) {
+	if err != nil || !ok || !SecretEqual(rec.LinkHash, linkHash) {
 		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
 	}
 	return s.consumePasswordlessChallenge(ctx, rec)

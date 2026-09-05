@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func shortAvailUsername(prefix string) string {
 // once.
 func TestRegisterAvailability_CombinedUsernameAndEmailSingleQuery(t *testing.T) {
 	counter := newQueryCounter("UserEmailOrUsernameTaken")
-	pool := newTracedServerTestPool(t, counter)
+	pool := testdb.PoolWithTracer(t, counter)
 	ctx := context.Background()
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)

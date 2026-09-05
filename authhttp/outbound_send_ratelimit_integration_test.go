@@ -14,6 +14,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // outboundSendRoute is one route that triggers an outbound email or SMS. Every
@@ -58,7 +59,7 @@ func outboundSendRoutes() []outboundSendRoute {
 // proves the per-identifier budget alone yields 429, while another identifier
 // from yet another IP is unaffected.
 func TestOutboundSendRoutes_PerIdentifierCap(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.Frontend.BaseURL = "https://example.com"

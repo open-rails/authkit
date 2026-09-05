@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,7 @@ func (p *fakeDirectoryProvider) ListSubjectsWithEntitlement(_ context.Context, e
 // Postgres: generic search/role/status/sort + provider-backed entitlement filter,
 // with NO hardcoded host role slugs. Skips without AUTHKIT_TEST_DATABASE_URL.
 func TestAdminListUsers_GenericDirectory(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	// #111/#136: roles are catalog-defined (core.Config), not runtime slugs. Declare
 	// a bounded `admin` root role for the directory filter to resolve.

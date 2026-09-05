@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 // logged through the engine → the admin sign-ins HTTP handler reads them back
 // from Postgres and shapes the JSON, scoped to the requested user.
 func TestAdminSignins_EndToEnd(t *testing.T) {
-	pool := newServerTestPool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
+	pool := testdb.Pool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)

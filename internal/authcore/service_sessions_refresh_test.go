@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // keyedServiceWithPG builds a Service with generated signing keys AND a Postgres
@@ -20,7 +22,7 @@ func keyedServiceWithPG(t *testing.T) *Service {
 // single-use.
 func keyedServiceWithPGGrace(t *testing.T, grace time.Duration) *Service {
 	t.Helper()
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{

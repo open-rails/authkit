@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #89 (no DB): enforce-as-desired-state is rejected with reset_required, valid
@@ -26,7 +28,7 @@ func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
 // of band after the initial seed survives a later reconcile — but enforce:true
 // re-asserts the manifest value. Skips without AUTHKIT_TEST_DATABASE_URL.
 func TestApplyBootstrapManifestPasswordSeedOnce(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

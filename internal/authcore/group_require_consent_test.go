@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestPersonaRequireConsent covers the #193 per-persona join policy accessor and
@@ -36,7 +38,7 @@ func TestPersonaRequireConsent(t *testing.T) {
 // TestLastOwnerGuard_DB: an actor-checked removal of the sole owner is refused
 // (it would orphan the group), so authority never silently vanishes.
 func TestLastOwnerGuard_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {

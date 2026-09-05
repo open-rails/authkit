@@ -14,12 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
@@ -91,7 +92,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 }
 
 func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")

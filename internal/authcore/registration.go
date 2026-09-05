@@ -81,7 +81,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
-		linkToken := randB64(32)
+		linkToken := RandB64(32)
 		linkHash := sha256Hex(linkToken)
 		normEmail := NormalizeEmail(email)
 		if err := s.storeEmailVerification(ctx, userID, &normEmail, codeHash, linkHash, ttl); err != nil {
@@ -102,7 +102,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
-		linkToken := randB64(32)
+		linkToken := RandB64(32)
 		linkHash := sha256Hex(linkToken)
 
 		if err := s.storePendingChange(ctx, pendingChange{
@@ -236,7 +236,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
-		linkToken := randB64(32)
+		linkToken := RandB64(32)
 		linkHash := sha256Hex(linkToken)
 		if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, defaultPhoneVerificationTTL); err != nil {
 			return "", err
@@ -251,7 +251,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 	default:
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
-		linkToken := randB64(32)
+		linkToken := RandB64(32)
 		linkHash := sha256Hex(linkToken)
 		if err := s.storePendingChange(ctx, pendingChange{
 			Kind:              KindRegisterPhone,

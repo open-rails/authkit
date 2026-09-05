@@ -10,7 +10,7 @@ import (
 // #305: the per-process memory ephemeral store is refused outside a dev-like
 // Environment unless Ephemeral.AllowMemory opts in; Redis always passes.
 func TestNewRefusesMemoryEphemeralOutsideDev(t *testing.T) {
-	pool := newGenesisTestPool(t)
+	pool := testdb.UnlockedPool(t)
 	base := Config{
 		Keys:         testKeys(t),
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},

@@ -28,7 +28,7 @@ import (
 // record for the same user/kind.
 func (s *Service) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
 	code = randAlphanumeric(6)
-	linkToken = randB64(32)
+	linkToken = RandB64(32)
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:     kind,
 		Target:   target,

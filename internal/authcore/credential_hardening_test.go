@@ -10,6 +10,7 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +55,7 @@ func newHardeningService(t *testing.T) (*Service, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
-		WithPostgres(testPG(t)), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender))
+		WithPostgres(testdb.Pool(t)), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender))
 	return svc, sender
 }
 

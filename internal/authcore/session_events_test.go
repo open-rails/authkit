@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ const testSessionEventIssuer = "https://session-events.test"
 
 func newSessionEventsService(t *testing.T) *Service {
 	t.Helper()
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: testSessionEventIssuer}}, Keyset{}, WithPostgres(pool))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.session_events WHERE issuer = $1`, testSessionEventIssuer)

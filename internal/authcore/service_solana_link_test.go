@@ -7,11 +7,12 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #78: a user with a verified wallet must unlink it before linking a different one.
 func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

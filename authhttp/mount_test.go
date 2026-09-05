@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func newMountTestService(t *testing.T) *Service {
 	t.Helper()
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), newTestPool(t)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), testdb.UnlockedPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv
 }
@@ -71,7 +72,7 @@ func TestMountAnchors(t *testing.T) {
 // gating keeps working — and keeps its exemptions — wherever the API lives.
 func TestMountMFAEnrollmentGateUnderAPIPrefix(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
-	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
+	svc, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 	auth := map[string]string{"Authorization": "Bearer " + token}
@@ -100,7 +101,7 @@ func TestMountMFAEnrollmentGateUnderAPIPrefix(t *testing.T) {
 // route registry at NewServer time, not from what a particular mount serves.
 func TestMountExcludeDoesNotAlterExemptDerivation(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
-	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
+	svc, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 	auth := map[string]string{"Authorization": "Bearer " + token}

@@ -11,13 +11,14 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 // #296: a self-registering application cannot claim a slug the org persona
 // reserves; the same domain registers fine under a non-reserved slug.
 func TestApplicationSelfRegistration_RefusesReservedSlug(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 

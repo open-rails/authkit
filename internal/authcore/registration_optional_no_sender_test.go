@@ -7,6 +7,7 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // spyEmailSender records every SendVerification call so a test can assert
@@ -46,7 +47,7 @@ func (s *spyEmailSender) SendContactChanged(context.Context, string, string, Con
 // a registration creates the user already-verified and sends nothing.
 // Skips without AUTHKIT_TEST_DATABASE_URL (createEmailRegistrationUser needs PG).
 func TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	// Optional policy, no WithEmailSender => s.email == nil.
@@ -83,7 +84,7 @@ func TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing(t *testing.T
 // sender IS invoked (the user is left unverified pending confirmation). This
 // pins the "no-sender" branch above as the genuine degrade path, not an accident.
 func TestRegistrationOptionalWithSenderSendsAndLeavesUnverified(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	spy := &spyEmailSender{}

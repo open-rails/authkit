@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	authlang "github.com/open-rails/authkit/lang"
 	"github.com/stretchr/testify/require"
@@ -220,7 +221,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 		},
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired},
-	}, newTestPool(t), embedded.WithEmailSender(testEmailSender{})))
+	}, testdb.UnlockedPool(t), embedded.WithEmailSender(testEmailSender{})))
 	require.NoError(t, err)
 	h := s.apiHandler()
 

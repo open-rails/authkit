@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestRemoveGroupSubjectAs_NoEscalation_DB verifies #136 enforcement on the REVOKE
 // path: a holder of root:members:manage that does NOT hold root:* cannot strip an
 // owner's roles, while an owner can. Mirrors the assign-path no-escalation test.
 func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	gs, err := BuildSchema(IntrinsicRootPersona(

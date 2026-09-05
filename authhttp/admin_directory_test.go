@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -115,7 +116,7 @@ func adminIDsOf(users []authkit.AdminUser) []string {
 }
 
 func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
-	pool := newServerTestPool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
+	pool := testdb.Pool(t) // skips when AUTHKIT_TEST_DATABASE_URL unset
 	ctx := context.Background()
 	s := newAdminDirectoryService(t, pool)
 
@@ -218,7 +219,7 @@ func TestAdminUsersListOptionsFromQuery(t *testing.T) {
 }
 
 func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	s := newAdminDirectoryService(t, pool)
 
@@ -280,7 +281,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 }
 
 func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	s := newAdminDirectoryService(t, pool)
 

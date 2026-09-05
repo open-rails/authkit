@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ type captureSender interface {
 }
 
 func TestContactChannelRoutes_BothChannels(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}

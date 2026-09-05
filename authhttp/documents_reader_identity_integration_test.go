@@ -13,6 +13,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -37,7 +38,7 @@ func registerReaderApp(t *testing.T, core *embedded.Client, gid, slug, issuer st
 // application id, proven domain, or a ROOT-registered issuer — never by slug,
 // and only at the approved tier unless the host opts registered readers in.
 func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	issuer := func(name string) string { return "https://" + name + "-" + suffix + ".example" }
@@ -120,6 +121,6 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 func TestNewServerRefusesAmbiguousDocumentReader(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{ID: "x", Issuer: "https://x.example"}}}
-	_, err := embedded.New(cfg, newServerTestPool(t))
+	_, err := embedded.New(cfg, testdb.Pool(t))
 	require.ErrorContains(t, err, "exactly one of ID, Domain, Issuer")
 }

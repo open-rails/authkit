@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // grantsCoverAll is the heart of #136 no-escalation: an actor may grant a role
@@ -61,7 +63,7 @@ func TestGrantsCoverAll_ResourceGlob(t *testing.T) {
 // TestAssignRoleBySlugAs_NoEscalation_DB exercises the #136 enforcement against a
 // real DB: capability (root:members:manage) + no step-up (perms(role) ⊆ perms(actor)).
 func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	// Custom root schema: bounded `admin` (operational, NO members:manage) and a

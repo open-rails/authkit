@@ -251,7 +251,7 @@ func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange, 
 // attempt caps bound guessing. keepSessionID is the confirming session a
 // contact change must not revoke (nil for registrations and link confirms).
 func (s *Service) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
-	if !secretHashEqual(rec.CodeHash, sha256Hex(code)) {
+	if !SecretEqual(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	uid, err := s.finalizePendingChange(ctx, rec, keepSessionID)
@@ -274,7 +274,7 @@ func (s *Service) consumePendingChangeByLink(ctx context.Context, linkHash strin
 	if err != nil {
 		return "", err
 	}
-	if !ok || rec.Kind != expectKind || !secretHashEqual(rec.LinkHash, linkHash) {
+	if !ok || rec.Kind != expectKind || !SecretEqual(rec.LinkHash, linkHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	uid, err := s.finalizePendingChange(ctx, rec, nil)

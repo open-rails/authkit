@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterInviteOnlyRequiresAndConsumesAccountInvite(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
 	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())

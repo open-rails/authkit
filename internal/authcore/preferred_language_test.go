@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestNormalizePreferredLanguage(t *testing.T) {
@@ -35,7 +37,7 @@ func TestNormalizePreferredLanguage(t *testing.T) {
 }
 
 func TestSetGetPreferredLanguage(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

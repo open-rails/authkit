@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	pgx "github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -54,30 +53,7 @@ func (c *userRowQueryCounter) get(name string) int {
 // tracer to the pool so a test can count the queries a flow issues.
 func keyedServiceWithTracedPG(t *testing.T, tr pgx.QueryTracer) *Service {
 	t.Helper()
-	dsn := testdb.URL(t)
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		t.Fatalf("parse pool config: %v", err)
-	}
-	cfg.ConnConfig.Tracer = tr
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	// Serialize with the other DB-backed tests via the same advisory lock testPG uses.
-	conn, err := pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("acquire lock conn: %v", err)
-	}
-	if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`); err != nil {
-		conn.Release()
-		t.Fatalf("acquire test db lock: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
-		conn.Release()
-	})
+	pool := testdb.PoolWithTracer(t, tr)
 	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{

@@ -25,7 +25,7 @@ import (
 // application is registered with Config.Token.ExpectedAudiences, so a token it
 // minted for a different audience is rejected.
 func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
 	srv, err := NewServer(client)
@@ -67,7 +67,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 	cfg.Frontend.BaseURL = "https://app.example/"
 	cfg.Frontend.VerifyPath = "/verify"
 	cfg.Frontend.PasswordResetPath = "/reset"
-	srv, err := NewServer(newServerClient(t, cfg, newServerTestPool(t)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, testdb.Pool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h := srv.apiHandler()
 
@@ -91,7 +91,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 // down, every verify/reset confirm path is a 500 backend failure and never a
 // counted bad guess; with the store up, a wrong code is still a 400 guess.
 func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	rdb := testdb.ScratchRedis(t)
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithRedis(rdb)), WithoutRateLimiter())
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 // past the bucket and a limited request gets one 429, not a 401 with a
 // superfluous second WriteHeader.
 func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	srv, err := NewServer(
 		newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{}), embedded.WithSMSSender(&captureSMSSender{})),
@@ -164,7 +164,7 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 // MountHandler, the enrollment-only token reaches the mounted 2FA surface and
 // nothing else — not even a host route that happens to end in "/user/2fa".
 func TestMountAnchorsMFAEnrollmentExemptRoutes(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)

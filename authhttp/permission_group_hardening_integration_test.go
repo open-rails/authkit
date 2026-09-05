@@ -13,6 +13,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,7 @@ func hardeningTestConfig() embedded.Config {
 
 func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	coreSvc, err := authcore.NewFromConfig(hardeningTestConfig(), pool)

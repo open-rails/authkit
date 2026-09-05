@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFactorEnrollmentRequiresFreshAuthAndPreservesFactor(t *testing.T) {
 	ctx := context.Background()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(testEmailSender{})), WithoutRateLimiter())
@@ -80,7 +81,7 @@ func TestFactorEnrollmentRequiresFreshAuthAndPreservesFactor(t *testing.T) {
 }
 
 func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor = embedded.TwoFactorConfig{Mode: embedded.TwoFactorRequired, TOTPSecretKey: []byte("0123456789abcdef")}
 	// Issue a session before the site enables mandatory enrollment.

@@ -3,6 +3,8 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestService_PermissionGroupLifecycle drives the public Service API end-to-end
@@ -10,7 +12,7 @@ import (
 // through 008). The service methods commit their own transactions, so the test
 // wipes the permission-group tables before/after (disposable test DB).
 func TestService_PermissionGroupLifecycle(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
@@ -133,7 +135,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 // TestService_CustomRoleDefineDelete exercises the custom-role define/delete path
 // (the last-wired generated-route family) end-to-end against a real Postgres.
 func TestService_CustomRoleDefineDelete(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)

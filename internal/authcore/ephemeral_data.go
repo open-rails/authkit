@@ -140,7 +140,7 @@ func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, 
 	if err != nil {
 		return "", err
 	}
-	if !ok || !secretHashEqual(data.CodeHash, codeHash) {
+	if !ok || !SecretEqual(data.CodeHash, codeHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	s.deletePhoneVerification(ctx, key)
@@ -160,7 +160,7 @@ func (s *Service) consumePhoneVerificationByLink(ctx context.Context, purpose, l
 	if err != nil {
 		return "", "", err
 	}
-	if !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !secretHashEqual(data.LinkHash, linkHash) {
+	if !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !SecretEqual(data.LinkHash, linkHash) {
 		return "", "", jwt.ErrTokenUnverifiable
 	}
 	_ = s.ephemDel(ctx, key)
@@ -200,7 +200,7 @@ func (s *Service) consumeEmailVerificationCode(ctx context.Context, userID, emai
 	if err != nil {
 		return err
 	}
-	if !ok || !secretHashEqual(data.CodeHash, codeHash) {
+	if !ok || !SecretEqual(data.CodeHash, codeHash) {
 		return jwt.ErrTokenUnverifiable
 	}
 	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
@@ -222,7 +222,7 @@ func (s *Service) consumeEmailVerificationByLink(ctx context.Context, linkHash s
 	if err != nil {
 		return nil, err
 	}
-	if !ok || !secretHashEqual(data.LinkHash, linkHash) {
+	if !ok || !SecretEqual(data.LinkHash, linkHash) {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	_ = s.ephemDel(ctx, key)
@@ -365,7 +365,7 @@ func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (
 	if err != nil || !ok {
 		return false, nil
 	}
-	if !secretHashEqual(data.CodeHash, codeHash) {
+	if !SecretEqual(data.CodeHash, codeHash) {
 		return false, nil
 	}
 	return true, nil
@@ -384,7 +384,7 @@ func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, c
 	if err != nil || !ok {
 		return false, nil
 	}
-	if !secretHashEqual(data.CodeHash, codeHash) {
+	if !SecretEqual(data.CodeHash, codeHash) {
 		return false, nil
 	}
 	if method != "" && !strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)) {

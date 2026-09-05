@@ -11,7 +11,7 @@ import (
 // #307: two engines with different schemas on ONE Redis database derive
 // disjoint key namespaces; an explicit KeyPrefix is honoured and validated.
 func TestRedisKeyPrefixDerivesFromSchemaAndIsolates(t *testing.T) {
-	pool := newGenesisTestPool(t)
+	pool := testdb.UnlockedPool(t)
 	rdb := testdb.ScratchRedis(t)
 	ctx := context.Background()
 	base := Config{

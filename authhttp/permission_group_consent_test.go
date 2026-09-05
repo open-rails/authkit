@@ -13,6 +13,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ import (
 // RequireConsent persona ("team") and an instant one ("repo"), plus an owner user.
 func newConsentTestService(t *testing.T) (s *Service, owner string) {
 	t.Helper()
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := embedded.Config{
 		Keys:  testKeys(),

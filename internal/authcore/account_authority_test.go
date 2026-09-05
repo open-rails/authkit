@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #286 account-authority guard against a real store: an operator holding every
@@ -15,7 +16,7 @@ import (
 // the root owner; an empty actor fails closed; peers and the owner's own reach
 // are unaffected.
 func TestAccountAuthority_NoEscalation_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "operator", Permissions: IntrinsicRootPermissions()}))

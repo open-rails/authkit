@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +24,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 }
 
 func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.Passkeys = embedded.PasskeyConfig{
@@ -132,7 +133,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 }
 
 func TestPasskeyManagementHTTPIntegration(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.Passkeys = embedded.PasskeyConfig{

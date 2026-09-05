@@ -34,7 +34,7 @@ func newLoopbackJWKSServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Ser
 }
 
 func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	signer, err := jwtkit.NewRSASigner(2048, "fed-kid")
@@ -76,7 +76,7 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 }
 
 func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
-	pool := newServerTestPool(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	signer, err := jwtkit.NewRSASigner(2048, "fed-kid-prod")

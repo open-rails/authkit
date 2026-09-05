@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
 )
@@ -17,7 +18,7 @@ import (
 // unauthorized), and a completed reset (argon2id upsert) must clear the flag.
 // Skips when AUTHKIT_TEST_DATABASE_URL is unset.
 func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 
 	signer, err := jwtkit.NewEd25519Signer("reset-required-test")

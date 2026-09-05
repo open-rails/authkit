@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestGroupUserRoles_IndexRejectsSecondLiveRole is the #247 hard-rule's
@@ -18,7 +19,7 @@ import (
 // group with a freshly-created, disposable user — no schema/containment setup
 // needed, so it can't collide with other tests' fixtures.
 func TestGroupUserRoles_IndexRejectsSecondLiveRole(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid, err := svc.EnsureRootGroup(ctx)
@@ -59,7 +60,7 @@ func TestGroupUserRoles_IndexRejectsSecondLiveRole(t *testing.T) {
 // TestGroupRemoteApplicationRoles_IndexRejectsSecondLiveRole mirrors the user
 // case for the remote_application role table.
 func TestGroupRemoteApplicationRoles_IndexRejectsSecondLiveRole(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid, err := svc.EnsureRootGroup(ctx)

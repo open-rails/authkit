@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // #111 (DB): the `owner` role is assignable to a remote_application member of a
@@ -12,7 +14,7 @@ import (
 // gives the issuer full authority within that group. Skips without
 // AUTHKIT_TEST_DATABASE_URL.
 func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
@@ -59,7 +61,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 }
 
 func TestRemoteApplicationMembershipRejectsUnknownRole(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 

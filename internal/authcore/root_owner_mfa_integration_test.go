@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func cleanRootGroupTables(ctx context.Context, pool *pgxpool.Pool) {
@@ -18,7 +19,7 @@ func cleanRootGroupTables(ctx context.Context, pool *pgxpool.Pool) {
 // The root persona's injected owner role is MFA-required by default: assigning
 // it is blocked until the subject has enabled 2FA.
 func TestRootOwnerRequiresMFA_AssignmentBlockedThenAllowed_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
@@ -46,7 +47,7 @@ func TestRootOwnerRequiresMFA_AssignmentBlockedThenAllowed_DB(t *testing.T) {
 // A host that explicitly declares the root owner role with RequiresMFA: false
 // overrides the default — assignment succeeds without any 2FA enrolled.
 func TestRootOwnerRequiresMFA_ExplicitOverrideAllowsUnenrolledAssignment_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
@@ -76,7 +77,7 @@ func TestRootOwnerRequiresMFA_ExplicitOverrideAllowsUnenrolledAssignment_DB(t *t
 // RequiresMFA default must be completely inert: bootstrap-seeding a root owner
 // (CreatePermissionGroup with OwnerSubjectID, the genesis path) must not brick.
 func TestRootOwnerRequiresMFA_InertWhenTwoFactorDisabled_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
@@ -106,7 +107,7 @@ func TestRootOwnerRequiresMFA_InertWhenTwoFactorDisabled_DB(t *testing.T) {
 // ownerless). Once a second owner exists, the disable succeeds and only the
 // disabling user's owner role is removed.
 func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
@@ -167,7 +168,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 // role/2FA state; here it is the user's own action that triggers the strip,
 // so it applies regardless of the app's current enforcement mode.
 func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })

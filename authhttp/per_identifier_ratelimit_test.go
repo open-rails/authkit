@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func newPerIdentifierTestService(t *testing.T) *Service {
@@ -25,7 +26,7 @@ func newPerIdentifierTestService(t *testing.T) *Service {
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
 	}
-	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
+	svc, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 	return svc
 }

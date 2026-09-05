@@ -3,14 +3,14 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 
+	authcore "github.com/open-rails/authkit/internal/authcore"
+
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
@@ -66,31 +66,6 @@ func (c *queryCounter) count(name string) int {
 	return c.counts[name]
 }
 
-// newTracedServerTestPool mirrors newServerTestPool but attaches a QueryTracer so
-// a test can count query executions. Skips when no test database is configured.
-func newTracedServerTestPool(t *testing.T, tracer pgx.QueryTracer) *pgxpool.Pool {
-	t.Helper()
-	dsn := testdb.URL(t)
-	config, err := pgxpool.ParseConfig(dsn)
-	require.NoError(t, err)
-	config.ConnConfig.Tracer = tracer
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	conn, err := pool.Acquire(context.Background())
-	require.NoError(t, err)
-	_, err = conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`)
-	if err != nil {
-		conn.Release()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
-		conn.Release()
-	})
-	return pool
-}
-
 // GET /me used to fan out into ~15 DB round-trips: Get2FASettings ran three times
 // (MFA status + step-up methods + step-up 2FA options), the user row was loaded
 // twice (AdminGetUser + a re-fetch just for the email), plus a standalone
@@ -99,7 +74,7 @@ func newTracedServerTestPool(t *testing.T, tracer pgx.QueryTracer) *pgxpool.Pool
 // at most once for the request, while preserving the response shape.
 func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	counter := newQueryCounter("MFASettingsByUser", "UserByID", "UserPreferredLanguage")
-	pool := newTracedServerTestPool(t, counter)
+	pool := testdb.PoolWithTracer(t, counter)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")

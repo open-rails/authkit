@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // seedBackupUser creates a user with 2FA enabled and the given plaintext backup
@@ -31,7 +33,7 @@ func seedBackupUser(t *testing.T, ctx context.Context, svc *Service, codes ...st
 // TestVerifyBackupCode_SingleUse: a code works once, then is consumed; a wrong code
 // fails; 2FA-disabled fails.
 func TestVerifyBackupCode_SingleUse(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "code-aaa", "code-bbb")
@@ -57,7 +59,7 @@ func TestVerifyBackupCode_SingleUse(t *testing.T) {
 // TestVerifyBackupCode_ConcurrentSingleWinner: two concurrent submissions of the
 // same code must yield exactly one success (atomic consume).
 func TestVerifyBackupCode_ConcurrentSingleWinner(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "race-code")

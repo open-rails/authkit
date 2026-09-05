@@ -3,6 +3,8 @@ package authcore
 import (
 	"context"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestPermissionGroups_ParentDeleteCascadesSubtree pins the teardown semantics of
@@ -19,7 +21,7 @@ import (
 // a mid-tree group cannot be hard-deleted out from under its children. If that
 // migration lands, this test's expectations flip and document the new contract.
 func TestPermissionGroups_ParentDeleteCascadesSubtree(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
