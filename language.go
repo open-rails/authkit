@@ -1,17 +1,16 @@
-package lang
+package authkit
 
 import "context"
 
-type ctxKey struct{}
+type languageKey struct{}
 
 // WithLanguage attaches a request language to ctx.
 func WithLanguage(ctx context.Context, language string) context.Context {
-	return context.WithValue(ctx, ctxKey{}, language)
+	return context.WithValue(ctx, languageKey{}, language)
 }
 
-// LanguageFromContext reads a request language from ctx.
+// LanguageFromContext reads the request language attached by WithLanguage.
 func LanguageFromContext(ctx context.Context) (string, bool) {
-	v := ctx.Value(ctxKey{})
-	s, ok := v.(string)
+	s, ok := ctx.Value(languageKey{}).(string)
 	return s, ok && s != ""
 }

@@ -1,3 +1,5 @@
+// Package memorylimiter is the in-memory sliding-window rate limiter over
+// ratelimit.Limit buckets.
 package memorylimiter
 
 import (
