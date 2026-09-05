@@ -156,10 +156,6 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	name = p.Name()
-	if s.rateLimited(w, r, RLOIDCCallback) {
-		return
-	}
-
 	// The IdP echoes state on error redirects too; recover the flow context
 	// when this browser really started the flow, so the error lands where the
 	// flow expects it (popup message / step-up return / frontend fragment).

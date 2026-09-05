@@ -12,9 +12,6 @@ import (
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserPasswordChange) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)

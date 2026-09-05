@@ -12,9 +12,6 @@ import (
 )
 
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasskeyRegister) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -32,9 +29,6 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 }
 
 func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasskeyRegister) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
@@ -57,9 +51,6 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 }
 
 func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasskeyLogin) {
-		return
-	}
 	var req struct {
 		Identifier string `json:"identifier"`
 	}
@@ -79,9 +70,6 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasskeyLogin) {
-		return
-	}
 	body, err := readSmallBody(r)
 	if err != nil {
 		badRequest(w, ErrInvalidRequest)

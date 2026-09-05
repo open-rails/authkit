@@ -11,10 +11,6 @@ import (
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAuthToken) {
-		return
-	}
-
 	var body struct {
 		GrantType    string `json:"grant_type"`
 		RefreshToken string `json:"refresh_token"`

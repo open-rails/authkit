@@ -15,11 +15,12 @@ package authhttp
 
 import (
 	"errors"
+	"net/http"
+	"strings"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
-	"net/http"
-	"strings"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -51,6 +52,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 			Method:  http.MethodGet,
 			Path:    "/me/groups",
 			Group:   RouteAccount,
+			Auth:    AuthRequired,
 			Handler: http.HandlerFunc(s.handleMeGroupsGET),
 		})
 	}
@@ -61,6 +63,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 		Method:  http.MethodGet,
 		Path:    "/me/permissions",
 		Group:   RouteAccount,
+		Auth:    AuthRequired,
 		Handler: http.HandlerFunc(s.handleMePermissionsGET),
 	})
 	if s.hasInviteLinkSupport() {
@@ -68,6 +71,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 			Method:  http.MethodPost,
 			Path:    "/invites/redeem",
 			Group:   RoutePermissionGroups,
+			Auth:    AuthRequired,
 			Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
 		})
 	}
@@ -99,6 +103,7 @@ func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 			Method:  http.MethodPost,
 			Path:    "/" + persona,
 			Group:   RoutePermissionGroups,
+			Auth:    AuthRequired,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.groupInstanceCreate(w, r, persona) }),
 		})
 	}
@@ -140,10 +145,12 @@ func generatedRouteSpecs(s *Service, routes []embedded.GeneratedRoute) []RouteSp
 	for _, gr := range routes {
 		gr := gr // capture per-iteration
 		out = append(out, RouteSpec{
-			Method:  gr.Method,
-			Path:    muxPath(gr.Path),
-			Group:   RoutePermissionGroups,
-			Handler: s.generatedGroupHandler(gr),
+			Method:     gr.Method,
+			Path:       muxPath(gr.Path),
+			Group:      RoutePermissionGroups,
+			Auth:       AuthPermission,
+			Permission: gr.Perm,
+			Handler:    s.generatedGroupHandler(gr),
 		})
 	}
 	return out

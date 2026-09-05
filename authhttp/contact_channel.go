@@ -188,9 +188,6 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 // verification code/link. Authenticated: start a fresh-auth-gated contact
 // change to identifier.
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLVerifyRequest) {
-		return
-	}
 	var req struct {
 		Identifier string `json:"identifier"`
 		Password   string `json:"password"`
@@ -253,9 +250,6 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 
 // POST /verify/confirm — {identifier, code} or {token, identifier?}.
 func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLVerifyConfirm) {
-		return
-	}
 	var req struct {
 		Identifier string `json:"identifier"`
 		Code       string `json:"code"`
@@ -442,9 +436,6 @@ func (s *Service) redirectLinkLanding(w http.ResponseWriter, r *http.Request, fr
 // POST /password/reset/request — {identifier}; always 202 for a well-formed
 // identifier (anti-enumeration: existence is never revealed).
 func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasswordResetRequest) {
-		return
-	}
 	var req struct {
 		Identifier string `json:"identifier"`
 	}
@@ -478,9 +469,6 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 
 // POST /password/reset/confirm — {token, new_password}.
 func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasswordResetConfirm) {
-		return
-	}
 	var req struct {
 		Token       string `json:"token"`
 		NewPassword string `json:"new_password"`
@@ -515,9 +503,6 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 	}
 	if !s.svc.RegistrationVerificationEnabled() {
 		accepted(w)
-		return
-	}
-	if s.rateLimited(w, r, RLRegisterResend) {
 		return
 	}
 	var req struct {

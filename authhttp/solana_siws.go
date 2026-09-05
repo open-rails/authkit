@@ -70,10 +70,6 @@ func siwsRequestDomain(configured string, r *http.Request) string {
 }
 
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLSolanaChallenge) {
-		return
-	}
-
 	var req struct {
 		Address  string `json:"address"`
 		Username string `json:"username"`
@@ -112,10 +108,6 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLSolanaLogin) {
-		return
-	}
-
 	output, ok := decodeSIWSOutput(w, r)
 	if !ok {
 		return
@@ -162,10 +154,6 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLSolanaLink) {
-		return
-	}
-
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrAuthenticationRequired)

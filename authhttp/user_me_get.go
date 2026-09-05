@@ -12,9 +12,6 @@ import (
 )
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserMe) {
-		return
-	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)

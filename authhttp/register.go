@@ -59,10 +59,6 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		registrationDisabled(w)
 		return
 	}
-	if s.rateLimited(w, r, RLAuthRegister) {
-		return
-	}
-
 	var req struct {
 		Identifier         string `json:"identifier"`
 		Username           string `json:"username"`
@@ -279,10 +275,6 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		registrationDisabled(w)
 		return
 	}
-	if s.rateLimited(w, r, RLAuthRegisterAbandon) {
-		return
-	}
-
 	var req struct {
 		Identifier string `json:"identifier"`
 		Password   string `json:"password"`

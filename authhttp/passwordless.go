@@ -12,9 +12,6 @@ import (
 )
 
 func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasswordlessStart) {
-		return
-	}
 	var req struct {
 		Identifier         string `json:"identifier"`
 		Mode               string `json:"mode"`
@@ -71,9 +68,6 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasswordlessConfirm) {
-		return
-	}
 	var req struct {
 		Identifier string `json:"identifier"`
 		Code       string `json:"code"`

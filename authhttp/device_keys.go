@@ -39,9 +39,6 @@ func deviceKeyHTTPResponse(id, label string, createdAt time.Time) deviceKeyRespo
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeyEnrollBegin) {
-		return
-	}
 	var req struct {
 		Email     string `json:"email"`
 		PublicKey string `json:"public_key"`
@@ -83,9 +80,6 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 }
 
 func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeyEnrollFinish) {
-		return
-	}
 	var req struct {
 		EnrollmentID string `json:"enrollment_id"`
 		Code         string `json:"code"`
@@ -133,9 +127,6 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 }
 
 func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeyLoginBegin) {
-		return
-	}
 	var req struct {
 		DeviceKeyID string `json:"device_key_id"`
 	}
@@ -172,9 +163,6 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeyLoginFinish) {
-		return
-	}
 	var req struct {
 		ChallengeID string `json:"challenge_id"`
 		Signature   string `json:"signature"`
@@ -214,9 +202,6 @@ func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
 }
 
 func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeysManage) {
-		return
-	}
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
 		unauthorized(w, ErrUnauthorized)
@@ -239,9 +224,6 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeysManage) {
-		return
-	}
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
 		unauthorized(w, ErrUnauthorized)
@@ -260,9 +242,6 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLDeviceKeysManage) {
-		return
-	}
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
 		unauthorized(w, ErrUnauthorized)
