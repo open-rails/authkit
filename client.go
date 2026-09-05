@@ -154,6 +154,9 @@ type APIKeys interface {
 
 // Providers links external identity providers to an account.
 type Providers interface {
+	// ImportUnverifiedSolanaLinks preserves host migration associations without
+	// turning them into credentials. Only a subsequent SIWS proof verifies a link.
+	ImportUnverifiedSolanaLinks(ctx context.Context, inputs []ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinksResult, error)
 	LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error
 }
 

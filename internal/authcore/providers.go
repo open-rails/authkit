@@ -64,6 +64,27 @@ func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
+	_, unverifiedErr := q.UserProviderUnverifiedForUpdate(ctx, db.UserProviderUnverifiedForUpdateParams{
+		UserID:       userID,
+		ProviderSlug: &provider,
+	})
+	if unverifiedErr != nil && !errors.Is(unverifiedErr, pgx.ErrNoRows) {
+		return false, unverifiedErr
+	}
+	// An imported provider claim is visible so the user can verify or remove it,
+	// but it is not a login method. Removing it therefore cannot strip the last
+	// credential and must not be rejected by the credential-count guard below.
+	// Lock only unverified rows here so verified-provider unlinks retain the
+	// established all-provider lock order below.
+	if unverifiedErr == nil {
+		if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
+			return false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	links, err := q.UserProviderCountForUpdate(ctx, userID)
 	if err != nil {
 		return false, err

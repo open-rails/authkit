@@ -416,3 +416,7 @@ func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit
 func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
 	return s.impl.DeleteGroupInstanceByID(ctx, groupID, opts)
 }
+
+func (s *Client) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []authkit.ImportUnverifiedSolanaLinkInput) (authkit.ImportUnverifiedSolanaLinksResult, error) {
+	return s.impl.ImportUnverifiedSolanaLinks(ctx, inputs)
+}
