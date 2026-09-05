@@ -46,7 +46,7 @@ func TestNamingEnvironmentAndEmbeddedPolicyAgree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			client, err := embedded.New(embedded.Config{Naming: c.naming, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}}, nil)
+			client, err := embedded.New(embedded.Config{Naming: c.naming, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}}, embedded.Deps{})
 			if err != nil {
 				t.Fatal(err)
 			}

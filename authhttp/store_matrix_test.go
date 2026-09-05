@@ -3,7 +3,6 @@ package authhttp
 import (
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/redis/go-redis/v9"
 )
@@ -17,11 +16,11 @@ type ephemeralStore struct {
 
 // engineOpts wires the store onto embedded.New; NewServer then reuses the
 // engine's Redis for its OIDC/SIWS caches and limiter (#210).
-func (e ephemeralStore) engineOpts() []embedded.Option {
+func (e ephemeralStore) engineOpts() []coreOpt {
 	if e.rdb == nil {
 		return nil
 	}
-	return []embedded.Option{embedded.WithRedis(e.rdb)}
+	return []coreOpt{withRedis(e.rdb)}
 }
 
 // attach points a bare test Service (newTestService) at the store.

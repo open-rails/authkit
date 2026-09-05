@@ -70,7 +70,7 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEntitlements(staticHTTPEntitlementsProvider{names: []string{"premium"}})))
+	svc, err := NewServer(newServerClient(t, cfg, pool, withEntitlements(staticHTTPEntitlementsProvider{names: []string{"premium"}})))
 	require.NoError(t, err)
 
 	user, err := svc.svc.CreateUser(ctx, email, username)

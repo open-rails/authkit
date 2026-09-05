@@ -122,7 +122,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 	prod := newServerTestConfig()
 	prod.Ephemeral = embedded.EphemeralConfig{}
-	prodClient := func() *embedded.Client { return newServerClient(t, prod, testdb.UnlockedPool(t), embedded.WithRedis(rdb)) }
+	prodClient := func() *embedded.Client { return newServerClient(t, prod, testdb.UnlockedPool(t), withRedis(rdb)) }
 
 	_, err := NewServer(prodClient(), WithRedis(rdb))
 	require.Error(t, err)

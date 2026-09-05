@@ -4,9 +4,10 @@ import (
 	"context"
 	"crypto"
 	"errors"
-	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"

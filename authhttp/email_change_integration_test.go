@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +20,7 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	sender := &captureEmailSender{}
-	opts := append(store.engineOpts(), embedded.WithEmailSender(sender))
+	opts := append(store.engineOpts(), withEmailSender(sender))
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 

@@ -12,7 +12,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +32,7 @@ func newConsentTestService(t *testing.T) (s *Service, owner string) {
 				Roles: []embedded.RoleDef{{Name: "member", Permissions: []string{"repo:catalog:read"}}}},
 		},
 	}
-	coreSvc, err := authcore.NewFromConfig(cfg, pool)
+	coreSvc, err := coreFromConfig(cfg, pool)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)

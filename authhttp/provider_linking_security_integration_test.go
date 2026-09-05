@@ -160,7 +160,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			ctx := context.Background()
 			pool := testdb.Pool(t)
 			sender := &captureEmailSender{}
-			srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
+			srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			email := uniqueEmail("unverified-provider")

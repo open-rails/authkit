@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*
-	opts := append(store.engineOpts(), embedded.WithSolanaSNSResolver(noSNSResolver{}))
+	opts := append(store.engineOpts(), withSolanaSNSResolver(noSNSResolver{}))
 	srv, err := NewServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 

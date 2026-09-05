@@ -29,7 +29,7 @@ func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *authcore.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "scope-bind-kid")
 	require.NoError(t, err)
-	coreSvc, err := authcore.NewFromConfig(authcore.Config{
+	coreSvc, err := coreFromConfig(authcore.Config{
 		Token: authcore.TokenConfig{
 			Issuer:              "https://scope-bind.example",
 			IssuedAudiences:     []string{"test-app"},

@@ -17,7 +17,7 @@ func TestIssueRefreshSession_CapHoldsUnderConcurrency(t *testing.T) {
 	pool := testdb.Pool(t)
 	ks := testKeySource(t)
 	const maxSessions = 3
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
 			IssuedAudiences:   []string{"app"},

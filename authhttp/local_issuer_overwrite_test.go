@@ -10,9 +10,10 @@ package authhttp
 import (
 	"context"
 	"crypto"
-	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/jwtkit"
 )

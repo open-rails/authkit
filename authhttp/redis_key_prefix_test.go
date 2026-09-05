@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authkitmigrate"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/oidckit"
@@ -26,7 +25,7 @@ func TestNewServer_RedisKeysAreNamespacedPerSchema(t *testing.T) {
 		require.NoError(t, err)
 		cfg := newServerTestConfig()
 		cfg.Schema = schema
-		srv, err := NewServer(newServerClient(t, cfg, pg.Pool, embedded.WithRedis(rdb)))
+		srv, err := NewServer(newServerClient(t, cfg, pg.Pool, withRedis(rdb)))
 		require.NoError(t, err)
 		require.True(t, srv.allowResultForKey(RLPasswordLogin, RLPasswordLogin+":ip:203.0.113.9").Allowed)
 		require.NoError(t, srv.stateCache().Put(ctx, "state-1", oidckit.StateData{}))

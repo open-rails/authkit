@@ -27,7 +27,7 @@ func TestAdminSignins_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	issuer := "https://signins-e2e.test"
-	engine := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}}, ks, authcore.WithPostgres(pool))
+	engine := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}}, ks, withPostgres(pool))
 	svc := &Service{svc: engine}
 
 	ctx := context.Background()

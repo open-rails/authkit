@@ -31,7 +31,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 			Origins:       []string{"https://example.org"},
 		},
 	}
-	svc, err := NewFromConfig(cfg, pool, WithEphemeralStore(memorystore.NewKV()))
+	svc, err := newFromConfig(cfg, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}

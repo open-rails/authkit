@@ -81,13 +81,13 @@ func (s *recordingEmailSender) SendVerification(ctx context.Context, email, user
 	return nil
 }
 
-func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerificationPolicy, coreOpts ...embedded.Option) *Service {
+func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerificationPolicy, coreOpts ...coreOpt) *Service {
 	t.Helper()
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV())}, coreOpts...)
+	opts := append([]coreOpt{withEphemeralStore(memorystore.NewKV())}, coreOpts...)
 	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: policy}}, ks, opts...)
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
@@ -100,7 +100,7 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 }
 
 func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
-	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(testEmailSender{}))
 	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 }
 
 func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
-	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(failingVerificationEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(failingVerificationEmailSender{}))
 	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	// sender is flipped to fail so the resend path returns email_delivery_failed.
 	// (#108 removed the chainable WithEmailSender swap this previously used.)
 	sender := &failableEmailSender{}
-	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(sender))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(sender))
 	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
 	require.NoError(t, err)
 	sender.fail = true
@@ -165,7 +165,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 }
 
 func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
-	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(testEmailSender{}))
 	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
 	require.NoError(t, err)
 	h := s.apiHandler()
@@ -183,7 +183,7 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 
 func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testing.T) {
 	sender := &recordingEmailSender{}
-	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(sender))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(sender))
 	// WithLanguageConfig is an HTTP-level field (#108 removed the chainable
 	// setter); the test is package authhttp, so set it directly.
 	langCfg := LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}
@@ -221,7 +221,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 		},
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired},
-	}, testdb.UnlockedPool(t), embedded.WithEmailSender(testEmailSender{})))
+	}, testdb.UnlockedPool(t), withEmailSender(testEmailSender{})))
 	require.NoError(t, err)
 	h := s.apiHandler()
 

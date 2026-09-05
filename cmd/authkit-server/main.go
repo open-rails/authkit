@@ -328,10 +328,9 @@ func run() error {
 		},
 	}
 
-	var engineOpts []embedded.Option
+	deps := embedded.Deps{Postgres: pg, Redis: rdb}
 	var httpOpts []authhttp.Option
 	if rdb != nil {
-		engineOpts = append(engineOpts, embedded.WithRedis(rdb))
 		httpOpts = append(httpOpts, authhttp.WithRedis(rdb))
 	}
 	if len(cfg.trustedProxies) > 0 {
@@ -350,10 +349,10 @@ func run() error {
 		}))
 	}
 	if devMode && manifest != nil && len(manifest.Dev.StaticEntitlements) > 0 {
-		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: manifest.Dev.StaticEntitlements}))
+		deps.Entitlements = staticDevEntitlements{names: manifest.Dev.StaticEntitlements}
 	}
 
-	client, err := embedded.New(coreCfg, pg, engineOpts...)
+	client, err := embedded.New(coreCfg, deps)
 	if err != nil {
 		return fmt.Errorf("build authkit engine: %w", err)
 	}

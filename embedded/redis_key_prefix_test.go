@@ -24,7 +24,7 @@ func TestRedisKeyPrefixDerivesFromSchemaAndIsolates(t *testing.T) {
 	for _, schema := range []string{"tenant_a", "tenant_b"} {
 		cfg := base
 		cfg.Schema = schema
-		c, err := New(cfg, pool, WithRedis(rdb))
+		c, err := New(cfg, Deps{Postgres: pool, Redis: rdb})
 		require.NoError(t, err)
 		require.Equal(t, "authkit:"+schema+":", Unwrap(c).RedisKeyPrefix())
 		require.Equal(t, "redis", Unwrap(c).EphemeralBackend())
@@ -43,13 +43,13 @@ func TestRedisKeyPrefixDerivesFromSchemaAndIsolates(t *testing.T) {
 
 	custom := base
 	custom.Ephemeral.KeyPrefix = "app-one"
-	c, err := New(custom, pool, WithRedis(rdb))
+	c, err := New(custom, Deps{Postgres: pool, Redis: rdb})
 	require.NoError(t, err)
 	require.Equal(t, "app-one:", Unwrap(c).RedisKeyPrefix(), "a trailing ':' is added")
 
 	bad := base
 	bad.Ephemeral.KeyPrefix = "No Spaces Allowed"
-	_, err = New(bad, pool, WithRedis(rdb))
+	_, err = New(bad, Deps{Postgres: pool, Redis: rdb})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Ephemeral.KeyPrefix")
 }

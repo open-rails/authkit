@@ -3,11 +3,12 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"

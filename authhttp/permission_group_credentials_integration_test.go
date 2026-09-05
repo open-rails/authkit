@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -45,12 +44,12 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	return newCredTestServiceWithOptions(t)
 }
 
-func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Service, *pgxpool.Pool, string) {
+func newCredTestServiceWithOptions(t *testing.T, opts ...coreOpt) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool, opts...)
+	coreSvc, err := coreFromConfig(credTestConfig(), pool, opts...)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)
@@ -70,7 +69,7 @@ func newInviteOnlyCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string
 
 	cfg := credTestConfig()
 	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
-	coreSvc, err := authcore.NewFromConfig(cfg, pool)
+	coreSvc, err := coreFromConfig(cfg, pool)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)

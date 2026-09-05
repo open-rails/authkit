@@ -121,6 +121,6 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 func TestNewServerRefusesAmbiguousDocumentReader(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{ID: "x", Issuer: "https://x.example"}}}
-	_, err := embedded.New(cfg, testdb.Pool(t))
+	_, err := embedded.New(cfg, embedded.Deps{Postgres: testdb.Pool(t)})
 	require.ErrorContains(t, err, "exactly one of ID, Domain, Issuer")
 }

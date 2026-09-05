@@ -7,7 +7,7 @@ func TestExpectedAudiencesDefaultsToIssued(t *testing.T) {
 	cfg.Token.IssuedAudiences = []string{"myapp", "billing"}
 	cfg.Token.ExpectedAudiences = nil
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestExpectedAudiencesExplicitPreserved(t *testing.T) {
 	cfg.Token.IssuedAudiences = []string{"myapp", "billing"}
 	cfg.Token.ExpectedAudiences = []string{"myapp"}
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

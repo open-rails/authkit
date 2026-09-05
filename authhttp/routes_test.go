@@ -144,7 +144,7 @@ func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Serv
 		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
 		RBAC:         personas,
 	}
-	coreSvc, err := authcore.NewFromConfig(cfg, nil)
+	coreSvc, err := coreFromConfig(cfg, nil)
 	require.NoError(t, err)
 	return serviceFromCore(t, coreSvc)
 }
@@ -164,7 +164,7 @@ func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) 
 	if configure != nil {
 		configure(&cfg)
 	}
-	coreSvc, err := authcore.NewFromConfig(cfg, nil)
+	coreSvc, err := coreFromConfig(cfg, nil)
 	require.NoError(t, err)
 	return serviceFromCore(t, coreSvc)
 }

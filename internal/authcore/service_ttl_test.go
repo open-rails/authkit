@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewFromConfigDefaultAccessTokenTTLIsFifteenMinutes(t *testing.T) {
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"app"},

@@ -12,7 +12,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/siws"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
@@ -42,12 +41,7 @@ type Service struct {
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
 	memStateCache       oidckit.StateCache
 	memSIWSCache        siws.ChallengeCache
-	// engineOpts stashes embedded engine options passed via WithEngine — consumed
-	// ONLY by the one-step authhttp.New (#211); NewServer rejects them so the
-	// two-step path stays unambiguous. engineOptsAllowed is set internally by New.
-	engineOpts        []embedded.Option
-	engineOptsAllowed bool
-	langCfg           *LanguageConfig
+	langCfg             *LanguageConfig
 	// documentProviders are the published-document services wired via
 	// WithDocuments (#260): served by the RouteDocuments mount and stamped +
 	// KID-reconciled by the delegated-token mint route (#261).

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
@@ -54,19 +53,20 @@ func (s *Service) Close() {
 //
 // Construction fails (returns an error, never panics — #212) when the
 // configuration cannot be served: in particular, if Registration.Verification is
-// "required" but the engine has no email or SMS sender wired (embedded.WithEmailSender
-// / embedded.WithSMSSender), NewServer returns an error rather than panicking later
-// at handler mount.
+// "required" but the engine has no email or SMS sender wired (Deps.Email /
+// Deps.SMS), NewServer returns an error rather than panicking later at handler
+// mount.
 //
 // Redis is taken ONCE (#210): NewServer reuses the engine's ephemeral Redis client
-// (embedded.WithRedis) for the HTTP layer's OIDC/SIWS state caches and rate limiter,
-// so a host that wired Redis on the engine need not also pass authhttp.WithRedis.
+// (Deps.Redis) for the HTTP layer's OIDC/SIWS state caches and rate limiter, so a
+// host that wired Redis on the engine need not also pass authhttp.WithRedis.
 // authhttp.WithRedis remains available as an explicit override, not a requirement.
 //
-//	client, err := embedded.New(cfg, pg,
-//	    embedded.WithEmailSender(mailer), // required when Verification == "required"
-//	    embedded.WithRedis(rdb),          // engine ephemeral store; reused by the HTTP layer
-//	)
+//	client, err := embedded.New(cfg, embedded.Deps{
+//	    Postgres: pg,
+//	    Email:    mailer, // required when Verification == "required"
+//	    Redis:    rdb,    // engine ephemeral store; reused by the HTTP layer
+//	})
 //	srv, err := authhttp.NewServer(client)
 func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
@@ -91,12 +91,9 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	if !s.clientIPExplicit && (len(s.trustedProxies) > 0 || len(s.cloudflareProxies) > 0) {
 		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies)
 	}
-	if len(s.engineOpts) > 0 && !s.engineOptsAllowed {
-		return nil, errors.New("authkit: authhttp.WithEngine is only valid with authhttp.New (one-step); with NewServer the engine is already built — pass engine options to embedded.New instead")
-	}
 
 	// #210: take Redis ONCE. When the host wired Redis on the engine
-	// (embedded.WithRedis) but did NOT pass authhttp.WithRedis, adopt the engine's
+	// (Deps.Redis) but did NOT pass authhttp.WithRedis, adopt the engine's
 	// *redis.Client for the HTTP layer's OIDC/SIWS caches and rate limiter — one
 	// Redis instance, single source of truth, no split-brain ephemeral state. An
 	// explicit authhttp.WithRedis (applied above) still overrides.
@@ -226,10 +223,10 @@ func (s *Service) validate(cfg embedded.Config) error {
 	// #277: the delegated mint route never runs without its host authorizer,
 	// and an authorizer with no route is dead wiring. Both refuse at construction.
 	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
-		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — pass embedded.WithDelegatedAuthorization(...)")
+		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set embedded.Deps.DelegatedAuthorization")
 	}
 	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
-		return fmt.Errorf("authkit: embedded.WithDelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
+		return fmt.Errorf("authkit: Deps.DelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
 	}
 	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
 	for _, p := range s.documentProviders {
@@ -249,52 +246,12 @@ func (s *Service) validate(cfg embedded.Config) error {
 }
 
 // --- Functional options (#108). These are HTTP-LAYER options only; engine
-// dependencies (email/SMS senders, entitlements, ephemeral store,
-// API-key authorizer, Solana resolver) are wired on embedded.New, since the host
-// builds the client before constructing the server (client-first, #142). ---
-
-// WithEngine passes embedded-engine options (embedded.WithEmailSender,
-// WithSMSSender, WithEntitlements, WithRedis, …) through the
-// one-step authhttp.New (#211). It is ONLY valid with New — NewServer returns a
-// construction error if it sees engine options, because in the two-step path the
-// host already built the engine and these would be silently ignored.
-func WithEngine(opts ...embedded.Option) Option {
-	return func(s *Service) { s.engineOpts = append(s.engineOpts, opts...) }
-}
-
-// allowEngineOpts marks a Service as constructed via New, where WithEngine is legal.
-func allowEngineOpts() Option {
-	return func(s *Service) { s.engineOptsAllowed = true }
-}
-
-// New builds BOTH layers in one call (#211): the embedded engine and the HTTP
-// transport over it, collapsing the Config→embedded.New→NewServer glue every
-// host copy-pastes. Engine dependencies ride in via WithEngine; all other
-// options are the usual authhttp set. The *embedded.Client is returned too —
-// it IS the host's authkit.Client. The two-step path (embedded.New + NewServer)
-// remains for hosts that need to hold or decorate the engine separately.
-func New(cfg embedded.Config, pg *pgxpool.Pool, opts ...Option) (*Service, *embedded.Client, error) {
-	probe := &Service{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(probe)
-		}
-	}
-	client, err := embedded.New(cfg, pg, probe.engineOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	svc, err := NewServer(client, append([]Option{allowEngineOpts()}, opts...)...)
-	if err != nil {
-		return nil, nil, err
-	}
-	return svc, client, nil
-}
+// dependencies are embedded.Deps, since the host builds the client before
+// constructing the server (client-first, #142). ---
 
 // WithRedis supplies the Redis client for the HTTP layer's OIDC and SIWS state
-// caches (and satisfies the production durable-store requirement). It is an
-// OVERRIDE, not a requirement: when the engine already has Redis wired via
-// embedded.WithRedis, NewServer reuses that client for the HTTP layer by default
+// caches. It is an OVERRIDE, not a requirement: when the engine already has
+// Redis wired via Deps.Redis, NewServer reuses that client for the HTTP layer by default
 // (#210), so most hosts pass Redis only once, on embedded.New. Pass this only to
 // point the HTTP layer at a DIFFERENT Redis than the engine's ephemeral store.
 func WithRedis(rd *redis.Client) Option {

@@ -46,7 +46,7 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	coreSvc, err := authcore.NewFromConfig(hardeningTestConfig(), pool)
+	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)

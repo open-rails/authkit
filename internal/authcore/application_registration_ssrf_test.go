@@ -21,7 +21,7 @@ func TestRegisterApplicationFromDomainGuardsDialOutsideDev(t *testing.T) {
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, "ssrf-kid")
 	require.NoError(t, err)
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token:        TokenConfig{Issuer: "https://ssrf.example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}},
 		Keys:         KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{"ssrf-kid": signer.PublicKey()}}},
 		RBAC:         []PersonaDef{{Name: "org", Parent: RootPersona}},

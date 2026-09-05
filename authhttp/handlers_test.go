@@ -78,9 +78,9 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 }
 
 // newCore is authcore.NewService for tests: a rejected config fails the test.
-func newCore(t *testing.T, cfg embedded.Config, ks authcore.Keyset, opts ...authcore.Option) *authcore.Service {
+func newCore(t *testing.T, cfg embedded.Config, ks authcore.Keyset, opts ...coreOpt) *authcore.Service {
 	t.Helper()
-	svc, err := authcore.NewService(cfg, ks, opts...)
+	svc, err := authcore.NewService(cfg, ks, depsOf(opts...))
 	require.NoError(t, err)
 	return svc
 }

@@ -40,18 +40,18 @@ type deviceKeyTokenBody struct {
 	} `json:"device_key"`
 }
 
-func deviceKeyTestServer(t *testing.T, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
+func deviceKeyTestServer(t *testing.T, engineOpts ...coreOpt) (*Service, *captureEmailSender) {
 	t.Helper()
 	return deviceKeyTestServerWithConfig(t, newServerTestConfig(), engineOpts...)
 }
 
-func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
+func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...coreOpt) (*Service, *captureEmailSender) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	_, err := authkitmigrate.New(pool, nil).Migrate(context.Background())
 	require.NoError(t, err)
 	sender := &captureEmailSender{}
-	opts := append([]embedded.Option{embedded.WithEmailSender(sender)}, engineOpts...)
+	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
 	srv, err := NewServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, sender
@@ -529,7 +529,7 @@ func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
 	require.Equal(t, "hub_v2", searchPath)
 
 	sender := &captureEmailSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
 	require.NoError(t, err)
 	email := uniqueEmail("device-key-search-path")
 	publicKey, privateKey := newDeviceKey(t)

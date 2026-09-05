@@ -130,7 +130,7 @@ func newTestService(t *testing.T) *authhttp.Service {
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	client, err := embedded.New(cfg, pool)
+	client, err := embedded.New(cfg, embedded.Deps{Postgres: pool})
 	require.NoError(t, err)
 	// Rate limiting off: the parity test probes the whole route table twice
 	// (old stack + new mount) and must not trip order-dependent 429s.

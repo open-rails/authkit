@@ -10,9 +10,6 @@
 package embedded
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
-
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/verify"
@@ -36,23 +33,19 @@ type Client struct {
 	impl *authcore.Service
 }
 
-// New builds a Client from host configuration. Postgres is required (positional);
-// optional dependencies are functional options. The ephemeral store defaults to
-// in-memory (dev-friendly); pass WithRedis to override (later options win).
-func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
-	opts := append([]Option{authcore.WithEphemeralStore(memorystore.NewKV())}, extraOpts...)
-	impl, err := authcore.NewFromConfig(cfg, pg, opts...)
+// New builds a Client from host configuration and runtime dependencies.
+// Deps.Postgres is required; with neither Deps.Redis nor Deps.EphemeralStore
+// the ephemeral store is the per-process memory store, which needs the explicit
+// Config.Ephemeral.AllowMemory opt-in (#305).
+func New(cfg Config, deps Deps) (*Client, error) {
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		deps.EphemeralStore = memorystore.NewKV()
+	}
+	impl, err := authcore.NewFromConfig(cfg, deps)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{impl: impl}, nil
-}
-
-// WithRedis uses a Redis client as the engine's ephemeral store, so hosts don't
-// import the internal redis store directly. The HTTP transport's OIDC/SIWS state
-// caches take the same *redis.Client via authhttp.WithRedis (separate layer).
-func WithRedis(rd *redis.Client) Option {
-	return authcore.WithRedis(rd)
 }
 
 // Unwrap returns the internal engine a Client wraps, for the authkit/http

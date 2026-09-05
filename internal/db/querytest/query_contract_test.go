@@ -40,7 +40,7 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("preferred language = %q", language)
 		}
 
-		svc, err := authcore.NewService(authcore.Config{}, authcore.Keyset{}, authcore.WithPostgres(pg.Pool))
+		svc, err := authcore.NewService(authcore.Config{}, authcore.Keyset{}, authcore.Deps{Postgres: pg.Pool})
 		requireNoError(t, err)
 		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract_user_new"))
 		aliases, err := q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: time.Now()})

@@ -29,7 +29,7 @@ func TestNewFromConfigFailsClosedWithoutKeysOrOptIn(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: t.TempDir()} // no keys.json, no opt-in
 
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatal("expected hard error with no keys and no AllowEphemeralDevKeys opt-in")
 	}
 }
@@ -40,7 +40,7 @@ func TestNewFromConfigEphemeralDevKeysOptIn(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true}
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("explicit opt-in should generate dev keys: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestNewFromConfigLoadsKeysJSON(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: dir} // no opt-in needed: real keys exist
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("keys.json resolution: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: dir, VerifyOnly: true} // no keys.json needed
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 	// The explicit override still wins over the file.
 	override := make([]byte, 16)
 	cfg.TwoFactor.TOTPSecretKey = override
-	svc, err = NewFromConfig(cfg, nil)
+	svc, err = newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("construct with override: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 
 	// An invalid-length override is a hard construction error.
 	cfg.TwoFactor.TOTPSecretKey = make([]byte, 20)
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatal("20-byte TOTP override must fail construction")
 	}
 }

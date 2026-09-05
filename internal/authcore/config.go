@@ -11,8 +11,7 @@ import (
 
 // Config is the host-provided configuration for an AuthKit Service. Fields are
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
-// runtime dependencies (Postgres, Redis, senders, loggers) are injected via the
-// constructor's functional options, not here.
+// runtime dependencies (Postgres, Redis, senders) are Deps.
 type Config struct {
 	// Naming is the shared user/group rename policy, normalized at construction.
 	Naming       authkit.NamingConfig

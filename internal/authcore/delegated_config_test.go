@@ -111,11 +111,11 @@ func TestNewFromConfigRefusesInvalidDelegatedTriple(t *testing.T) {
 			TTLFloor:  time.Hour, TTLCeiling: time.Minute,
 		},
 	}
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatal("want construction refusal for floor > ceiling")
 	}
 	cfg.Delegated = DelegatedConfig{Audiences: []string{"tensorhub.net"}}
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

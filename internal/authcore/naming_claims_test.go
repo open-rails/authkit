@@ -19,7 +19,7 @@ func namingTestService(t *testing.T, config authkit.NamingConfig) (*Service, fun
 	pg := testdb.ScratchPostgres(t)
 	var clock atomic.Int64
 	clock.Store(time.Now().UTC().Truncate(time.Microsecond).UnixMicro())
-	svc, err := NewService(Config{Naming: config, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, Keyset{}, WithPostgres(pg.Pool), WithClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
+	svc, err := NewService(Config{Naming: config, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, Keyset{}, depsOf(WithPostgres(pg.Pool), WithClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() })))
 	require.NoError(t, err)
 	require.NoError(t, svc.SeedPermissionGroupContainment(context.Background()))
 	_, err = svc.EnsureRootGroup(context.Background())
@@ -270,7 +270,7 @@ func TestNamingPolicyChangeDoesNotRewriteReservations(t *testing.T) {
 	start := svc.namingNow()
 	require.NoError(t, svc.UpdateUsername(ctx, user.ID, "middle"))
 	// Simulate a service restart with a different deployment policy and the same DB.
-	next, err := NewService(Config{Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}}, Keyset{}, WithPostgres(svc.pg), WithClock(svc.namingNow))
+	next, err := NewService(Config{Naming: authkit.NamingConfig{RenameInterval: &zero, FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate}}}, Keyset{}, depsOf(WithPostgres(svc.pg), WithClock(svc.namingNow)))
 	require.NoError(t, err)
 	require.NoError(t, next.UpdateUsername(ctx, user.ID, "current"))
 	_, err = next.ResolveUsername(ctx, "middle")
@@ -344,7 +344,7 @@ func TestNamingMaintenanceIsBoundedAndDoesNotControlExpiry(t *testing.T) {
 }
 
 func TestNamingReadsWithoutStoreRefuseAndImportedNoOpSucceeds(t *testing.T) {
-	empty, err := NewService(Config{}, Keyset{})
+	empty, err := NewService(Config{}, Keyset{}, Deps{})
 	require.NoError(t, err)
 	ctx := context.Background()
 	_, err = empty.UserNamingState(ctx, "unknown")

@@ -93,7 +93,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 	pool := testdb.Pool(t)
 	rdb := testdb.ScratchRedis(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithRedis(rdb)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, withRedis(rdb)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	w := serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"nobody@example.com","code":"000000"}`)
@@ -121,7 +121,7 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	srv, err := NewServer(
-		newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{}), embedded.WithSMSSender(&captureSMSSender{})),
+		newServerClient(t, newServerTestConfig(), pool, withEmailSender(&captureEmailSender{}), withSMSSender(&captureSMSSender{})),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{
 			RLVerifyRequest: {Limit: 100, Window: time.Hour},
 		}),

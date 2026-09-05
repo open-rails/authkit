@@ -18,7 +18,7 @@ func TestFactorEnrollmentRequiresFreshAuthAndPreservesFactor(t *testing.T) {
 	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(testEmailSender{})), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, withEmailSender(testEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	const pass = "Correct-password-12345"
 	userID, stale := stalePasswordUserToken(t, srv, pool, "factor-enrollment", pass)
@@ -97,7 +97,7 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 		AccessToken  string `json:"access_token"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(testEmailSender{})), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, withEmailSender(testEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

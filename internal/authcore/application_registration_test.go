@@ -21,7 +21,7 @@ import (
 
 func newAppTestService(t *testing.T, allowPrivateNetwork bool) *Service {
 	t.Helper()
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Keys: KeysConfig{VerifyOnly: true},
 		Token: TokenConfig{
 			Issuer:            "https://hub.example.com",
@@ -247,7 +247,7 @@ func TestVerifyApplicationJWS(t *testing.T) {
 }
 
 func TestApplicationsConfigValidatedAtConstruction(t *testing.T) {
-	_, err := NewFromConfig(Config{
+	_, err := newFromConfig(Config{
 		Keys:  KeysConfig{VerifyOnly: true},
 		Token: TokenConfig{Issuer: "https://hub.example.com", IssuedAudiences: []string{"hub"}},
 		Applications: ApplicationsConfig{

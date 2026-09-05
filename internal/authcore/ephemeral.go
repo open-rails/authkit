@@ -34,11 +34,10 @@ type EphemeralStore interface {
 }
 
 // EphemeralRedisClient returns the *redis.Client backing the engine's ephemeral
-// store when it is Redis-backed (configured via embedded.WithRedis), or nil for a
-// memory store. The HTTP transport reuses it so a host that already wired Redis on
-// the engine doesn't also have to pass authhttp.WithRedis — one Redis client, no
-// split-brain ephemeral state (authkit #210). The type assertion is also THE
-// redis-vs-memory discriminator (#236 removed the EphemeralMode string).
+// store when it is Redis-backed (Deps.Redis), or nil for a memory store. The HTTP
+// transport reuses it so a host that wired Redis on the engine doesn't also have
+// to pass it to authhttp — one Redis client, no split-brain ephemeral state
+// (authkit #210). The type assertion is also THE redis-vs-memory discriminator.
 func (s *Service) EphemeralRedisClient() *redis.Client {
 	if s == nil {
 		return nil
@@ -49,9 +48,8 @@ func (s *Service) EphemeralRedisClient() *redis.Client {
 	return nil
 }
 
-// resolveEphemeralStore turns a WithRedis client into the namespaced Redis
-// store once the (normalized) config is known (#307). A memory store the
-// facade installed by default is closed when Redis displaces it.
+// resolveEphemeralStore turns Deps.Redis into the namespaced Redis store once
+// the (normalized) config is known (#307).
 func (s *Service) resolveEphemeralStore() {
 	if s.redisClient == nil {
 		return

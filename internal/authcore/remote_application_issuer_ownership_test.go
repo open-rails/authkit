@@ -14,7 +14,7 @@ import (
 func TestRemoteApplicationIssuerOwnershipConcurrent(t *testing.T) {
 	pool := testdb.ScratchPostgres(t).Pool
 	ctx := context.Background()
-	svc, err := NewFromConfig(Config{Keys: KeysConfig{AllowEphemeralDevKeys: true}, Token: TokenConfig{Issuer: "https://platform.example", IssuedAudiences: []string{"test"}, ExpectedAudiences: []string{"test"}}, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, pool)
+	svc, err := newFromConfig(Config{Keys: KeysConfig{AllowEphemeralDevKeys: true}, Token: TokenConfig{Issuer: "https://platform.example", IssuedAudiences: []string{"test"}, ExpectedAudiences: []string{"test"}}, RBAC: []PersonaDef{{Name: "merchant", Parent: RootPersona}}}, pool)
 	require.NoError(t, err)
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	root, err := svc.EnsureRootGroup(ctx)

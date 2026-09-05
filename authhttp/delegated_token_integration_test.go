@@ -202,7 +202,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 		}
 		return grant, nil
 	}
-	client := newServerClient(t, cfg, pool, embedded.WithDelegatedAuthorization(authorizer))
+	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(authorizer))
 
 	docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
 		Type:      documentsTestType,
@@ -442,7 +442,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	noAuthorizer.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
 	_, err = NewServer(newServerClient(t, noAuthorizer, pool))
 	require.ErrorContains(t, err, "WithDelegatedAuthorization")
-	_, err = NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithDelegatedAuthorization(authorizer)))
+	_, err = NewServer(newServerClient(t, newServerTestConfig(), pool, withDelegatedAuthorization(authorizer)))
 	require.ErrorContains(t, err, "Delegated.Audiences is empty")
 
 	// A server with no Delegated config does not mount the route at all.
@@ -463,7 +463,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	cfg.Keys = embedded.KeysConfig{Source: keySource}
 	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
 	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
-	client := newServerClient(t, cfg, pool, embedded.WithDelegatedAuthorization(
+	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(
 		func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
 			return authkit.DelegationGrant{}, nil
 		}))

@@ -143,5 +143,5 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 // host builds the Service, builds the engine with it, then installs the engine's
 // provider here. Safe because entitlements are read LAZILY at token-mint time;
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
-// should prefer the WithEntitlements construction option instead.
+// should set Deps.Entitlements instead.
 func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }

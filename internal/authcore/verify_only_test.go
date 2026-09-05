@@ -11,7 +11,7 @@ import (
 // Verification + RBAC reads are unaffected (covered by the DB-backed suites).
 // No Postgres required — every mint path checks the signer before touching PG.
 func TestVerifyOnlyServiceRejectsMinting(t *testing.T) {
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://verify-only.test",
 			IssuedAudiences:   []string{"openrails"},

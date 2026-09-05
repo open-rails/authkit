@@ -232,7 +232,7 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	// namespace outright — "never creatable through this route, by anyone" is
 	// not expressible with ReservedSlugs, which only escalates.
 	client := newServerClient(t, instanceCreateTestConfig(), pool,
-		embedded.WithInstanceAdmission(func(_ context.Context, persona, instanceSlug, subject string) error {
+		withInstanceAdmission(func(_ context.Context, persona, instanceSlug, subject string) error {
 			if persona != "org" {
 				return nil
 			}
