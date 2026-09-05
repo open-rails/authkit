@@ -35,7 +35,7 @@ func nameClaimError(err error, kind string) error {
 		if kind == "group" {
 			return ErrGroupSlugTaken
 		}
-		return authkit.ErrOwnerSlugTaken
+		return mapUserUniqueViolation(err)
 	}
 	return err
 }

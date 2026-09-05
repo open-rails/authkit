@@ -136,7 +136,7 @@ func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
 func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Service {
 	t.Helper()
 	cfg := authcore.Config{
-		Keys: authcore.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: testKeys(),
 		Token: authcore.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
@@ -153,7 +153,7 @@ func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Serv
 func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) *Service {
 	t.Helper()
 	cfg := authcore.Config{
-		Keys: authcore.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: testKeys(),
 		Token: authcore.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

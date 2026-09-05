@@ -7,9 +7,8 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// Sentinel errors — the wire-contract error identities shared by the embedded
-// engine and (Phase 2) the remote SDK so errors.Is works across transports
-// (#138 contract inversion). internal/authcore aliases these.
+// Sentinel errors — the error identities hosts match with errors.Is (#138
+// contract inversion). internal/authcore aliases these.
 var (
 	ErrApplicationDocumentFetchFailed  = errors.New("application_document_fetch_failed")
 	ErrApplicationDocumentInvalid      = errors.New("application_document_invalid")
@@ -74,6 +73,7 @@ var (
 	ErrPendingRegistrationNotFound       = errors.New("pending_registration_not_found")
 	ErrPhoneAlreadyVerified              = errors.New("phone_already_verified")
 	ErrPhoneInUse                        = errors.New("phone_in_use")
+	ErrUsernameInUse                     = errors.New("username_in_use")
 	ErrRegistrationDisabled              = errors.New("registration_disabled")
 	ErrRemoteApplicationIssuerConflict   = errors.New("remote_application_issuer_conflict")
 	ErrRemoteApplicationNotFound         = errors.New("remote_application_not_found")
@@ -205,6 +205,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrGroupSlugInvalid:               http.StatusBadRequest,
 	ErrEmailInUse:                     http.StatusBadRequest,
 	ErrPhoneInUse:                     http.StatusBadRequest,
+	ErrUsernameInUse:                  http.StatusBadRequest,
 	ErrEntitlementFilterUnavailable:   http.StatusBadRequest,
 	ErrInvalidRemoteApplication:       http.StatusBadRequest,
 	ErrReservedIssuer:                 http.StatusBadRequest,
@@ -308,7 +309,7 @@ var errorSentinels = []error{
 	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
 	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled, ErrDeviceKeysDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
+	ErrPhoneInUse, ErrUsernameInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
@@ -323,8 +324,7 @@ var errorSentinels = []error{
 	ErrInvalidInvite, ErrInvalidExpiry, ErrUnknownGroupPersona,
 	ErrCustomRolesNotSupported, ErrCustomRoleNameInvalid, ErrCustomRoleIsCatalogRole,
 	ErrCustomRoleGrantCrossPersona, ErrCustomRoleGrantOutsideCatalog,
-	// #253-#255: generic immutable signed-document contract. These package-level
-	// sentinels retain errors.Is identity across server/remote transport.
+	// #253-#255: generic immutable signed-document contract.
 	documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
 	documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
 	documents.ErrWrongTokenType, documents.ErrReservedAttribute, documents.ErrInvalidEnvelope,

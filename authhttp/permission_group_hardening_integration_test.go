@@ -27,7 +27,7 @@ import (
 // escalation tests.
 func hardeningTestConfig() embedded.Config {
 	return embedded.Config{
-		Keys:  embedded.KeysConfig{AllowEphemeralDevKeys: true},
+		Keys:  testKeys(),
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{{
 			Name: "merchant", Parent: embedded.RootPersona,

@@ -248,7 +248,7 @@ func TestNamingDisabledNoOpAndTrustedImportUpdate(t *testing.T) {
 	owner, err := svc.CreateUser(ctx, "other@example.test", "other_user")
 	require.NoError(t, err)
 	_, err = svc.UpdateImportedUser(ctx, owner.ID, ImportUserInput{Username: "disabled_user"})
-	require.ErrorIs(t, err, authkit.ErrOwnerSlugTaken)
+	require.ErrorIs(t, err, authkit.ErrUsernameInUse)
 	gid, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "disabled", OwnerSubjectID: user.ID})
 	require.NoError(t, err)
 	same, next := "disabled", "changed"

@@ -2,15 +2,16 @@ package embedded
 
 import (
 	"context"
+	"crypto"
 	"fmt"
-	authcore "github.com/open-rails/authkit/internal/authcore"
-
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,10 +24,19 @@ func newGenesisTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// testKeys builds explicit signing keys (no dev-key generation, nothing
+// persisted under the package directory).
+func testKeys(t *testing.T) KeysConfig {
+	t.Helper()
+	s, err := jwtkit.NewRSASigner(2048, "test-kid")
+	require.NoError(t, err)
+	return KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+}
+
 func newGenesisTestClient(t *testing.T) *Client {
 	t.Helper()
 	client, err := New(Config{
-		Keys:         KeysConfig{AllowEphemeralDevKeys: true},
+		Keys:         testKeys(t),
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
 		Registration: RegistrationConfig{Verification: RegistrationVerificationNone},
 	}, newGenesisTestPool(t))

@@ -7,8 +7,8 @@ import (
 )
 
 // #222: OpResult must round-trip its error as a sentinel wire code (#197) so
-// errors.Is survives the remote transport; non-sentinel errors degrade to an
-// opaque code; success stays nil.
+// errors.Is survives JSON; non-sentinel errors degrade to an opaque code;
+// success stays nil.
 func TestOpResultWireRoundTrip(t *testing.T) {
 	in := []OpResult{
 		{ID: "a"},

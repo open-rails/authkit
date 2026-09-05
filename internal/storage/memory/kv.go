@@ -33,6 +33,7 @@ type KV struct {
 	sweep      time.Duration
 	closed     chan struct{}
 	closeOnce  sync.Once
+	now        func() time.Time
 }
 
 type KVOption func(*KV)
@@ -44,12 +45,16 @@ func WithSweepInterval(d time.Duration) KVOption { return func(k *KV) { k.sweep 
 // WithMaxEntries caps the number of live entries; Set refuses beyond it.
 func WithMaxEntries(n int) KVOption { return func(k *KV) { k.maxEntries = n } }
 
+// WithKVClock replaces the TTL clock (tests advance it instead of sleeping).
+func WithKVClock(now func() time.Time) KVOption { return func(k *KV) { k.now = now } }
+
 func NewKV(opts ...KVOption) *KV {
 	k := &KV{
 		items:      make(map[string]kvItem),
 		maxEntries: DefaultKVMaxEntries,
 		sweep:      DefaultKVSweepInterval,
 		closed:     make(chan struct{}),
+		now:        time.Now,
 	}
 	for _, opt := range opts {
 		opt(k)
@@ -78,7 +83,7 @@ func (k *KV) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	if !it.expires.IsZero() && time.Now().After(it.expires) {
+	if !it.expires.IsZero() && k.now().After(it.expires) {
 		delete(k.items, key)
 		return nil, false, nil
 	}
@@ -90,14 +95,14 @@ func (k *KV) Set(ctx context.Context, key string, value []byte, ttl time.Duratio
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if _, exists := k.items[key]; !exists && k.maxEntries > 0 && len(k.items) >= k.maxEntries {
-		k.sweepLocked(time.Now())
+		k.sweepLocked(k.now())
 		if len(k.items) >= k.maxEntries {
 			return ErrKVFull
 		}
 	}
 	var exp time.Time
 	if ttl > 0 {
-		exp = time.Now().Add(ttl)
+		exp = k.now().Add(ttl)
 	}
 	k.items[key] = kvItem{value: append([]byte(nil), value...), expires: exp}
 	return nil
@@ -126,7 +131,7 @@ func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	delete(k.items, key) // delete inside the same lock span: at-most-once delivery
-	if !it.expires.IsZero() && time.Now().After(it.expires) {
+	if !it.expires.IsZero() && k.now().After(it.expires) {
 		return nil, false, nil
 	}
 	return it.value, true, nil
@@ -140,7 +145,7 @@ func (k *KV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, er
 	_ = ctx
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	now := time.Now()
+	now := k.now()
 	it, ok := k.items[key]
 	if ok && !it.expires.IsZero() && now.After(it.expires) {
 		delete(k.items, key)
@@ -177,7 +182,7 @@ func (k *KV) sweepLoop(interval time.Duration) {
 		select {
 		case <-ticker.C:
 			k.mu.Lock()
-			k.sweepLocked(time.Now())
+			k.sweepLocked(k.now())
 			k.mu.Unlock()
 		case <-k.closed:
 			return

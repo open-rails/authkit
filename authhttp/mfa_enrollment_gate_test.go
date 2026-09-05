@@ -66,7 +66,7 @@ func TestNewServer_ConfiguresMFAEnrollmentGate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			cfg, signer := mfaGateTestConfig(t, c.mode)
-			srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+			srv, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 			require.NoError(t, err)
 
 			token := mintUnenrolledUserToken(t, signer, cfg)
@@ -93,7 +93,7 @@ func TestNewServer_ConfiguresMFAEnrollmentGate(t *testing.T) {
 // route registry (RouteSpec.MFAEnrollmentExempt), not a hand-maintained list.
 func TestNewServer_MFAEnrollmentGateExemptsEnrollRoutes(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
-	srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 

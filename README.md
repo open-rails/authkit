@@ -1,6 +1,6 @@
 # AuthKit
 
-Embedded auth library for Go applications. (Standalone server coming later.)
+Embedded auth library for Go applications.
 
 ## Migrations
 
@@ -352,7 +352,6 @@ srv, err := authhttp.NewServer(client, authhttp.WithTrustedProxies("10.0.0.0/8")
 ```
 
 The returned `client` is the host's `authkit.Client` for in-process operations.
-The future standalone server will use `remote.New` for the same contract.
 
 `authhttp.MountHandler` returns the whole surface as one `http.Handler`: every
 enabled JSON API route under `APIPrefix` (default `/api/v1`), browser OIDC
@@ -495,9 +494,8 @@ embedded trust model — the host already decided to call it, which is the
 authority. Runtime mutations to an EXISTING instance (assign/unassign a role,
 define/delete a custom role, mint an invite or API key) all go through
 actor-aware `*As` paths that re-derive authority from the caller's own grants
-(#136/#247 no-escalation). `*As` variants for group creation itself are
-deferred to the Phase-2 remote transport (#138), where host-trust no longer
-holds and every actor must be independently authorized.
+(#136/#247 no-escalation). There is no `*As` variant for creation itself: in
+the embedded trust model the host's decision to call is the authority.
 
 ---
 
@@ -508,8 +506,7 @@ are recorded best-effort in Postgres (`session_events`) and served by
 `GET /admin/users/{id}/signins` in every deployment. Retention defaults to 365
 days (IP + user-agent are personal data — the ceiling is deliberate); tune it
 with `Config.SessionEventRetention` (negative = keep forever). Pruning runs
-inside `Client.CleanupExpiredAuthState` — schedule it daily-ish (the standalone
-server ticks it itself).
+inside `Client.CleanupExpiredAuthState` — schedule it daily-ish.
 
 ```go
 func mountAdvancedAuthExamples(
@@ -810,7 +807,7 @@ privileged surface that cannot accept that window, wire a liveness source once
 and mount the live gate instead:
 
 ```go
-verifier.WithLiveness(client) // any authkit.Client — embedded or remote
+verifier.WithLiveness(client) // any authkit.Client
 
 admin := router.Group("/api/v1/admin", authkitgin.RequiredLive(verifier))
 ```

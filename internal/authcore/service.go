@@ -91,6 +91,7 @@ var (
 	ErrVerificationLinkExpired = authkit.ErrVerificationLinkExpired
 	ErrEmailInUse              = authkit.ErrEmailInUse
 	ErrPhoneInUse              = authkit.ErrPhoneInUse
+	ErrUsernameInUse           = authkit.ErrUsernameInUse
 	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
 	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
 	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
@@ -116,6 +117,8 @@ type Service struct {
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer DelegationAuthorizer
 	solanaSNSResolver    SolanaSNSResolver
+	// now is the engine clock for TTL/grace decisions; WithClock overrides it.
+	now func() time.Time
 	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration

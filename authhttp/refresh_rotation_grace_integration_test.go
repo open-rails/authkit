@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +40,7 @@ type graceHarness struct {
 	url  string
 	pool *pgxpool.Pool
 	srv  *Service
+	clk  *testclock.Clock
 }
 
 func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
@@ -45,13 +48,16 @@ func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
 	pool := newServerTestPool(t)
 	cfg := newServerTestConfig()
 	cfg.Token.RefreshRotationGrace = grace
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	// Wall-following: the rotation timestamp the window is measured against is
+	// written by Postgres, so a frozen clock would sit behind it forever.
+	clk := testclock.Wall()
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithClock(clk.Now)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	return &graceHarness{url: ts.URL, pool: pool, srv: srv}
+	return &graceHarness{url: ts.URL, pool: pool, srv: srv, clk: clk}
 }
 
 // postJSON is error-returning rather than assert-on-failure because the racers
@@ -164,14 +170,26 @@ func TestRefreshRotationGrace_ConcurrentHoldersConverge(t *testing.T) {
 // delay in reuse detection and not an exemption from it: the same replay that the
 // test above tolerates inside the window revokes the family outside it.
 func TestRefreshRotationGrace_ExpiredReplayStillRevokes(t *testing.T) {
-	g := newGraceHarness(t, 150*time.Millisecond)
+	t.Run("clock advance", func(t *testing.T) {
+		g := newGraceHarness(t, 150*time.Millisecond)
+		expiredReplayRevokes(t, g, func() { g.clk.Advance(400 * time.Millisecond) })
+	})
+	// One wall-clock run keeps the seam honest against the DB's own rotation timestamp.
+	t.Run("wall clock smoke", func(t *testing.T) {
+		g := newGraceHarness(t, 20*time.Millisecond)
+		expiredReplayRevokes(t, g, func() { time.Sleep(50 * time.Millisecond) })
+	})
+}
+
+func expiredReplayRevokes(t *testing.T, g *graceHarness, elapse func()) {
+	t.Helper()
 	uid, rt := g.login(t, "graceexpiry")
 
 	code, body, err := g.refresh(rt)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, code, body)
 
-	time.Sleep(400 * time.Millisecond)
+	elapse()
 
 	code, body, err = g.refresh(rt)
 	require.NoError(t, err)

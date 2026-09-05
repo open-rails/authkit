@@ -30,6 +30,10 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
+		if errors.Is(err, authkit.ErrUsernameInUse) {
+			badRequest(w, ErrUsernameInUse)
+			return
+		}
 		if errors.Is(err, authkit.ErrOwnerSlugTaken) {
 			badRequest(w, ErrOwnerSlugTaken)
 			return

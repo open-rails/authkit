@@ -1,35 +1,14 @@
 # authkit-server
 
-The standalone, self-hostable AuthKit server (#142). Runs the engine in-process
-and exposes, on one listener:
+The dev/CI harness: the AuthKit engine plus `authhttp.MountHandler` on one
+listener, with `/healthz`. AuthKit ships as an embedded library (root README);
+this binary exists so `docker compose` and CI can boot a migrated database and
+exercise the real HTTP surface.
 
-- **Browser auth-flow routes** under `AUTHKIT_API_PREFIX` (default `/api/v1`) —
-  register / login / OIDC / passwordless / 2FA, the same routes an embedding host
-  mounts with `authhttp.NewServer`.
-- **JWKS** at `/.well-known/jwks.json` — downstream verifiers fetch signing keys here.
-- **Management API** at `POST /v1/call/{Method}` — the authenticated control surface
-  for provisioning, management, and token minting. The `authkit/remote` Go SDK drives
-  it (so a Go app swaps `embedded.New` ↔ `remote.New` with one line); non-Go clients
-  call it directly.
-
-## Wire contract (management API)
-
-Generic method dispatch — `{Method}` is any method on `authkit.Client`:
-
-```
-POST /v1/call/CreateUser
-Authorization: Bearer <AUTHKIT_MGMT_TOKEN>
-Content-Type: application/json
-
-{"email": "a@b.com", "username": "alice"}
-```
-
-Success → `200 {"result": <value>}`. Failure → `4xx/5xx {"error": {"code": "<code>"}}`,
-where `code` is an AuthKit sentinel's code; the remote SDK re-derives it via
-`authkit.ErrorForCode` so `errors.Is(err, authkit.ErrX)` holds across the network.
-
-The handler and the SDK are **generated** from the `authkit.Client` interface
-(`go generate ./...`, see `internal/genremote`), so the two transports cannot drift.
+- **Auth routes** under `AUTHKIT_API_PREFIX` (default `/api/v1`) — the same
+  routes an embedding host mounts with `authhttp.NewServer`.
+- **JWKS** at `/.well-known/jwks.json`.
+- **`/healthz`** — CI waits on it once `AUTHKIT_MIGRATE_ON_START` has applied the schema.
 
 ## Configuration (env)
 
@@ -37,14 +16,13 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 |---|---|---|---|
 | `AUTHKIT_ISSUER` | yes | — | Token issuer (`iss`) |
 | `DB_URL` / `DATABASE_URL` | yes | — | Postgres DSN. Set exactly one — both set refuses to boot (#266) |
-| `AUTHKIT_MGMT_TOKEN` | prod | — | Bearer credential for the management API. Outside dev, the management API is **disabled** unless set (fail-closed). |
 | `AUTHKIT_LISTEN_ADDR` | no | `:8080` | Listen address |
 | `AUTHKIT_AUDIENCES` | no | `authkit` | Comma-separated token audiences |
 | `AUTHKIT_KEYS_PATH` | no | `/vault/auth` | Directory containing `keys.json` (and `totp.key`) |
 | `AUTHKIT_ACTIVE_KEY_ID` / `AUTHKIT_ACTIVE_PRIVATE_KEY_PEM` | no | — | Inline signing key material; wins over `keys.json` when set (both required together) |
 | `AUTHKIT_PUBLIC_KEYS` | no | — | JSON map `kid -> public-key PEM` of extra verification keys kept in the JWKS (rotation) |
 | `AUTHKIT_SCHEMA` | no | `profiles` | Postgres schema |
-| `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). Non-dev requires real keys, Redis, and a management token |
+| `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). Non-dev requires real keys and Redis |
 | `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state); pair with `AUTHKIT_REDIS_PASSWORD` when the server requires auth |
 | `AUTHKIT_REDIS_URL` | no | — | Full `redis://`/`rediss://` URL (password, TLS, and db ride in the URL); mutually exclusive with `AUTHKIT_REDIS_ADDR` |
 | `AUTHKIT_REDIS_PASSWORD` | no | — | Password for `AUTHKIT_REDIS_ADDR` deployments (URL form carries its own) |
@@ -72,25 +50,11 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 
 ### Dev-only (honored only when `AUTHKIT_ENV` is a dev env)
 
-The server folds in the integration-test affordances that used to live in the
-separate `authkit-devserver` (#194). They are mounted **only** in a dev env and
-are never reachable in production (fail-closed).
-
-| Var | Default | Meaning |
-|---|---|---|
-| `AUTHKIT_DEV_MINT_SECRET` | — | Enables `POST {prefix}/dev/mint` (mint arbitrary access tokens) when set; shared-secret gated |
-
 Static dev entitlements (seeded into every access token for billing/entitlement
-E2E) moved from the former `AUTHKIT_STATIC_ENTITLEMENTS` env CSV into the
-bootstrap manifest's `dev.static_entitlements` section (#266) — reviewable YAML,
-read at every boot (not part of the apply-once seed). Honored only in a dev
-env; a **non-dev boot with the section set refuses to start**. A fixtures-only
-manifest (just `dev:`) seeds nothing and skips the apply-once genesis path.
-
-`GET {prefix}/dev/whoami` (reflect the resolved principal) is served whenever the
-env is dev. In dev with no `AUTHKIT_MGMT_TOKEN`, the management API is also exposed
-unauthenticated — `POST /v1/call/MintCustomJWT` is the production-grade way to mint
-arbitrary-claim (non-`access`) tokens.
+E2E) live in the bootstrap manifest's `dev.static_entitlements` section (#266) —
+reviewable YAML, read at every boot (not part of the apply-once seed). A
+**non-dev boot with the section set refuses to start**. A fixtures-only manifest
+(just `dev:`) seeds nothing and skips the apply-once genesis path.
 
 ## Env doctrine (#231)
 
@@ -130,15 +94,5 @@ channel.
 DB_URL=postgres://... go run ./cmd/authkit-server migrate
 
 # Then serve:
-AUTHKIT_ISSUER=https://auth.example.com \
-DB_URL=postgres://... \
-AUTHKIT_MGMT_TOKEN=$(openssl rand -hex 32) \
-go run ./cmd/authkit-server
-```
-
-A Go client then talks to it backend-agnostically:
-
-```go
-var c authkit.Client = remote.New("https://auth.example.com", mgmtToken)
-u, _ := c.CreateUser(ctx, "a@b.com", "alice") // identical to the embedded call
+AUTHKIT_ISSUER=https://auth.example.com DB_URL=postgres://... go run ./cmd/authkit-server
 ```

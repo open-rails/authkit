@@ -29,6 +29,7 @@ type Limiter struct {
 	limits     map[string]ratelimit.Limit
 	buckets    map[string]*bucketState
 	maxBuckets int
+	now        func() time.Time
 }
 
 type Option func(*Limiter)
@@ -37,6 +38,9 @@ type Option func(*Limiter)
 // inline sweep of aged-out buckets) a request for a NEW key is denied: under a
 // key-flood the limiter fails closed rather than growing without bound.
 func WithMaxBuckets(n int) Option { return func(l *Limiter) { l.maxBuckets = n } }
+
+// WithClock replaces the window clock (tests advance it instead of sleeping).
+func WithClock(now func() time.Time) Option { return func(l *Limiter) { l.now = now } }
 
 // New constructs a new in-memory limiter with the provided per-bucket limits.
 func New(limits map[string]ratelimit.Limit, opts ...Option) *Limiter {
@@ -47,6 +51,7 @@ func New(limits map[string]ratelimit.Limit, opts ...Option) *Limiter {
 		limits:     limits,
 		buckets:    make(map[string]*bucketState),
 		maxBuckets: DefaultMaxBuckets,
+		now:        time.Now,
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -77,7 +82,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	}
 
 	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
-	nowMs := time.Now().UnixNano() / 1e6
+	nowMs := l.now().UnixNano() / 1e6
 	windowStart := nowMs - lim.Window.Milliseconds()
 	limitKey := fmt.Sprintf("%s:%s", key, bucket)
 
@@ -183,7 +188,7 @@ func (l *Limiter) Cleanup() int {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.cleanupLocked(time.Now().UnixNano() / 1e6)
+	return l.cleanupLocked(l.now().UnixNano() / 1e6)
 }
 
 func (l *Limiter) cleanupLocked(nowMs int64) int {

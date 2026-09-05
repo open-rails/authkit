@@ -2,6 +2,7 @@ package authcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	stdlog "log"
 	"strings"
@@ -17,18 +18,13 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	email := rec.Target
 	username := rec.Username
 
-	taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username, AtTime: s.namingNow()})
-	if err != nil {
-		return "", err
-	}
-	if taken.EmailTaken || taken.UsernameTaken {
-		// Someone else got there first — drop this pending registration.
-		s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
-		return "", fmt.Errorf("email or username already taken")
-	}
-
+	// The insert is the availability check (#326): a race loser gets the typed
+	// conflict and its pending registration is dropped.
 	uid, err := s.createVerifiedRegistrationUser(ctx, email, username, rec.PasswordHash)
 	if err != nil {
+		if errors.Is(err, ErrEmailInUse) || errors.Is(err, ErrUsernameInUse) {
+			s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
+		}
 		return "", err
 	}
 	if err := s.consumeAccountRegistrationInvite(ctx, email, uid); err != nil {
@@ -48,15 +44,6 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
 	phone := rec.Target
 	username := rec.Username
-
-	taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username, AtTime: s.namingNow()})
-	if err != nil {
-		return "", err
-	}
-	if taken.PhoneTaken || taken.UsernameTaken {
-		s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
-		return "", fmt.Errorf("phone or username already taken")
-	}
 
 	uid, err := s.createPhoneRegistrationUser(ctx, phone, username, rec.PasswordHash, true)
 	if err != nil {
@@ -89,7 +76,7 @@ func (s *Service) finalizeChangeEmail(ctx context.Context, rec pendingChange, ke
 	}
 
 	if err := s.applyContactChange(ctx, rec.UserID, keepSessionID, func(q *db.Queries) error {
-		return q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target})
+		return mapUserUniqueViolation(q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target}))
 	}); err != nil {
 		return "", err
 	}
@@ -121,7 +108,7 @@ func (s *Service) finalizeChangePhone(ctx context.Context, rec pendingChange, ke
 	}
 
 	if err := s.applyContactChange(ctx, rec.UserID, keepSessionID, func(q *db.Queries) error {
-		return q.UserApplyPhoneChange(ctx, db.UserApplyPhoneChangeParams{ID: rec.UserID, PhoneNumber: &rec.Target})
+		return mapUserUniqueViolation(q.UserApplyPhoneChange(ctx, db.UserApplyPhoneChangeParams{ID: rec.UserID, PhoneNumber: &rec.Target}))
 	}); err != nil {
 		return "", err
 	}

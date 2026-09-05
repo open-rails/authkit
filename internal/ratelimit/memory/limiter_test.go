@@ -5,13 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
 func TestCleanupEvictsIdleBuckets(t *testing.T) {
+	clk := testclock.New()
 	limiter := New(map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 20 * time.Millisecond},
-	})
+	}, WithClock(clk.Now))
 
 	// Many distinct, one-shot keys — the leak scenario (e.g. per-IP probing).
 	for i := 0; i < 100; i++ {
@@ -34,7 +36,7 @@ func TestCleanupEvictsIdleBuckets(t *testing.T) {
 	}
 
 	// Let every bucket's window elapse, then sweep.
-	time.Sleep(30 * time.Millisecond)
+	clk.Advance(30 * time.Millisecond)
 	if got := limiter.Cleanup(); got != 0 {
 		t.Fatalf("Cleanup did not reclaim idle buckets: retained %d, want 0", got)
 	}

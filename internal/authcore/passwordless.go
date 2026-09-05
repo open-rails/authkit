@@ -269,7 +269,7 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 	if username == "" {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
-	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
 	switch rec.Channel {
@@ -309,7 +309,7 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 		}
 		phone := rec.Identifier
 		if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: true}); err != nil {
-			return "", err
+			return "", mapUserUniqueViolation(err)
 		}
 		if rec.PreferredLanguage != "" {
 			_ = s.SetPreferredLanguage(ctx, u.ID, rec.PreferredLanguage)

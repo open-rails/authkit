@@ -15,6 +15,14 @@ type SIWSCache struct {
 	data   map[string]siwsEntry
 	ttl    time.Duration
 	closed chan struct{}
+	now    func() time.Time
+}
+
+type SIWSCacheOption func(*SIWSCache)
+
+// WithSIWSCacheClock replaces the TTL clock (tests advance it instead of sleeping).
+func WithSIWSCacheClock(now func() time.Time) SIWSCacheOption {
+	return func(c *SIWSCache) { c.now = now }
 }
 
 type siwsEntry struct {
@@ -23,7 +31,7 @@ type siwsEntry struct {
 }
 
 // NewSIWSCache creates a new in-memory SIWS challenge cache.
-func NewSIWSCache(ttl time.Duration) *SIWSCache {
+func NewSIWSCache(ttl time.Duration, opts ...SIWSCacheOption) *SIWSCache {
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}
@@ -31,6 +39,10 @@ func NewSIWSCache(ttl time.Duration) *SIWSCache {
 		data:   make(map[string]siwsEntry),
 		ttl:    ttl,
 		closed: make(chan struct{}),
+		now:    time.Now,
+	}
+	for _, opt := range opts {
+		opt(c)
 	}
 	go c.cleanupLoop()
 	return c
@@ -42,7 +54,7 @@ func (c *SIWSCache) Put(ctx context.Context, nonce string, data siws.ChallengeDa
 	defer c.mu.Unlock()
 	c.data[nonce] = siwsEntry{
 		data:      data,
-		expiresAt: time.Now().Add(c.ttl),
+		expiresAt: c.now().Add(c.ttl),
 	}
 	return nil
 }
@@ -55,7 +67,7 @@ func (c *SIWSCache) Get(ctx context.Context, nonce string) (siws.ChallengeData, 
 	if !ok {
 		return siws.ChallengeData{}, false, nil
 	}
-	if time.Now().After(entry.expiresAt) {
+	if c.now().After(entry.expiresAt) {
 		return siws.ChallengeData{}, false, nil
 	}
 	return entry.data, true, nil
@@ -80,7 +92,7 @@ func (c *SIWSCache) Consume(ctx context.Context, nonce string) (siws.ChallengeDa
 		return siws.ChallengeData{}, false, nil
 	}
 	delete(c.data, nonce) // consume even if expired, so it can't be retried
-	if time.Now().After(entry.expiresAt) {
+	if c.now().After(entry.expiresAt) {
 		return siws.ChallengeData{}, false, nil
 	}
 	return entry.data, true, nil
@@ -112,7 +124,7 @@ func (c *SIWSCache) Close() error {
 func (c *SIWSCache) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	now := time.Now()
+	now := c.now()
 	for k, v := range c.data {
 		if now.After(v.expiresAt) {
 			delete(c.data, k)

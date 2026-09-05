@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testclock"
 )
 
 // Incr must hand every one of many racing callers a distinct consecutive value
@@ -44,20 +46,21 @@ func TestKVIncrDistinctUnderConcurrency(t *testing.T) {
 // The TTL is set when the counter is created and never extended by later
 // increments, so a guesser cannot keep a counter alive by guessing.
 func TestKVIncrTTLSetOnce(t *testing.T) {
-	kv := NewKV()
+	clk := testclock.New()
+	kv := NewKV(WithKVClock(clk.Now))
 	ctx := context.Background()
 
 	if n, err := kv.Incr(ctx, "k", 40*time.Millisecond); err != nil || n != 1 {
 		t.Fatalf("first incr: (%d, %v)", n, err)
 	}
-	time.Sleep(25 * time.Millisecond)
+	clk.Advance(25 * time.Millisecond)
 	if n, err := kv.Incr(ctx, "k", 40*time.Millisecond); err != nil || n != 2 {
 		t.Fatalf("second incr: (%d, %v)", n, err)
 	}
 	if b, ok, _ := kv.Get(ctx, "k"); !ok || string(b) != "2" {
 		t.Fatalf("counter readable as integer string: (%q, %v)", b, ok)
 	}
-	time.Sleep(25 * time.Millisecond)
+	clk.Advance(25 * time.Millisecond)
 	if _, ok, _ := kv.Get(ctx, "k"); ok {
 		t.Fatal("second increment must not extend the original TTL")
 	}
