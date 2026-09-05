@@ -28,7 +28,7 @@ func registerReaderApp(t *testing.T, core *embedded.Client, gid, slug, issuer st
 		PublicKeys: []authkit.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
 	require.NoError(t, err)
-	token, err = embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{Issuer: issuer, TTL: time.Minute})
+	token, err = embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{Issuer: issuer, Audiences: []string{"test-app"}, TTL: time.Minute})
 	require.NoError(t, err)
 	return ra.ID, token
 }

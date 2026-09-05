@@ -67,7 +67,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 	cfg.Frontend.BaseURL = "https://app.example/"
 	cfg.Frontend.VerifyPath = "/verify"
 	cfg.Frontend.PasswordResetPath = "/reset"
-	srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, newServerTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h := srv.APIHandler()
 
@@ -136,6 +136,9 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	// Age the session past the fresh-auth window so the password path runs.
+	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour' WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
