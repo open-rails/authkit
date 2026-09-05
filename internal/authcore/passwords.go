@@ -91,12 +91,6 @@ func errOrUnauthorized(err error) error {
 	return jwt.ErrTokenInvalidClaims
 }
 
-// VerifyUserPassword checks a user's password without issuing tokens or updating
-// last-login. Returns true if the password is correct, false otherwise.
-func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
-	return s.CheckUserPassword(ctx, userID, pass) == nil
-}
-
 // CheckUserPassword is the error-returning form of VerifyUserPassword: nil on
 // success, ErrPasswordResetRequired when the stored hash is flagged
 // HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),

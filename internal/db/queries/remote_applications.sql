@@ -115,14 +115,6 @@ SET tier = sqlc.arg(tier), updated_at = now()
 WHERE slug = sqlc.arg(slug)
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
 
--- name: RemoteApplicationSetEnabled :one
--- Host-sweeper primitive (#264 ruling 5: re-verification cadence is host
--- policy). Re-registration (fresh domain proof) also re-enables.
-UPDATE profiles.remote_applications
-SET enabled = sqlc.arg(enabled), updated_at = now()
-WHERE slug = sqlc.arg(slug)
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
-
 -- Attribute definition registry (#75): REFERENCE-mode opaque definitions.
 
 -- name: RemoteAppAttributeDefUpsert :one

@@ -95,7 +95,6 @@ const KindChangeEmail = authcore.KindChangeEmail
 const KindChangePhone = authcore.KindChangePhone
 const KindRegisterEmail = authcore.KindRegisterEmail
 const KindRegisterPhone = authcore.KindRegisterPhone
-const MaxCustomJWTLifetime = authcore.MaxCustomJWTLifetime
 const OwnerRoleName = authcore.OwnerRoleName
 const PasswordlessChannelEmail = authcore.PasswordlessChannelEmail
 const PasswordlessChannelSMS = authcore.PasswordlessChannelSMS

@@ -141,10 +141,10 @@ func TestImportUsers_PasswordImportAndLogin(t *testing.T) {
 		t.Fatalf("import: inserted %d err %v; want 1", res.Inserted, err)
 	}
 	userID := res.Results[0].UserID
-	if !svc.VerifyUserPassword(ctx, userID, "s3cret-pw-value") {
+	if svc.CheckUserPassword(ctx, userID, "s3cret-pw-value") != nil {
 		t.Fatalf("imported password hash does not verify the original plaintext")
 	}
-	if svc.VerifyUserPassword(ctx, userID, "wrong-password") {
+	if svc.CheckUserPassword(ctx, userID, "wrong-password") == nil {
 		t.Fatalf("wrong password unexpectedly verified")
 	}
 }

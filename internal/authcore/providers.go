@@ -9,52 +9,11 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// This file holds the provider-link cluster extracted from service.go
-// (Stage 13 of agents/audit/02-service-split.md): linking and unlinking
-// external identity providers and reading/writing provider usernames.
-
-// Additional public helpers used by OIDC flow
-func (s *Service) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {
-	return s.linkProvider(ctx, userID, provider, subject, email)
-}
+// Provider links: linking and unlinking external identity providers and
+// writing provider usernames.
 
 func (s *Service) SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error {
 	return s.setProviderUsername(ctx, userID, provider, subject, username)
-}
-
-// ProviderUsernames returns each user's stored username for the given provider
-// in ONE call (#220 — replaces the single GetProviderUsername). Map keyed by
-// user id; users without a stored username are absent.
-func (s *Service) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
-	out := map[string]string{}
-	if s.pg == nil || len(userIDs) == 0 {
-		return out, nil
-	}
-	q := db.ForSchema(s.pg, s.dbSchema())
-	// Batch form of the sqlc UserProviderUsername query: one row per user (their
-	// most recent link for the provider). Raw SQL by the invite-links precedent.
-	rows, err := q.Query(ctx,
-		`SELECT DISTINCT ON (user_id) user_id::text, profile->>'username' AS username
-		   FROM profiles.user_providers
-		  WHERE user_id = ANY($1::uuid[]) AND provider_slug = $2
-		    AND verified_at IS NOT NULL
-		  ORDER BY user_id, created_at DESC`,
-		userIDs, provider)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var username *string
-		if err := rows.Scan(&id, &username); err != nil {
-			return nil, err
-		}
-		if username != nil && *username != "" {
-			out[id] = *username
-		}
-	}
-	return out, rows.Err()
 }
 
 // Provider link management
@@ -66,20 +25,9 @@ func (s *Service) countProviderLinks(ctx context.Context, userID string) int {
 	return int(n)
 }
 
-func (s *Service) unlinkProvider(ctx context.Context, userID, provider string) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider})
-}
-
 // Public wrappers
 func (s *Service) CountProviderLinks(ctx context.Context, userID string) int {
 	return s.countProviderLinks(ctx, userID)
-}
-
-func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) error {
-	return s.unlinkProvider(ctx, userID, provider)
 }
 
 // UserProfileLinks returns the user's linked provider slugs (non-null) and username
@@ -116,27 +64,6 @@ func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
-	_, unverifiedErr := q.UserProviderUnverifiedForUpdate(ctx, db.UserProviderUnverifiedForUpdateParams{
-		UserID:       userID,
-		ProviderSlug: &provider,
-	})
-	if unverifiedErr != nil && !errors.Is(unverifiedErr, pgx.ErrNoRows) {
-		return false, unverifiedErr
-	}
-	// An imported provider claim is visible so the user can verify or remove it,
-	// but it is not a login method. Removing it therefore cannot strip the last
-	// credential and must not be rejected by the credential-count guard below.
-	// Lock only unverified rows here so verified-provider unlinks retain the
-	// established all-provider lock order below.
-	if unverifiedErr == nil {
-		if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
-			return false, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return false, err
-		}
-		return true, nil
-	}
 	links, err := q.UserProviderCountForUpdate(ctx, userID)
 	if err != nil {
 		return false, err
@@ -210,10 +137,6 @@ func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, s
 		return "", nil, err
 	}
 	return row.UserID, row.EmailAtProvider, nil
-}
-
-func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject string, email *string) error {
-	return s.LinkProviderByIssuer(ctx, userID, issuer, "", subject, email)
 }
 
 // setProviderUsername stores a provider-specific username into profile jsonb as {"username": <value>}.

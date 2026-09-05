@@ -143,7 +143,7 @@ implement it.
 narrowest topic slice a call site needs), never `*embedded.Client` (#143):
 `var c authkit.Client = embedded.New(cfg, pg)`. AuthKit's own adapters follow this
 (e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
-accessors (`Postgres`, `Keyfunc`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
+accessors (`Postgres`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
 interface (§9), so code that genuinely needs them — and only that code — holds the concrete
 `*embedded.Client`.
 
@@ -165,10 +165,9 @@ is always-on with fixed timeout/cache — there is no `SolanaConfig`.)
 
 **Mint APIs** (free functions + `*Service` facade methods — wire-shape owners):
 ```
-MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken, MintCustomJWT
+MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken
 ```
-with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplicationAccessParams`,
-`CustomJWTMintOptions`. `MaxCustomJWTLifetime = 1h` is a covered ceiling.
+with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplicationAccessParams`.
 
 **Signed-document API:** `(*embedded.Client).SignDocument` uses the current
 AuthKit signer and returns `documents.SignedDocument`. The dependency-light
@@ -198,7 +197,7 @@ passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the
 1. **Layer test.** The Go `Client` is the *backend embedder's* capability surface. A method belongs on
    it only if a server calls it in-process; a browser/end-user request flow (passkeys, passwordless,
    refresh exchange) belongs on the HTTP layer only.
-2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKey`
+2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKeyWithOptions`
    ⇒ `RevokeAPIKey`) — removing one arm is a footgun.
 3. **Commitment.** Only a WHOLE speculative feature is a YAGNI cut; a route-wired committed feature
    (invite links, api-key / remote-app management) is kept even at low adoption.
@@ -221,19 +220,19 @@ Adoption count alone is NOT a criterion for adding or removing a method.
 **`Client` interface methods** (covered) — the curated embedder surface, defined on
 `authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
 a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
-`ImportUsers`, `UpdateImportedUser`,
-`GetUserBy{Email,Username,Phone,SolanaAddress}`, `BanUser`/`UnbanUser`,
-`{Soft,Hard,Restore}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
+`ImportUsers`, `UpdateImportedUser`, `GetUserBy{Email,Username,Phone}`, `BanUser`/`UnbanUser`,
+`{Soft,Hard}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
 `AdminListUsers`/`AdminGetUser`/…); tokens
-(`Mint{Access,Service,Delegated,RemoteApplication,Custom}*` (#214), `SignDocument`); passwords (`VerifyUserPassword`, `ChangePassword`,
-`UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
+(`Mint{Access,Service,RemoteApplication}*` (#214), `SignDocument`); passwords (`UpsertPasswordHash`);
+RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
 (batch, per-item authz, #222), `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
-`RedeemGroupInviteLink`/`ExternalInvitesEnabled`); API keys
-(`MintAPIKey`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[WithResources]`); remote
-apps; identity linking; sessions (`ListUserSessions`, `RevokeAllSessions` — NOT refresh
-exchange, which is HTTP-only per the note above); bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
-`Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the `Client` interface is
+`ExternalInvitesEnabled`); API keys
+(`MintAPIKeyWithOptions`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[Detailed]`); remote
+apps; identity linking; bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
+`Options`, `PublicKeysByKID`, …). Browser/end-user flows (refresh exchange, sessions,
+password change, invite redemption, delegated-token minting) are HTTP-layer only (§4.2 layer
+test), served by `internal/authcore.Service`. Every method on the `Client` interface is
 covered; the implementation methods on `internal/authcore.Service` (beyond what `Client`
 exposes) are **not**. (Method names above are illustrative; `client.go` is authoritative.)
 
@@ -298,7 +297,7 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrCannotRemoveLastAdminRole`, `ErrInsufficientRoleAuthority`, `ErrRoleAssignmentEscalation`
 (the actor-checked no-escalation role path — `*As` methods on `Roles`/`Groups`),
 `ErrEntitlementFilterUnavailable`,
-`ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
+`ErrInvalidBootstrapManifest`, `ErrRemoteApplicationNotFound`,
 `ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` verify-only sentinels (§4.3).
 `HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
 

@@ -8,12 +8,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
@@ -340,7 +341,7 @@ func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username
 
 func mintAdminTestAPIKey(t *testing.T, s *Service, ctx context.Context, name, role, createdBy string) string {
 	t.Helper()
-	_, token, err := s.svc.MintAPIKey(ctx, embedded.RootPersona, "", name, role, createdBy, nil)
+	_, token, err := s.svc.MintAPIKeyWithOptions(ctx, embedded.RootPersona, "", authkit.APIKeyMintOptions{Name: name, Role: role, CreatedBy: createdBy})
 	require.NoError(t, err)
 	return token
 }

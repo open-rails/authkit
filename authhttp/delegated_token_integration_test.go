@@ -329,7 +329,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NotContains(t, body, `"bound"`)
 
 	// Trusted in-process minting stays unbound: a plain bearer over plain HTTP.
-	unbound, err := client.MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{
+	unbound, err := embedded.Unwrap(client).MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{
 		Audiences: []string{"tensorhub.net"}, DelegatedSubject: user.ID, TTL: time.Minute,
 	})
 	require.NoError(t, err)

@@ -138,20 +138,13 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		return "", time.Time{}, "", "", false, err
 	}
 
-	// A valid proof may promote an imported claim, but an imported row is never
-	// trusted before this point and is excluded from every credential lookup.
-	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
+	existingUserID, found, err := s.solanaLinkUserID(ctx, output.Account.Address)
 	if err != nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("look up Solana link: %w", err)
 	}
 	if found {
 		userID = existingUserID
 		created = false
-		if !verified {
-			if err := s.verifyImportedSolanaLink(ctx, userID, output.Account.Address); err != nil {
-				return "", time.Time{}, "", "", false, fmt.Errorf("verify imported Solana link: %w", err)
-			}
-		}
 	} else {
 		// New user - create account. Blocked when public registration is
 		// disabled: an existing wallet still logs in via the branch above, but
@@ -239,19 +232,15 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 		return err
 	}
 
-	// Check both verified and imported claims after proof. An imported address
-	// can only be promoted for the user it was mapped to; ownership is never
-	// transferred implicitly.
-	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
+	// Ownership is never transferred implicitly: a wallet linked to another
+	// user stays theirs.
+	existingUserID, found, err := s.solanaLinkUserID(ctx, output.Account.Address)
 	if err != nil {
 		return fmt.Errorf("look up Solana link: %w", err)
 	}
 	if found {
 		if existingUserID == userID {
-			if verified {
-				return nil
-			}
-			return s.verifyImportedSolanaLink(ctx, userID, output.Account.Address)
+			return nil
 		}
 		return fmt.Errorf("%w", ErrWalletAlreadyLinked)
 	}
@@ -292,23 +281,6 @@ func (s *Service) linkVerifiedSolanaWallet(ctx context.Context, userID, address 
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, address)
 	}
 	return nil
-}
-
-// GetUserBySolanaAddress looks up a user by their Solana wallet address.
-func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*User, error) {
-	if s.pg == nil {
-		return nil, nil
-	}
-
-	userID, _, err := s.GetProviderLinkByIssuer(ctx, s.solanaIssuer(), address)
-	if err != nil {
-		return nil, err
-	}
-	if userID == "" {
-		return nil, nil
-	}
-
-	return s.getUserByID(ctx, userID)
 }
 
 // GetSolanaAddress retrieves the Solana wallet address linked to a user, if any.
@@ -449,4 +421,16 @@ func (s *Service) usernameExists(ctx context.Context, username string) (bool, er
 		return false, nil
 	}
 	return s.q.UserUsernameExists(ctx, db.UserUsernameExistsParams{Username: username, AtTime: s.namingNow()})
+}
+
+// solanaLinkUserID resolves a verified Solana link to its user.
+func (s *Service) solanaLinkUserID(ctx context.Context, address string) (userID string, found bool, err error) {
+	row, err := s.q.ProviderLinkByIssuer(ctx, db.ProviderLinkByIssuerParams{Issuer: s.solanaIssuer(), Subject: strings.TrimSpace(address)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return row.UserID, true, nil
 }

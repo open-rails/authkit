@@ -114,31 +114,6 @@ type BootstrapManifestResult struct {
 	RemoteAppRootRoles  int  `json:"remote_application_root_roles"`
 }
 
-type CustomJWTMintOptions struct {
-	// Claims is the host's claim set, e.g. {"cap_kind": "...", "grants": [...],
-	// "release_id": "..."}. Required and non-empty. It may carry `sub`/`aud`
-	// (unless overridden by the Subject/Audiences options) but may NOT carry the
-	// AuthKit-owned registered claims `iss`/`iat`/`exp`.
-	Claims map[string]any
-	// TTL is the token lifetime. Required (must be > 0); capped at
-	// MaxCustomJWTLifetime.
-	TTL time.Duration
-	// Type is the JOSE `typ` header (e.g. "worker-capability+jwt"). When empty the
-	// header is left unset — unlike the opinionated minters, MintCustomJWT does
-	// not impose a default `typ`; the host owns the token shape. It may NOT be one
-	// of AuthKit's own first-party classes (access / delegated-access /
-	// remote-application-access / service `+jwt`) — doing so returns
-	// ErrCustomJWTReservedType (AK2-AUTH-02).
-	Type string
-	// Subject, when set, becomes the `sub` claim and wins over any `sub` in Claims.
-	Subject string
-	// Audiences, when set, becomes the `aud` claim and wins over any `aud` in Claims.
-	Audiences []string
-	// Issuer, when set, becomes the `iss` claim; otherwise `iss` defaults to the
-	// Service's configured Issuer. This is the ONLY way to override `iss`.
-	Issuer string
-}
-
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
 	// Must match a remote_application registered with the validating resource server.
@@ -283,38 +258,6 @@ type ImportUserResult struct {
 
 type ImportUsersResult struct {
 	Results  []ImportUserResult
-	Inserted int
-	Skipped  int
-	Rejected int
-}
-
-// ImportUnverifiedSolanaLinkStatus is the per-row outcome of a legacy Solana
-// identity import.
-type ImportUnverifiedSolanaLinkStatus string
-
-// ImportUnverifiedSolanaLinkInput is a migration-only Solana identity claim.
-// Importing reserves the address but does not make it a login method; the user
-// must prove ownership through the normal SIWS flow before AuthKit trusts it.
-type ImportUnverifiedSolanaLinkInput struct {
-	UserID          string
-	Address         string
-	Source          string
-	SourceID        string
-	SourceCreatedAt *time.Time
-}
-
-// ImportUnverifiedSolanaLinkResult is the outcome for one input row.
-type ImportUnverifiedSolanaLinkResult struct {
-	Index   int
-	UserID  string
-	Address string
-	Status  ImportUnverifiedSolanaLinkStatus
-	Reason  string
-}
-
-// ImportUnverifiedSolanaLinksResult aggregates per-row wallet import outcomes.
-type ImportUnverifiedSolanaLinksResult struct {
-	Results  []ImportUnverifiedSolanaLinkResult
 	Inserted int
 	Skipped  int
 	Rejected int
@@ -515,18 +458,15 @@ type ServiceJWTMintOptions struct {
 }
 
 const (
-	ImportStatusInserted               ImportUserStatus                 = "inserted"
-	ImportStatusSkipped                ImportUserStatus                 = "skipped"
-	ImportStatusRejected               ImportUserStatus                 = "rejected"
-	ImportUnverifiedSolanaLinkInserted ImportUnverifiedSolanaLinkStatus = "inserted"
-	ImportUnverifiedSolanaLinkSkipped  ImportUnverifiedSolanaLinkStatus = "skipped"
-	ImportUnverifiedSolanaLinkRejected ImportUnverifiedSolanaLinkStatus = "rejected"
-	AdminUserStatusActive              AdminUserStatus                  = "active"     // not deleted, not banned
-	AdminUserStatusBanned              AdminUserStatus                  = "banned"     // not deleted, currently banned
-	AdminUserStatusDeleted             AdminUserStatus                  = "deleted"    // soft-deleted
-	AdminUserStatusAny                 AdminUserStatus                  = "any"        // no deleted/banned predicate
-	AdminUserSortCreatedAt             AdminUserSort                    = "created_at" // default
-	AdminUserSortLastLogin             AdminUserSort                    = "last_login"
-	AdminUserSortUsername              AdminUserSort                    = "username"
-	AdminUserSortEmail                 AdminUserSort                    = "email"
+	ImportStatusInserted   ImportUserStatus = "inserted"
+	ImportStatusSkipped    ImportUserStatus = "skipped"
+	ImportStatusRejected   ImportUserStatus = "rejected"
+	AdminUserStatusActive  AdminUserStatus  = "active"     // not deleted, not banned
+	AdminUserStatusBanned  AdminUserStatus  = "banned"     // not deleted, currently banned
+	AdminUserStatusDeleted AdminUserStatus  = "deleted"    // soft-deleted
+	AdminUserStatusAny     AdminUserStatus  = "any"        // no deleted/banned predicate
+	AdminUserSortCreatedAt AdminUserSort    = "created_at" // default
+	AdminUserSortLastLogin AdminUserSort    = "last_login"
+	AdminUserSortUsername  AdminUserSort    = "username"
+	AdminUserSortEmail     AdminUserSort    = "email"
 )

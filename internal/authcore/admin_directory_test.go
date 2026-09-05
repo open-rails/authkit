@@ -86,9 +86,6 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 4, res.Total)
 		require.Len(t, res.Users, 4)
-		cnt, err := svc.AdminCountUsers(ctx, base)
-		require.NoError(t, err)
-		require.EqualValues(t, 4, cnt)
 	})
 
 	t.Run("generic role filter (no hardcoded slugs)", func(t *testing.T) {
@@ -166,11 +163,6 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 		require.Equal(t, []string{idA, idC}, idsOf(res.Users))
 		// And the enrich path filled entitlements for the returned rows.
 		require.Equal(t, []string{"premium"}, res.Users[0].Entitlements)
-
-		// Count agrees with the filtered list.
-		cnt, err := svc.AdminCountUsers(ctx, o)
-		require.NoError(t, err)
-		require.EqualValues(t, 2, cnt)
 	})
 }
 

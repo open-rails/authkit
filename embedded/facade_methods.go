@@ -8,23 +8,14 @@ import (
 	"crypto"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-func (s *Client) AdminCountUsers(ctx context.Context, opts authkit.AdminUserListOptions) (int64, error) {
-	return s.impl.AdminCountUsers(ctx, opts)
-}
-
 func (s *Client) AdminGetUser(ctx context.Context, id string) (*authkit.AdminUser, error) {
 	return s.impl.AdminGetUser(ctx, id)
-}
-
-func (s *Client) AdminListUserSessions(ctx context.Context, userID string) ([]authkit.Session, error) {
-	return s.impl.AdminListUserSessions(ctx, userID)
 }
 
 func (s *Client) AdminListUsers(ctx context.Context, opts authkit.AdminUserListOptions) (*authkit.AdminListUsersResult, error) {
@@ -77,10 +68,6 @@ func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID,
 	return s.impl.AssignRemoteApplicationRoleAs(ctx, actorUserID, persona, instanceSlug, appSlug, role)
 }
 
-func (s *Client) LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error {
-	return s.impl.LeaveGroup(ctx, userID, persona, instanceSlug)
-}
-
 // RoleSlugsByUsers returns each user's live root-group role slugs in one call
 // (#220; error-propagating so authz callers fail closed, #136).
 func (s *Client) RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error) {
@@ -94,14 +81,6 @@ func (s *Client) CreateGroupInviteLink(ctx context.Context, req authkit.CreateGr
 	return s.impl.CreateGroupInviteLink(ctx, req)
 }
 
-func (s *Client) CreateAccountRegistrationInvite(ctx context.Context, req authkit.CreateAccountRegistrationInviteRequest) (authkit.AccountRegistrationInviteCreated, error) {
-	return s.impl.CreateAccountRegistrationInvite(ctx, req)
-}
-
-func (s *Client) RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error {
-	return s.impl.RevokeAccountRegistrationInvite(ctx, inviteID, actorUserID)
-}
-
 // ListGroupInviteLinks lists a group's invite links (never returns the code).
 func (s *Client) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]authkit.GroupInviteLink, error) {
 	return s.impl.ListGroupInviteLinks(ctx, persona, instanceSlug)
@@ -110,12 +89,6 @@ func (s *Client) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug
 // RevokeGroupInviteLink revokes a group's invite link by id.
 func (s *Client) RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error {
 	return s.impl.RevokeGroupInviteLink(ctx, persona, instanceSlug, linkID)
-}
-
-// RedeemGroupInviteLink redeems code for the authenticated redeemer, assigning the
-// link's role and returning where it applied.
-func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (authkit.RedeemGroupInviteLinkResult, error) {
-	return s.impl.RedeemGroupInviteLink(ctx, code, redeemerUserID)
 }
 
 // ExternalInvitesEnabled reports whether invite-link minting is permitted by the
@@ -140,10 +113,6 @@ func (s *Client) ListEffectivePermissions(ctx context.Context, subjectID, subjec
 	return s.impl.ListEffectivePermissions(ctx, subjectID, subjectKind, persona, instanceSlug)
 }
 
-func (s *Client) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
-	return s.impl.ChangePassword(ctx, userID, current, new, keepSessionID)
-}
-
 func (s *Client) CheckSMSHealth(ctx context.Context) error {
 	return s.impl.CheckSMSHealth(ctx)
 }
@@ -166,10 +135,6 @@ func (s *Client) CreateUser(ctx context.Context, email, username string) (*authk
 	return s.impl.CreateUser(ctx, email, username)
 }
 
-func (s *Client) DeleteRemoteApplication(ctx context.Context, issuer string) error {
-	return s.impl.DeleteRemoteApplication(ctx, issuer)
-}
-
 func (s *Client) EnsureRootGroup(ctx context.Context) (string, error) {
 	return s.impl.EnsureRootGroup(ctx)
 }
@@ -190,14 +155,6 @@ func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 	return s.impl.UserLivenessByIDs(ctx, ids)
 }
 
-func (s *Client) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
-	return s.impl.ProviderUsernames(ctx, userIDs, provider)
-}
-
-func (s *Client) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
-	return s.impl.GetUserMetadata(ctx, userID)
-}
-
 func (s *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
 	return s.impl.UpdateAvatarURL(ctx, id, avatarURL)
 }
@@ -212,10 +169,6 @@ func (s *Client) GetUserByEmail(ctx context.Context, email string) (*authkit.Use
 
 func (s *Client) GetUserByPhone(ctx context.Context, phone string) (*authkit.User, error) {
 	return s.impl.GetUserByPhone(ctx, phone)
-}
-
-func (s *Client) GetUserBySolanaAddress(ctx context.Context, address string) (*authkit.User, error) {
-	return s.impl.GetUserBySolanaAddress(ctx, address)
 }
 
 func (s *Client) GetUserByUsername(ctx context.Context, username string) (*authkit.User, error) {
@@ -238,28 +191,12 @@ func (s *Client) ImportUsers(ctx context.Context, inputs []authkit.ImportUserInp
 	return s.impl.ImportUsers(ctx, inputs)
 }
 
-func (s *Client) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []authkit.ImportUnverifiedSolanaLinkInput) (authkit.ImportUnverifiedSolanaLinksResult, error) {
-	return s.impl.ImportUnverifiedSolanaLinks(ctx, inputs)
-}
-
-func (s *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
-	return s.impl.IsUserAllowed(ctx, userID)
-}
-
 func (s *Client) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
 	return s.impl.MintAccessToken(ctx, userID, extra)
 }
 
 func (s *Client) JWKS() jwtkit.JWKS {
 	return s.impl.JWKS()
-}
-
-func (s *Client) Keyfunc() func(token *jwt.Token) (any, error) {
-	return s.impl.Keyfunc()
-}
-
-func (s *Client) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {
-	return s.impl.LinkProvider(ctx, userID, provider, subject, email)
 }
 
 func (s *Client) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
@@ -286,28 +223,12 @@ func (s *Client) ListRemoteApplications(ctx context.Context, activeOnly bool) ([
 	return s.impl.ListRemoteApplications(ctx, activeOnly)
 }
 
-func (s *Client) ListUserSessions(ctx context.Context, userID string) ([]authkit.Session, error) {
-	return s.impl.ListUserSessions(ctx, userID)
-}
-
 func (s *Client) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
 	return s.impl.ListUsersDeletedBefore(ctx, cutoff, limit)
 }
 
-func (s *Client) MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (authkit.APIKey, string, error) {
-	return s.impl.MintAPIKey(ctx, persona, instanceSlug, name, role, createdBy, expiresAt)
-}
-
 func (s *Client) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts authkit.APIKeyMintOptions) (authkit.APIKey, string, error) {
 	return s.impl.MintAPIKeyWithOptions(ctx, persona, instanceSlug, opts)
-}
-
-func (s *Client) MintCustomJWT(ctx context.Context, opts authkit.CustomJWTMintOptions) (string, error) {
-	return s.impl.MintCustomJWT(ctx, opts)
-}
-
-func (s *Client) MintDelegatedAccessToken(ctx context.Context, p authkit.DelegatedAccessParams) (string, error) {
-	return s.impl.MintDelegatedAccessToken(ctx, p)
 }
 
 func (s *Client) MintRemoteApplicationAccessToken(ctx context.Context, p authkit.RemoteApplicationAccessParams) (string, error) {
@@ -335,10 +256,6 @@ func (s *Client) Config() Config {
 
 func (s *Client) Postgres() *pgxpool.Pool {
 	return s.impl.Postgres()
-}
-
-func (s *Client) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
-	return s.impl.PatchUserMetadata(ctx, userID, patch)
 }
 
 func (s *Client) PublicKeysByKID() map[string]crypto.PublicKey {
@@ -377,10 +294,6 @@ func (s *Client) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenI
 	return s.impl.RevokeAPIKey(ctx, persona, instanceSlug, tokenID)
 }
 
-func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
-	return s.impl.RevokeAllSessions(ctx, userID, keepSessionID)
-}
-
 func (s *Client) SMSAvailable() bool {
 	return s.impl.SMSAvailable()
 }
@@ -409,10 +322,6 @@ func (s *Client) UnbanUser(ctx context.Context, userID string) error {
 	return s.impl.UnbanUser(ctx, userID)
 }
 
-func (s *Client) UnlinkProvider(ctx context.Context, userID, provider string) error {
-	return s.impl.UnlinkProvider(ctx, userID, provider)
-}
-
 func (s *Client) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.impl.UpdateEmail(ctx, id, email)
 }
@@ -439,10 +348,6 @@ func (s *Client) UpsertRoleBySlug(ctx context.Context, name, slug string, descri
 
 func (s *Client) ValidateVerificationConfiguration() error {
 	return s.impl.ValidateVerificationConfiguration()
-}
-
-func (s *Client) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
-	return s.impl.VerifyUserPassword(ctx, userID, pass)
 }
 
 // Application self-registration (#264).
@@ -491,13 +396,6 @@ func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 // the host's. authkit never deletes a group on its own.
 func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlug string, opts authkit.DeletePermissionGroupOptions) error {
 	return s.impl.DeletePermissionGroup(ctx, persona, instanceSlug, opts)
-}
-
-// SetApplicationEnabled enables/disables an application registration — the
-// primitive host dormancy/re-verification sweepers act with (re-registration
-// via domain proof also re-enables).
-func (s *Client) SetApplicationEnabled(ctx context.Context, slug string, enabled bool) (*authkit.RemoteApplication, error) {
-	return s.impl.SetApplicationEnabled(ctx, slug, enabled)
 }
 
 // NamingPolicy returns the normalized deployment-wide user/group naming policy.

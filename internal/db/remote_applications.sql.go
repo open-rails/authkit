@@ -701,63 +701,6 @@ func (q *Queries) RemoteApplicationRotateTrustSource(ctx context.Context, arg Re
 	return i, err
 }
 
-const remoteApplicationSetEnabled = `-- name: RemoteApplicationSetEnabled :one
-UPDATE profiles.remote_applications
-SET enabled = $1, updated_at = now()
-WHERE slug = $2
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-`
-
-type RemoteApplicationSetEnabledParams struct {
-	Enabled bool
-	Slug    string
-}
-
-type RemoteApplicationSetEnabledRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-// Host-sweeper primitive (#264 ruling 5: re-verification cadence is host
-// policy). Re-registration (fresh domain proof) also re-enables.
-func (q *Queries) RemoteApplicationSetEnabled(ctx context.Context, arg RemoteApplicationSetEnabledParams) (RemoteApplicationSetEnabledRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationSetEnabled, arg.Enabled, arg.Slug)
-	var i RemoteApplicationSetEnabledRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.PermissionGroupID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
-		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const remoteApplicationSetTier = `-- name: RemoteApplicationSetTier :one
 UPDATE profiles.remote_applications
 SET tier = $1, updated_at = now()

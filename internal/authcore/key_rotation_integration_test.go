@@ -156,11 +156,18 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 	}
 
 	// --- Tokens signed BOTH before and after rotation still verify against
-	// the Service's CURRENT Keyfunc (the real verify-time code path). ---
-	if _, err := jwt.Parse(preTok, svc.Keyfunc()); err != nil {
+	// the Service's CURRENT key set. ---
+	keyfunc := func(tok *jwt.Token) (any, error) {
+		kid, _ := tok.Header["kid"].(string)
+		if pub, ok := svc.PublicKeysByKID()[kid]; ok {
+			return pub, nil
+		}
+		return nil, jwt.ErrTokenUnverifiable
+	}
+	if _, err := jwt.Parse(preTok, keyfunc); err != nil {
 		t.Fatalf("pre-rotation token failed to verify after rotation: %v", err)
 	}
-	if _, err := jwt.Parse(postTok, svc.Keyfunc()); err != nil {
+	if _, err := jwt.Parse(postTok, keyfunc); err != nil {
 		t.Fatalf("post-rotation token failed to verify: %v", err)
 	}
 }

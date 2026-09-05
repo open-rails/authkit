@@ -51,10 +51,6 @@ func (e failEnricher) UsersByIDs(context.Context, []string) ([]authkit.UserRef, 
 	e.t.Fatalf("UsersByIDs called on the stateless native-user path")
 	return nil, nil
 }
-func (e failEnricher) IsUserAllowed(context.Context, string) (bool, error) {
-	e.t.Fatalf("IsUserAllowed called on the stateless native-user path")
-	return false, nil
-}
 
 func mintStatelessAccess(t *testing.T, signer jwtkit.Signer, iss, aud, sub string) string {
 	t.Helper()

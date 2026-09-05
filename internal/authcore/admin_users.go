@@ -161,19 +161,6 @@ func (s *Service) adminUserCount(ctx context.Context, from string, where []strin
 	return total, nil
 }
 
-// AdminCountUsers returns the number of users matching opts (same filters as
-// AdminListUsers, ignoring pagination/sort).
-func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions) (int64, error) {
-	if s.pg == nil {
-		return 0, nil
-	}
-	from, where, args, err := s.adminUserDirectoryQuery(ctx, opts)
-	if err != nil {
-		return 0, err
-	}
-	return s.adminUserCount(ctx, from, where, args)
-}
-
 // AdminListUsers is the generic admin user-directory list (issue #91): generic
 // role/status filter + search + sort + offset pagination, with optional
 // provider-backed entitlement filtering. Each row is enriched with role slugs

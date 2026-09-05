@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
@@ -109,7 +110,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.Contains(t, w.Body.String(), string(ErrMetadataKeyReserved))
 
 	// The host-trusted Go API can still set it — the HTTP read must hide it.
-	require.NoError(t, client.PatchUserMetadata(ctx, user.ID, map[string]any{"reserved": true}))
+	require.NoError(t, embedded.Unwrap(client).PatchUserMetadata(ctx, user.ID, map[string]any{"reserved": true}))
 	w = serveAuthJSON(srv, http.MethodGet, "/user/metadata", `{}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	got.Metadata = nil

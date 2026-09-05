@@ -50,10 +50,6 @@ Fixed (gated):
   per-user index stopped at `(user_id, issuer)`. Migration 002 extends it to
   `(user_id, issuer, last_used_at)`; gated by `sessions_evict_oldest` with
   `ForbidSort`.
-- `ProviderLinkBySlug`: was served by a PG18 skip scan over `(issuer, subject)`
-  whose cost grew with issuer count. Migration 003 adds
-  `user_providers_slug_subject_idx`; now a point probe, gated by
-  `provider_by_slug_subject`.
 
 Investigated, not a problem:
 

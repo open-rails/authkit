@@ -64,7 +64,7 @@ func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 	if len(after) != 0 {
 		t.Fatalf("sessions surviving the reset = %d, want 0 (%+v)", len(after), after)
 	}
-	if !svc.VerifyUserPassword(ctx, uid, "New-password-12345") {
+	if svc.CheckUserPassword(ctx, uid, "New-password-12345") != nil {
 		t.Fatal("new password does not verify after reset")
 	}
 }

@@ -35,8 +35,6 @@ var (
 	ErrAccountRegistrationInviteExpired  = errors.New("account_registration_invite_expired")
 	ErrAccountRegistrationInviteNotFound = errors.New("account_registration_invite_not_found")
 	ErrAccountRegistrationInviteRevoked  = errors.New("account_registration_invite_revoked")
-	ErrCustomClaimsReserved              = errors.New("custom_jwt_reserved_claim")
-	ErrCustomJWTReservedType             = errors.New("custom_jwt_reserved_type")
 	ErrCustomRoleGrantCrossPersona       = errors.New("custom_role_grant_cross_persona")
 	ErrCustomRoleGrantOutsideCatalog     = errors.New("custom_role_grant_outside_catalog")
 	ErrCustomRoleIsCatalogRole           = errors.New("custom_role_is_catalog_role")
@@ -46,7 +44,6 @@ var (
 	ErrEmailDeliveryFailed               = errors.New("email_delivery_failed")
 	ErrEmailInUse                        = errors.New("email_in_use")
 	ErrEmailSenderUnavailable            = errors.New("email_sender_unavailable")
-	ErrEmptyCustomClaims                 = errors.New("custom_jwt_empty_claims")
 	ErrEntitlementFilterUnavailable      = errors.New("entitlement_filter_unavailable")
 	ErrExternalInvitesDisabled           = errors.New("external_invites_disabled")
 	ErrGroupNotFound                     = errors.New("permission_group_not_found")
@@ -87,7 +84,6 @@ var (
 	ErrSMSDeliveryFailed                 = errors.New("sms_delivery_failed")
 	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
 	ErrStepUpRequired                    = errors.New("step_up_required")
-	ErrTooManyCustomClaims               = errors.New("custom_jwt_too_many_claims")
 	ErrTwoFAFactorExists                 = errors.New("2fa_factor_exists")
 	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
 	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
@@ -300,9 +296,8 @@ var errorSentinels = []error{
 	ErrGroupSlugReserved, ErrGroupSlugInvalid, ErrGroupCreationRefused, ErrAvatarURLInvalid,
 	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
 	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
-	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,
-	ErrCustomJWTReservedType, ErrDelegationRefused, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
-	ErrEmailSenderUnavailable, ErrEmptyCustomClaims, ErrEntitlementFilterUnavailable,
+	ErrAccountRegistrationInviteRevoked, ErrDelegationRefused, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
+	ErrEmailSenderUnavailable, ErrEntitlementFilterUnavailable,
 	ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
 	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
 	ErrInviteLinkExpired, ErrInviteLinkNotFound, ErrInviteLinkRevoked,
@@ -311,7 +306,7 @@ var errorSentinels = []error{
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrUsernameInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
-	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
+	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
