@@ -153,13 +153,13 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	_, strangerToken := newInstanceTestUser(t, srv, "orgstranger")
 	w = postOrg(srv, strangerToken, `{"slug":"acme"}`)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrGroupSlugTaken))
+	require.Contains(t, w.Body.String(), string(authkit.CodeGroupSlugTaken))
 
 	// Slug matrix: built-in rule violation and pattern violation are both 400.
 	for _, slug := range []string{"-bad", "Bad Slug!", "with.dots"} {
 		w = postOrg(srv, ownerToken, `{"slug":`+fmt.Sprintf("%q", slug)+`}`)
 		require.Equalf(t, http.StatusBadRequest, w.Code, "slug %q: %s", slug, w.Body.String())
-		require.Contains(t, w.Body.String(), string(ErrGroupSlugInvalid))
+		require.Contains(t, w.Body.String(), string(authkit.CodeGroupSlugInvalid))
 	}
 	// Missing slug is a plain invalid request.
 	w = postOrg(srv, ownerToken, `{}`)
@@ -168,7 +168,7 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	// Reserved-slug matrix: refused without the escalation role...
 	w = postOrg(srv, strangerToken, `{"slug":"platform"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrGroupSlugReserved))
+	require.Contains(t, w.Body.String(), string(authkit.CodeGroupSlugReserved))
 	// ...allowed once the caller holds it.
 	admin, adminToken := newInstanceTestUser(t, srv, "orgadmin")
 	require.NoError(t, client.Genesis().AssignRoleBySlug(ctx, admin, "site-admin"))
@@ -257,7 +257,7 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	refusedSubject = blocked
 	w := postOrg(srv, blockedToken, `{"slug":"blocked-co"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrGroupCreationRefused))
+	require.Contains(t, w.Body.String(), string(authkit.CodeGroupCreationRefused))
 
 	_, allowedToken := newInstanceTestUser(t, srv, "orgallowed")
 	w = postOrg(srv, allowedToken, `{"slug":"allowed-co"}`)
@@ -269,7 +269,7 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	for _, body := range []string{`{"slug":"bootstrap-owned"}`, `{"slug":"BOOTSTRAP-OWNED"}`} {
 		w = postOrg(srv, allowedToken, body)
 		require.Equalf(t, http.StatusForbidden, w.Code, "%s: %s", body, w.Body.String())
-		require.Contains(t, w.Body.String(), string(ErrGroupCreationRefused))
+		require.Contains(t, w.Body.String(), string(authkit.CodeGroupCreationRefused))
 	}
 }
 

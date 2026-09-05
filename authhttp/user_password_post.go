@@ -14,7 +14,7 @@ import (
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 
@@ -23,11 +23,11 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		NewPassword     string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if err := embedded.ValidatePassword(body.NewPassword); err != nil {
-		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
+		writeError(w, err)
 		return
 	}
 
@@ -39,21 +39,21 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
 			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
-				unauthorized(w, ErrPasswordResetRequired)
+				unauthorized(w, authkit.CodePasswordResetRequired)
 				return
 			}
-			unauthorized(w, ErrInvalidPassword)
+			unauthorized(w, authkit.CodeInvalidPassword)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, ErrStepUpFailed)
+			serverErr(w, authkit.CodeStepUpFailed)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		var err error
 		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, ErrTokenIssueFailed)
+			serverErr(w, authkit.CodeTokenIssueFailed)
 			return
 		}
 		delete(authMeta, "ok")
@@ -62,7 +62,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	keep := keepSession(claims)
 	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, ErrDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError)
 		return
 	}
 	var changeErr error
@@ -75,14 +75,14 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		if errors.Is(changeErr, authkit.ErrPasswordResetRequired) {
 			// The current password can never verify against a legacy
 			// reset-required hash; route the user to the reset flow.
-			badRequest(w, ErrPasswordResetRequired)
+			badRequest(w, authkit.CodePasswordResetRequired)
 			return
 		}
-		if code := ErrorCode(embedded.ValidationErrorCode(changeErr)); code != "" {
+		if code := embedded.ValidationErrorCode(changeErr); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, ErrPasswordChangeFailed)
+		badRequest(w, authkit.CodePasswordChangeFailed)
 		return
 	}
 

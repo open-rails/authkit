@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -81,8 +82,8 @@ func TestContactChannelRoutes_BothChannels(t *testing.T) {
 	// code (no "@" means phone), never silently accepted.
 	w := serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"not-an-identifier"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrInvalidPhoneNumber))
+	require.Contains(t, w.Body.String(), string(authkit.CodeInvalidPhoneNumber))
 	w = serveJSON(srv, http.MethodPost, "/verify/request", `{}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrInvalidRequest))
+	require.Contains(t, w.Body.String(), string(authkit.CodeInvalidRequest))
 }

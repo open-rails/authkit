@@ -10,7 +10,6 @@ package authhttp
 // authentication, and registration has no bearer to present yet.
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -51,36 +50,13 @@ func registeredApplicationJSON(reg *authkit.RegisteredApplication) map[string]an
 }
 
 func (s *Service) writeApplicationError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, authkit.ErrApplicationRegistrationDisabled):
-		forbidden(w, ErrApplicationRegistrationDisabled)
-	case errors.Is(err, authkit.ErrApplicationDomainInvalid):
-		badRequest(w, ErrApplicationDomainInvalid)
-	case errors.Is(err, authkit.ErrApplicationDocumentFetchFailed):
-		sendErr(w, http.StatusBadGateway, ErrApplicationDocumentFetchFailed)
-	case errors.Is(err, authkit.ErrApplicationDocumentInvalid),
-		errors.Is(err, authkit.ErrInvalidRemoteApplication),
-		errors.Is(err, authkit.ErrReservedIssuer):
-		badRequest(w, ErrApplicationDocumentInvalid)
-	case errors.Is(err, authkit.ErrApplicationSlugConflict):
-		sendErr(w, http.StatusConflict, ErrApplicationSlugConflict)
-	case errors.Is(err, authkit.ErrApplicationIssuerConflict):
-		sendErr(w, http.StatusConflict, ErrApplicationIssuerConflict)
-	case errors.Is(err, authkit.ErrApplicationDomainConflict):
-		sendErr(w, http.StatusConflict, ErrApplicationDomainConflict)
-	case errors.Is(err, authkit.ErrApplicationNotDomainRooted):
-		sendErr(w, http.StatusConflict, ErrApplicationNotDomainRooted)
-	case errors.Is(err, authkit.ErrApplicationSignatureStale):
-		unauthorized(w, ErrApplicationSignatureStale)
-	case errors.Is(err, authkit.ErrApplicationSignatureInvalid):
-		unauthorized(w, ErrApplicationSignatureInvalid)
-	case errors.Is(err, authkit.ErrApplicationTierInvalid):
-		badRequest(w, ErrApplicationTierInvalid)
-	case errors.Is(err, authkit.ErrRemoteApplicationNotFound):
-		notFound(w, ErrNotFound)
-	default:
-		serverErr(w, ErrDatabaseError)
-	}
+	writeError(w, remap(err, notFoundCodes, applicationCodes))
+}
+
+// applicationCodes: the document-shape refusals answer one code.
+var applicationCodes = map[error]authkit.Code{
+	authkit.ErrInvalidRemoteApplication: authkit.CodeApplicationDocumentInvalid,
+	authkit.ErrReservedIssuer:           authkit.CodeApplicationDocumentInvalid,
 }
 
 func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +64,7 @@ func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.R
 		Domain string `json:"domain"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Domain) == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	// Per-domain limit on top of per-IP: many IPs hammering one domain (or one

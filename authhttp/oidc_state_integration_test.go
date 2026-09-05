@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
 	})
-	rejected := func(loc string, code ErrorCode) {
+	rejected := func(loc string, code authkit.Code) {
 		t.Helper()
 		require.Contains(t, loc, "error="+string(code), loc)
 		require.NotContains(t, loc, "access_token", loc)
@@ -76,21 +77,21 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 	t.Run("forged state with a matching forged cookie", func(t *testing.T) {
 		forged := "forged-" + uniqueSuffix()
 		f := oidcFlow{cookies: []*http.Cookie{{Name: stateCookieName(forged), Value: forged}}}
-		rejected(f.callback(t, h, "custom", forged), ErrInvalidState)
+		rejected(f.callback(t, h, "custom", forged), authkit.CodeInvalidState)
 	})
 
 	t.Run("state started for another provider", func(t *testing.T) {
 		f := startOIDCFlow(t, h, "custom")
 		idp.SetNonce(f.nonce)
-		rejected(f.callback(t, h, "other", f.state), ErrInvalidState)
+		rejected(f.callback(t, h, "other", f.state), authkit.CodeInvalidState)
 		// The state was consumed by the failed attempt: the real provider cannot use it either.
-		rejected(f.callback(t, h, "custom", f.state), ErrInvalidState)
+		rejected(f.callback(t, h, "custom", f.state), authkit.CodeInvalidState)
 	})
 
 	t.Run("nonce mismatch", func(t *testing.T) {
 		f := startOIDCFlow(t, h, "custom")
 		idp.SetNonce("not-" + f.nonce)
-		rejected(f.callback(t, h, "custom", f.state), ErrOIDCExchangeFailed)
+		rejected(f.callback(t, h, "custom", f.state), authkit.CodeOIDCExchangeFailed)
 	})
 
 	t.Run("PKCE verifier tampered", func(t *testing.T) {
@@ -104,7 +105,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		require.True(t, ok)
 		sd.Verifier = "tampered-" + sd.Verifier
 		require.NoError(t, srv.stateCache().Put(ctx, f.state, sd))
-		rejected(f.callback(t, h, "custom", f.state), ErrOIDCExchangeFailed)
+		rejected(f.callback(t, h, "custom", f.state), authkit.CodeOIDCExchangeFailed)
 	})
 
 	t.Run("genuine flow completes once; replay is rejected", func(t *testing.T) {
@@ -121,7 +122,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		require.NotEmpty(t, frag.Get("access_token"), loc)
 		require.False(t, strings.Contains(loc, "error="), loc)
 
-		rejected(f.callback(t, h, "custom", f.state), ErrInvalidState)
+		rejected(f.callback(t, h, "custom", f.state), authkit.CodeInvalidState)
 		_, ok, err := srv.stateCache().Get(ctx, f.state)
 		require.NoError(t, err)
 		require.False(t, ok, "consumed state must be gone from the store")

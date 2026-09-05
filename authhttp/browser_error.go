@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -42,14 +43,14 @@ import (
 // Rate-limit rejections (429) are deliberately left on the JSON path: they are
 // an abuse defense with Retry-After header semantics, not a user-flow outcome,
 // and the shared limiter helper serves every route group.
-func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code ErrorCode) {
+func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code) {
 	s.failBrowserFlowExtra(w, r, sd, provider, status, code, nil)
 }
 
 // failBrowserFlowExtra is failBrowserFlow with additional payload fields
 // carried to the frontend (fragment params / postMessage keys) — e.g. the
 // 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code ErrorCode, extra url.Values) {
+func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code, extra url.Values) {
 	if wantsJSONResponse(r) {
 		sendErr(w, status, code)
 		return
@@ -138,17 +139,17 @@ func wantsJSONResponse(r *http.Request) bool {
 // conservative token charset before it is reflected into a fragment, popup
 // payload, or JSON envelope. RFC 6749 codes (access_denied, invalid_scope, …)
 // pass through unchanged; anything else collapses to provider_error.
-func sanitizeProviderErrorCode(raw string) ErrorCode {
+func sanitizeProviderErrorCode(raw string) authkit.Code {
 	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" || len(raw) > 64 {
-		return ErrProviderError
+		return authkit.CodeProviderError
 	}
 	for _, c := range raw {
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
-			return ErrProviderError
+			return authkit.CodeProviderError
 		}
 	}
-	return ErrorCode(raw)
+	return authkit.Code(raw)
 }
 
 // logIdPCallbackError records the raw provider-reported callback error for
@@ -202,7 +203,7 @@ func (s *Service) browser2FAEnrollmentRequired(w http.ResponseWriter, r *http.Re
 	}
 	token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
 	if err != nil {
-		s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrTokenIssueFailed)
+		s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, authkit.CodeTokenIssueFailed)
 		return
 	}
 	extra := url.Values{}
@@ -211,5 +212,5 @@ func (s *Service) browser2FAEnrollmentRequired(w http.ResponseWriter, r *http.Re
 	if methods := s.svc.TwoFactorAllowedMethods(); len(methods) > 0 {
 		extra.Set("allowed_methods", strings.Join(methods, ","))
 	}
-	s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusForbidden, ErrTwoFAEnrollmentRequired, extra)
+	s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, extra)
 }

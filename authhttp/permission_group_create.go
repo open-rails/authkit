@@ -26,12 +26,12 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if !ok || claims.UserID == "" {
 		// Instance ownership needs a user subject; machine principals cannot
 		// create through this route.
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 	var body groupInstanceCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	// Anti-squat velocity: a create IS a claim — capped per IP and per user

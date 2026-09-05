@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,12 +23,12 @@ func TestInstanceRename_AppliesCreationSlugGate(t *testing.T) {
 	// SlugPattern forbids dots (the built-in rule alone would allow them).
 	w = serveAuthJSON(srv, http.MethodPatch, "/org/rename-co", `{"slug":"rename.co"}`, ownerToken)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrGroupSlugInvalid))
+	require.Contains(t, w.Body.String(), string(authkit.CodeGroupSlugInvalid))
 
 	// Reserved slug without the escalation role.
 	w = serveAuthJSON(srv, http.MethodPatch, "/org/rename-co", `{"slug":"platform"}`, ownerToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrGroupSlugReserved))
+	require.Contains(t, w.Body.String(), string(authkit.CodeGroupSlugReserved))
 	require.Equal(t, http.StatusOK, serveAuthJSON(srv, http.MethodGet, "/org/rename-co", ``, ownerToken).Code, "refused rename must leave the slug in place")
 
 	// A normal rename still works.

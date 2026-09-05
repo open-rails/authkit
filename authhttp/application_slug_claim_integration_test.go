@@ -46,7 +46,7 @@ func TestApplicationSelfRegistration_RefusesReservedSlug(t *testing.T) {
 	docSrv.set(authkit.ApplicationDocument{Slug: "cozy-art", Issuer: docSrv.srv.URL, PublicKeys: []authkit.RemoteAppKey{staticKey(t, key)}})
 	rec, body := postJSON(t, h, "/api/v1/applications/register", map[string]any{"domain": docSrv.srv.URL})
 	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-	require.Equal(t, string(ErrApplicationSlugConflict), body["error"].(map[string]any)["code"])
+	require.Equal(t, string(authkit.CodeApplicationSlugConflict), body["error"].(map[string]any)["code"])
 	var n int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.remote_applications WHERE issuer = $1`, docSrv.srv.URL).Scan(&n))
 	require.Zero(t, n, "a refused claim must not register anything")

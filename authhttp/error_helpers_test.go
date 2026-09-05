@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 )
 
 func TestErrorHelpersDoNotUseBareStringCodes(t *testing.T) {
@@ -23,7 +22,6 @@ func TestErrorHelpersDoNotUseBareStringCodes(t *testing.T) {
 		"forbidden":    true,
 		"serverErr":    true,
 		"notFound":     true,
-		"deliveryErr":  true,
 	}
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(".")
@@ -56,18 +54,6 @@ func TestErrorHelpersDoNotUseBareStringCodes(t *testing.T) {
 	}
 }
 
-func TestHTTPValidationErrorCodesAliasCore(t *testing.T) {
-	if ErrInvalidEmail.String() != embedded.ErrCodeInvalidEmail {
-		t.Fatalf("invalid_email diverged")
-	}
-	if ErrInvalidPhoneNumber.String() != embedded.ErrCodeInvalidPhoneNumber {
-		t.Fatalf("invalid_phone_number diverged")
-	}
-	if ErrPasswordTooShort.String() != embedded.ErrCodePasswordTooShort {
-		t.Fatalf("password_too_short diverged")
-	}
-}
-
 func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
 	server := httptest.NewServer(newTestService(t).apiHandler())
 	t.Cleanup(server.Close)
@@ -85,8 +71,8 @@ func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error.Code != string(ErrInvalidRequest) {
-		t.Fatalf("error.code = %q, want %q", body.Error.Code, ErrInvalidRequest)
+	if body.Error.Code != string(authkit.CodeInvalidRequest) {
+		t.Fatalf("error.code = %q, want %q", body.Error.Code, authkit.CodeInvalidRequest)
 	}
 	// Stripe-style envelope (#115): type + message are always populated.
 	if body.Error.Type != authkit.ErrorTypeInvalidRequest {

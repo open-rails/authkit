@@ -14,7 +14,6 @@ package authhttp
 // instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -24,13 +23,13 @@ import (
 	"github.com/open-rails/authkit/embedded"
 )
 
+// groupScopeCodes: a group-scoped route answers an unknown group as forbidden,
+// not not_found, so it does not enumerate groups.
+var groupScopeCodes = map[error]authkit.Code{authkit.ErrGroupNotFound: authkit.CodeForbidden}
+
 func (s *Service) groupCan(r *http.Request, subjectID string, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
 	return s.svc.Can(r.Context(), authkit.UserSubject(subjectID), group, perm)
 }
-
-// notImplemented is the wire code for a generated route whose operation is not
-// wired yet.
-const notImplemented ErrorCode = "not_implemented"
 
 // PermissionGroupRoutes returns the auto-generated management routes implied by
 // this Service's declared permission-group schema, plus the cross-persona
@@ -188,23 +187,19 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok || claims.UserID == "" {
-			unauthorized(w, ErrNotAuthenticated)
+			unauthorized(w, authkit.CodeNotAuthenticated)
 			return
 		}
 		instanceSlug := pathParam(r, "instance_slug")
 		if instanceSlug == "" {
-			badRequest(w, ErrInvalidRequest)
+			badRequest(w, authkit.CodeInvalidRequest)
 			return
 		}
 
 		group := authkit.GroupRef{Persona: gr.Persona, Instance: instanceSlug}
 		instance, err := s.svc.GroupInstanceForSlug(r.Context(), group)
-		if errors.Is(err, authkit.ErrGroupNotFound) {
-			forbidden(w, ErrForbidden)
-			return
-		}
 		if err != nil {
-			s.writeGroupOpError(w, err)
+			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
 		r = r.WithContext(embedded.WithResolvedGroup(r.Context(), instance, instanceSlug))
@@ -212,11 +207,11 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		// Authorize: the caller (a user) must hold route.Perm on this group.
 		allowed, err := s.groupCan(r, claims.UserID, group, gr.Perm)
 		if err != nil {
-			serverErr(w, ErrDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError)
 			return
 		}
 		if !allowed {
-			forbidden(w, ErrForbidden)
+			forbidden(w, authkit.CodeForbidden)
 			return
 		}
 
@@ -263,7 +258,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.groupInstanceDescriptor(w, r, group)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
-			sendErr(w, http.StatusNotImplemented, notImplemented)
+			sendErr(w, http.StatusNotImplemented, authkit.CodeNotImplemented)
 		}
 	}
 }

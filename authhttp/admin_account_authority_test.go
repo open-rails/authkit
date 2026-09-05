@@ -70,7 +70,7 @@ func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
 			"sessions": revoke(operatorTok, owner),
 		} {
 			require.Equal(t, http.StatusForbidden, w.Code, "%s: %s", name, w.Body.String())
-			requireErrorCode(t, w.Body.String(), string(ErrAccountAuthorityEscalation))
+			requireErrorCode(t, w.Body.String(), string(authkit.CodeAccountAuthorityEscalation))
 		}
 		u, err := s.svc.AdminGetUser(ctx, owner)
 		require.NoError(t, err)

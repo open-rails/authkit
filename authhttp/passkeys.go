@@ -14,7 +14,7 @@ import (
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -22,7 +22,7 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 	}
 	creation, err := s.svc.BeginPasskeyRegistration(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, ErrPasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, creation)
@@ -31,7 +31,7 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -39,12 +39,12 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 	}
 	body, err := readSmallBody(r)
 	if err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	passkey, err := s.svc.FinishPasskeyRegistration(r.Context(), claims.UserID, body)
 	if err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, passkey)
@@ -63,7 +63,7 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 	}
 	assertion, err := s.svc.BeginPasskeyLogin(r.Context(), identifier)
 	if err != nil {
-		serverErr(w, ErrPasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, assertion)
@@ -72,7 +72,7 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
 	body, err := readSmallBody(r)
 	if err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), nil)
@@ -81,7 +81,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 			s.send2FAEnrollmentRequired(w, r, result.UserID)
 			return
 		}
-		unauthorized(w, ErrInvalidCredentials)
+		unauthorized(w, authkit.CodeInvalidCredentials)
 		return
 	}
 	ua := r.UserAgent()
@@ -93,12 +93,12 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, ErrPasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed)
 		return
 	}
 	writeList(w, passkeys, "")
@@ -107,7 +107,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -117,15 +117,11 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 		Label string `json:"label"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.RenamePasskey(r.Context(), claims.UserID, r.PathValue("id"), req.Label); err != nil {
-		if errors.Is(err, authkit.ErrPasskeyNotFound) {
-			notFound(w, ErrNotFound)
-			return
-		}
-		serverErr(w, ErrPasskeyFailed)
+		writeError(w, remap(err, notFoundCodes))
 		return
 	}
 	noContent(w)
@@ -134,18 +130,14 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
 	if err := s.svc.DeletePasskey(r.Context(), claims.UserID, r.PathValue("id")); err != nil {
-		if errors.Is(err, authkit.ErrPasskeyNotFound) {
-			notFound(w, ErrNotFound)
-			return
-		}
-		serverErr(w, ErrPasskeyFailed)
+		writeError(w, remap(err, notFoundCodes))
 		return
 	}
 	noContent(w)

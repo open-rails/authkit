@@ -426,7 +426,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	grant = authkit.DelegationGrant{Attributes: map[string]any{"blob": strings.Repeat("a", maxDelegatedTokenBytes)}}
 	huge := postDelegatedToken(h, mintBody(delegate, ""), userToken)
 	require.Equal(t, http.StatusInternalServerError, huge.Code)
-	require.Contains(t, huge.Body.String(), "delegated_token_too_large")
+	requireErrorCode(t, huge.Body.String(), "internal_error")
 
 	// A host document colliding with a registered provider's type on another
 	// digest is a wiring bug and fails loudly.

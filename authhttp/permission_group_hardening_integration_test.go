@@ -101,7 +101,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// too — blocked: the admin doesn't even cover the role's EXISTING grant.
 	w = s.drive(t, defineGR, "m-escalate", boundedAdmin, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrForbidden))
+	require.Contains(t, w.Body.String(), string(authkit.CodeForbidden))
 
 	// The role is UNCHANGED: assigning it and checking effective perms shows
 	// only billing:read, never billing:write.
@@ -161,7 +161,7 @@ func TestCustomRoleDefineRejectsInvalidInput_HTTP(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			w := s.drive(t, defineGR, "m-sentinels", owner, c.body)
 			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-			require.Contains(t, w.Body.String(), string(ErrInvalidRequest))
+			require.Contains(t, w.Body.String(), string(authkit.CodeInvalidRequest))
 		})
 	}
 }

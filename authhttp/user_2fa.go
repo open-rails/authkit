@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -33,7 +32,7 @@ type twoFactorFactorResponse struct {
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 
@@ -63,16 +62,12 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	scope, err := s.svc.BeginTwoFactorEnrollment(r.Context(), claims.UserID, claims.TwoFAEnrollment, claims.SessionID)
 	if err != nil {
-		if errors.Is(err, authkit.ErrTwoFAFactorExists) {
-			sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
-			return
-		}
-		serverErr(w, ErrEnableTwoFAFailed)
+		writeError(w, err)
 		return
 	}
 	if !claims.TwoFAEnrollment {
@@ -92,11 +87,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		FactorID    string  `json:"factor_id,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if claims.TwoFAEnrollment && strings.TrimSpace(req.FactorID) != "" {
-		forbidden(w, ErrForbidden)
+		forbidden(w, authkit.CodeForbidden)
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
@@ -122,7 +117,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
 	})
 	if err != nil {
-		s.writeTwoFactorEnrollError(w, r, err)
+		writeError(w, err)
 		return
 	}
 	switch out.Kind {
@@ -145,34 +140,10 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) writeTwoFactorEnrollError(w http.ResponseWriter, r *http.Request, err error) {
-	if s.handleDeliveryError(w, r, "user_2fa_start_phone", flowStage(err), err) {
-		return
-	}
-	switch {
-	case errors.Is(err, authkit.ErrTwoFAFactorExists):
-		sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
-	case errors.Is(err, authkit.ErrInvalidTwoFAMethod):
-		badRequest(w, ErrInvalidMethod)
-	case errors.Is(err, authkit.ErrPhoneNumberRequired):
-		badRequest(w, ErrPhoneAndCodeRequired)
-	case errors.Is(err, authkit.ErrPhoneNumberMustBeE164):
-		badRequest(w, ErrPhoneNumberMustBeE164)
-	case errors.Is(err, authkit.ErrInvalidCode):
-		badRequest(w, ErrInvalidCode)
-	case errors.Is(err, authkit.ErrPhoneTwoFAUnavailable):
-		serverErr(w, ErrPhoneTwoFAUnavailable)
-	case errors.Is(err, authkit.ErrTwoFASetupCodeSendFailed):
-		serverErr(w, ErrSendCodeFailed)
-	default:
-		serverErr(w, ErrEnableTwoFAFailed)
-	}
-}
-
 func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -195,11 +166,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 		removed, err = s.svc.Disable2FAFactorWithRemovedRoles(r.Context(), claims.UserID, factorID)
 	}
 	if err != nil {
-		if errors.Is(err, authkit.ErrCannotRemoveLastAdminRole) {
-			sendErr(w, http.StatusConflict, ErrCannotRemoveLastOwner)
-			return
-		}
-		serverErr(w, ErrDisableTwoFAFailed)
+		writeError(w, remap(err, groupOpCodes))
 		return
 	}
 
@@ -223,7 +190,7 @@ func removedMFARolesResponse(removed []embedded.RemovedMFARoleAssignment) []map[
 func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -232,7 +199,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 
 	backupCodes, err := s.svc.RegenerateBackupCodes(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, ErrRegenerateCodesFailed)
+		serverErr(w, authkit.CodeRegenerateCodesFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})

@@ -1,14 +1,12 @@
 package authhttp
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit/embedded"
 )
 
 // #147 known-user permission-group invites: the invitee accepts/declines from
@@ -18,7 +16,7 @@ import (
 func (s *Service) handleMeGroupInvitesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 	invites, err := s.svc.ListPendingGroupMembershipInvites(r.Context(), claims.UserID)
@@ -51,12 +49,12 @@ func (s *Service) handleMeGroupInviteDecline(w http.ResponseWriter, r *http.Requ
 func (s *Service) meGroupInviteRespond(w http.ResponseWriter, r *http.Request, accept bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 	inviteID := strings.TrimSpace(r.PathValue("id"))
 	if inviteID == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	var err error
@@ -64,10 +62,6 @@ func (s *Service) meGroupInviteRespond(w http.ResponseWriter, r *http.Request, a
 		err = s.svc.AcceptGroupMembershipInvite(r.Context(), claims.UserID, inviteID)
 	} else {
 		err = s.svc.DeclineGroupMembershipInvite(r.Context(), claims.UserID, inviteID)
-	}
-	if errors.Is(err, embedded.ErrGroupMembershipInviteNotFound) {
-		notFound(w, ErrNotFound)
-		return
 	}
 	if err != nil {
 		s.writeGroupOpError(w, err)

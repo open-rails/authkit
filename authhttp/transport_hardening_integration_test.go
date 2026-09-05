@@ -107,7 +107,7 @@ func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 	} {
 		w := serveJSON(srv, http.MethodPost, tc.path, tc.body)
 		require.Equal(t, http.StatusInternalServerError, w.Code, tc.path+": "+w.Body.String())
-		require.Contains(t, w.Body.String(), "database_error", tc.path)
+		require.Contains(t, w.Body.String(), "internal_error", tc.path)
 	}
 }
 
