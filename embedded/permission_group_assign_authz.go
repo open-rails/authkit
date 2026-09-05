@@ -199,12 +199,10 @@ func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID string, gr
 	return st.UnassignRole(ctx, gid, subject, role)
 }
 
-// RemoveGroupSubjectAs is the actor-aware RemoveGroupSubject. It enforces the
-// #136 capability + no-escalation rules for EVERY role the subject currently holds
-// in the group before stripping them, so a bounded admin cannot remove a member
-// whose authority it does not itself hold (e.g. a non-owner cannot remove an
-// owner). Runtime callers (HTTP member-mutation) use this; the unchecked
-// RemoveGroupSubject stays for genesis/migration paths.
+// RemoveGroupSubjectAs strips every role a subject holds in a group. It enforces
+// the #136 capability + no-escalation rules for EVERY role the subject currently
+// holds before stripping them, so a bounded admin cannot remove a member whose
+// authority it does not itself hold (e.g. a non-owner cannot remove an owner).
 func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject) error {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()

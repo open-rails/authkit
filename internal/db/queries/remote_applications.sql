@@ -79,42 +79,6 @@ SET issuer            = sqlc.arg(issuer),
 WHERE domain = sqlc.arg(domain) AND trust_root = 'domain'
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
 
--- name: RemoteApplicationRepoint :one
--- Application.json re-point: the app moved domains (the TRUST ROOT moves).
--- Signed request + a fresh fetch of the NEW domain's document both verified
--- by the caller. uuid, slug, and org are all stable — the slug is a claimed
--- handle, not the domain.
-UPDATE profiles.remote_applications
-SET domain            = sqlc.arg(new_domain),
-    issuer            = sqlc.arg(issuer),
-    jwks_uri          = sqlc.arg(jwks_uri),
-    mode              = sqlc.arg(mode),
-    public_keys       = sqlc.arg(public_keys),
-    display_name      = sqlc.arg(display_name),
-    document_endpoint = sqlc.arg(document_endpoint),
-    enabled           = true,
-    root_verified_at  = now(),
-    updated_at        = now()
-WHERE slug = sqlc.arg(slug) AND trust_root = 'domain'
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
-
--- name: RemoteApplicationRotateTrustSource :one
--- Old-key-signs-new convenience rotation (the trust root remains the ONLY
--- mandatory rotation path). Does NOT touch root_verified_at.
-UPDATE profiles.remote_applications
-SET jwks_uri    = sqlc.arg(jwks_uri),
-    mode        = sqlc.arg(mode),
-    public_keys = sqlc.arg(public_keys),
-    updated_at  = now()
-WHERE slug = sqlc.arg(slug)
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
-
--- name: RemoteApplicationSetTier :one
-UPDATE profiles.remote_applications
-SET tier = sqlc.arg(tier), updated_at = now()
-WHERE slug = sqlc.arg(slug)
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
-
 -- Attribute definition registry (#75): REFERENCE-mode opaque definitions.
 
 -- name: RemoteAppAttributeDefUpsert :one

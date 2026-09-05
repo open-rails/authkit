@@ -7,8 +7,7 @@ package embedded
 // https://<domain>/.well-known/authkit/application.json IS the domain-control
 // proof; re-fetching it re-proves the root and adopts the document's CURRENT
 // keys, so a keypair that is rotated, lost, or destroyed never strands the
-// application. Old-key-signs-new rotation (RotateApplicationSigned) is a
-// convenience path, never the only one.
+// application.
 //
 // Registration buys EXISTENCE only (tier `registered`: authenticate + serve/
 // fetch documents); `approved` is an admin act on the host. Identity is the
@@ -19,8 +18,6 @@ package embedded
 
 import (
 	"context"
-	"crypto"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,15 +28,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // Re-exported sentinels (defined in authkit, core-free).
@@ -51,10 +45,6 @@ var (
 	ErrApplicationDocumentInvalid      = authkit.ErrApplicationDocumentInvalid
 	ErrApplicationSlugConflict         = authkit.ErrApplicationSlugConflict
 	ErrApplicationIssuerConflict       = authkit.ErrApplicationIssuerConflict
-	ErrApplicationNotDomainRooted      = authkit.ErrApplicationNotDomainRooted
-	ErrApplicationSignatureInvalid     = authkit.ErrApplicationSignatureInvalid
-	ErrApplicationSignatureStale       = authkit.ErrApplicationSignatureStale
-	ErrApplicationTierInvalid          = authkit.ErrApplicationTierInvalid
 )
 
 // Re-exported tier/trust-root constants and document types.
@@ -73,13 +63,6 @@ type ApplicationDocument = authkit.ApplicationDocument
 type RegisteredApplication = authkit.RegisteredApplication
 
 const (
-	// applicationRequestJOSEType is the required JWS `typ` for signed
-	// application requests (rotate / repoint).
-	applicationRequestJOSEType = "authkit-application-request+jws"
-	// applicationJWSMaxSkew bounds |now - iat| for signed application
-	// requests: the ACME-style anti-replay window. Within the window a replay
-	// is idempotent by construction (rotate/repoint re-apply the same state).
-	applicationJWSMaxSkew = 5 * time.Minute
 	// maxApplicationDocumentBytes caps the application.json (and JWKS) fetch.
 	maxApplicationDocumentBytes = 64 << 10
 	// maxDisplayNameBytes caps free-form display names.
@@ -463,311 +446,4 @@ func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (person
 		return "", "", nil
 	}
 	return persona, instanceSlug, err
-}
-
-// applicationSignedRequest is the strict payload of a per-message JWS
-// (ACME-style): op + slug bind the message to one operation on one
-// application, aud binds it to THIS platform, and iat bounds replay.
-type applicationSignedRequest struct {
-	Op       string `json:"op"`
-	Slug     string `json:"slug"`
-	Audience string `json:"aud"`
-	IssuedAt int64  `json:"iat"`
-	// rotate: the replacement trust source (exactly one of the two).
-	JWKSURI    string                 `json:"jwks_uri,omitempty"`
-	PublicKeys []authkit.RemoteAppKey `json:"public_keys,omitempty"`
-	// repoint: the new domain to fetch + adopt.
-	Domain string `json:"domain,omitempty"`
-}
-
-func applicationJWSAlgAllowed(alg string) bool {
-	switch alg {
-	case "RS256", "ES256", "ES384", "ES512", "EdDSA":
-		return true
-	default:
-		return false
-	}
-}
-
-// applicationSigningKeys resolves the CURRENTLY-trusted verification keys for
-// an application: the stored static key list, or a fresh fetch of its
-// registered jwks_uri.
-func (s *Client) applicationSigningKeys(ctx context.Context, app *RemoteApplication, kid string) ([]crypto.PublicKey, error) {
-	var out []crypto.PublicKey
-	switch app.Mode {
-	case RemoteAppModeStatic:
-		for _, k := range app.PublicKeys {
-			if k.KID != "" && k.KID != kid {
-				continue
-			}
-			pub, err := jwtkit.ParsePublicKeyFromPEM(k.PublicKeyPEM)
-			if err != nil {
-				continue
-			}
-			out = append(out, pub)
-		}
-	case RemoteAppModeJWKS:
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, app.JWKSURI, nil)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrApplicationSignatureInvalid, err)
-		}
-		resp, err := s.appHTTPClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("%w: jwks fetch: %v", ErrApplicationSignatureInvalid, err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("%w: jwks fetch returned %d", ErrApplicationSignatureInvalid, resp.StatusCode)
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxApplicationDocumentBytes+1))
-		if err != nil || len(body) > maxApplicationDocumentBytes {
-			return nil, fmt.Errorf("%w: jwks unreadable/oversized", ErrApplicationSignatureInvalid)
-		}
-		var ks jwtkit.JWKS
-		if err := json.Unmarshal(body, &ks); err != nil {
-			return nil, fmt.Errorf("%w: invalid jwks", ErrApplicationSignatureInvalid)
-		}
-		keys, err := jwtkit.JWKSToPublicKeys(ks)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid jwks keys", ErrApplicationSignatureInvalid)
-		}
-		if pub, ok := keys[kid]; ok {
-			out = append(out, pub)
-		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%w: no trusted key matches kid %q", ErrApplicationSignatureInvalid, kid)
-	}
-	return out, nil
-}
-
-// verifyApplicationJWS authenticates a compact JWS against the application's
-// currently-trusted keys and returns its validated payload. Checks: JOSE typ,
-// algorithm allowlist, kid presence, signature, op/slug binding, audience
-// binding to this platform's issuer, and the iat anti-replay window.
-func (s *Client) verifyApplicationJWS(ctx context.Context, app *RemoteApplication, compact, wantOp string) (*applicationSignedRequest, error) {
-	header, payload, err := documents.DecodeCompact(compact)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrApplicationSignatureInvalid, err)
-	}
-	if header.Type != applicationRequestJOSEType {
-		return nil, fmt.Errorf("%w: typ must be %q", ErrApplicationSignatureInvalid, applicationRequestJOSEType)
-	}
-	if !applicationJWSAlgAllowed(header.Algorithm) {
-		return nil, fmt.Errorf("%w: algorithm %q not allowed", ErrApplicationSignatureInvalid, header.Algorithm)
-	}
-	if header.KeyID == "" {
-		return nil, fmt.Errorf("%w: kid is required", ErrApplicationSignatureInvalid)
-	}
-	keys, err := s.applicationSigningKeys(ctx, app, header.KeyID)
-	if err != nil {
-		return nil, err
-	}
-	parts := strings.Split(compact, ".")
-	if len(parts) != 3 {
-		return nil, ErrApplicationSignatureInvalid
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return nil, ErrApplicationSignatureInvalid
-	}
-	method := jwt.GetSigningMethod(header.Algorithm)
-	if method == nil {
-		return nil, ErrApplicationSignatureInvalid
-	}
-	verified := false
-	for _, key := range keys {
-		if method.Verify(parts[0]+"."+parts[1], sig, key) == nil {
-			verified = true
-			break
-		}
-	}
-	if !verified {
-		return nil, fmt.Errorf("%w: signature does not verify against any trusted key", ErrApplicationSignatureInvalid)
-	}
-
-	dec := json.NewDecoder(strings.NewReader(string(payload)))
-	dec.DisallowUnknownFields()
-	var req applicationSignedRequest
-	if err := dec.Decode(&req); err != nil {
-		return nil, fmt.Errorf("%w: invalid payload: %v", ErrApplicationSignatureInvalid, err)
-	}
-	if req.Op != wantOp {
-		return nil, fmt.Errorf("%w: op %q, want %q", ErrApplicationSignatureInvalid, req.Op, wantOp)
-	}
-	if req.Slug != app.Slug {
-		return nil, fmt.Errorf("%w: slug %q does not match %q", ErrApplicationSignatureInvalid, req.Slug, app.Slug)
-	}
-	if platformIssuer := strings.TrimSpace(s.cfg.Token.Issuer); req.Audience != platformIssuer {
-		return nil, fmt.Errorf("%w: aud must be this platform's issuer", ErrApplicationSignatureInvalid)
-	}
-	if d := time.Since(time.Unix(req.IssuedAt, 0)); d > applicationJWSMaxSkew || d < -applicationJWSMaxSkew {
-		return nil, ErrApplicationSignatureStale
-	}
-	return &req, nil
-}
-
-// RotateApplicationSigned applies an old-key-signs-new trust-source rotation:
-// a compact JWS (typ authkit-application-request+jws, op "rotate") signed by a
-// CURRENTLY-trusted key replaces the application's jwks_uri/public_keys. This
-// is the CONVENIENCE path — the trust root (domain re-registration / owning
-// user) always remains able to rotate, including when every old key is gone.
-func (s *Client) RotateApplicationSigned(ctx context.Context, slug, compactJWS string) (*RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	if _, err := s.applicationsEnabled(); err != nil {
-		return nil, err
-	}
-	app, err := s.GetRemoteApplicationBySlug(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	if !app.Enabled {
-		// A sweeper- or admin-disabled application's keys are no longer
-		// trusted; recovery goes through the trust root.
-		return nil, fmt.Errorf("%w: application is disabled; re-prove the trust root", ErrApplicationSignatureInvalid)
-	}
-	req, err := s.verifyApplicationJWS(ctx, app, compactJWS, "rotate")
-	if err != nil {
-		return nil, err
-	}
-	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(req.JWKSURI), "", req.PublicKeys, s.trustSourcePolicy())
-	if err != nil {
-		return nil, err
-	}
-	var keysJSON []byte
-	if mode == RemoteAppModeStatic {
-		if keysJSON, err = json.Marshal(req.PublicKeys); err != nil {
-			return nil, ErrInvalidRemoteApplication
-		}
-	}
-	row, err := s.q.RemoteApplicationRotateTrustSource(ctx, db.RemoteApplicationRotateTrustSourceParams{
-		JwksUri:    strings.TrimSpace(req.JWKSURI),
-		Mode:       mode,
-		PublicKeys: keysJSON,
-		Slug:       app.Slug,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrRemoteApplicationNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
-}
-
-// RepointApplicationSigned moves a domain-rooted application's TRUST ROOT to
-// a NEW domain (the application.json re-point): a JWS signed by a
-// currently-trusted key requests the move, and a fresh fetch of the NEW
-// domain's application.json proves control of it. uuid, slug, and the
-// service-owned org are all stable — the slug is a claimed handle, not the
-// domain.
-func (s *Client) RepointApplicationSigned(ctx context.Context, slug, compactJWS string) (*RegisteredApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	if _, err := s.applicationsEnabled(); err != nil {
-		return nil, err
-	}
-	app, err := s.GetRemoteApplicationBySlug(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	if app.TrustRoot != ApplicationTrustRootDomain {
-		return nil, ErrApplicationNotDomainRooted
-	}
-	if !app.Enabled {
-		return nil, fmt.Errorf("%w: application is disabled; re-prove the trust root", ErrApplicationSignatureInvalid)
-	}
-	req, err := s.verifyApplicationJWS(ctx, app, compactJWS, "repoint")
-	if err != nil {
-		return nil, err
-	}
-	canonical, host, fetchURL, err := s.resolveApplicationDomain(req.Domain)
-	if err != nil {
-		return nil, err
-	}
-	if canonical == app.Domain {
-		return nil, fmt.Errorf("%w: already rooted at %q", ErrApplicationDomainInvalid, canonical)
-	}
-	doc, err := s.fetchApplicationDocument(ctx, fetchURL)
-	if err != nil {
-		return nil, err
-	}
-	napp, err := s.validateApplicationDocument(doc, host)
-	if err != nil {
-		return nil, err
-	}
-
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	dbtx := db.ForSchema(tx, s.dbSchema())
-	q := db.New(dbtx)
-	st := s.groupStoreFor(dbtx)
-
-	row, err := q.RemoteApplicationRepoint(ctx, db.RemoteApplicationRepointParams{
-		NewDomain:        canonical,
-		Issuer:           napp.Issuer,
-		JwksUri:          napp.JWKSURI,
-		Mode:             napp.Mode,
-		PublicKeys:       napp.KeysJSON,
-		DisplayName:      napp.DisplayName,
-		DocumentEndpoint: napp.DocumentEndpoint,
-		Slug:             app.Slug,
-	})
-	switch {
-	case isUniqueViolation(err, "issuer"):
-		return nil, ErrApplicationIssuerConflict
-	case isUniqueViolation(err, "domain"):
-		return nil, ErrApplicationDomainConflict
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil, ErrRemoteApplicationNotFound
-	case err != nil:
-		return nil, err
-	}
-
-	orgPersona, orgSlug, err := groupAddressByID(ctx, dbtx, row.PermissionGroupID)
-	if err != nil {
-		return nil, err
-	}
-	if row.PermissionGroupID != "" {
-		if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, napp.DisplayName); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &RegisteredApplication{
-		Application:     *remoteAppFromRow(remoteAppRow(row)),
-		OrgPersona:      orgPersona,
-		OrgInstanceSlug: orgSlug,
-		Created:         false,
-	}, nil
-}
-
-// SetApplicationTier sets an application's capability tier. Approval is an
-// ADMIN act on the host — self-registration can never reach `approved` on its
-// own.
-func (s *Client) SetApplicationTier(ctx context.Context, slug, tier string) (*RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	tier = strings.ToLower(strings.TrimSpace(tier))
-	if tier != ApplicationTierRegistered && tier != ApplicationTierApproved {
-		return nil, fmt.Errorf("%w: %q", ErrApplicationTierInvalid, tier)
-	}
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	row, err := s.q.RemoteApplicationSetTier(ctx, db.RemoteApplicationSetTierParams{Tier: tier, Slug: slug})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrRemoteApplicationNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
 }
