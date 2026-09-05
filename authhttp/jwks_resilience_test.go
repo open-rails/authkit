@@ -11,7 +11,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -43,7 +43,7 @@ func TestVerifierJWKSFetchResilience(t *testing.T) {
 	if err := ver.AddIssuer(iss, aud, verify.IssuerOptions{JWKSURI: srv.URL + "/.well-known/jwks.json"}); err != nil {
 		t.Fatal(err)
 	}
-	tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 	}
 
 	// Prime the cache with the OLD key (verify a token it signed).
-	t1, _ := authcore.MintDelegatedAccessToken(context.Background(), oldSigner, authkit.DelegatedAccessParams{
+	t1, _ := embedded.MintDelegatedAccessToken(context.Background(), oldSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(context.Background(), t1); err != nil {
@@ -100,7 +100,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 
 	// Rotate the signing key (same kid), cache still fresh, mint with the NEW key.
 	current.Store(newSigner)
-	t2, _ := authcore.MintDelegatedAccessToken(context.Background(), newSigner, authkit.DelegatedAccessParams{
+	t2, _ := embedded.MintDelegatedAccessToken(context.Background(), newSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u2", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(context.Background(), t2); err != nil {

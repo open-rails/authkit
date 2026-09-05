@@ -10,7 +10,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ import (
 func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	s := newAdminServiceWithRoles(t, pool, authcore.RoleDef{Name: "operator", Permissions: authcore.IntrinsicRootPermissions()})
+	s := newAdminServiceWithRoles(t, pool, embedded.RoleDef{Name: "operator", Permissions: embedded.IntrinsicRootPermissions()})
 
 	prefix := fmt.Sprintf("acctauth%d", time.Now().UnixNano())
 	t.Cleanup(func() {

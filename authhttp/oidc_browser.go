@@ -11,7 +11,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -78,8 +78,8 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		popupNonce = r.URL.Query().Get("popup_nonce")
 	}
 
-	state := authcore.RandB64(32)
-	nonce := authcore.RandB64(16)
+	state := embedded.RandB64(32)
+	nonce := embedded.RandB64(16)
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error
@@ -185,8 +185,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	out, err := s.svc.CompleteExternalLogin(r.Context(), authcore.ExternalLoginInput{
-		Identity: authcore.ExternalIdentity{
+	out, err := s.svc.CompleteExternalLogin(r.Context(), embedded.ExternalLoginInput{
+		Identity: embedded.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified,
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
@@ -215,7 +215,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-	if out.Kind == authcore.ExternalTwoFAEnrollmentRequired {
+	if out.Kind == embedded.ExternalTwoFAEnrollmentRequired {
 		s.browser2FAEnrollmentRequired(w, r, out.UserID, name, sd)
 		return
 	}
@@ -224,7 +224,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 // emitBrowserLogin hands the browser its session as a popup postMessage, a
 // JSON body, or a fragment redirect — the transport half of the callback.
-func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authcore.IssuedSession, sd oidckit.StateData) {
+func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session embedded.IssuedSession, sd oidckit.StateData) {
 	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
 	// ak#271: the popup document and the fragment redirect both hand the
 	// browser its tokens in script-readable form by design. The ACCESS token

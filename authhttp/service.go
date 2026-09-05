@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
@@ -22,7 +22,7 @@ import (
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
-	svc                 *authcore.Service
+	svc                 *embedded.Service
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter

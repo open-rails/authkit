@@ -15,17 +15,16 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestCoreService(t *testing.T) *authcore.Service {
+func newTestCoreService(t *testing.T) *embedded.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	cfg := embedded.Config{
 		Token: embedded.TokenConfig{
 			Issuer:              "https://example.com",
@@ -52,7 +51,7 @@ func newTestServiceNoBaseOrigin(t *testing.T) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	cfg := embedded.Config{
 		Token: embedded.TokenConfig{
 			Issuer:              "test-app",
@@ -72,20 +71,20 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}, Passkeys: embedded.PasskeyConfig{RPID: "example.com", RPDisplayName: "Example"}}
 	return serviceFromCore(t, newCore(t, opts, ks))
 }
 
-// newCore is authcore.NewService for tests: a rejected config fails the test.
-func newCore(t *testing.T, cfg embedded.Config, ks authcore.Keyset, opts ...coreOpt) *authcore.Service {
+// newCore is embedded.NewService for tests: a rejected config fails the test.
+func newCore(t *testing.T, cfg embedded.Config, ks embedded.Keyset, opts ...coreOpt) *embedded.Service {
 	t.Helper()
-	svc, err := authcore.NewService(cfg, ks, depsOf(opts...))
+	svc, err := embedded.NewService(cfg, ks, depsOf(opts...))
 	require.NoError(t, err)
 	return svc
 }
 
-func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
+func serviceFromCore(t *testing.T, coreSvc *embedded.Service) *Service {
 	t.Helper()
 	cfg := coreSvc.Config()
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
@@ -409,7 +408,7 @@ func TestAPIHandler_LegacyAuthPrefixNotMounted(t *testing.T) {
 }
 
 func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
-	s := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
+	s := newRouteFeatureTestService(t, func(cfg *embedded.Config) {
 		cfg.SolanaNetwork = "devnet"
 	})
 	h := s.apiHandler()

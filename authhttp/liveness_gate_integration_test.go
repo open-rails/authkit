@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -25,23 +25,23 @@ import (
 // over the wire. The gate under test is the one a host mounts — no fakes stand
 // in for the engine, the token, or the transport.
 
-func newLivenessTestEngine(t *testing.T, pool *pgxpool.Pool, issuer string) (*authcore.Service, *verify.Verifier) {
+func newLivenessTestEngine(t *testing.T, pool *pgxpool.Pool, issuer string) (*embedded.Service, *verify.Verifier) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "liveness-kid")
 	require.NoError(t, err)
-	svc, err := coreFromConfig(authcore.Config{
-		Token: authcore.TokenConfig{
+	svc, err := coreFromConfig(embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:              issuer,
 			IssuedAudiences:     []string{"test-app"},
 			ExpectedAudiences:   []string{"test-app"},
 			AccessTokenDuration: time.Hour,
 		},
-		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
-		Keys: authcore.KeysConfig{Source: jwtkit.StaticKeySource{
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"liveness-kid": signer.PublicKey()},
 		}},
-		RBAC: []authcore.PersonaDef{authcore.IntrinsicRootPersona(authcore.RoleDef{Name: "no-access"})},
+		RBAC: []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "no-access"})},
 	}, pool)
 	require.NoError(t, err)
 	require.NoError(t, svc.SeedPermissionGroupContainment(context.Background()))

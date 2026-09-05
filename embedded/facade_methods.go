@@ -1,5 +1,5 @@
 // Curated embedder-facing methods of the public embedded.Client facade. Each one
-// delegates to the internal engine (s.impl, *authcore.Service). Driven by real
+// delegates to the internal engine (s.impl, *Service). Driven by real
 // consumer usage, kept minimal (see SEMVER.md, #126/#130).
 package embedded
 

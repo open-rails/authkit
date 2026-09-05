@@ -10,7 +10,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 type twoFactorStatusResponse struct {
@@ -60,7 +59,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 // handleUser2FAPOST: decode, the freshness gate, rate limits, one engine
 // call, one switch. The enrollment policy (factor slot, method availability,
 // phone/code validation, SMS setup code, TOTP hand-out, enable) is
-// authcore.EnrollTwoFactor (ak#318).
+// embedded.EnrollTwoFactor (ak#318).
 func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
@@ -118,7 +117,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	out, err := s.svc.EnrollTwoFactor(r.Context(), authcore.TwoFactorEnrollInput{
+	out, err := s.svc.EnrollTwoFactor(r.Context(), embedded.TwoFactorEnrollInput{
 		UserID: claims.UserID, Mode: scope.Mode, Method: method, Code: req.Code,
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
 	})
@@ -127,11 +126,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch out.Kind {
-	case authcore.TwoFactorEnrollDefaultSet:
+	case embedded.TwoFactorEnrollDefaultSet:
 		noContent(w)
-	case authcore.TwoFactorEnrollCodeSent:
+	case embedded.TwoFactorEnrollCodeSent:
 		accepted(w)
-	case authcore.TwoFactorEnrollTOTPStarted:
+	case embedded.TwoFactorEnrollTOTPStarted:
 		writeJSON(w, http.StatusOK, map[string]any{
 			"method":      "totp",
 			"secret":      out.Secret,

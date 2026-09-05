@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -29,29 +28,29 @@ import (
 // /admin/users `required` gate.
 func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	t.Helper()
-	return newAdminServiceWithRoles(t, pool, authcore.RoleDef{Name: "no-access"})
+	return newAdminServiceWithRoles(t, pool, embedded.RoleDef{Name: "no-access"})
 }
 
 // newAdminServiceWithRoles is newAdminDirectoryService with extra root roles
 // (owner is auto-injected).
-func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcore.RoleDef) *Service {
+func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...embedded.RoleDef) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
-	coreSvc, err := coreFromConfig(authcore.Config{
-		Token: authcore.TokenConfig{
+	coreSvc, err := coreFromConfig(embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:              "https://example.com",
 			IssuedAudiences:     []string{"test-app"},
 			ExpectedAudiences:   []string{"test-app"},
 			AccessTokenDuration: time.Hour,
 		},
-		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
-		Keys: authcore.KeysConfig{Source: jwtkit.StaticKeySource{
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"admin-dir-kid": signer.PublicKey()},
 		}},
-		RBAC: []authcore.PersonaDef{
-			authcore.IntrinsicRootPersona(roles...),
+		RBAC: []embedded.PersonaDef{
+			embedded.IntrinsicRootPersona(roles...),
 		},
 	}, pool)
 	require.NoError(t, err)
@@ -371,7 +370,7 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
-	token, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+	token, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer:           issuer,
 		Audiences:        []string{"test-app"},
 		DelegatedSubject: slug + "-subject",

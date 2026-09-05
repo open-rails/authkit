@@ -8,7 +8,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +45,7 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // TestAllGeneratedRoutesWired asserts the generator emits NO unimplemented routes:
 // every per-persona management route maps to a real operation (no opStub / 501).
 func TestAllGeneratedRoutesWired(t *testing.T) {
-	sch, err := authcore.BuildSchema(embedded.PersonaDef{
+	sch, err := embedded.BuildSchema(embedded.PersonaDef{
 		Name:         "org",
 		Parent:       authkit.RootPersona,
 		Capabilities: embedded.PersonaCapabilities{CustomRoles: true, APIKeys: true, RemoteApplications: true},

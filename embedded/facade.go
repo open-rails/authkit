@@ -10,7 +10,6 @@
 package embedded
 
 import (
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/verify"
 )
@@ -30,7 +29,7 @@ var (
 // and exposes the curated embedder API (facade_methods.go). Construct it with
 // New.
 type Client struct {
-	impl *authcore.Service
+	impl *Service
 }
 
 // New builds a Client from host configuration and runtime dependencies.
@@ -41,7 +40,7 @@ func New(cfg Config, deps Deps) (*Client, error) {
 	if deps.Redis == nil && deps.EphemeralStore == nil {
 		deps.EphemeralStore = memorystore.NewKV()
 	}
-	impl, err := authcore.NewFromConfig(cfg, deps)
+	impl, err := NewFromConfig(cfg, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -51,4 +50,4 @@ func New(cfg Config, deps Deps) (*Client, error) {
 // Unwrap returns the internal engine a Client wraps, for the authkit/http
 // transport's client-first NewServer (it builds route handlers over the engine).
 // The return type lives in internal/ and is unnameable outside the module.
-func Unwrap(c *Client) *authcore.Service { return c.impl }
+func Unwrap(c *Client) *Service { return c.impl }

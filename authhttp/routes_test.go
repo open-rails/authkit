@@ -8,12 +8,11 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAPIRoutesGroupContract(t *testing.T) {
-	s := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
+	s := newRouteFeatureTestService(t, func(cfg *embedded.Config) {
 		cfg.Registration.PasswordlessLogin = true
 		cfg.SolanaNetwork = "devnet"
 	})
@@ -76,7 +75,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 }
 
 func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
-	off := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
+	off := newRouteFeatureTestService(t, func(cfg *embedded.Config) {
 		cfg.Registration.NativeUserMode = embedded.RegistrationModeClosed
 		cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	})
@@ -89,7 +88,7 @@ func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
 	requireNoRoute(t, off.APIRoutes(RouteAccount), http.MethodPost, "/oidc/{provider}/link/start")
 	requireNoRoute(t, off.OIDCBrowserRoutes(), http.MethodGet, "/{provider}/login")
 
-	on := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
+	on := newRouteFeatureTestService(t, func(cfg *embedded.Config) {
 		cfg.Registration.PasswordlessLogin = true
 		cfg.SolanaNetwork = "devnet"
 	})
@@ -135,14 +134,14 @@ func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
 
 func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Service {
 	t.Helper()
-	cfg := authcore.Config{
+	cfg := embedded.Config{
 		Keys: testKeys(),
-		Token: authcore.TokenConfig{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		RBAC:         personas,
 	}
 	coreSvc, err := coreFromConfig(cfg, nil)
@@ -150,17 +149,17 @@ func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Serv
 	return serviceFromCore(t, coreSvc)
 }
 
-func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) *Service {
+func newRouteFeatureTestService(t *testing.T, configure func(*embedded.Config)) *Service {
 	t.Helper()
-	cfg := authcore.Config{
+	cfg := embedded.Config{
 		Keys: testKeys(),
-		Token: authcore.TokenConfig{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
-		DeviceKeys:   authcore.DeviceKeysConfig{Enabled: true},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
 	}
 	if configure != nil {
 		configure(&cfg)

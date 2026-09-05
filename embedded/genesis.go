@@ -4,7 +4,6 @@ import (
 	"context"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // GenesisClient is the explicitly-dangerous bootstrap/migration seam (#241): its
@@ -27,7 +26,7 @@ import (
 // (e.g. provisioning the first owner of a fresh install) — never from a runtime
 // request handler, where the corresponding `*As` method belongs.
 type GenesisClient struct {
-	impl *authcore.Service
+	impl *Service
 }
 
 // Genesis returns the unchecked bootstrap/migration sub-client. See GenesisClient.

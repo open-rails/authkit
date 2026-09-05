@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -25,25 +24,25 @@ import (
 
 // newScopeBindingCore builds a DB-backed core service with a multi-instance
 // `repo` persona under root, so keys can be minted on distinct instances.
-func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *authcore.Service {
+func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *embedded.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "scope-bind-kid")
 	require.NoError(t, err)
-	coreSvc, err := coreFromConfig(authcore.Config{
-		Token: authcore.TokenConfig{
+	coreSvc, err := coreFromConfig(embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:              "https://scope-bind.example",
 			IssuedAudiences:     []string{"test-app"},
 			ExpectedAudiences:   []string{"test-app"},
 			AccessTokenDuration: time.Hour,
 		},
-		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
-		Keys: authcore.KeysConfig{Source: jwtkit.StaticKeySource{
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		}},
-		RBAC: []authcore.PersonaDef{
-			authcore.IntrinsicRootPersona(),
-			{Name: "repo", Parent: authcore.RootPersona, Roles: []authcore.RoleDef{
+		RBAC: []embedded.PersonaDef{
+			embedded.IntrinsicRootPersona(),
+			{Name: "repo", Parent: embedded.RootPersona, Roles: []embedded.RoleDef{
 				{Name: "deployer", Permissions: []string{"repo:models:deploy"}},
 			}},
 		},
@@ -56,9 +55,9 @@ func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *authcore.Service {
 	return coreSvc
 }
 
-func createRepoGroup(t *testing.T, ctx context.Context, coreSvc *authcore.Service, pool *pgxpool.Pool, slug string) string {
+func createRepoGroup(t *testing.T, ctx context.Context, coreSvc *embedded.Service, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
-	gid, err := coreSvc.CreatePermissionGroup(ctx, authcore.CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: slug})
+	gid, err := coreSvc.CreatePermissionGroup(ctx, embedded.CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: slug})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.permission_groups WHERE id = $1::uuid`, gid)
@@ -96,7 +95,7 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, u.ID)
 	})
-	require.NoError(t, coreSvc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: alpha}, authkit.UserSubject(u.ID), authcore.OwnerRoleName))
+	require.NoError(t, coreSvc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: alpha}, authkit.UserSubject(u.ID), embedded.OwnerRoleName))
 
 	_, token, err := coreSvc.MintAPIKeyWithOptions(ctx, authkit.GroupRef{Persona: "repo", Instance: alpha}, authkit.APIKeyMintOptions{Name: "ci-key", Role: "deployer", CreatedBy: u.ID})
 	require.NoError(t, err)
@@ -221,7 +220,7 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
-	token, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+	token, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer:           issuer,
 		Audiences:        []string{"test-app"},
 		DelegatedSubject: "delegated-user-1",

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +126,7 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 	}
 	sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 		"method":          method,
-		"verification_id": authcore.MaskDestination(destination),
+		"verification_id": embedded.MaskDestination(destination),
 		"factor": twoFactorFactorResponse{
 			ID:          factor.ID,
 			Method:      factor.Method,

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // buildRedirectURI computes the OAuth/OIDC redirect_uri for this request's flow.
@@ -138,7 +138,7 @@ func stateCookieMatches(r *http.Request, state string) bool {
 	if err != nil || c == nil || c.Value == "" {
 		return false
 	}
-	return authcore.SecretEqual(c.Value, state)
+	return embedded.SecretEqual(c.Value, state)
 }
 
 // cookieSecure reports whether auth cookies should carry the Secure attribute:

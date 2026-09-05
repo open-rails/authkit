@@ -13,7 +13,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
@@ -23,7 +22,7 @@ func newTestServiceBaseURL(t *testing.T, baseURL string) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Frontend: embedded.FrontendConfig{BaseURL: baseURL}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}}
 	coreSvc := newCore(t, opts, ks)
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -102,7 +102,7 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	// An enabled EMAIL second factor exercises the exact branch #228 collapsed:
 	// step-up 2FA options previously re-read Get2FASettings AND re-fetched the user
 	// row just to obfuscate the email destination.
-	_, err = srv.svc.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
+	_, err = srv.svc.Enable2FA(ctx, user.ID, "email", nil, embedded.AllowAdditionalFactors)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SetPreferredLanguage(ctx, user.ID, "en"))
 

@@ -9,7 +9,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // Test-only embedded.Deps builders so a call site names only what it wires.
@@ -49,8 +48,8 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 	return d
 }
 
-// coreFromConfig is authcore.NewFromConfig with the pool positional and Deps
+// coreFromConfig is embedded.NewFromConfig with the pool positional and Deps
 // composed from options.
-func coreFromConfig(cfg authcore.Config, pool *pgxpool.Pool, opts ...coreOpt) (*authcore.Service, error) {
-	return authcore.NewFromConfig(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
+func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Service, error) {
+	return embedded.NewFromConfig(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }

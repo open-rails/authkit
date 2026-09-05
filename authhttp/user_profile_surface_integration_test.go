@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -49,12 +49,12 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 
 	email := uniqueEmail("profile-surface")
 	// ak#273: the CURRENT username deliberately carries an underscore and
-	// uppercase — both admitted by authcore.ValidateUsername — because the rename
+	// uppercase — both admitted by embedded.ValidateUsername — because the rename
 	// below records lower(current username) as user_renames.from_slug. Under the
 	// 0001 predicate that INSERT violated user_renames_from_slug_format_chk and
 	// took the whole rename transaction with it, so this account could never be
 	// renamed. Keep the shape: it is the regression pin.
-	require.NoError(t, authcore.ValidateUsername("Profile_Surface"),
+	require.NoError(t, embedded.ValidateUsername("Profile_Surface"),
 		"ak#273: this pin only means something while ValidateUsername still admits '_' and uppercase")
 	username := "Profile_Surface" + uniqueSuffix()
 	user, err := srv.svc.CreateUser(ctx, email, username)

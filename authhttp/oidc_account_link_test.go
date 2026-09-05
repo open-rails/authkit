@@ -12,7 +12,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -65,7 +64,7 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
-		authcore.Keyset{},
+		embedded.Keyset{},
 		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
@@ -81,7 +80,7 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	// email — the strongest version of the attack.
 	info := authprovider.Identity{Subject: "attacker-subject", Email: email, EmailVerified: true}
 
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
 	require.ErrorIs(t, err, authkit.ErrAccountExistsLinkRequired)
 	require.Empty(t, uid)
 	require.False(t, created)
@@ -98,7 +97,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
-		authcore.Keyset{},
+		embedded.Keyset{},
 		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
@@ -114,7 +113,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 
 	// Authenticated link flow: the owner is signed in (LinkUserID) and chooses to
 	// link the provider. This is allowed and binds to the owner's own account.
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info), LinkUserID: owner.ID})
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(cfg, info), LinkUserID: owner.ID})
 	require.NoError(t, err)
 	require.Equal(t, owner.ID, uid)
 	require.False(t, created)
@@ -131,7 +130,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	ctx := context.Background()
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
-		authcore.Keyset{},
+		embedded.Keyset{},
 		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
@@ -143,7 +142,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	cfg := authprovider.GitHub("github-client", "github-secret")
 	info := authprovider.Identity{Subject: "fresh-subject", Email: email, EmailVerified: false}
 
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
 	require.NoError(t, err)
 	require.NotEmpty(t, uid)
 	require.True(t, created)

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // Session-establishing responses (#313): every route hands out the same
@@ -22,7 +22,7 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 }
 
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authkit.TokenSet, error) {
-	session, err := s.svc.IssueLoginSession(r.Context(), authcore.LoginSessionInput{
+	session, err := s.svc.IssueLoginSession(r.Context(), embedded.LoginSessionInput{
 		UserID: userID, AuthMethods: authMethodsForSessionMethod(method), Event: method,
 		UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})

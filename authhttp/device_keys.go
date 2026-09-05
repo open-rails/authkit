@@ -10,7 +10,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -99,7 +98,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 	}
 	result, err := s.svc.FinishDeviceKeyEnrollment(r.Context(), req.EnrollmentID, req.Code, req.Signature, req.SecondFactor)
 	if err != nil {
-		var secondFactor *authcore.DeviceKeySecondFactorRequired
+		var secondFactor *embedded.DeviceKeySecondFactorRequired
 		switch {
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a

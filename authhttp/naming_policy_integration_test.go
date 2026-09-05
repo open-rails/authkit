@@ -13,7 +13,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -122,7 +121,7 @@ func TestNamingHTTPRequestsKeepAuthorizedGroupAfterReuse(t *testing.T) {
 	original, err := client.GroupInstanceForSlug(context.Background(), authkit.GroupRef{Persona: "org", Instance: "reusable"})
 	require.NoError(t, err)
 	// This is the context captured by generatedGroupHandler before authorization.
-	captured := authcore.WithResolvedGroup(context.Background(), original, "reusable")
+	captured := embedded.WithResolvedGroup(context.Background(), original, "reusable")
 	renamed := "moved"
 	_, err = client.UpdateGroupInstanceAs(context.Background(), first, original.ID, authkit.GroupInstanceUpdate{Slug: &renamed})
 	require.NoError(t, err)
