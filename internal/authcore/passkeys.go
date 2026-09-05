@@ -3,9 +3,9 @@ package authcore
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net"
 	"net/url"
 	"strings"
@@ -13,12 +13,25 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 const passkeyCeremonyTTL = 10 * time.Minute
+
+// Ceremony purposes: a finish only consumes a ceremony begun for the same purpose,
+// so a verification challenge can never be turned into a session mint and an
+// account-bootstrap challenge can never attach a credential to an existing user.
+const (
+	passkeyPurposeRegister = "register"
+	passkeyPurposeLogin    = "login"
+	passkeyPurposeVerify   = "verify"
+	passkeyPurposeAccount  = "account"
+)
 
 // PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
 // Passkeys require a Relying Party ID (PasskeyConfig.RPID); without it every
@@ -51,6 +64,25 @@ type PasskeyLoginResult struct {
 	RefreshToken string
 	AccessToken  string
 	ExpiresAt    time.Time
+}
+
+// VerifiedPasskey is the identity proof a discoverable assertion yields: the
+// stable user and the credential that signed. It carries no session, token,
+// cookie or claim; the host binds it to its own pending operation.
+type VerifiedPasskey struct {
+	UserID         string
+	PasskeyID      string
+	CredentialID   string
+	BackupEligible bool
+	BackupState    bool
+}
+
+// PendingPasskeyAccount is a passkey-only account ceremony. UserID is the
+// server-minted uuidv7 that becomes the user id and WebAuthn user handle once
+// FinishPasskeyAccount succeeds; no user row exists before that.
+type PendingPasskeyAccount struct {
+	UserID   string
+	Creation *protocol.CredentialCreation
 }
 
 type passkeyUser struct {
@@ -139,11 +171,18 @@ func (s *Service) webAuthn() (*webauthn.WebAuthn, error) {
 	})
 }
 
+// BeginPasskeyRegistration starts adding a passkey to an already identified
+// user. The same ceremony finishes as either FinishPasskeyRegistration (add)
+// or FinishPasskeyReplacement (replace all).
 func (s *Service) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
 	u, err := s.passkeyUser(ctx, strings.TrimSpace(userID), true)
 	if err != nil {
 		return nil, err
 	}
+	return s.beginPasskeyCreation(ctx, u, passkeyPurposeRegister, s.passkeyUserVerification())
+}
+
+func (s *Service) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialCreation, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
@@ -154,7 +193,7 @@ func (s *Service) BeginPasskeyRegistration(ctx context.Context, userID string) (
 		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
 			RequireResidentKey: &required,
 			ResidentKey:        protocol.ResidentKeyRequirementRequired,
-			UserVerification:   s.passkeyUserVerification(),
+			UserVerification:   uv,
 		}),
 		webauthn.WithExclusions(webauthn.Credentials(u.credentials).CredentialDescriptors()),
 		webauthn.WithConveyancePreference(protocol.PreferNoAttestation),
@@ -162,112 +201,254 @@ func (s *Service) BeginPasskeyRegistration(ctx context.Context, userID string) (
 	if err != nil {
 		return nil, err
 	}
-	return creation, s.storePasskeySession(ctx, session, userID)
+	return creation, s.storePasskeySession(ctx, session, purpose, u.id)
 }
 
 func (s *Service) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
-	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
+	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
 		return Passkey{}, err
+	}
+	return s.insertPasskey(ctx, db.ForSchema(s.pg, s.dbSchema()), strings.TrimSpace(userID), cred, nil)
+}
+
+// FinishPasskeyReplacement registers the new credential and tombstones every
+// other active passkey of the user in the same transaction, for hosts with a
+// single-passkey policy. Any failure leaves the prior passkeys active.
+func (s *Service) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
+	userID = strings.TrimSpace(userID)
+	cred, err := s.finishPasskeyCreation(ctx, userID, response)
+	if err != nil {
+		return Passkey{}, err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return Passkey{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+	p, err := s.insertPasskey(ctx, q, userID, cred, nil)
+	if err != nil {
+		return Passkey{}, err
+	}
+	if _, err := q.Exec(ctx, `UPDATE profiles.user_passkeys SET deleted_at=NOW()
+WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL AND id<>$3`, userID, s.cfg.Passkeys.RPID, p.ID); err != nil {
+		return Passkey{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Passkey{}, err
+	}
+	return p, nil
+}
+
+func (s *Service) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
+	userID = strings.TrimSpace(userID)
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
+	if err != nil {
+		return nil, err
 	}
 	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
 	if err != nil {
-		return Passkey{}, err
+		return nil, err
 	}
-	if data.UserID != strings.TrimSpace(userID) {
-		return Passkey{}, ErrPasskeyNotFound
+	if data.Purpose != passkeyPurposeRegister || userID == "" || data.UserID != userID {
+		return nil, ErrPasskeyNotFound
 	}
 	u, err := s.passkeyUser(ctx, userID, true)
 	if err != nil {
-		return Passkey{}, err
+		return nil, err
 	}
+	return s.createCredential(u, session, parsed)
+}
+
+func (s *Service) createCredential(u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
-		return Passkey{}, err
+		return nil, err
 	}
 	cred, err := wa.CreateCredential(u, session, parsed)
 	if err != nil {
-		return Passkey{}, err
+		return nil, err
 	}
 	if !cred.Flags.UserVerified {
-		return Passkey{}, ErrPasskeyUserVerificationRequired
+		return nil, ErrPasskeyUserVerificationRequired
 	}
-	return s.createPasskey(ctx, userID, cred, nil)
+	return cred, nil
 }
 
+// BeginPasskeyLogin always issues a discoverable assertion with an empty
+// allowCredentials list (AK2-PK-002): scoping it to a known identifier would
+// leak account existence and credential ids to an unauthenticated caller, so
+// the identifier is deliberately ignored and the user is resolved at finish
+// from the asserted credential's user handle.
 func (s *Service) BeginPasskeyLogin(ctx context.Context, identifier string) (*protocol.CredentialAssertion, error) {
-	// AK2-PK-002: `identifier` is accepted for API compatibility but intentionally
-	// NOT used to scope the assertion. Branching to wa.BeginLogin for a known user
-	// would populate allowCredentials with that user's credential descriptors,
-	// leaking to an UNAUTHENTICATED caller both whether the account exists and its
-	// credential IDs (an enumeration oracle: the response shape differs for known
-	// vs unknown identifiers). Always issue a discoverable (usernameless) assertion
-	// with an empty allowCredentials list so the response is identical regardless
-	// of input. Passkeys are discoverable/resident, so the authenticator selects
-	// the credential and FinishPasskeyLogin resolves the user from the asserted
-	// credential's user handle.
 	_ = identifier
+	return s.beginDiscoverableAssertion(ctx, passkeyPurposeLogin, s.passkeyUserVerification())
+}
+
+// FinishPasskeyLogin composes the verification primitive with the browser
+// session issuance; it is the only passkey path that mints a session.
+func (s *Service) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error) {
+	verified, err := s.finishDiscoverableAssertion(ctx, passkeyPurposeLogin, response)
+	if err != nil {
+		return PasskeyLoginResult{}, err
+	}
+	sid, rt, _, err := s.IssueRefreshSessionWithAuthMethods(ctx, verified.UserID, userAgent, ip, []string{"swk", "mfa"})
+	if err != nil {
+		return PasskeyLoginResult{UserID: verified.UserID}, err
+	}
+	token, exp, err := s.MintAccessToken(ctx, verified.UserID, map[string]any{"sid": sid})
+	if err != nil {
+		return PasskeyLoginResult{}, err
+	}
+	return PasskeyLoginResult{UserID: verified.UserID, SessionID: sid, RefreshToken: rt, AccessToken: token, ExpiresAt: exp}, nil
+}
+
+// BeginDiscoverablePasskeyVerification starts an identity-proof ceremony: the
+// public response is identical for every caller, and user verification is
+// required because the passkey is the only factor.
+func (s *Service) BeginDiscoverablePasskeyVerification(ctx context.Context) (*protocol.CredentialAssertion, error) {
+	return s.beginDiscoverableAssertion(ctx, passkeyPurposeVerify, protocol.VerificationRequired)
+}
+
+// FinishDiscoverablePasskeyVerification validates the assertion and returns the
+// verified user/credential without minting any session or token.
+func (s *Service) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (VerifiedPasskey, error) {
+	return s.finishDiscoverableAssertion(ctx, passkeyPurposeVerify, response)
+}
+
+func (s *Service) beginDiscoverableAssertion(ctx context.Context, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialAssertion, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
 	}
-	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(s.passkeyUserVerification()))
+	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(uv))
 	if err != nil {
 		return nil, err
 	}
-	return assertion, s.storePasskeySession(ctx, session, "")
+	return assertion, s.storePasskeySession(ctx, session, purpose, "")
 }
 
-func (s *Service) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error) {
+func (s *Service) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (VerifiedPasskey, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return VerifiedPasskey{}, err
 	}
-	_, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
+	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return VerifiedPasskey{}, err
+	}
+	if data.Purpose != purpose {
+		return VerifiedPasskey{}, jwt.ErrTokenUnverifiable
 	}
 	wa, err := s.webAuthn()
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return VerifiedPasskey{}, err
 	}
-	var user passkeyUser
-	var cred *webauthn.Credential
-	if len(session.UserID) > 0 {
-		user, err = s.passkeyUserByHandle(ctx, session.UserID)
-		if err == nil {
-			cred, err = wa.ValidateLogin(user, session, parsed)
-		}
-	} else {
-		var webUser webauthn.User
-		webUser, cred, err = wa.ValidatePasskeyLogin(func(rawID, userHandle []byte) (webauthn.User, error) {
-			return s.passkeyUserByHandle(ctx, userHandle)
-		}, session, parsed)
-		if err == nil {
-			user = webUser.(passkeyUser)
-		}
-	}
+	webUser, cred, err := wa.ValidatePasskeyLogin(func(_, userHandle []byte) (webauthn.User, error) {
+		return s.passkeyUserByHandle(ctx, userHandle)
+	}, session, parsed)
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return VerifiedPasskey{}, err
 	}
+	user := webUser.(passkeyUser)
 	if !cred.Flags.UserVerified {
-		return PasskeyLoginResult{}, ErrPasskeyUserVerificationRequired
+		return VerifiedPasskey{}, ErrPasskeyUserVerificationRequired
 	}
 	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {
-		return PasskeyLoginResult{}, ErrPasskeyCloneDetected
+		return VerifiedPasskey{}, ErrPasskeyCloneDetected
 	}
-	if err := s.updatePasskeyAfterUse(ctx, user.id, cred); err != nil {
-		return PasskeyLoginResult{}, err
-	}
-	sid, rt, _, err := s.IssueRefreshSessionWithAuthMethods(ctx, user.id, userAgent, ip, []string{"swk", "mfa"})
+	id, err := s.updatePasskeyAfterUse(ctx, user.id, cred)
 	if err != nil {
-		return PasskeyLoginResult{UserID: user.id}, err
+		return VerifiedPasskey{}, err
 	}
-	token, exp, err := s.MintAccessToken(ctx, user.id, map[string]any{"sid": sid})
+	return VerifiedPasskey{
+		UserID:         user.id,
+		PasskeyID:      id,
+		CredentialID:   base64.RawURLEncoding.EncodeToString(cred.ID),
+		BackupEligible: cred.Flags.BackupEligible,
+		BackupState:    cred.Flags.BackupState,
+	}, nil
+}
+
+// BeginPasskeyAccount starts a passkey-only account: it mints the user id (no
+// row yet), uses its bytes as the discoverable user handle, and requires user
+// verification. Allowed only while public native registration is open.
+func (s *Service) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount, error) {
+	if err := s.requirePG(); err != nil {
+		return PendingPasskeyAccount{}, err
+	}
+	if !s.PublicNativeUserRegistrationEnabled() {
+		return PendingPasskeyAccount{}, ErrRegistrationDisabled
+	}
+	id, err := uuid.NewV7()
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return PendingPasskeyAccount{}, err
 	}
-	return PasskeyLoginResult{UserID: user.id, SessionID: sid, RefreshToken: rt, AccessToken: token, ExpiresAt: exp}, nil
+	u := passkeyAccountUser(id)
+	creation, err := s.beginPasskeyCreation(ctx, u, passkeyPurposeAccount, protocol.VerificationRequired)
+	if err != nil {
+		return PendingPasskeyAccount{}, err
+	}
+	return PendingPasskeyAccount{UserID: u.id, Creation: creation}, nil
+}
+
+// FinishPasskeyAccount consumes the ceremony once, validates the credential,
+// then inserts the user (no email/username/password), its handle and the
+// passkey in one transaction. A replayed or concurrent finish cannot create a
+// second user because the ceremony consume is atomic.
+func (s *Service) FinishPasskeyAccount(ctx context.Context, response []byte) (*User, Passkey, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, Passkey{}, err
+	}
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	id, err := uuid.Parse(data.UserID)
+	if data.Purpose != passkeyPurposeAccount || err != nil {
+		return nil, Passkey{}, jwt.ErrTokenUnverifiable
+	}
+	if !s.PublicNativeUserRegistrationEnabled() {
+		return nil, Passkey{}, ErrRegistrationDisabled
+	}
+	u := passkeyAccountUser(id)
+	cred, err := s.createCredential(u, session, parsed)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+	if _, err := q.Exec(ctx, `INSERT INTO profiles.users (id) VALUES ($1)`, u.id); err != nil {
+		return nil, Passkey{}, err
+	}
+	if _, err := q.Exec(ctx, `INSERT INTO profiles.user_passkey_handles (user_id, user_handle) VALUES ($1, $2)`, u.id, u.handle); err != nil {
+		return nil, Passkey{}, err
+	}
+	p, err := s.insertPasskey(ctx, q, u.id, cred, nil)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, Passkey{}, err
+	}
+	user, err := s.getUserByID(ctx, u.id)
+	if err != nil {
+		return nil, Passkey{}, err
+	}
+	return user, p, nil
+}
+
+func passkeyAccountUser(id uuid.UUID) passkeyUser {
+	return passkeyUser{id: id.String(), handle: id[:], name: id.String(), displayName: id.String()}
 }
 
 func (s *Service) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
@@ -310,12 +491,12 @@ func (s *Service) DeletePasskey(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-func (s *Service) storePasskeySession(ctx context.Context, session *webauthn.SessionData, userID string) error {
+func (s *Service) storePasskeySession(ctx context.Context, session *webauthn.SessionData, purpose, userID string) error {
 	b, err := json.Marshal(session)
 	if err != nil {
 		return err
 	}
-	return s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{UserID: strings.TrimSpace(userID), Session: b}, passkeyCeremonyTTL)
+	return s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{Purpose: purpose, UserID: strings.TrimSpace(userID), Session: b}, passkeyCeremonyTTL)
 }
 
 func (s *Service) consumePasskeySession(ctx context.Context, challenge string) (passkeyCeremonyData, webauthn.SessionData, error) {
@@ -436,9 +617,9 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 	}, nil
 }
 
-func (s *Service) createPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
+func (s *Service) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
 	var p Passkey
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `INSERT INTO profiles.user_passkeys
+	err := q.QueryRow(ctx, `INSERT INTO profiles.user_passkeys
 (user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, flags, attestation_type, attestation_fmt, label)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING id, user_id, transports, authenticator_attachment, backup_eligible, backup_state, label, created_at, last_used_at`,
@@ -449,18 +630,16 @@ RETURNING id, user_id, transports, authenticator_attachment, backup_eligible, ba
 	return p, err
 }
 
-func (s *Service) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) error {
-	tag, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_passkeys
+func (s *Service) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
+	var id string
+	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `UPDATE profiles.user_passkeys
 SET sign_count=$1, clone_warning=$2, backup_state=$3, flags=$4, last_used_at=NOW()
-WHERE user_id=$5 AND rpid=$6 AND credential_id=$7 AND deleted_at IS NULL`,
-		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, cred.Flags.BackupState, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID)
-	if err != nil {
-		return err
+WHERE user_id=$5 AND rpid=$6 AND credential_id=$7 AND deleted_at IS NULL RETURNING id`,
+		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, cred.Flags.BackupState, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrPasskeyNotFound
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrPasskeyNotFound
-	}
-	return nil
+	return id, err
 }
 
 func transportStrings(in []protocol.AuthenticatorTransport) []string {
@@ -477,8 +656,3 @@ func nullBytes(in []byte) []byte {
 	}
 	return in
 }
-
-// userIDByLoginIdentifier was removed with the AK2-PK-002 fix: BeginPasskeyLogin no
-// longer resolves an identifier to a user (doing so leaked existence + credential
-// IDs via the assertion's allowCredentials). Passkey login is now always
-// discoverable; the user is resolved at finish from the asserted credential.
