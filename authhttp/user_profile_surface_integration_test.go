@@ -1,8 +1,7 @@
 package authhttp
 
-// #262 e2e (real Postgres, mounted handlers): the user profile surface —
-// GET|PATCH /user/metadata (host-namespaced keys, authkit-internal flags
-// invisible), the first-class avatar URL on GET /me, and cooldown availability
+// #262 e2e (real Postgres, mounted handlers): the user profile surface — the
+// first-class avatar URL on GET /me and cooldown availability
 // (update_username) on GET /me.
 
 import (
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
@@ -75,54 +73,6 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	avail := meAvailabilityFor(t, me, ActionUpdateUsername)
 	require.True(t, avail.Allowed)
 	require.Zero(t, avail.RetryAfterSeconds)
-
-	// --- metadata: PATCH a host-namespaced key, read it back -----------------
-	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"cozy_avatar":{"object_key":"avatars/u/x.webp"},"biography":"app-owned bio"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var patched struct {
-		OK       bool           `json:"ok"`
-		Metadata map[string]any `json:"metadata"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &patched))
-	require.True(t, patched.OK)
-	require.Contains(t, patched.Metadata, "cozy_avatar")
-	require.Equal(t, "app-owned bio", patched.Metadata["biography"])
-
-	w = serveAuthJSON(srv, http.MethodGet, "/user/metadata", `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var got struct {
-		Metadata map[string]any `json:"metadata"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	require.Contains(t, got.Metadata, "cozy_avatar")
-	require.Equal(t, "app-owned bio", got.Metadata["biography"])
-
-	// Biography is ordinary application metadata, not an AuthKit /me field.
-	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var meFields map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &meFields))
-	require.NotContains(t, meFields, "biography")
-
-	// --- metadata: authkit-internal keys are write-rejected and read-hidden --
-	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"reserved":true}`, token)
-	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrMetadataKeyReserved))
-
-	// The host-trusted Go API can still set it — the HTTP read must hide it.
-	require.NoError(t, embedded.Unwrap(client).PatchUserMetadata(ctx, user.ID, map[string]any{"reserved": true}))
-	w = serveAuthJSON(srv, http.MethodGet, "/user/metadata", `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	got.Metadata = nil
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	require.NotContains(t, got.Metadata, "reserved")
-	require.Contains(t, got.Metadata, "cozy_avatar")
-
-	// Malformed keys are rejected outright.
-	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"bad key":1}`, token)
-	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{}`, token)
-	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
 	// --- avatar: host sets the URL via the Go API; /me serves it -------------
 	avatarURL := "https://cdn.example.com/avatars/u.webp"

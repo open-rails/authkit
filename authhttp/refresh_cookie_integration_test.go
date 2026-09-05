@@ -39,7 +39,9 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *Service, prefix st
 	pass = "correct-horse-battery-97"
 	user, err := srv.svc.CreateUser(ctx, email, prefix+uniqueSuffix())
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
+	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
@@ -122,7 +124,7 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 	require.True(t, c.HttpOnly, "HttpOnly is the entire point")
 	require.True(t, c.Secure, "https BaseURL must yield Secure")
 	require.Equal(t, http.SameSiteLaxMode, c.SameSite, "Strict drops the cookie on the cross-site OIDC/email-link return")
-	require.Equal(t, "/api/v1", c.Path, "scoped to the mount's API anchor, off the SPA document")
+	require.Equal(t, "/api/v1/token", c.Path, "scoped to the mount's POST /token, off the SPA document")
 
 	// The access token is still delivered in the body — the SPA builds the
 	// Authorization header from it synchronously and a cookie cannot serve that.
@@ -140,12 +142,6 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 	rotated := refreshCookieOf(t, refresh)
 	require.NotNil(t, rotated, "a rotation must re-set the cookie or the browser keeps a spent token")
 	require.NotEqual(t, c.Value, rotated.Value, "the refresh token rotates")
-
-	// POST /sessions/current resolves the session from the cookie too.
-	current := postCookieJSON(h, "/api/v1/sessions/current", `{}`, func(r *http.Request) {
-		r.AddCookie(rotated)
-	})
-	require.Equal(t, http.StatusOK, current.Code, current.Body.String())
 
 	// Logout clears it. The Go footgun: MaxAge 0 OMITS the attribute and
 	// yields a session cookie — only a negative MaxAge serializes Max-Age=0.
@@ -282,7 +278,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 				"example-oauth": {
 					Name: "example-oauth", Kind: authprovider.KindOAuth2, Issuer: idp.URL,
 					ClientID: "oauth-client", ClientSecret: authprovider.ClientSecret{Value: "oauth-secret"},
-					Scopes: []string{"profile", "email"},
+					Scopes:       []string{"profile", "email"},
 					AuthorizeURL: idp.URL + "/authorize", TokenURL: idp.URL + "/token", UserInfoURL: idp.URL + "/me",
 					IdentityMapper: func(root any) (authprovider.Identity, error) {
 						m, _ := root.(map[string]any)

@@ -54,12 +54,11 @@ type MountOptions struct {
 	// behaviour, refresh_token in every body as before.
 	//
 	// When on, every session-establishing response sets the cookie and omits
-	// refresh_token from its body/fragment/postMessage payload; POST /token and
-	// POST /sessions/current accept the cookie when the body carries no token
-	// (body still wins, so a mid-migration client is never stranded); and
-	// DELETE /logout clears it. The cookie is Path-scoped to this mount's API
-	// anchor — the only two routes that read a refresh token live there and
-	// share no tighter prefix — so it never rides the SPA document or assets.
+	// refresh_token from its body/fragment/postMessage payload; POST /token
+	// accepts the cookie when the body carries no token (body still wins, so a
+	// mid-migration client is never stranded); and DELETE /logout clears it.
+	// The cookie is Path-scoped to this mount's POST /token — the only route
+	// that reads a refresh token — so it never rides the SPA document or assets.
 	//
 	// Browser-facing by construction: the host must serve the SPA and this
 	// mount on the SAME origin, or the cookie never reaches the refresh call.
@@ -140,14 +139,10 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	return withRefreshCookiePolicy(mux, refreshCookiePolicy{path: refreshCookiePath(apiPrefix)}), nil
 }
 
-// refreshCookiePath anchors the refresh cookie at the mount's API prefix — the
-// narrowest Path that covers both refresh-consuming routes (POST /token and
-// POST /sessions/current, which share no tighter prefix).
+// refreshCookiePath anchors the refresh cookie at the mount's POST /token, the
+// only route that consumes it.
 func refreshCookiePath(apiPrefix string) string {
-	if apiPrefix == "" {
-		return "/"
-	}
-	return apiPrefix
+	return strings.TrimSuffix(apiPrefix, "/") + "/token"
 }
 
 // normalizeAPIPrefix resolves the API anchor: "" means DefaultAPIPrefix, "/"

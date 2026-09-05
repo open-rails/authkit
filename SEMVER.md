@@ -459,7 +459,6 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 |---|---|---|---|
 | GET | `/identity-providers` | public | none |
 | POST | `/token` | session | none (refresh token in body) |
-| POST | `/sessions/current` | session | none |
 | DELETE | `/logout` | session | required |
 | POST | `/password/login` | session | none |
 | POST | `/passwordless/start` | session | none |
@@ -517,10 +516,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/admin/users/{user_id}/unban` | admin | `root:users:ban` |
 | POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` |
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
-| POST | `/admin/applications/{slug}/tier` | admin | `root:credentials:manage` (#264 — tier `registered`\|`approved`) |
 | POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; the slug is a separately claimed handle; mounted only with `Applications.SelfRegistration`) |
-| POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
-| POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
 | POST | `/delegated/token` | delegated | required user (#261/#277 — certificate-bound `cnf.x5t#S256`; mounted only when `Delegated.Audiences` is set and `WithDelegatedAuthorization` is wired) |
 | GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application pinned by `Documents.Readers` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
 

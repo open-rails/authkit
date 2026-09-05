@@ -452,9 +452,9 @@ h, err := authhttp.MountHandler(srv, authhttp.MountOptions{RefreshCookie: true})
 | Aspect | Behaviour |
 | --- | --- |
 | Issue | All ten session-establishing responses (password / passwordless / passkeys / SIWS / 2FA verify / email+phone verify / registration auto-login / refresh rotation / OIDC popup / OIDC fragment) set the cookie and omit `refresh_token` from the body, the fragment and the postMessage payload. |
-| Consume | `POST /token` and `POST /sessions/current` take the body's `refresh_token` when present, the cookie otherwise. A cookie-only client sends an empty `refresh_token` and gets a rotation, not a `400`. |
+| Consume | `POST /token` takes the body's `refresh_token` when present, the cookie otherwise. A cookie-only client sends an empty `refresh_token` and gets a rotation, not a `400`. |
 | Clear | `DELETE /logout`, and a refresh that fails with `user_banned`. **Never** on the unknown-token `401` — staleness and death are indistinguishable there, and clearing would destroy a still-live jar value over a transient failure. |
-| `Path` | The mount's API anchor (`APIPrefix`, e.g. `/api/v1`) — the narrowest prefix covering both consuming routes. Keeps the cookie off the SPA document and its assets. |
+| `Path` | The mount's `POST /token` (`APIPrefix + /token`, e.g. `/api/v1/token`) — the only route that consumes it. Keeps the cookie off the SPA document and its assets. |
 | `SameSite` | `Lax`, never `Strict`. The OIDC tail is a cross-site top-level GET from the IdP, and emailed verification links land the same way; `Strict` withholds the cookie there and the first refresh fails. Lax still blocks the cross-site POST a CSRF would need. |
 | `Secure` | Derived like the OAuth state cookie: HTTPS `Frontend.BaseURL`, or the request's own TLS. Plain-http local dev gets a non-Secure cookie so the flow still works. |
 
@@ -724,9 +724,6 @@ Routes mount only when enabled (`RouteApplications` group):
 
 ```text
 POST /api/v1/applications/register          {"domain": "cozy.art"}
-POST /api/v1/applications/{slug}/rotate     {"jws": "<compact JWS>"}
-POST /api/v1/applications/{slug}/repoint    {"jws": "<compact JWS>"}
-POST /api/v1/admin/applications/{slug}/tier {"tier": "approved"}   (root:credentials:manage)
 ```
 
 **Registration.** The server fetches
@@ -751,17 +748,10 @@ rate limits apply (`application_register` bucket);
 gates (allowances, card-on-file) are the host's, anti-spam velocity caps are
 authkit's.
 
-**Rotation doctrine.** The trust root — domain control, or the owning user
-account — rotates keys; the keypair alone NEVER does. If every old key is
-gone, re-registration adopts whatever the document declares now. The signed
-paths are conveniences: `rotate` (replace the trust source) and `repoint`
-(move the trust root to a new domain, proven by fetching the new domain's
-document; uuid, slug, and org are all stable)
-accept an ACME-style compact JWS signed by a currently-trusted key — JOSE `typ`
-`authkit-application-request+jws`, payload `{"op","slug","aud","iat",...}` with
-`aud` = this platform's issuer and `iat` within ±5 minutes (anti-replay; both
-operations are idempotent within the window). A disabled application's keys are
-not trusted — recovery is always the trust root.
+**Rotation doctrine.** The trust root — domain control — rotates keys; the
+keypair alone NEVER does. If every old key is gone, re-registration adopts
+whatever the document declares now. A disabled application's keys are not
+trusted — recovery is always the trust root.
 
 **Tiers.** `registered` buys existence only: authenticate + serve/fetch
 documents. `approved` is an admin act (`SetApplicationTier`). Re-verification

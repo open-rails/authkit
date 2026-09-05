@@ -3,11 +3,12 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
@@ -94,41 +95,4 @@ func TestRequireConsent_HTTP_ForcesInvite(t *testing.T) {
 	ok, err = s.svc.Can(ctx, target2, embedded.SubjectKindUser, "repo", "r1", "repo:catalog:read")
 	require.NoError(t, err)
 	require.True(t, ok, "instant persona should grant the role directly")
-}
-
-// TestMeGroupLeave_HTTP drives the self-leave route end to end: a member removes
-// themself (200, role gone), and the sole owner is refused (409 last-owner).
-func TestMeGroupLeave_HTTP(t *testing.T) {
-	s, owner := newConsentTestService(t)
-	ctx := context.Background()
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: "leave1", OwnerSubjectID: owner})
-	require.NoError(t, err)
-
-	// Add a member instantly (repo is non-consent), then they leave with their own auth.
-	member := mkUser(t, s)
-	require.Equal(t, http.StatusOK, memberAdd(t, s, "repo", "leave1", owner, member).Code)
-	ok, _ := s.svc.Can(ctx, member, embedded.SubjectKindUser, "repo", "leave1", "repo:catalog:read")
-	require.True(t, ok)
-
-	leave := func(uid string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodDelete, "http://x/me/groups/repo/leave1", nil)
-		r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: uid}))
-		r.SetPathValue("persona", "repo")
-		r.SetPathValue("instance_slug", "leave1")
-		w := httptest.NewRecorder()
-		s.handleMeGroupLeave(w, r)
-		return w
-	}
-
-	w := leave(member)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	ok, _ = s.svc.Can(ctx, member, embedded.SubjectKindUser, "repo", "leave1", "repo:catalog:read")
-	require.False(t, ok, "member should hold no role after leaving")
-
-	// The sole owner cannot leave — would orphan the group (409 cannot_remove_last_owner).
-	w = leave(owner)
-	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "cannot_remove_last_owner")
-	ok, _ = s.svc.Can(ctx, owner, embedded.SubjectKindUser, "repo", "leave1", "repo:catalog:read")
-	require.True(t, ok, "owner must keep authority after a refused leave")
 }

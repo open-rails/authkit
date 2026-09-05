@@ -34,10 +34,9 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RLDeviceKeysManage:         {Limit: 30, Window: 10 * time.Minute},
 
 		// Logout + sessions
-		RLAuthLogout:          {Limit: 60, Window: 10 * time.Minute},
-		RLAuthSessionsCurrent: {Limit: 60, Window: 10 * time.Minute},
-		RLAuthSessionsList:    {Limit: 120, Window: time.Minute},
-		RLAuthSessionsRevoke:  {Limit: 60, Window: 10 * time.Minute},
+		RLAuthLogout:         {Limit: 60, Window: 10 * time.Minute},
+		RLAuthSessionsList:   {Limit: 120, Window: time.Minute},
+		RLAuthSessionsRevoke: {Limit: 60, Window: 10 * time.Minute},
 		RLAuthSessionsRevokeAll: {
 			Limit:  20,
 			Window: time.Hour,
@@ -47,7 +46,6 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// self-heal consumers may retry, so the window is generous per hour
 		// but cooled down; each attempt costs the caller a domain fetch.
 		RLApplicationRegister: {Limit: 30, Window: time.Hour},
-		RLApplicationRotate:   {Limit: 30, Window: time.Hour},
 		// Slug renames are claims — velocity-capped per user and per IP.
 		RLGroupSettings: {Limit: 12, Window: 24 * time.Hour},
 		// #263 instance creation is a claim too — same velocity class.
@@ -69,18 +67,14 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// User changes
 		RLUserPasswordChange:     {Limit: 6, Window: time.Hour},
 		RLUserMe:                 {Limit: 120, Window: time.Minute},
-		RLUserMetadata:           {Limit: 60, Window: time.Minute},
 		RLUserUpdateUsername:     {Limit: 12, Window: time.Hour},
 		RLUserPreferredLanguage:  {Limit: 24, Window: time.Hour},
-		RLUserUpdateEmail:        {Limit: 12, Window: time.Hour},
 		RLUserEmailChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserEmailChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserEmailChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-		RLUserEmailChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserPhoneChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserPhoneChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserPhoneChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-		RLUserPhoneChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserDelete:             {Limit: 6, Window: time.Hour},
 		RLUserUnlinkProvider:     {Limit: 12, Window: time.Hour},
 
@@ -102,8 +96,6 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RL2FAVerify:          {Limit: 10, Window: 10 * time.Minute},
 
 		// Admin
-		RLAdminRolesGrant:            {Limit: 30, Window: time.Hour},
-		RLAdminRolesRevoke:           {Limit: 30, Window: time.Hour},
 		RLAdminUserSessionsList:      {Limit: 600, Window: time.Hour},
 		RLAdminUserSessionsRevokeAll: {Limit: 30, Window: time.Hour},
 	}

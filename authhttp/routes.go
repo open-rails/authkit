@@ -1,9 +1,10 @@
 package authhttp
 
 import (
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -78,7 +79,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/capabilities", Group: RouteAuth, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},
 
 		{Method: http.MethodPost, Path: "/token", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
-		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteAuth, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/password/login", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
 		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
@@ -124,11 +124,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/me/group-invites/{id}/accept", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteAccept))},
 		{Method: http.MethodPost, Path: "/me/group-invites/{id}/decline", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteDecline))},
 		// #193 self-service leave: a user removes themself from a group with their own auth.
-		{Method: http.MethodDelete, Path: "/me/groups/{persona}/{instance_slug}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupLeave))},
 		// #262 user-metadata surface (host-namespaced keys; authkit-internal
 		// flags are filtered from reads and rejected on writes).
-		{Method: http.MethodGet, Path: "/user/metadata", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMetadataGET))},
-		{Method: http.MethodPatch, Path: "/user/metadata", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMetadataPATCH))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
@@ -171,11 +168,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// domain proof / per-message JWS is the authentication. Mounted only
 		// when Applications.SelfRegistration is enabled (see filter below).
 		{Method: http.MethodPost, Path: "/applications/register", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRegisterPOST)},
-		{Method: http.MethodPost, Path: "/applications/{slug}/rotate", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRotatePOST)},
-		{Method: http.MethodPost, Path: "/applications/{slug}/repoint", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRepointPOST)},
 		// Tier changes are an admin act; mounted regardless of self-registration
 		// (manual registrations carry tiers too).
-		{Method: http.MethodPost, Path: "/admin/applications/{slug}/tier", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootCredentialsManage, s.handleAdminApplicationTierPOST)},
 
 		// #261 delegated-token mint: authenticated users exchange their session
 		// for a short-lived delegated token aimed at the configured audiences.
