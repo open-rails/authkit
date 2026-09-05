@@ -359,12 +359,11 @@ The returned `client` is the host's `authkit.Client` for in-process operations.
 
 `authhttp.MountHandler` returns the whole surface as one `http.Handler`: every
 enabled JSON API route under `APIPrefix` (default `/api/v1`), browser OIDC
-redirects under `OIDCPath` (default `/oidc`), and JWKS at
-`/.well-known/jwks.json`. Options: `Groups` selects surfaces (`auth`,
-`registration`, `account`, `admin`, `permission_groups`, `browser_oidc`);
-`ExcludeRoutes` drops routes the host shadows with its own handlers;
-`MountPrefix` shifts everything under a host path (boundary-checked, for
-non-stripping proxies); `Wrap` decorates every mounted route. gin hosts mount
+redirects under `/oidc`, and JWKS at `/.well-known/jwks.json`. Options:
+`Groups` selects surfaces (`auth`, `registration`, `account`, `admin`,
+`permission_groups`, `browser_oidc`); `ExcludeRoutes` drops routes the host
+shadows with its own handlers; `Wrap` decorates every mounted route;
+`RefreshCookie` delivers the refresh token as a cookie. gin hosts mount
 it once via `router.NoRoute(authkitgin.Fallback(mount))` (or `gin.WrapH` on an
 explicit wildcard); any other router mounts it like any `http.Handler`.
 
@@ -388,7 +387,7 @@ when the new user has no verified email.
 
 ### Browser OIDC result contract
 
-The three routes under `OIDCPath` (`{provider}/login`, `{provider}/callback`,
+The three routes under `/oidc` (`{provider}/login`, `{provider}/callback`,
 `{provider}/step-up/callback`) are browser navigations, so both outcomes are
 delivered to the SPA, never left as a raw response body on the backend URL:
 
@@ -455,7 +454,7 @@ h, err := authhttp.MountHandler(srv, authhttp.MountOptions{RefreshCookie: true})
 | Issue | All ten session-establishing responses (password / passwordless / passkeys / SIWS / 2FA verify / email+phone verify / registration auto-login / refresh rotation / OIDC popup / OIDC fragment) set the cookie and omit `refresh_token` from the body, the fragment and the postMessage payload. |
 | Consume | `POST /token` and `POST /sessions/current` take the body's `refresh_token` when present, the cookie otherwise. A cookie-only client sends an empty `refresh_token` and gets a rotation, not a `400`. |
 | Clear | `DELETE /logout`, and a refresh that fails with `user_banned`. **Never** on the unknown-token `401` — staleness and death are indistinguishable there, and clearing would destroy a still-live jar value over a transient failure. |
-| `Path` | The mount's API anchor (`MountPrefix + APIPrefix`, e.g. `/api/v1`) — the narrowest prefix covering both consuming routes. Keeps the cookie off the SPA document and its assets. |
+| `Path` | The mount's API anchor (`APIPrefix`, e.g. `/api/v1`) — the narrowest prefix covering both consuming routes. Keeps the cookie off the SPA document and its assets. |
 | `SameSite` | `Lax`, never `Strict`. The OIDC tail is a cross-site top-level GET from the IdP, and emailed verification links land the same way; `Strict` withholds the cookie there and the first refresh fails. Lax still blocks the cross-site POST a CSRF would need. |
 | `Secure` | Derived like the OAuth state cookie: HTTPS `Frontend.BaseURL`, or the request's own TLS. Plain-http local dev gets a non-Secure cookie so the flow still works. |
 

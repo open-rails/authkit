@@ -80,7 +80,7 @@ func TestOutboundSendRoutes_PerIdentifierCap(t *testing.T) {
 	for _, rs := range srv.APIRoutes() {
 		mounted[rs.Method+" "+rs.Path] = true
 	}
-	h := srv.APIHandler()
+	h := srv.apiHandler()
 	limits := DefaultRateLimits()
 	ipSeq := 0
 	send := func(rt outboundSendRoute, body string) int {

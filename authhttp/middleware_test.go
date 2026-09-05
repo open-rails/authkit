@@ -158,7 +158,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.NoError(t, err)
 
-	h := svc.APIHandler()
+	h := svc.apiHandler()
 
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
@@ -184,7 +184,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	// Opt-out: disabling limiter should never rate limit.
 	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
-	h = svc.APIHandler()
+	h = svc.apiHandler()
 	for i := 0; i < 50; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
@@ -197,7 +197,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	// Private Docker/proxy peers are rate-limited by default instead of failing open.
 	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.NoError(t, err)
-	h = svc.APIHandler()
+	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
@@ -221,7 +221,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
 	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.NoError(t, err)
-	h = svc.APIHandler()
+	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
@@ -245,7 +245,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	svc, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted, nil)))
 	require.NoError(t, err)
-	h = svc.APIHandler()
+	h = svc.apiHandler()
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))

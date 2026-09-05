@@ -96,14 +96,14 @@ func completeSecurityProviderCallback(t *testing.T, srv *Service, cfg authprovid
 		request.AddCookie(cookie)
 	}
 	response := httptest.NewRecorder()
-	srv.OIDCHandler().ServeHTTP(response, request)
+	srv.oidcHandler().ServeHTTP(response, request)
 	return response
 }
 
 func securityProviderLogin(t *testing.T, srv *Service, cfg authprovider.Provider, identity providerTestIdentity, invite string) *httptest.ResponseRecorder {
 	t.Helper()
 	start := httptest.NewRecorder()
-	srv.OIDCHandler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name+"/login?account_invite_token="+url.QueryEscape(invite), nil))
+	srv.oidcHandler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name+"/login?account_invite_token="+url.QueryEscape(invite), nil))
 	require.Equal(t, http.StatusFound, start.Code, start.Body.String())
 	return completeSecurityProviderCallback(t, srv, cfg, start, identity)
 }

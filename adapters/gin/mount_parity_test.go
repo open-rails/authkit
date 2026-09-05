@@ -31,12 +31,12 @@ func oldThreeCallRouter(svc *authhttp.Service) *gin.Engine {
 		}
 	}
 	r.GET("/.well-known/jwks.json", gin.WrapH(svc.JWKSHandler()))
-	oidc := svc.Routes().OIDCBrowser()
+	oidc := svc.OIDCBrowserRoutes()
 	for i := range oidc {
 		oidc[i].Path = "/oidc" + oidc[i].Path
 	}
 	ginRegister(r, oidc)
-	ginRegister(r.Group("/api/v1"), svc.Routes().DefaultAPI())
+	ginRegister(r.Group("/api/v1"), svc.APIRoutes())
 	return r
 }
 
@@ -96,10 +96,10 @@ func TestMountHandlerParityWithOldRegistration(t *testing.T) {
 
 	type ref struct{ method, path string }
 	var table []ref
-	for _, rt := range svc.Routes().DefaultAPI() {
+	for _, rt := range svc.APIRoutes() {
 		table = append(table, ref{rt.Method, "/api/v1" + rt.Path})
 	}
-	for _, rt := range svc.Routes().OIDCBrowser() {
+	for _, rt := range svc.OIDCBrowserRoutes() {
 		table = append(table, ref{rt.Method, "/oidc" + rt.Path})
 	}
 	table = append(table, ref{http.MethodGet, "/.well-known/jwks.json"})

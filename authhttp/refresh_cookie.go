@@ -26,7 +26,7 @@ const RefreshCookieName = "authkit_rt"
 // request context rather than on the Service so one Service mounted twice with
 // different options cannot cross-contaminate.
 type refreshCookiePolicy struct {
-	// path is the mount's API anchor (MountPrefix + APIPrefix). Both
+	// path is the mount's API anchor (APIPrefix). Both
 	// refresh-consuming routes live under it — POST /token and
 	// POST /sessions/current — and they do not share a tighter prefix. Anchoring
 	// there keeps the cookie off the SPA document and its assets.

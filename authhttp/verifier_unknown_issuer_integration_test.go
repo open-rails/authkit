@@ -28,7 +28,7 @@ func TestVerifier_UnknownIssuerFlood_BoundedStoreLoad(t *testing.T) {
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "garbage-kid")
 	require.NoError(t, err)
-	h := srv.APIHandler()
+	h := srv.apiHandler()
 	get := func(token string) int {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/me", nil)

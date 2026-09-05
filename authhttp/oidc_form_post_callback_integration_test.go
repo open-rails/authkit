@@ -36,7 +36,7 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 		"google": idp.Provider("google"),
 	}
 	srv.resetOIDCManagerForTest()
-	h := srv.OIDCHandler()
+	h := srv.oidcHandler()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
 	})

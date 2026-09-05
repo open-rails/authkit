@@ -101,7 +101,7 @@ func TestPasswordlessRealHTTPServerEmailOTP(t *testing.T) {
 	ctx := context.Background()
 	srv, emailSender, _ := passwordlessTestServer(t, true)
 	pool := srv.svc.Postgres()
-	ts := httptest.NewServer(srv.APIHandler())
+	ts := httptest.NewServer(srv.apiHandler())
 	t.Cleanup(ts.Close)
 
 	post := func(path, body string) (int, []byte) {

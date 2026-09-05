@@ -140,7 +140,7 @@ func TestJWKSHandler(t *testing.T) {
 
 func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{}`))
@@ -151,7 +151,7 @@ func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
 
 func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	tok, _, err := s.svc.MintAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
 	enableTestOIDCProvider(s)
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 
 	// Browser navigation: walked back to the frontend with the error fragment.
 	w := httptest.NewRecorder()
@@ -188,7 +188,7 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 func TestOIDCHandler_StepUpCallback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
 	enableTestOIDCProvider(s)
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 
 	// Pre-state failure: no StepUpReturnTo is recoverable, so the generic
 	// frontend error fragment is used.
@@ -208,7 +208,7 @@ func TestOIDCHandler_StepUpCallback_MissingStateOrCode(t *testing.T) {
 
 func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
 	s := newTestService(t)
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/auth/oidc/google/callback", nil)
@@ -248,7 +248,7 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 
 	tests := []struct {
 		provider string
@@ -361,7 +361,7 @@ func TestBuildAuthResultFragment_ReturnTo(t *testing.T) {
 func TestOIDCLoginStoresReturnTo(t *testing.T) {
 	s := newTestService(t)
 	configureGitHubOAuthForTest(t, s)
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to=%2Fsubscribe%3Fplan%3Dpro", nil)
 	h.ServeHTTP(w, r)
@@ -379,7 +379,7 @@ func TestOIDCLoginStoresReturnTo(t *testing.T) {
 func TestOIDCLoginDropsMaliciousReturnTo(t *testing.T) {
 	s := newTestService(t)
 	configureGitHubOAuthForTest(t, s)
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to=https%3A%2F%2Fevil.example%2F", nil)
 	h.ServeHTTP(w, r)
@@ -410,7 +410,7 @@ func TestOIDCStepUpAuthTimeFreshness(t *testing.T) {
 
 func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	for _, path := range []string{
 		"/password/reset/request",
@@ -432,7 +432,7 @@ func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {
 
 func TestAPIHandler_LegacyAuthPrefixNotMounted(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	tests := []struct {
 		method string
@@ -459,7 +459,7 @@ func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 	s := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
 		cfg.SolanaNetwork = "devnet"
 	})
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/solana/challenge", strings.NewReader(`{}`))
@@ -471,7 +471,7 @@ func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 
 func TestAPIHandler_UserBootstrapRoute_Removed(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/me/bootstrap", nil)
@@ -486,7 +486,7 @@ func TestAPIHandler_UserBootstrapRoute_Removed(t *testing.T) {
 
 func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/admin/accounts/state?slug=google", nil)
@@ -496,7 +496,7 @@ func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
 
 func TestAPIHandler_AdminAccountsReserveRoute_Removed(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/admin/accounts/reserve", strings.NewReader(`{"slug":"google"}`))
