@@ -53,7 +53,7 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 func newHardeningService(t *testing.T) (*Service, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
 		WithPostgres(testPG(t)), WithEphemeralStore(memorystore.NewKV())).WithEmailSender(sender)
 	return svc, sender
 }

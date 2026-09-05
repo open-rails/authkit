@@ -58,7 +58,7 @@ func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	sender := &codeCaptureEmailSender{}
-	svc := NewService(
+	svc := mustNewService(t,
 		Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
 		WithPostgres(pool), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender),

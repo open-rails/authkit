@@ -816,7 +816,11 @@ and mount the live gate instead:
 ```go
 verifier.WithLiveness(client) // any authkit.Client
 
-admin := router.Group("/api/v1/admin", authkitgin.RequiredLive(verifier))
+requiredLive, err := authkitgin.RequiredLive(verifier) // ErrLivenessUnconfigured without WithLiveness
+if err != nil {
+	return err
+}
+admin := router.Group("/api/v1/admin", requiredLive)
 ```
 
 * `verify.RequiredLive` / `RequiredLiveUser` (and the `authkitgin` twins) — 401
@@ -831,9 +835,9 @@ admin := router.Group("/api/v1/admin", authkitgin.RequiredLive(verifier))
   bare predicate.
 * **Fail-closed, no cache.** A lookup error denies. Exactly one
   `UserLivenessByIDs` call per gated request, no memoization — any cache
-  reintroduces the staleness window the gate exists to close. Mounting
-  `RequiredLive` without `WithLiveness` PANICS at mount rather than silently
-  degrading to the weaker gate.
+  reintroduces the staleness window the gate exists to close. Building
+  `RequiredLive` without `WithLiveness` returns `ErrLivenessUnconfigured`
+  rather than silently degrading to the weaker gate.
 
 ### Public-safe user projections (#268)
 

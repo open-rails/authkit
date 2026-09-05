@@ -92,31 +92,57 @@ func TestResolveKeySourceFailsClosedWithoutOptIn(t *testing.T) {
 	}
 }
 
-func TestResolveKeySourceGeneratesWithOptIn(t *testing.T) {
-	// Generated keys persist under .runtime/authkit relative to CWD; isolate.
-	t.Chdir(t.TempDir())
-	ks, err := ResolveKeySource(filepath.Join(t.TempDir(), "empty"), true)
+func TestResolveKeySourcePersistsDevKeysUnderExplicitPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "keys")
+	first, err := ResolveKeySource(dir, true)
 	if err != nil {
 		t.Fatalf("explicit ephemeral opt-in should generate dev keys: %v", err)
 	}
-	if ks.ActiveSigner() == nil {
+	if first.ActiveSigner() == nil {
 		t.Fatal("expected a generated active signer")
 	}
-}
-
-func TestGeneratedKeySourceInDirPersists(t *testing.T) {
-	dir := t.TempDir()
-	first, err := newGeneratedKeySourceInDir(dir)
+	fi, err := os.Stat(filepath.Join(dir, "keys.json"))
 	if err != nil {
-		t.Fatalf("first gen: %v", err)
+		t.Fatalf("explicit path should persist keys.json: %v", err)
 	}
-	second, err := newGeneratedKeySourceInDir(dir)
+	if fi.Mode().Perm() != 0600 {
+		t.Fatalf("keys.json mode = %o, want 0600", fi.Mode().Perm())
+	}
+	second, err := ResolveKeySource(dir, true)
 	if err != nil {
-		t.Fatalf("second gen: %v", err)
+		t.Fatalf("second resolve: %v", err)
 	}
 	if first.ActiveSigner().KID() != second.ActiveSigner().KID() {
 		t.Fatalf("expected persisted key to be reloaded: %q != %q",
 			first.ActiveSigner().KID(), second.ActiveSigner().KID())
+	}
+}
+
+// A generated dev key must never reach disk unless the caller named a path:
+// the library has no business writing key material relative to the process cwd.
+func TestResolveKeySourceDevKeysStayInMemoryWithoutPath(t *testing.T) {
+	defaultKeys := filepath.Join(DefaultAuthKeysPath, "keys.json")
+	if _, err := os.Stat(defaultKeys); err == nil {
+		t.Skipf("%s exists on this host; the file branch would win", defaultKeys)
+	}
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	ks, err := ResolveKeySource("", true)
+	if err != nil {
+		t.Fatalf("ephemeral opt-in without a path should generate in memory: %v", err)
+	}
+	if _, ok := ks.(StaticKeySource); !ok {
+		t.Fatalf("expected an in-memory StaticKeySource, got %T", ks)
+	}
+	entries, err := os.ReadDir(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("generated dev keys wrote into the cwd: %v", entries)
+	}
+	if _, err := os.Stat(defaultKeys); !os.IsNotExist(err) {
+		t.Fatalf("generated dev keys wrote to %s (stat err=%v)", defaultKeys, err)
 	}
 }
 

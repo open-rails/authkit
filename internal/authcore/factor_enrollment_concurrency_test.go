@@ -14,7 +14,7 @@ import (
 func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	for _, sameMethod := range []bool{false, true} {
 		t.Run(fmt.Sprintf("same_method_%v", sameMethod), func(t *testing.T) {
 			username := fmt.Sprintf("firstfactor%d", time.Now().UnixNano())

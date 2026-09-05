@@ -11,8 +11,9 @@ import (
 // 6-digit SMS code must be invalidated after a per-phone wrong-guess cap so it can't
 // be brute-forced within its TTL, and a success must reset the counter.
 
-func newPhoneVerifyTestService() *Service {
-	return NewService(
+func newPhoneVerifyTestService(t *testing.T) *Service {
+	t.Helper()
+	return mustNewService(t,
 		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
@@ -25,7 +26,7 @@ func pendingPhoneRegistrationExists(svc *Service, phone string) bool {
 }
 
 func TestRecordFailedPhoneVerifyCode_InvalidatesAfterCap(t *testing.T) {
-	svc := newPhoneVerifyTestService()
+	svc := newPhoneVerifyTestService(t)
 	ctx := context.Background()
 	const phone = "+14155550123"
 
@@ -52,7 +53,7 @@ func TestRecordFailedPhoneVerifyCode_InvalidatesAfterCap(t *testing.T) {
 }
 
 func TestClearPhoneVerifyCodeAttempts_ResetsCounter(t *testing.T) {
-	svc := newPhoneVerifyTestService()
+	svc := newPhoneVerifyTestService(t)
 	ctx := context.Background()
 	const phone = "+14155550124"
 

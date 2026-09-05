@@ -13,8 +13,9 @@ import (
 // invalidate the code after a few wrong guesses so it can't be brute-forced within
 // its TTL.
 
-func newEmailVerifyTestService() *Service {
-	return NewService(
+func newEmailVerifyTestService(t *testing.T) *Service {
+	t.Helper()
+	return mustNewService(t,
 		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
@@ -27,7 +28,7 @@ func pendingEmailRegistrationExists(svc *Service, email string) bool {
 }
 
 func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
-	svc := newEmailVerifyTestService()
+	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
 	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "victim@example.com", "victim", "argon2id$hash", 0, "")
@@ -59,7 +60,7 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 }
 
 func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
-	svc := newEmailVerifyTestService()
+	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
 	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
@@ -85,7 +86,7 @@ func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
 }
 
 func TestClearEmailVerifyCodeAttempts_ResetsCounter(t *testing.T) {
-	svc := newEmailVerifyTestService()
+	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
 	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {

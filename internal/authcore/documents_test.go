@@ -81,7 +81,7 @@ func TestServiceSignDocumentUsesConfiguredIssuerAndLiveKey(t *testing.T) {
 	if _, err := service.SignDocument(context.Background(), envelope); !errors.Is(err, documents.ErrIssuerMismatch) {
 		t.Fatalf("issuer override = %v", err)
 	}
-	verifyOnly := NewService(Config{Token: TokenConfig{Issuer: issuer}}, Keyset{})
+	verifyOnly := mustNewService(t, Config{Token: TokenConfig{Issuer: issuer}}, Keyset{})
 	if _, err := verifyOnly.SignDocument(context.Background(), documents.Envelope{}); !errors.Is(err, ErrMissingSigner) {
 		t.Fatalf("missing signer = %v", err)
 	}

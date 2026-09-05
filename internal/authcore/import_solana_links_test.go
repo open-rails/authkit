@@ -17,7 +17,7 @@ import (
 func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userID := mkBareUser(t, ctx, svc, "imported-solana")
 
 	challenge, parsed, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
@@ -107,7 +107,7 @@ func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	for _, verified := range []bool{false, true} {
 		name := "imported"
@@ -164,7 +164,7 @@ func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
 func TestImportUnverifiedSolanaLinksReportsIdempotenceAndConflicts(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userA := mkBareUser(t, ctx, svc, "import-solana-a")
 	userB := mkBareUser(t, ctx, svc, "import-solana-b")
 	_, _, outputA := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
@@ -208,7 +208,7 @@ func TestImportUnverifiedSolanaLinksReportsIdempotenceAndConflicts(t *testing.T)
 func TestImportedSolanaLinkCanBeUnlinkedWithoutAnotherCredential(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	userID := mkBareUser(t, ctx, svc, "import-solana-unlink")
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 
@@ -236,7 +236,7 @@ func TestImportedSolanaLinkCanLoginOnlyAfterValidSIWSProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate signer: %v", err)
 	}
-	svc := NewService(Config{
+	svc := mustNewService(t, Config{
 		Token:        TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}},
 		Registration: RegistrationConfig{NativeUserMode: RegistrationModeClosed},
 	}, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"solana-import-test": signer.PublicKey()}}, WithPostgres(pool))
