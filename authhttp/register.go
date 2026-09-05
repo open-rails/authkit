@@ -157,6 +157,14 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			if s.handleDeliveryError(w, r, "register", "send_phone_verification", err) {
 				return
 			}
+			if errors.Is(err, authkit.ErrPhoneInUse) {
+				badRequest(w, ErrPhoneInUse)
+				return
+			}
+			if errors.Is(err, authkit.ErrUsernameInUse) {
+				badRequest(w, ErrUsernameInUse)
+				return
+			}
 			if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 				badRequest(w, code)
 				return
@@ -219,6 +227,15 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	_, err = s.svc.CreatePendingRegistrationWithLanguage(ctx, identifier, username, phc, 0, preferredLanguage)
 	if err != nil {
 		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
+			return
+		}
+		// #326: the race loser of check-then-insert gets the typed conflict.
+		if errors.Is(err, authkit.ErrEmailInUse) {
+			badRequest(w, ErrEmailInUse)
+			return
+		}
+		if errors.Is(err, authkit.ErrUsernameInUse) {
+			badRequest(w, ErrUsernameInUse)
 			return
 		}
 		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {

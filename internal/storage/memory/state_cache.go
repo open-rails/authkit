@@ -14,6 +14,14 @@ type StateCache struct {
 	ttl    time.Duration
 	data   map[string]item
 	closed chan struct{}
+	now    func() time.Time
+}
+
+type StateCacheOption func(*StateCache)
+
+// WithStateCacheClock replaces the TTL clock (tests advance it instead of sleeping).
+func WithStateCacheClock(now func() time.Time) StateCacheOption {
+	return func(s *StateCache) { s.now = now }
 }
 
 type item struct {
@@ -24,11 +32,14 @@ type item struct {
 // NewStateCache creates a new in-memory state cache with the given TTL.
 // If ttl <= 0, a default of 10 minutes is used.
 // Starts a background goroutine to clean up expired entries every minute.
-func NewStateCache(ttl time.Duration) *StateCache {
+func NewStateCache(ttl time.Duration, opts ...StateCacheOption) *StateCache {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
-	c := &StateCache{ttl: ttl, data: make(map[string]item), closed: make(chan struct{})}
+	c := &StateCache{ttl: ttl, data: make(map[string]item), closed: make(chan struct{}), now: time.Now}
+	for _, opt := range opts {
+		opt(c)
+	}
 	go c.cleanupLoop()
 	return c
 }
@@ -37,7 +48,7 @@ func (s *StateCache) Put(ctx context.Context, state string, v oidckit.StateData)
 	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data[state] = item{v: v, exp: time.Now().Add(s.ttl)}
+	s.data[state] = item{v: v, exp: s.now().Add(s.ttl)}
 	return nil
 }
 
@@ -49,7 +60,7 @@ func (s *StateCache) Get(ctx context.Context, state string) (oidckit.StateData, 
 	if !ok {
 		return oidckit.StateData{}, false, nil
 	}
-	if time.Now().After(it.exp) {
+	if s.now().After(it.exp) {
 		delete(s.data, state)
 		return oidckit.StateData{}, false, nil
 	}
@@ -76,7 +87,7 @@ func (s *StateCache) Consume(ctx context.Context, state string) (oidckit.StateDa
 		return oidckit.StateData{}, false, nil
 	}
 	delete(s.data, state)
-	if time.Now().After(it.exp) {
+	if s.now().After(it.exp) {
 		return oidckit.StateData{}, false, nil
 	}
 	return it.v, true, nil
@@ -100,7 +111,7 @@ func (s *StateCache) cleanupLoop() {
 func (s *StateCache) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now()
+	now := s.now()
 	for k, v := range s.data {
 		if now.After(v.exp) {
 			delete(s.data, k)

@@ -239,6 +239,18 @@ func (s *Sender) SendContactChanged(ctx context.Context, email, username string,
 	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "contact-changed"}})
 }
 
+func (s *Sender) SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice embedded.DeviceKeyNotice) error {
+	app := s.appLabel()
+	device := strings.TrimSpace(notice.Label)
+	if device == "" {
+		device = "a new device"
+	}
+	subject := fmt.Sprintf("A new device can sign in to your %s account", app)
+	intro := fmt.Sprintf("%s was enrolled on your %s account on %s and can now sign in as you. If this was not you, revoke it and secure your email now.", device, app, notice.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"))
+	html := fmt.Sprintf("<p>%s</p>", escapeHTML(intro))
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "device-key-enrolled"}})
+}
+
 func (s *Sender) appLabel() string {
 	return twiliocommon.AppLabel(s.AppName)
 }

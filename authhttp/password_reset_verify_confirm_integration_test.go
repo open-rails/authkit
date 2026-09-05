@@ -22,12 +22,26 @@ import (
 var resetVerifySeq atomic.Int64
 
 type captureEmailSender struct {
-	mu          sync.Mutex
-	resetToken  string
-	resetURL    string
-	verifyCode  string
-	verifyToken string
-	verifyURL   string
+	mu            sync.Mutex
+	resetToken    string
+	resetURL      string
+	verifyCode    string
+	verifyToken   string
+	verifyURL     string
+	deviceNotices []string
+}
+
+func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ embedded.DeviceKeyNotice) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deviceNotices = append(s.deviceNotices, email)
+	return nil
+}
+
+func (s *captureEmailSender) deviceKeyNotices() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.deviceNotices...)
 }
 
 func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg embedded.VerificationMessage) error {

@@ -11,7 +11,7 @@ import (
 // and returns the client; NewServer rejects WithEngine so the two-step path
 // can't silently drop engine options.
 func TestNewOneStep(t *testing.T) {
-	pool := newNoDBPool(t)
+	pool := newTestPool(t)
 	sender := &captureEmailSender{}
 
 	svc, client, err := New(newServerTestConfig(), pool, WithEngine(embedded.WithEmailSender(sender)), WithoutRateLimiter())
@@ -21,7 +21,7 @@ func TestNewOneStep(t *testing.T) {
 	require.Same(t, embedded.Unwrap(client), svc.svc, "transport must wrap the returned client's engine")
 
 	// Two-step path: WithEngine is a loud construction error, not a silent no-op.
-	twoStep := newServerClient(t, newServerTestConfig(), newNoDBPool(t))
+	twoStep := newServerClient(t, newServerTestConfig(), newTestPool(t))
 	_, err = NewServer(twoStep, WithEngine(embedded.WithEmailSender(sender)))
 	require.ErrorContains(t, err, "WithEngine is only valid with authhttp.New")
 }

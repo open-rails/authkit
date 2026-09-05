@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
@@ -94,15 +95,13 @@ func enableTestOIDCProvider(s *Service) {
 	}
 }
 
-// newNoDBPool returns a *pgxpool.Pool that satisfies NewServer's mandatory
-// non-nil pool requirement (#106/#108) WITHOUT touching a database. pgxpool.New
-// with the default MinConns=0 never dials eagerly (idle resources are created in
-// a background goroutine up to MinConns), so a pool built from a parseable DSN
-// is inert. Use it for pure no-DB handler tests (request validation, rate
-// limiting, provider prebuild) where the assertion fires before any query.
-func newNoDBPool(t *testing.T) *pgxpool.Pool {
+// newTestPool connects to the shared integration database (testdb.URL) without
+// the advisory lock newServerTestPool takes, so a test may hold several pools at
+// once. It replaces the former phantom-DSN pool: any query a handler happens to
+// issue now runs against the real store.
+func newTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), "postgres://authkit:authkit@127.0.0.1:5432/authkit_test")
+	pool, err := pgxpool.New(context.Background(), testdb.URL(t))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	return pool

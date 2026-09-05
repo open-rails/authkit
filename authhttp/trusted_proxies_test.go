@@ -23,7 +23,7 @@ func TestWithTrustedProxies(t *testing.T) {
 	cfg := newServerTestConfig()
 	build := func(t *testing.T, opts ...Option) *Service {
 		t.Helper()
-		srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), opts...)
+		srv, err := NewServer(newServerClient(t, cfg, newTestPool(t)), opts...)
 		require.NoError(t, err)
 		return srv
 	}
@@ -78,9 +78,9 @@ func TestWithTrustedProxies(t *testing.T) {
 	})
 
 	t.Run("invalid CIDR fails NewServer", func(t *testing.T) {
-		_, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithTrustedProxies("not-a-cidr"))
+		_, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithTrustedProxies("not-a-cidr"))
 		require.Error(t, err)
-		_, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithCloudflareProxies("not-a-cidr"))
+		_, err = NewServer(newServerClient(t, cfg, newTestPool(t)), WithCloudflareProxies("not-a-cidr"))
 		require.Error(t, err)
 	})
 }
@@ -122,7 +122,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 	prod := newServerTestConfig()
 	prod.Environment = "production"
-	prodClient := func() *embedded.Client { return newServerClient(t, prod, newNoDBPool(t), embedded.WithRedis(rdb)) }
+	prodClient := func() *embedded.Client { return newServerClient(t, prod, newTestPool(t), embedded.WithRedis(rdb)) }
 
 	_, err := NewServer(prodClient(), WithRedis(rdb))
 	require.Error(t, err)
@@ -139,7 +139,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 	}
 
 	// Dev stays posture-free.
-	_, err = NewServer(newServerClient(t, newServerTestConfig(), newNoDBPool(t)))
+	_, err = NewServer(newServerClient(t, newServerTestConfig(), newTestPool(t)))
 	require.NoError(t, err)
 }
 

@@ -259,3 +259,63 @@ func TestBinaryEnvNamesAreAuthkitPrefixed(t *testing.T) {
 			strings.Join(violations, "\n  "))
 	}
 }
+
+var ephemeralDevKeysAllowlist = map[string]string{
+	"internal/authcore/constructor_keys_test.go": "tests the dev-key generator itself",
+	"jwtkit/": "owns the generator",
+}
+
+// Tests build their signing keys explicitly (jwtkit.StaticKeySource): the dev
+// generator persists a keypair under the package directory (.runtime/authkit),
+// so AllowEphemeralDevKeys is not a test convenience.
+func TestTestsUseExplicitSigningKeys(t *testing.T) {
+	fset := token.NewFileSet()
+	var violations []string
+
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := filepath.ToSlash(path)
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(rel, "_test.go") {
+			return nil
+		}
+		for prefix := range ephemeralDevKeysAllowlist {
+			if strings.HasPrefix(rel, prefix) {
+				return nil
+			}
+		}
+		f, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "AllowEphemeralDevKeys" {
+				return true
+			}
+			if v, ok := kv.Value.(*ast.Ident); ok && v.Name == "true" {
+				violations = append(violations, fset.Position(kv.Pos()).String())
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("tests must use explicit signing keys (jwtkit.StaticKeySource), not AllowEphemeralDevKeys (#320):\n  %s",
+			strings.Join(violations, "\n  "))
+	}
+}

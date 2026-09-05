@@ -27,7 +27,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Dev env: auto-generate signing keys + serve the /dev/* test endpoints.
+      # Dev env: auto-generate signing keys.
       AUTHKIT_ENV: dev
 
       AUTHKIT_LISTEN_ADDR: ":8080"
@@ -39,9 +39,6 @@ services:
       # Apply the schema on boot — this service doubles as the migration runner
       # the test suite waits on (CI waits for /healthz after migrations).
       AUTHKIT_MIGRATE_ON_START: "true"
-
-      # Dev-only minting endpoint (gated on dev env + this secret):
-      AUTHKIT_DEV_MINT_SECRET: "change-me"
     ports:
       - "127.0.0.1:38080:8080"
     volumes:

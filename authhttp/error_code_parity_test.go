@@ -17,22 +17,19 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// #213 parity guard — the real invariant between the two code tables.
+// #213 parity guard — the invariant between the two code tables.
 //
-// The audit's premise ("two parallel registries with the same strings") turned
-// out only PARTIALLY true: the authkit sentinel registry is the MANAGEMENT
-// transport's wire vocabulary (server/ emits sentinel codes verbatim via
-// HTTPStatus), while authhttp's ~200 ErrorCode consts are the HTTP route
+// The authkit sentinel registry is the Go-API error vocabulary (errors.Is,
+// OpResult wire codes); authhttp's ErrorCode consts are the HTTP route
 // vocabulary — overlapping, but with DELIBERATE divergences (e.g. the
 // cannot_remove_last_admin_role sentinel surfaces as cannot_remove_last_owner
 // on the group routes, and the siws_* sentinels surface as challenge_expired /
 // invalid_signature). Forcing 1:1 parity would mean ~30 dead consts.
 //
 // What must hold instead: every registry code is ACCOUNTED FOR — either it has
-// an identical authhttp const, or it is explicitly listed as management-only /
+// an identical authhttp const, or it is explicitly listed as Go-API-only /
 // exempt below. A new sentinel that is none of these fails loudly, so the two
-// tables can never drift silently. (This replaces codegen: generation would
-// need the same hand-lists anyway.)
+// tables can never drift silently.
 func TestSentinelCodesAccountedFor(t *testing.T) {
 	src, err := os.ReadFile("error_codes.go")
 	if err != nil {
@@ -57,17 +54,16 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		declared[string(c)] = true
 	}
 
-	// Management-transport-only codes: authhttp handlers deliberately map these
-	// sentinels to OTHER wire codes on their routes (or the condition never
-	// reaches an authhttp route at all). They travel verbatim only on the
-	// server/ management API. Adding a same-named authhttp const would be dead.
-	managementOnly := map[string]bool{
+	// Go-API-only codes: authhttp handlers deliberately map these sentinels to
+	// OTHER wire codes on their routes, or the condition never reaches an
+	// authhttp route at all. Adding a same-named authhttp const would be dead.
+	goAPIOnly := map[string]bool{
 		"cannot_remove_last_admin_role":         true, // group routes emit cannot_remove_last_owner
 		"account_registration_invite_consumed":  true, // registration gate surfaces registration_disabled
 		"account_registration_invite_expired":   true,
 		"account_registration_invite_not_found": true,
 		"account_registration_invite_revoked":   true,
-		"custom_jwt_reserved_claim":             true, // MintCustomJWT is Go-API/management only
+		"custom_jwt_reserved_claim":             true, // MintCustomJWT is Go-API only
 		"custom_jwt_reserved_type":              true,
 		"custom_jwt_empty_claims":               true,
 		"custom_jwt_too_many_claims":            true,
@@ -75,20 +71,20 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"permission_group_not_found":            true, // group routes emit not_found
 		"insufficient_role_authority":           true, // group routes emit forbidden
 		"role_assignment_escalation":            true, // group routes emit forbidden
-		"invalid_attribute_def":                 true, // remote-app attribute defs: management only
+		"invalid_attribute_def":                 true, // remote-app attribute defs: Go-API only
 		"invalid_bootstrap_manifest":            true, // bootstrap/ops path
 		"bootstrap_database_not_empty":          true, // bootstrap/ops path
 		"group_invite_link_expired":             true, // group routes emit invalid_request
 		"group_invite_link_not_found":           true, // group routes emit not_found
 		"group_invite_link_revoked":             true, // group routes emit invalid_request
-		"avatar_url_invalid":                    true, // UpdateAvatarURL is Go-API/management only (#262)
+		"avatar_url_invalid":                    true, // UpdateAvatarURL is Go-API only (#262)
 		"missing_signer":                        true, // verify-only misconfig, construction/Go-API
-		"not_group_member":                      true, // no authhttp route surfaces it; management/Go-API only
+		"not_group_member":                      true, // no authhttp route surfaces it; Go-API only
 		"passkey_clone_detected":                true, // passkey login surfaces invalid_credentials
 		"passkey_not_found":                     true, // passkey routes emit not_found
 		"passkey_user_verification_required":    true, // surfaces as invalid_credentials
 		"user_role_not_found":                   true, // role routes emit not_found
-		"user_referenced":                       true, // hard delete is Go-API/management only (#304)
+		"user_referenced":                       true, // hard delete is Go-API only (#304)
 		"reserved_issuer":                       true, // remote-app routes emit invalid_request
 		"siws_address_mismatch":                 true, // solana routes emit address_mismatch
 		"siws_challenge_expired":                true, // solana routes emit challenge_expired
@@ -113,8 +109,8 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"custom_role_grant_cross_persona":   true,
 		"custom_role_grant_outside_catalog": true,
 	}
-	// Signed-document errors are surfaced by the generic management Client
-	// methods and documents/verify APIs, not by authhttp route handlers.
+	// Signed-document errors are surfaced by the Client methods and the
+	// documents/verify APIs, not by authhttp route handlers.
 	for _, sentinel := range []error{
 		documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
 		documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
@@ -126,14 +122,14 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
 		documents.ErrDigestCollision,
 	} {
-		managementOnly[sentinel.Error()] = true
+		goAPIOnly[sentinel.Error()] = true
 	}
 
 	for _, code := range authkit.ErrorCodes() {
-		if declared[code] || managementOnly[code] {
+		if declared[code] || goAPIOnly[code] {
 			continue
 		}
-		t.Errorf("registry code %q is unaccounted for: add a matching authhttp.ErrorCode const, or classify it in managementOnly with a reason", code)
+		t.Errorf("registry code %q is unaccounted for: add a matching authhttp.ErrorCode const, or classify it in goAPIOnly with a reason", code)
 	}
 }
 

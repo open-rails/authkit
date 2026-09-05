@@ -3,8 +3,35 @@ package authkit
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"time"
 )
+
+// MaxRemoteApplicationIssuerLen bounds a remote-application issuer identifier.
+// Registration refuses longer values and the verifier never consults the store
+// for them (ak#297).
+const MaxRemoteApplicationIssuerLen = 512
+
+// ValidRemoteApplicationIssuer reports whether iss has the shape every
+// registered remote-application issuer has: an absolute http(s) URL with a
+// host, at most MaxRemoteApplicationIssuerLen bytes, no whitespace or control
+// characters. Registration enforces it; the verifier applies the same rule to a
+// token's self-asserted `iss` before any store lookup.
+func ValidRemoteApplicationIssuer(iss string) bool {
+	if iss == "" || len(iss) > MaxRemoteApplicationIssuerLen {
+		return false
+	}
+	for _, r := range iss {
+		if r <= ' ' || r == 0x7f {
+			return false
+		}
+	}
+	u, err := url.Parse(iss)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
 
 // ErrAttributeDefNotFound indicates no registered remote-application attribute
 // definition matched.

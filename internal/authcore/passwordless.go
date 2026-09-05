@@ -35,14 +35,14 @@ type PasswordlessStartResult = authkit.PasswordlessStartResult
 type PasswordlessConfirmResult = authkit.PasswordlessConfirmResult
 
 type passwordlessChallenge struct {
-	Channel           string   `json:"channel"`
-	Identifier        string   `json:"identifier"`
-	UserID            string   `json:"user_id,omitempty"`
-	GeneratedUsername string   `json:"generated_username,omitempty"`
-	PreferredLanguage string   `json:"preferred_language,omitempty"`
-	ReturnTo          string   `json:"return_to,omitempty"`
-	CodeHash          string   `json:"code_hash,omitempty"`
-	LinkHash          string   `json:"link_hash,omitempty"`
+	Channel           string `json:"channel"`
+	Identifier        string `json:"identifier"`
+	UserID            string `json:"user_id,omitempty"`
+	GeneratedUsername string `json:"generated_username,omitempty"`
+	PreferredLanguage string `json:"preferred_language,omitempty"`
+	ReturnTo          string `json:"return_to,omitempty"`
+	CodeHash          string `json:"code_hash,omitempty"`
+	LinkHash          string `json:"link_hash,omitempty"`
 	// AccountInviteToken carries the unbound single-use account-registration code
 	// from start to confirm (#147): the code is the credential, so it must be
 	// present at consume time, which happens at confirm (when the user id exists).
@@ -269,7 +269,7 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 	if username == "" {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
-	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
 	switch rec.Channel {
@@ -309,7 +309,7 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 		}
 		phone := rec.Identifier
 		if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: true}); err != nil {
-			return "", err
+			return "", mapUserUniqueViolation(err)
 		}
 		if rec.PreferredLanguage != "" {
 			_ = s.SetPreferredLanguage(ctx, u.ID, rec.PreferredLanguage)

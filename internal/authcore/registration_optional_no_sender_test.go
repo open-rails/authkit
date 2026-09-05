@@ -34,6 +34,9 @@ func (s *spyEmailSender) SendWelcome(ctx context.Context, email, username string
 	return nil
 }
 
+func (s *spyEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, DeviceKeyNotice) error {
+	return nil
+}
 func (s *spyEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
 	return nil
 }

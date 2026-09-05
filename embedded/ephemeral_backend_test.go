@@ -12,7 +12,7 @@ import (
 func TestNewRefusesMemoryEphemeralOutsideDev(t *testing.T) {
 	pool := newGenesisTestPool(t)
 	base := Config{
-		Keys:         KeysConfig{AllowEphemeralDevKeys: true},
+		Keys:         testKeys(t),
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
 		Registration: RegistrationConfig{Verification: RegistrationVerificationNone},
 	}

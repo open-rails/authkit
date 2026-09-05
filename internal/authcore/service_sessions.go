@@ -269,7 +269,7 @@ func (s *Service) graceSuccessorFor(presented string, prev db.SessionByHistorica
 	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
 		return "", false
 	}
-	now := time.Now()
+	now := s.nowTime()
 	if now.Sub(*prev.PreviousRotatedAt) > window {
 		return "", false
 	}

@@ -72,18 +72,55 @@ func TestVerifierAcceptsEdDSARemoteApplicationIssuer(t *testing.T) {
 	}
 }
 
+// TestVerifierRejectsHS256 pins the algorithm-confusion attack: an HS256 token
+// must be refused at key resolution (disallowed_alg) whatever the secret, and in
+// particular when the secret is the issuer's own public key bytes — the classic
+// RSA-public-key-as-HMAC-secret confusion. alg=none stays its own case.
 func TestVerifierRejectsHS256(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	signer, err := jwtkit.NewRSASigner(2048, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
 	v := verify.NewVerifier()
-	_ = v.AddIssuer("https://issuer.example", nil, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{
+	if err := v.AddIssuer("https://issuer.example", nil, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{
 		signer.KID(): signer.PublicKey(),
-	}})
-	// Craft HS256-looking attempt is not possible without secret; test alg gate on keyfunc path
-	// by using a token signed with wrong alg header - use ParseUnverified + manual isn't valid.
-	// Instead verify algAllowed rejects none/hs at key resolution time via disallowed_alg.
-	token := jwt.NewWithClaims(jwt.SigningMethodNone, jwt.MapClaims{"sub": "x"})
-	token.Header["alg"] = "none"
-	unsigned, _ := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(signer.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	claims := jwt.MapClaims{"iss": "https://issuer.example", "sub": "x", "exp": time.Now().Add(time.Hour).Unix()}
+
+	// Control: the same claims signed RS256 by the issuer verify, so the HS256
+	// rejections below are about the algorithm, not the claims or the kid.
+	control, err := signer.Sign(context.Background(), claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.VerifyClaims(control); err != nil {
+		t.Fatalf("RS256 control token must verify: %v", err)
+	}
+
+	for name, secret := range map[string][]byte{"arbitrary secret": []byte("any"), "issuer public key as secret": publicPEM} {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		token.Header["kid"] = signer.KID()
+		signed, err := token.SignedString(secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := v.VerifyClaims(signed); err == nil {
+			t.Fatalf("HS256 with %s must be rejected", name)
+		}
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
+	unsigned, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := v.VerifyClaims(unsigned); err == nil {
 		t.Fatal("expected rejection for none alg")
 	}

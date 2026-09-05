@@ -6,6 +6,7 @@ import (
 	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/internal/testclock"
 )
 
 func newPendingChangeTestService() *Service {
@@ -124,7 +125,9 @@ func TestPendingChangeKindsAreIsolated(t *testing.T) {
 // postgres cleanup worker for pending state).
 func TestPendingChangeExpiresByTTL(t *testing.T) {
 	ctx := context.Background()
-	svc := newPendingChangeTestService()
+	clk := testclock.New()
+	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{},
+		WithEphemeralStore(memorystore.NewKV(memorystore.WithKVClock(clk.Now))))
 
 	if err := svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "exp@example.com", UserID: "u-exp", CodeHash: sha256Hex("expcode"), LinkHash: sha256Hex("explink")}, 20*time.Millisecond); err != nil {
 		t.Fatalf("store: %v", err)
@@ -133,7 +136,7 @@ func TestPendingChangeExpiresByTTL(t *testing.T) {
 		t.Fatal("should be present before TTL elapses")
 	}
 
-	time.Sleep(60 * time.Millisecond)
+	clk.Advance(60 * time.Millisecond)
 
 	if _, ok := svc.findPendingChangeByUser(ctx, KindChangeEmail, "u-exp"); ok {
 		t.Fatal("record should have expired")

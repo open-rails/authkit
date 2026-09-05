@@ -32,8 +32,13 @@ func (c *codeCaptureEmailSender) SendPasswordResetLink(context.Context, string, 
 func (c *codeCaptureEmailSender) SendAccountRegistrationInvite(context.Context, string, string) error {
 	return nil
 }
-func (c *codeCaptureEmailSender) SendLoginCode(context.Context, string, string, string) error { return nil }
-func (c *codeCaptureEmailSender) SendWelcome(context.Context, string, string) error           { return nil }
+func (c *codeCaptureEmailSender) SendLoginCode(context.Context, string, string, string) error {
+	return nil
+}
+func (c *codeCaptureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
+func (c *codeCaptureEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, DeviceKeyNotice) error {
+	return nil
+}
 func (c *codeCaptureEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
 	return nil
 }
