@@ -20,7 +20,7 @@ func inviteTestService(t *testing.T, requiresMFA bool) (*Service, *testdb.Postgr
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)

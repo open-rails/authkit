@@ -283,8 +283,9 @@ type KeysConfig struct {
 	// cmd/authkit-server only).
 	Path string
 	// AllowEphemeralDevKeys opts in to auto-generating an RSA dev signing
-	// keypair (persisted under .runtime/authkit/) when Source is nil and no
-	// <Path>/keys.json exists. DEVELOPMENT ONLY — the default (false) is
+	// keypair when Source is nil and no <Path>/keys.json exists. It lives in
+	// memory, unless Path is explicit — then it is written to <Path>/keys.json
+	// so restarts reuse it. DEVELOPMENT ONLY — the default (false) is
 	// fail-closed: with no keys configured, NewFromConfig returns a hard error
 	// instead of silently minting dev keys (#231). This flag is deliberately
 	// NOT derived from Environment.

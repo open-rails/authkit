@@ -28,7 +28,7 @@ func TestVerifySIWSAndLoginConsumesChallengeOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(Config{
+	svc := mustNewService(t, Config{
 		Token: TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}},
 	}, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"siws-replay": signer.PublicKey()}},
 		WithPostgres(pool), WithSolanaSNSResolver(noSNS{}))

@@ -39,6 +39,9 @@ services:
       # Apply the schema on boot — this service doubles as the migration runner
       # the test suite waits on (CI waits for /healthz after migrations).
       AUTHKIT_MIGRATE_ON_START: "true"
+
+      # Generated dev signing keys stay in memory unless a path is explicit.
+      AUTHKIT_KEYS_PATH: "/.runtime/authkit"
     ports:
       - "127.0.0.1:38080:8080"
     volumes:

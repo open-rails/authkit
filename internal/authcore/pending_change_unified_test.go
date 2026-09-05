@@ -9,8 +9,9 @@ import (
 	"github.com/open-rails/authkit/internal/testclock"
 )
 
-func newPendingChangeTestService() *Service {
-	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
+func newPendingChangeTestService(t *testing.T) *Service {
+	t.Helper()
+	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	return svc
 }
 
@@ -21,7 +22,7 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("register_email", func(t *testing.T) {
-		svc := newPendingChangeTestService()
+		svc := newPendingChangeTestService(t)
 		rec := pendingChange{Kind: KindRegisterEmail, Target: "Reg@Example.com", Username: "reguser", PasswordHash: "argon2id$h", CodeHash: sha256Hex("code1")}
 		if err := svc.storePendingChange(ctx, rec, 0); err != nil {
 			t.Fatalf("store: %v", err)
@@ -50,7 +51,7 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 	})
 
 	t.Run("register_phone", func(t *testing.T) {
-		svc := newPendingChangeTestService()
+		svc := newPendingChangeTestService(t)
 		rec := pendingChange{Kind: KindRegisterPhone, Target: "+14155550111", Username: "phoneuser", PasswordHash: "argon2id$h", CodeHash: sha256Hex("code2")}
 		if err := svc.storePendingChange(ctx, rec, 0); err != nil {
 			t.Fatalf("store: %v", err)
@@ -65,7 +66,7 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 	})
 
 	t.Run("change_email", func(t *testing.T) {
-		svc := newPendingChangeTestService()
+		svc := newPendingChangeTestService(t)
 		rec := pendingChange{Kind: KindChangeEmail, Target: "new@example.com", UserID: "user-1", CodeHash: sha256Hex("code3")}
 		if err := svc.storePendingChange(ctx, rec, 0); err != nil {
 			t.Fatalf("store: %v", err)
@@ -80,7 +81,7 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 	})
 
 	t.Run("change_phone", func(t *testing.T) {
-		svc := newPendingChangeTestService()
+		svc := newPendingChangeTestService(t)
 		rec := pendingChange{Kind: KindChangePhone, Target: "+14155550222", UserID: "user-2", CodeHash: sha256Hex("code4")}
 		if err := svc.storePendingChange(ctx, rec, 0); err != nil {
 			t.Fatalf("store: %v", err)
@@ -99,7 +100,7 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 // change_email lookup must not return a register_email record and vice versa.
 func TestPendingChangeKindsAreIsolated(t *testing.T) {
 	ctx := context.Background()
-	svc := newPendingChangeTestService()
+	svc := newPendingChangeTestService(t)
 
 	_ = svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "a@example.com", UserID: "u1", CodeHash: sha256Hex("c1")}, 0)
 	_ = svc.storePendingChange(ctx, pendingChange{Kind: KindChangePhone, Target: "+14155550333", UserID: "u1", CodeHash: sha256Hex("c2")}, 0)
@@ -126,7 +127,7 @@ func TestPendingChangeKindsAreIsolated(t *testing.T) {
 func TestPendingChangeExpiresByTTL(t *testing.T) {
 	ctx := context.Background()
 	clk := testclock.New()
-	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{},
+	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{},
 		WithEphemeralStore(memorystore.NewKV(memorystore.WithKVClock(clk.Now))))
 
 	if err := svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "exp@example.com", UserID: "u-exp", CodeHash: sha256Hex("expcode"), LinkHash: sha256Hex("explink")}, 20*time.Millisecond); err != nil {
@@ -150,7 +151,7 @@ func TestPendingChangeExpiresByTTL(t *testing.T) {
 // record (old code and old link no longer resolve).
 func TestPendingChangeSupersedesPrior(t *testing.T) {
 	ctx := context.Background()
-	svc := newPendingChangeTestService()
+	svc := newPendingChangeTestService(t)
 
 	_ = svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "x@example.com", UserID: "u9", CodeHash: sha256Hex("old"), LinkHash: sha256Hex("oldlink")}, 0)
 	_ = svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "x@example.com", UserID: "u9", CodeHash: sha256Hex("new"), LinkHash: sha256Hex("newlink")}, 0)

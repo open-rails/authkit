@@ -140,27 +140,46 @@ func (s *Service) loadPendingChange(ctx context.Context, key string) (pendingCha
 
 // findPendingChangeByTarget loads a register-kind record and asserts it really
 // is the one issued for this target.
+// findPendingChangeByTarget is the lookup-only form: a store failure reads as
+// "not found". Confirm paths use pendingChangeByTarget so a backend failure is
+// never counted as a bad guess (ak#324).
 func (s *Service) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
+	rec, ok, _ := s.pendingChangeByTarget(ctx, kind, target)
+	return rec, ok
+}
+
+func (s *Service) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
 	target = normalizePendingTarget(kind, target)
 	if !kind.isRegister() || target == "" {
-		return pendingChange{}, false
+		return pendingChange{}, false, nil
 	}
 	rec, ok, err := s.loadPendingChange(ctx, pendingChangeKey(kind, target))
-	if err != nil || !ok || rec.Kind != kind || rec.Target != target {
-		return pendingChange{}, false
+	if err != nil {
+		return pendingChange{}, false, err
 	}
-	return rec, true
+	if !ok || rec.Kind != kind || rec.Target != target {
+		return pendingChange{}, false, nil
+	}
+	return rec, true, nil
 }
 
 func (s *Service) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
+	rec, ok, _ := s.pendingChangeByUser(ctx, kind, userID)
+	return rec, ok
+}
+
+func (s *Service) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
-		return pendingChange{}, false
+		return pendingChange{}, false, nil
 	}
 	rec, ok, err := s.loadPendingChange(ctx, pendingChangeKey(kind, userID))
-	if err != nil || !ok || rec.Kind != kind || rec.UserID != userID {
-		return pendingChange{}, false
+	if err != nil {
+		return pendingChange{}, false, err
 	}
-	return rec, true
+	if !ok || rec.Kind != kind || rec.UserID != userID {
+		return pendingChange{}, false, nil
+	}
+	return rec, true, nil
 }
 
 // pendingChangeUsernameTaken reports whether a register-kind pending change is
@@ -252,7 +271,10 @@ func (s *Service) consumePendingChangeByLink(ctx context.Context, linkHash strin
 		return "", jwt.ErrTokenUnverifiable
 	}
 	rec, ok, err := s.loadPendingChange(ctx, key)
-	if err != nil || !ok || rec.Kind != expectKind || !secretHashEqual(rec.LinkHash, linkHash) {
+	if err != nil {
+		return "", err
+	}
+	if !ok || rec.Kind != expectKind || !secretHashEqual(rec.LinkHash, linkHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	uid, err := s.finalizePendingChange(ctx, rec, nil)

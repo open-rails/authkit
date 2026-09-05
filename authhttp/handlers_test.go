@@ -38,7 +38,7 @@ func newTestCoreService(t *testing.T) *authcore.Service {
 		// so we explicitly opt out to avoid needing a real email sender.
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	return authcore.NewService(cfg, ks)
+	return newCore(t, cfg, ks)
 }
 
 func newTestService(t *testing.T) *Service {
@@ -63,7 +63,7 @@ func newTestServiceNoBaseOrigin(t *testing.T) *Service {
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	return serviceFromCore(t, authcore.NewService(cfg, ks))
+	return serviceFromCore(t, newCore(t, cfg, ks))
 }
 
 // newTestServiceWithPasskeys builds a test Service whose core has a passkey
@@ -75,7 +75,15 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 	require.NoError(t, err)
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}, Passkeys: embedded.PasskeyConfig{RPID: "example.com", RPDisplayName: "Example"}}
-	return serviceFromCore(t, authcore.NewService(opts, ks))
+	return serviceFromCore(t, newCore(t, opts, ks))
+}
+
+// newCore is authcore.NewService for tests: a rejected config fails the test.
+func newCore(t *testing.T, cfg embedded.Config, ks authcore.Keyset, opts ...authcore.Option) *authcore.Service {
+	t.Helper()
+	svc, err := authcore.NewService(cfg, ks, opts...)
+	require.NoError(t, err)
+	return svc
 }
 
 func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {

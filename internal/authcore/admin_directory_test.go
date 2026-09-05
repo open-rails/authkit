@@ -45,7 +45,7 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	// a bounded `admin` root role for the directory filter to resolve.
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootResourcesRead}}))
 	require.NoError(t, err)
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 
 	suffix := time.Now().UnixNano()
@@ -154,7 +154,7 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 		// With a provider that says only A and C are premium. Re-construct against
 		// the same pool (seeded data persists) so the provider-less assertion above
 		// still ran without an entitlements provider.
-		svc = NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool), WithEntitlements(&fakeDirectoryProvider{
+		svc = mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool), WithEntitlements(&fakeDirectoryProvider{
 			byUser:    map[string][]string{idA: {"premium"}, idC: {"premium"}},
 			bySubject: map[string][]string{"premium": {idA, idC}},
 		}))

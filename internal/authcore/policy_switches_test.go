@@ -62,7 +62,7 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 		RegistrationModeClosed,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
-			svc := NewService(Config{Registration: RegistrationConfig{NativeUserMode: mode}}, Keyset{})
+			svc := mustNewService(t, Config{Registration: RegistrationConfig{NativeUserMode: mode}}, Keyset{})
 			if svc.PublicNativeUserRegistrationEnabled() {
 				t.Fatalf("native public registration should be disabled for %q", mode)
 			}

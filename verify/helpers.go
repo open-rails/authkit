@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -57,25 +56,6 @@ func bearerToken(authorization string) string {
 		return parts[1]
 	}
 	return ""
-}
-
-// requestContextHook lets the embedding layer (authhttp) install request-scoped
-// context state — specifically core's permission-resolution memo — without the
-// verify package importing core. It is applied to the request context right
-// after claims are attached in Required. A verify-only consumer leaves it nil
-// (no-op): correctness is unaffected, only core's RBAC-resolution caching.
-var requestContextHook func(context.Context) context.Context
-
-// SetRequestContextHook installs the per-request context hook. authhttp wires it
-// to core.WithPermissionMemo at init so RBAC resolution caching works per
-// request; the verify package itself never imports core.
-func SetRequestContextHook(fn func(context.Context) context.Context) { requestContextHook = fn }
-
-func applyRequestContext(ctx context.Context) context.Context {
-	if requestContextHook != nil {
-		return requestContextHook(ctx)
-	}
-	return ctx
 }
 
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS

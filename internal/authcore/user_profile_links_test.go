@@ -13,7 +13,7 @@ import (
 func TestUserProfileLinks(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	var uid string
 	uname := fmt.Sprintf("plinks-%d", time.Now().UnixNano())

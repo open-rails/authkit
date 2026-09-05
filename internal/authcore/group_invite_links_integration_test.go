@@ -38,7 +38,7 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 	// through the ephemeral store + an email sender — neither is wired in this DB-only
 	// harness. These tests exercise invite/registration flows directly, so pin None:
 	// users register immediately, matching the register+join assertions below.
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: mode, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: mode, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -220,7 +220,7 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("seed containment: %v", err)

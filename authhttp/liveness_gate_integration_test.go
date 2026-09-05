@@ -103,7 +103,9 @@ func TestRequiredLive_GateAndFreshness_DB(t *testing.T) {
 	bannedID, bannedTok := mk("ban")
 	deletedID, deletedTok := mk("del")
 
-	live := httptest.NewServer(verify.RequiredLive(ver)(echoClaimsHandler()))
+	requiredLive, err := verify.RequiredLive(ver)
+	require.NoError(t, err)
+	live := httptest.NewServer(requiredLive(echoClaimsHandler()))
 	t.Cleanup(live.Close)
 	stateless := httptest.NewServer(verify.Required(ver)(echoClaimsHandler()))
 	t.Cleanup(stateless.Close)
@@ -183,7 +185,9 @@ func TestRequiredLive_FailsClosedOnLookupError_DB(t *testing.T) {
 	require.NoError(t, err)
 
 	ver.WithLiveness(errLiveness{})
-	ts := httptest.NewServer(verify.RequiredLive(ver)(echoClaimsHandler()))
+	requiredLive, err := verify.RequiredLive(ver)
+	require.NoError(t, err)
+	ts := httptest.NewServer(requiredLive(echoClaimsHandler()))
 	t.Cleanup(ts.Close)
 
 	code, body := getWithToken(t, ts.URL, tok)
@@ -192,17 +196,22 @@ func TestRequiredLive_FailsClosedOnLookupError_DB(t *testing.T) {
 	require.NotContains(t, body, u.ID)
 }
 
-// A gate that cannot perform its check must refuse at MOUNT, loudly, rather than
-// sit in the route table looking like protection it cannot provide.
-func TestRequiredLive_RefusesToMountWithoutLivenessSource(t *testing.T) {
+// A gate that cannot perform its check must refuse at construction, with a
+// typed error, rather than sit in the route table looking like protection it
+// cannot provide.
+func TestRequiredLive_RefusesToBuildWithoutLivenessSource(t *testing.T) {
 	v := verify.NewVerifier()
 	require.False(t, v.HasLiveness())
-	require.Panics(t, func() { verify.RequiredLive(v)(echoClaimsHandler()) })
-	require.Panics(t, func() { verify.RequiredLiveUser(v)(echoClaimsHandler()) })
+	mw, err := verify.RequiredLive(v)
+	require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
+	require.Nil(t, mw)
+	userMW, err := verify.RequiredLiveUser(v)
+	require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
+	require.Nil(t, userMW)
 
-	// And the out-of-band caller gets a typed configuration error, never a 401 —
+	// And the out-of-band caller gets the same configuration error, never a 401 —
 	// a misconfigured host must not look like a deployment where everyone is banned.
-	_, err := v.VerifyRequestLive(httptest.NewRequest(http.MethodGet, "/", nil))
+	_, err = v.VerifyRequestLive(httptest.NewRequest(http.MethodGet, "/", nil))
 	require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
 }
 

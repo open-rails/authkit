@@ -56,11 +56,8 @@ func TestNewFromConfigSchemaRejected(t *testing.T) {
 	}
 }
 
-func TestNewServicePanicsOnInvalidSchema(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("NewService with invalid Schema should panic")
-		}
-	}()
-	NewService(Config{Schema: "not;valid"}, Keyset{})
+func TestNewServiceRejectsInvalidSchema(t *testing.T) {
+	if _, err := NewService(Config{Schema: "not;valid"}, Keyset{}); err == nil {
+		t.Fatal("NewService with invalid Schema should error")
+	}
 }

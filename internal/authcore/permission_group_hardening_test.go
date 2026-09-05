@@ -20,7 +20,7 @@ import (
 func TestGroupUserRoles_IndexRejectsSecondLiveRole(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
@@ -61,7 +61,7 @@ func TestGroupUserRoles_IndexRejectsSecondLiveRole(t *testing.T) {
 func TestGroupRemoteApplicationRoles_IndexRejectsSecondLiveRole(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)

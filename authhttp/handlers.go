@@ -1,10 +1,6 @@
 package authhttp
 
-import (
-	"net/http"
-
-	"github.com/open-rails/authkit/embedded"
-)
+import "net/http"
 
 // JWKSHandler returns a handler for GET /.well-known/jwks.json.
 func (s *Service) JWKSHandler() http.Handler {
@@ -17,14 +13,6 @@ func (s *Service) APIHandler() http.Handler {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })
 	}
-	// The registration-verification policy is validated at construction
-	// (authhttp.NewServer -> validate, #212), so no panic guard is needed here.
-	if !embedded.IsDevEnvironment(s.svc.Config().Environment) {
-		if s.svc.EphemeralRedisClient() == nil {
-			panic("authkit: redis-compatible ephemeral store is required in production")
-		}
-	}
-
 	mux := http.NewServeMux()
 	for _, route := range s.APIRoutes() {
 		mux.Handle(route.Method+" "+route.Path, route.Handler)

@@ -124,6 +124,15 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 		mux.Handle(DocumentsPath, svc.documentsHandler())
 	}
 
+	// #243/ak#324: the MFA-enrollment exempt surface is anchored at THIS prefix
+	// and matched exactly from here on; the constructor's suffix registration
+	// only ever covered the un-mounted case.
+	exempt := make([]string, 0, 8)
+	for _, p := range mfaEnrollmentExemptPaths(svc.APIRoutes(opts.Groups...)) {
+		exempt = append(exempt, joinRoutePath(apiPrefix, p))
+	}
+	svc.verifier.AddMFAEnrollmentExemptRoutes(exempt)
+
 	mount := func(specs []RouteSpec, anchor string) {
 		for _, spec := range specs {
 			if spec.Method == "" || spec.Path == "" || spec.Handler == nil {
@@ -197,10 +206,10 @@ func normalizeAnchor(name, anchor, def string) (string, error) {
 }
 
 // mountAt strips mountPrefix and dispatches on the canonical path. The
-// verifier's MFA-enrollment exempt paths (#243) are therefore compared
+// verifier's MFA-enrollment exempt routes (#243, ak#324) are therefore compared
 // POST-strip: route handlers (and the verify gates inside them) see the
-// prefix-neutral anchored path ("/api/v1/user/2fa"), which the verifier's
-// suffix match covers regardless of prefix. Paths outside the mount —
+// prefix-neutral anchored path ("/api/v1/user/2fa"), exactly what MountHandler
+// registered. Paths outside the mount —
 // including boundary near-misses like "/authx" against "/auth" — 404 cleanly
 // instead of getting a garbage rewrite.
 func mountAt(mountPrefix string, next http.Handler) http.Handler {

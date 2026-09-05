@@ -99,7 +99,7 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"Example.SOL","stale":false}}`))
 	})
 
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "resolved")
 
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -132,7 +132,7 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"cached.sol","stale":false}}`))
 	})
 
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "cache")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
@@ -174,7 +174,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"` + current + `","stale":false}}`))
 	})
 
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	// Force every cached entry to read as stale (test-only seam; production uses the
 	// fixed 24h TTL) so the stale-refresh + ownership-change path is exercised.
 	svc.snsCacheTTLOverride = time.Nanosecond
@@ -194,7 +194,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	waitForSolanaSNSProfileValue(t, ctx, pool, user.ID, svc.solanaIssuer(), "after.sol")
 
 	setName("")
-	freshSvc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	freshSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := freshSvc.ResolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
 		t.Fatalf("ResolveAndStoreSolanaSNS clear: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"","stale":false}}`))
 	})
 
-	notFoundSvc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	notFoundSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	notFoundUser := importSNSUser(t, ctx, notFoundSvc, pool, "notfound")
 	if err := notFoundSvc.LinkProviderByIssuer(ctx, notFoundUser.ID, notFoundSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer not found: %v", err)
@@ -232,7 +232,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusBadGateway)
 	})
-	errorSvc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, SolanaNetwork: "devnet"}, Keyset{}, WithPostgres(pool))
+	errorSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, SolanaNetwork: "devnet"}, Keyset{}, WithPostgres(pool))
 	errorUser := importSNSUser(t, ctx, errorSvc, pool, "error")
 	if err := errorSvc.LinkProviderByIssuer(ctx, errorUser.ID, errorSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer error: %v", err)

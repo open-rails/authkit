@@ -159,27 +159,25 @@ func normalizeConfig(cfg Config) (Config, error) {
 }
 
 // NewService is the low-level constructor: explicit Keyset, no key/TOTP
-// resolution, no required-field checks. Module-internal plumbing (tests and
-// NewFromConfig); hosts construct via embedded.New / NewFromConfig. Panics on
-// config values normalizeConfig rejects (malformed schema/paths/modes) — at
-// this layer they are programmer errors (NewFromConfig returns them instead).
+// resolution, no required-field checks. Module-internal plumbing (tests);
+// hosts construct via embedded.New / NewFromConfig.
 //
 // The Keyset is fixed for the lifetime of the Service — there is no rotation
 // path here. Hosts that need hot-reloaded signing keys construct via
 // NewFromConfig / embedded.New with a live jwtkit.KeySource (#238).
-func NewService(cfg Config, keys Keyset, coreOpts ...Option) *Service {
+func NewService(cfg Config, keys Keyset, coreOpts ...Option) (*Service, error) {
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	var gs *GroupSchema
 	if len(norm.RBAC) > 0 {
 		if gs, err = BuildSchema(norm.RBAC...); err != nil {
-			panic(fmt.Sprintf("permission-group schema: %v", err))
+			return nil, fmt.Errorf("permission-group schema: %w", err)
 		}
 	}
 	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
-	return newService(norm, src, gs, coreOpts...)
+	return newService(norm, src, gs, coreOpts...), nil
 }
 
 // newService assembles a Service from an already-normalized Config. keys is

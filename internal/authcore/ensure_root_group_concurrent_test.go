@@ -18,7 +18,7 @@ func TestEnsureRootGroupConcurrentColdBoots(t *testing.T) {
 	const n = 16
 	svcs := make([]*Service, n)
 	for i := range svcs {
-		svcs[i] = NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+		svcs[i] = mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	}
 
 	start := make(chan struct{})
@@ -59,7 +59,7 @@ func TestEnsureRootGroupConcurrentColdBoots(t *testing.T) {
 func TestEnsureRootGroupAdoptsConcurrentWinner(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 
 	tx, err := pg.Pool.Begin(ctx)
 	if err != nil {

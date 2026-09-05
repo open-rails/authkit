@@ -24,7 +24,7 @@ func newTestServiceBaseURL(t *testing.T, baseURL string) *Service {
 	require.NoError(t, err)
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Frontend: embedded.FrontendConfig{BaseURL: baseURL}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}}
-	coreSvc := authcore.NewService(opts, ks)
+	coreSvc := newCore(t, opts, ks)
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, verify.IssuerOptions{RawKeys: coreSvc.PublicKeysByKID()})
 	ver.WithService(coreSvc)

@@ -15,7 +15,7 @@ const testSessionEventIssuer = "https://session-events.test"
 func newSessionEventsService(t *testing.T) *Service {
 	t.Helper()
 	pool := testPG(t)
-	svc := NewService(Config{Token: TokenConfig{Issuer: testSessionEventIssuer}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: testSessionEventIssuer}}, Keyset{}, WithPostgres(pool))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.session_events WHERE issuer = $1`, testSessionEventIssuer)
 	})
@@ -96,7 +96,7 @@ func TestSessionEventsBestEffortWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, events)
 
-	bare := NewService(Config{Token: TokenConfig{Issuer: "https://bare.test"}}, Keyset{})
+	bare := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://bare.test"}}, Keyset{})
 	bare.LogSessionCreated(context.Background(), "se-no-pg", "password_login", "sess-y", nil, nil) // no-op
 }
 
@@ -155,7 +155,7 @@ func TestCleanupPrunesSessionEvents(t *testing.T) {
 	require.Equal(t, "fresh", events[0].SessionID)
 
 	// Keep-forever: negative retention leaves even ancient rows alone.
-	forever := NewService(Config{
+	forever := mustNewService(t, Config{
 		Token:                 TokenConfig{Issuer: testSessionEventIssuer},
 		SessionEventRetention: -1,
 	}, Keyset{}, WithPostgres(svc.pg))

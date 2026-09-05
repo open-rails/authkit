@@ -408,6 +408,8 @@ One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client,
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
   WithCloudflareProxies, WithDirectPeerIP, WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
+  MountHandler anchors the MFA-enrollment exempt routes at its APIPrefix and the verifier
+  matches them exactly; the suffix match covers only verifiers that never mounted (ak#324).
   svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
 Verification surface: NOT re-exported (#206 — the former verify_aliases re-exports were
@@ -743,8 +745,9 @@ When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
 1. **File** — `<dir>/keys.json` where `dir` = `Config.Keys.Path` → `/vault/auth`
    (default; no env fallback). Envelope: `{active_key_id, active_private_key_pem,
    public_keys}`. Hot-reloaded on rotation.
-2. **Dev-gen** — auto-generates under `.runtime/authkit/`, ONLY with the explicit
-   `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
+2. **Dev-gen** — auto-generates an in-memory keypair (written to
+   `<Keys.Path>/keys.json` only when `Keys.Path` is explicit), ONLY with the
+   explicit `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
    The opt-in is deliberately independent of `Environment`.
 
 Hosts with in-memory key material pass an explicit `Keys.Source`
@@ -767,6 +770,9 @@ an optional field with a backward-compatible zero-value default is MINOR.
 - **`Frontend`** `FrontendConfig`: `BaseURL` (defaults to issuer if empty),
   `OIDCReturnPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
   `PasswordResetPath` (default `/reset`), `PasswordlessPath` (default `/passwordless`).
+  The link-landing redirect to `VerifyPath` / `PasswordResetPath` carries `token`, `status`,
+  `channel` and `return_to` in the URL FRAGMENT (`#token=…`) with `Cache-Control: no-store`;
+  frontends read `location.hash`, never the query (ak#324).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
   default `none`), `NativeUserMode` (`open` default; non-open disables public signup),
   `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false).

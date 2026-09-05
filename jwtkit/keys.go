@@ -187,99 +187,37 @@ func loadStaticFromFile(path string) (*StaticKeySource, error) {
 	return &static, nil
 }
 
-// generatedKeySource generates and persists RSA keys (for development only).
-type generatedKeySource struct {
-	signer *RSASigner
-	pubs   map[string]crypto.PublicKey
-}
-
-const (
-	// defaultGeneratedKeysDir is the default directory under which the
-	// development generatedKeySource persists its auto-generated keypair.
-	defaultGeneratedKeysDir = ".runtime/authkit"
-	privateKeyFile          = "private.pem"
-	keyIDFile               = "kid"
-)
-
-// newGeneratedKeySource creates a KeySource with auto-generated RSA keys,
-// persisting them under defaultGeneratedKeysDir (".runtime/authkit"). For a
-// custom directory use newGeneratedKeySourceInDir.
-func newGeneratedKeySource() (*generatedKeySource, error) {
-	return newGeneratedKeySourceInDir(defaultGeneratedKeysDir)
-}
-
-// newGeneratedKeySourceInDir creates a KeySource with auto-generated RSA keys,
-// loading from / persisting to the given directory. An empty dir defaults to
-// defaultGeneratedKeysDir. Development only.
-func newGeneratedKeySourceInDir(dir string) (*generatedKeySource, error) {
-	if strings.TrimSpace(dir) == "" {
-		dir = defaultGeneratedKeysDir
-	}
-	if signer, pubs, ok := loadKeysFromDisk(dir); ok {
-		return &generatedKeySource{signer: signer, pubs: pubs}, nil
-	}
-
+// newDevKeySource generates an in-memory RSA dev signing key. With a non-empty
+// dir the keypair is also written to <dir>/keys.json (0600) and served through
+// a FileKeySource so later boots reuse it; without one nothing touches disk.
+func newDevKeySource(dir string) (KeySource, error) {
 	kid := fmt.Sprintf("dev-%d", time.Now().Unix())
 	signer, err := NewRSASigner(2048, kid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
 	}
-
-	if err := persistKeysToDisk(dir, signer, kid); err != nil {
-		logf("Warning: failed to persist authkit dev keys: %v", err)
+	if dir == "" {
+		return StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{kid: signer.PublicKey()}}, nil
 	}
-
-	return &generatedKeySource{
-		signer: signer,
-		pubs:   map[string]crypto.PublicKey{kid: signer.PublicKey()},
-	}, nil
+	if err := writeDevKeysJSON(dir, kid, signer); err != nil {
+		return nil, fmt.Errorf("persist dev keys under %s: %w", dir, err)
+	}
+	return NewFileKeySource(dir, DefaultKeyReloadInterval)
 }
 
-func (g *generatedKeySource) ActiveSigner() Signer { return g.signer }
-func (g *generatedKeySource) PublicKeys() map[string]crypto.PublicKey {
-	return clonePublicKeyMap(g.pubs)
-}
-
-func loadKeysFromDisk(dir string) (*RSASigner, map[string]crypto.PublicKey, bool) {
-	pemBytes, err := readFileUnderDir(dir, privateKeyFile)
-	if err != nil {
-		return nil, nil, false
-	}
-
-	kid := "dev"
-	if kidBytes, err := readFileUnderDir(dir, keyIDFile); err == nil {
-		if k := strings.TrimSpace(string(kidBytes)); k != "" {
-			kid = k
-		}
-	}
-
-	signer, err := NewRSASignerFromPEM(kid, pemBytes)
-	if err != nil {
-		return nil, nil, false
-	}
-
-	pubs := map[string]crypto.PublicKey{kid: signer.PublicKey()}
-	return signer, pubs, true
-}
-
-func persistKeysToDisk(dir string, signer *RSASigner, kid string) error {
+func writeDevKeysJSON(dir, kid string, signer *RSASigner) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create keys directory: %w", err)
+		return err
 	}
-
-	privDER := x509MarshalPKCS1PrivateKey(signer.PrivateKey())
-	privPEM := pemEncode("RSA PRIVATE KEY", privDER)
-
-	keyPath := filepath.Join(dir, privateKeyFile)
-	if err := os.WriteFile(keyPath, privPEM, 0600); err != nil {
-		return fmt.Errorf("write private key: %w", err)
+	data, err := json.Marshal(map[string]any{
+		"active_key_id":          kid,
+		"active_private_key_pem": string(pemEncode("RSA PRIVATE KEY", x509MarshalPKCS1PrivateKey(signer.PrivateKey()))),
+		"public_keys":            map[string]string{},
+	})
+	if err != nil {
+		return err
 	}
-
-	kidPath := filepath.Join(dir, keyIDFile)
-	if err := os.WriteFile(kidPath, []byte(kid), 0600); err != nil {
-		return fmt.Errorf("write key ID: %w", err)
-	}
-	return nil
+	return os.WriteFile(filepath.Join(dir, "keys.json"), data, 0600)
 }
 
 // NewStaticKeySourceFromPEM builds a StaticKeySource from explicit key
@@ -326,29 +264,32 @@ func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKe
 //     served through a FileKeySource so signing-key rotation (e.g. Vault
 //     Agent re-rendering the file) takes effect without a process restart.
 //  2. No keys.json: when allowEphemeralDevKeys is true, an auto-generated RSA
-//     dev keypair persisted under .runtime/authkit/ (DEVELOPMENT ONLY);
-//     when false — the default, fail-closed posture — a hard error.
+//     dev keypair (DEVELOPMENT ONLY). It lives in memory only, unless path is
+//     explicit — then it is written to <path>/keys.json so restarts reuse it.
+//     When false — the default, fail-closed posture — a hard error.
 //
 // Callers that hold key material in memory should build a source directly
 // (NewStaticKeySourceFromPEM / StaticKeySource) instead.
 func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error) {
-	if strings.TrimSpace(path) == "" {
-		path = DefaultAuthKeysPath
+	path = strings.TrimSpace(path)
+	dir := path
+	if dir == "" {
+		dir = DefaultAuthKeysPath
 	}
 
-	if _, statErr := os.Stat(filepath.Join(path, "keys.json")); statErr == nil {
-		rks, err := NewFileKeySource(path, DefaultKeyReloadInterval)
+	if _, statErr := os.Stat(filepath.Join(dir, "keys.json")); statErr == nil {
+		rks, err := NewFileKeySource(dir, DefaultKeyReloadInterval)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load keys from %s: %w", path, err)
+			return nil, fmt.Errorf("failed to load keys from %s: %w", dir, err)
 		}
 		return rks, nil
 	}
 
 	if !allowEphemeralDevKeys {
-		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", path)
+		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", dir)
 	}
 
-	keySource, err := newGeneratedKeySource()
+	keySource, err := newDevKeySource(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate development keys: %w", err)
 	}
