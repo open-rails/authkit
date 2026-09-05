@@ -6,17 +6,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 type fakeChecker struct {
-	allow                                    bool
-	called                                   bool
-	gotSubject, gotKind, gotGroupID, gotPerm string
+	allow, called bool
+	gotSubject    authkit.Subject
+	gotGroupID    string
+	gotPerm       authkit.Perm
 }
 
-func (f *fakeChecker) CanOnGroup(_ context.Context, subjectID, subjectKind, groupID, perm string) (bool, error) {
+func (f *fakeChecker) CanOnGroup(_ context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
 	f.called = true
-	f.gotSubject, f.gotKind, f.gotGroupID, f.gotPerm = subjectID, subjectKind, groupID, perm
+	f.gotSubject, f.gotGroupID, f.gotPerm = subject, groupID, perm
 	return f.allow, nil
 }
 
@@ -45,7 +48,7 @@ func TestRequirePermission_HumanUser_Allow(t *testing.T) {
 	if !next || code != http.StatusOK {
 		t.Fatalf("allow: code=%d next=%v", code, next)
 	}
-	if !chk.called || chk.gotSubject != "u1" || chk.gotKind != subjectKindUser ||
+	if !chk.called || chk.gotSubject != authkit.UserSubject("u1") ||
 		chk.gotGroupID != "root-id" || chk.gotPerm != "root:galleries:update" {
 		t.Fatalf("checker got wrong args: %+v", chk)
 	}
@@ -197,7 +200,7 @@ func TestAllow(t *testing.T) {
 	// Human user: resolved via Can in the given scope.
 	chk = &fakeChecker{allow: true}
 	ok, err = Allow(ctx, chk, Claims{UserID: "u1"}, "root:users:ban", PermissionScope{GroupID: "root-id", AuthorityIssuer: "https://auth.test", Persona: "root"})
-	if err != nil || !ok || !chk.called || chk.gotGroupID != "root-id" || chk.gotKind != subjectKindUser {
+	if err != nil || !ok || !chk.called || chk.gotGroupID != "root-id" || chk.gotSubject.Kind != authkit.SubjectKindUser {
 		t.Fatalf("human allow: ok=%v err=%v chk=%+v", ok, err, chk)
 	}
 	if ok, _ := Allow(ctx, &fakeChecker{allow: false}, Claims{UserID: "u1"}, "p", PermissionScope{}); ok {
@@ -217,7 +220,7 @@ func TestAllow(t *testing.T) {
 // test proves the error wins over the verdict.
 type erroringChecker struct{ called bool }
 
-func (e *erroringChecker) CanOnGroup(context.Context, string, string, string, string) (bool, error) {
+func (e *erroringChecker) CanOnGroup(context.Context, authkit.Subject, string, authkit.Perm) (bool, error) {
 	e.called = true
 	return true, errors.New("pg: connection reset by peer")
 }

@@ -21,11 +21,12 @@ type Users interface {
 	// per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
 	// and the returned OpResults pinpoint the failures. Single-item = one-element
 	// slice. The outer error is a whole-call failure only (e.g. no store).
-	// SetEmailVerified / UpdateEmail / UpdateUsername stay single by decision:
+	// Mark/ClearEmailVerified / UpdateEmail / UpdateUsername stay single by decision:
 	// they are per-subject correctness flows, not bulk admin operations.
 	HardDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SoftDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
-	SetEmailVerified(ctx context.Context, id string, v bool) error
+	MarkEmailVerified(ctx context.Context, id string) error
+	ClearEmailVerified(ctx context.Context, id string) error
 	// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
 	// string (#262). Blob storage/validation is the host's job — authkit stores
 	// the string and serves it on GET /me.
@@ -90,9 +91,9 @@ type Roles interface {
 	// actor may hold authority over some targets and not others, and each item's
 	// OpResult carries its own ErrInsufficientRoleAuthority/ErrRoleAssignmentEscalation.
 	// Per-item best-effort; single-item = one-element slice.
-	AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]OpResult, error)
-	RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]OpResult, error)
-	UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error
+	AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role Role) ([]OpResult, error)
+	RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role Role) ([]OpResult, error)
+	UpsertRoleBySlug(ctx context.Context, name string, role Role, description *string) error
 	// RoleSlugsByUsers returns each user's LIVE configured root permission-group
 	// role slugs in ONE call — batch-native per the operation-shape rule (#219,
 	// #220; replaces ListRoleSlugsByUser + ListRoleSlugsByUserErr). The map is
@@ -111,20 +112,20 @@ type Groups interface {
 	CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error)
 	EnsureRootGroup(ctx context.Context) (string, error)
 	SeedPermissionGroupContainment(ctx context.Context) error
-	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
-	GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (GroupInstance, error)
+	ResolveGroupIDForSlug(ctx context.Context, group GroupRef) (string, error)
+	GroupInstanceForSlug(ctx context.Context, group GroupRef) (GroupInstance, error)
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
-	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
-	UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
-	RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error
-	ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error)
-	ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error)
-	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
-	CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error)
-	ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error)
+	AssignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
+	UnassignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
+	RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject) error
+	ListGroupMembers(ctx context.Context, group GroupRef) ([]GroupMember, error)
+	ListSubjectGroups(ctx context.Context, subject Subject) ([]SubjectGroupMembership, error)
+	Can(ctx context.Context, subject Subject, group GroupRef, perm Perm) (bool, error)
+	CanOnGroup(ctx context.Context, subject Subject, groupID string, perm Perm) (bool, error)
+	ListEffectivePermissions(ctx context.Context, subject Subject, group GroupRef) ([]string, error)
 	CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error)
-	ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]GroupInviteLink, error)
-	RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error
+	ListGroupInviteLinks(ctx context.Context, group GroupRef) ([]GroupInviteLink, error)
+	RevokeGroupInviteLink(ctx context.Context, group GroupRef, linkID string) error
 	ExternalInvitesEnabled() bool
 }
 
@@ -145,9 +146,9 @@ type Documents interface {
 
 // APIKeys mints, lists, revokes, and resolves opaque API keys.
 type APIKeys interface {
-	MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error)
-	ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]APIKey, error)
-	RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error)
+	MintAPIKeyWithOptions(ctx context.Context, group GroupRef, opts APIKeyMintOptions) (APIKey, string, error)
+	ListAPIKeys(ctx context.Context, group GroupRef) ([]APIKey, error)
+	RevokeAPIKey(ctx context.Context, group GroupRef, tokenID string) (bool, error)
 	ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error)
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
 }
@@ -165,7 +166,8 @@ type Providers interface {
 type RemoteApps interface {
 	UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error)
-	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error)
+	ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error)
+	ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (RemoteApplicationAuthority, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error)
 }

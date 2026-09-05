@@ -265,8 +265,10 @@ may never acquire an email-shaped field), `UserLiveness` (#267), `AdminUser`, `A
 `RedeemGroupInviteLinkResult` (#134/#147 invite links — these REPLACE the removed
 `GroupInvite`/`GroupInviteStatus*` user_id-invite API),
 `CustomRoleResolver`, `PermissionGroupStore`,
-`SubjectKindUser`/`SubjectKind*` consts, `RootPersona`, the `PermRoot*` constants, and the
-`Perm*(t string) string` / `OwnerGrant` / `PermissionPersona` permission-builder funcs.
+the typed identifiers `Persona`/`Role`/`Perm`/`SubjectKind` with `GroupRef`/`Subject`
+(ak#317: every group/role/permission parameter is typed — `AssignGroupRoleAs(ctx, actor,
+GroupRef, Subject, Role)`, `Can(ctx, Subject, GroupRef, Perm)`), the `SubjectKind*`/`RootPersona`/
+`OwnerRole` consts, the `PermRoot*` constants, and the `Perm*(Persona) Perm` builders.
 
 (#247 BREAKING: one role per subject per group is now a HARD rule — no per-group
 role unions (the additive walk-up union ACROSS ancestor groups is unchanged).
@@ -351,7 +353,7 @@ service); attaching DB-backed enrichment is opt-in via `(*Verifier).WithService(
 (see [§6.1](#61-error-envelope)); `APIKeyResource`, `RemoteApplication`,
 `RemoteAppKey`, `RemoteAppAttributeDef`, `ResolvedAPIKey`, `ServiceJWTClaims`; opaque-key
 funcs `APIKeyMarker`, `FormatAPIKey`, `ParseAPIKey`, `HasAPIKeyPrefix`; permission match
-funcs `PermMatches`, `PermWildcard="*"`; origin funcs
+method `Perm.Matches`, `PermWildcard="*"`; origin funcs
 `NormalizeAllowedOrigin(s)`, `OriginAllowed`; error helpers `ErrorMessage`,
 `ErrorTypeForStatus`, `ErrorTypeInvalidRequest…` consts; mode consts `RemoteAppModeJWKS`,
 `ServiceJWTTokenUse="service"`; sentinels `ErrInvalidAccessToken="invalid_token"`,

@@ -164,7 +164,7 @@ func (p NamingPolicy) State(last *time.Time, now time.Time) NamingState {
 // Group creation cost/enrollment hooks remain creation-only.
 type NameAdmissionRequest struct {
 	OwnerKind     string
-	Persona       string
+	Persona       Persona
 	OwnerID       string // Empty only before a new group/account is created.
 	ActorID       string
 	CurrentName   string

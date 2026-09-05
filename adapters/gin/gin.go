@@ -122,7 +122,7 @@ func UserClaims(c *gin.Context) (UserClaimsData, bool) {
 	}, true
 }
 
-func RequirePermission(checker verify.PermissionChecker, perm string, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
+func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var mw func(http.Handler) http.Handler
 		if resolve == nil {

@@ -70,10 +70,10 @@ func TestValidateGrantPattern(t *testing.T) {
 }
 
 func TestOwnerGrantAndPersona(t *testing.T) {
-	if got := OwnerGrant("merchant"); got != "merchant:*" {
+	if got := authkit.Persona("merchant").OwnerGrant(); got != "merchant:*" {
 		t.Errorf("OwnerGrant = %q, want merchant:*", got)
 	}
-	if got := PermissionPersona("org:repo:read"); got != "org" {
+	if got := authkit.Perm("org:repo:read").Persona(); got != "org" {
 		t.Errorf("PermissionPersona = %q, want org", got)
 	}
 }
@@ -117,12 +117,12 @@ func TestNewGroupSchema_SeedsOwnerOnly(t *testing.T) {
 
 	// owner injected = <persona>:* for every persona.
 	for _, ty := range []string{"root", "org", "repo"} {
-		r, ok := s.Role(ty, OwnerRoleName)
+		r, ok := s.Role(authkit.Persona(ty), OwnerRoleName)
 		if !ok {
 			t.Fatalf("persona %q missing seeded owner role", ty)
 		}
-		if len(r.Permissions) != 1 || r.Permissions[0] != OwnerGrant(ty) {
-			t.Errorf("persona %q owner perms = %v, want [%s]", ty, r.Permissions, OwnerGrant(ty))
+		if len(r.Permissions) != 1 || r.Permissions[0] != string(authkit.Persona(ty).OwnerGrant()) {
+			t.Errorf("persona %q owner perms = %v, want [%s]", ty, r.Permissions, authkit.Persona(ty).OwnerGrant())
 		}
 	}
 	// app-declared roles survive.
@@ -141,7 +141,7 @@ func TestNewGroupSchema_RootOwnerRequiresMFAByDefault(t *testing.T) {
 		t.Fatalf("root owner RequiresMFA = %v, want true", root.RequiresMFA)
 	}
 	for _, persona := range []string{"org", "repo"} {
-		r, ok := s.Role(persona, OwnerRoleName)
+		r, ok := s.Role(authkit.Persona(persona), OwnerRoleName)
 		if !ok || r.RequiresMFA {
 			t.Errorf("persona %q owner RequiresMFA = %v, want false", persona, r.RequiresMFA)
 		}
@@ -154,7 +154,7 @@ func TestNewGroupSchema_ExplicitRootOwnerOverridesMFADefault(t *testing.T) {
 	s, err := NewGroupSchema(PersonaDef{
 		Name: RootPersona,
 		Roles: []RoleDef{
-			{Name: OwnerRoleName, Permissions: []string{OwnerGrant(RootPersona)}, RequiresMFA: false},
+			{Name: OwnerRoleName, Permissions: []string{string(authkit.Persona(RootPersona).OwnerGrant())}, RequiresMFA: false},
 		},
 	})
 	if err != nil {
@@ -252,19 +252,19 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 }
 
 func TestValidateGroupInstanceSlug(t *testing.T) {
-	if err := validateGroupInstanceSlug("merchant", "acme-1"); err != nil {
+	if err := validateGroupInstanceSlug(authkit.GroupRef{Persona: "merchant", Instance: "acme-1"}); err != nil {
 		t.Fatalf("valid resource slug rejected: %v", err)
 	}
-	if err := validateGroupInstanceSlug(RootPersona, ""); err != nil {
+	if err := validateGroupInstanceSlug(authkit.GroupRef{Persona: RootPersona, Instance: ""}); err != nil {
 		t.Fatalf("root group without resource slug rejected: %v", err)
 	}
-	if err := validateGroupInstanceSlug(RootPersona, "root"); err == nil {
+	if err := validateGroupInstanceSlug(authkit.GroupRef{Persona: RootPersona, Instance: "root"}); err == nil {
 		t.Fatal("root group resource slug accepted, want error")
 	}
 
 	bad := []string{"", "Acme", "has space", "has/slash", "ends-", "-starts"}
 	for _, slug := range bad {
-		if err := validateGroupInstanceSlug("merchant", slug); err == nil {
+		if err := validateGroupInstanceSlug(authkit.GroupRef{Persona: "merchant", Instance: slug}); err == nil {
 			t.Errorf("validateGroupInstanceSlug(%q) = nil, want error", slug)
 		}
 	}
@@ -288,7 +288,7 @@ func TestValidateParent(t *testing.T) {
 		{"repo", "ghost", true}, // unknown parent
 	}
 	for _, tc := range cases {
-		err := s.ValidateParent(tc.child, tc.parent)
+		err := s.ValidateParent(authkit.Persona(tc.child), authkit.Persona(tc.parent))
 		if (err != nil) != tc.wantErr {
 			t.Errorf("ValidateParent(%q,%q) err=%v, wantErr=%v", tc.child, tc.parent, err, tc.wantErr)
 		}
@@ -301,7 +301,7 @@ func TestOwnerGrantCoverageIsNamespacePure(t *testing.T) {
 	s := tensorhubSchema(t)
 	org, _ := s.Role("org", OwnerRoleName)
 	grant := org.Permissions[0] // org:*
-	covers := func(perm string) bool { return authkit.PermMatches(grant, perm) }
+	covers := func(perm string) bool { return authkit.Perm(perm).Matches(authkit.Perm(grant)) }
 	if !covers("org:repo:read") || !covers("org:billing:update") {
 		t.Errorf("org:* should cover its own namespace")
 	}

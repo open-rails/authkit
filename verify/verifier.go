@@ -257,7 +257,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		// Bind the key's authority to the group instance it was minted on (#248).
 		PermissionGroupID:              resolved.PermissionGroupID,
 		PermissionGroupAuthorityIssuer: resolved.AuthorityIssuer,
-		PermissionGroupPersona:         resolved.Persona,
+		PermissionGroupPersona:         string(resolved.Persona),
 		PermissionGroupInstance:        resolved.InstanceSlug,
 	}, true, nil
 }
@@ -298,7 +298,7 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 		}
 		ok := false
 		for _, grant := range authorityPerms {
-			if authkit.PermMatches(grant, p) {
+			if authkit.Perm(p).Matches(authkit.Perm(grant)) {
 				ok = true
 				break
 			}
@@ -364,7 +364,7 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 		// resolved server-side alongside the permission ceiling.
 		PermissionGroupID:              authority.PermissionGroupID,
 		PermissionGroupAuthorityIssuer: authority.AuthorityIssuer,
-		PermissionGroupPersona:         authority.Persona,
+		PermissionGroupPersona:         string(authority.Persona),
 		PermissionGroupInstance:        authority.InstanceSlug,
 	}, nil
 }
@@ -546,7 +546,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 type Enricher interface {
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
-	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error)
+	ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error)
 	// (#215/#220: the former per-request enrichment methods — provider username,
 	// role slugs, user refs, live ban gate — are gone from this seam; the request
@@ -591,11 +591,11 @@ func remoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
 // load remote_application principals (#74). *authkit.Service satisfies it. An
 // embedding app may supply its own implementation in tests.
 type RemoteApplicationSource interface {
-	ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]authkit.RemoteApplication, error)
+	ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error)
 	// GetRemoteApplication fetches a SINGLE remote_application by its issuer,
 	// used after signature verification to resolve a service principal
 	// (remoteApplication). The lazy-load-on-miss path never calls it: it answers
-	// from the ListRemoteApplications snapshot (ak#297). *authkit.Service already
+	// from the ListEnabledRemoteApplications snapshot (ak#297). *authkit.Service already
 	// implements this.
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 }
@@ -625,7 +625,7 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 	v.fedAudiences = audiences
 	v.mu.Unlock()
 
-	issuers, err := src.ListRemoteApplications(ctx, true)
+	issuers, err := src.ListEnabledRemoteApplications(ctx)
 	if err != nil {
 		return err
 	}
@@ -746,7 +746,7 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 	v.mu.Unlock()
 
 	fetchCtx, cancel := context.WithTimeout(ctx, ttl)
-	apps, err := src.ListRemoteApplications(fetchCtx, true)
+	apps, err := src.ListEnabledRemoteApplications(fetchCtx)
 	cancel()
 	v.mu.Lock()
 	if err == nil {

@@ -1,6 +1,10 @@
 package authcore
 
-import "testing"
+import (
+	"testing"
+
+	authkit "github.com/open-rails/authkit"
+)
 
 func TestResolveGrants_UnionDedupFailClosed(t *testing.T) {
 	s := tensorhubSchema(t)
@@ -39,7 +43,7 @@ func TestCan_WalkUpAndNamespacePurity(t *testing.T) {
 	}
 	// org:* must NOT reach the repo persona, root, or another app's persona.
 	for _, p := range []string{"repo:repo:write", "root:users:ban", "customer:balance:read"} {
-		if s.Can(orgOwner, nil, p) {
+		if s.Can(orgOwner, nil, authkit.Perm(p)) {
 			t.Errorf("org owner (org:*) must NOT cover %q (reach != capability)", p)
 		}
 	}
@@ -63,7 +67,7 @@ func TestCan_RootIsModerationOnly(t *testing.T) {
 	}
 	// Widest REACH, narrowest CAPABILITY: root:* cannot reach an org/repo internal.
 	for _, p := range []string{"org:repo:read", "repo:repo:write", "merchant:catalog:update"} {
-		if s.Can(rootOwner, nil, p) {
+		if s.Can(rootOwner, nil, authkit.Perm(p)) {
 			t.Errorf("root:* must NOT cover %q — root is moderation-only", p)
 		}
 	}
@@ -71,7 +75,7 @@ func TestCan_RootIsModerationOnly(t *testing.T) {
 
 func TestResolveGrants_CustomRoles(t *testing.T) {
 	s := tensorhubSchema(t) // org has CustomRoles=true; repo does not
-	custom := func(groupID, role string) ([]string, bool) {
+	custom := func(groupID string, role authkit.Role) ([]string, bool) {
 		if groupID == "g_org" && role == "auditor" {
 			return []string{"org:billing:read"}, true
 		}
@@ -131,7 +135,7 @@ func TestCan_FailClosedForSchemaDrift(t *testing.T) {
 		t.Fatalf("remaining permission should still grant")
 	}
 
-	customResolver := func(groupID, role string) ([]string, bool) {
+	customResolver := func(groupID string, role authkit.Role) ([]string, bool) {
 		if groupID == "g_org" && role == "billing" {
 			return []string{"org:billing:read"}, true
 		}

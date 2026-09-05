@@ -156,7 +156,7 @@ func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, authkit.UserLiv
 //
 // Fail-closed throughout: a liveness error, a dead account, or a Can error all
 // deny (the error is returned; callers must deny on a non-nil error).
-func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
+func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm, scope PermissionScope) (bool, error) {
 	live, _, err := v.IsLive(ctx, cl)
 	if err != nil || !live {
 		return false, err
