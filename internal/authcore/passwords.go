@@ -10,78 +10,47 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// PasswordLogin verifies an email + password and issues an access token.
-func (s *Service) PasswordLogin(ctx context.Context, email, pass string, extra map[string]any) (string, time.Time, error) {
+// authenticatePassword is the credential half of a password login once the
+// user row is resolved: the liveness gate, then the stored hash (with the
+// legacy-bcrypt lazy rehash to Argon2id) and the last-login stamp. It mints
+// nothing — PasswordLogin issues the session from its outcome.
+func (s *Service) authenticatePassword(ctx context.Context, u *User, pass string) error {
 	if s.pg == nil {
-		return "", time.Time{}, jwt.ErrTokenUnverifiable
-	}
-	u, err := s.getUserByEmail(ctx, email)
-	if err != nil || u == nil {
-		return "", time.Time{}, errOrUnauthorized(err)
+		return jwt.ErrTokenUnverifiable
 	}
 	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return "", time.Time{}, err
+		return err
 	}
-	return s.loginVerifiedUser(ctx, u, pass, extra)
-}
-
-// PasswordLoginByUserID verifies credentials for a specific user ID and issues
-// an access token. This supports login flows where the identifier is a phone
-// number or username and email may be NULL.
-func (s *Service) PasswordLoginByUserID(ctx context.Context, userID, pass string, extra map[string]any) (string, time.Time, error) {
-	if s.pg == nil {
-		return "", time.Time{}, jwt.ErrTokenUnverifiable
-	}
-	if strings.TrimSpace(userID) == "" {
-		return "", time.Time{}, jwt.ErrTokenInvalidClaims
-	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return "", time.Time{}, errOrUnauthorized(err)
-	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return "", time.Time{}, err
-	}
-	return s.loginVerifiedUser(ctx, u, pass, extra)
-}
-
-// loginVerifiedUser is the shared tail of password login once the user has been
-// resolved and access-checked: verify the password (with legacy-bcrypt lazy
-// rehash to Argon2id), record last-login, and issue the access token. Extracted
-// so PasswordLogin (by email) and PasswordLoginByUserID stay identical.
-func (s *Service) loginVerifiedUser(ctx context.Context, u *User, pass string, extra map[string]any) (string, time.Time, error) {
 	hash, algo, _, err := s.getPasswordHash(ctx, u.ID)
 	if err != nil {
-		return "", time.Time{}, errOrUnauthorized(err)
+		return errOrUnauthorized(err)
 	}
 	switch algo {
 	case HashAlgoLegacyResetRequired:
-		return "", time.Time{}, ErrPasswordResetRequired
+		return ErrPasswordResetRequired
 	case "argon2id":
 		ok, err := password.VerifyArgon2id(hash, pass)
 		if err != nil || !ok {
-			return "", time.Time{}, errOrUnauthorized(err)
+			return errOrUnauthorized(err)
 		}
 	case "bcrypt", "":
 		// Some legacy rows may have empty algo but a bcrypt-formatted hash
 		// ($2b$...); accept those too.
 		if !password.IsBcryptHash(hash) && algo == "" {
-			return "", time.Time{}, errOrUnauthorized(nil)
+			return errOrUnauthorized(nil)
 		}
 		ok, err := password.VerifyBcrypt(hash, pass)
 		if err != nil || !ok {
-			return "", time.Time{}, errOrUnauthorized(err)
+			return errOrUnauthorized(err)
 		}
-		// Rehash to Argon2id and upsert.
-		phc, err := password.HashArgon2id(pass)
-		if err == nil {
+		if phc, err := password.HashArgon2id(pass); err == nil {
 			_ = s.upsertPasswordHash(ctx, u.ID, phc, "argon2id", nil)
 		}
 	default:
-		return "", time.Time{}, errOrUnauthorized(nil)
+		return errOrUnauthorized(nil)
 	}
 	_ = s.setLastLogin(ctx, u.ID, time.Now())
-	return s.MintAccessToken(ctx, u.ID, extra)
+	return nil
 }
 
 func errOrUnauthorized(err error) error {

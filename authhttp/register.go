@@ -10,7 +10,6 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/authcore"
 	authlang "github.com/open-rails/authkit/lang"
-	pwhash "github.com/open-rails/authkit/password"
 )
 
 type registrationNextAction string
@@ -54,6 +53,10 @@ func preferredLanguageFromRequest(r *http.Request) string {
 	return language
 }
 
+// handleRegisterUnifiedPOST: decode, rate-limit, one engine call, one switch.
+// The registration policy (identifier classification, validation, verification
+// mode, conflicts, the pending write + code send, the session) is
+// authcore.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
 	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeClosed {
 		registrationDisabled(w)
@@ -69,199 +72,80 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-
 	identifier := strings.TrimSpace(req.Identifier)
-	username := strings.TrimSpace(req.Username)
-	pass := req.Password
-
-	if identifier == "" || username == "" {
+	if identifier == "" || strings.TrimSpace(req.Username) == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-
 	// Per-identifier check: prevents spamming verification emails to the same
 	// address from many IPs, each spending their own per-IP budget.
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegister, identifier) {
 		return
 	}
-	if err := embedded.ValidatePassword(pass); err != nil {
-		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
-		return
-	}
-	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		s.logInternalError(r, "register", "validate_username", "database_error", err)
-		serverErr(w, ErrDatabaseError)
-		return
-	}
-	username = strings.TrimSpace(username)
 
-	isPhone := embedded.ValidatePhone(identifier) == nil
-	isEmail := embedded.ValidateEmail(identifier) == nil
-	if !isPhone && !isEmail {
-		badRequest(w, ErrInvalidIdentifier)
-		return
-	}
-	if isPhone && isEmail {
-		badRequest(w, ErrInvalidIdentifier)
-		return
-	}
-
-	phc, err := pwhash.HashArgon2id(pass)
+	out, err := s.svc.Register(r.Context(), authcore.RegisterInput{
+		Identifier: identifier, Username: req.Username, Password: req.Password,
+		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
+		UserAgent: r.UserAgent(), IP: remoteIP(r),
+	})
 	if err != nil {
-		serverErr(w, ErrHashFailed)
+		s.writeRegisterError(w, r, err)
 		return
 	}
-
-	policy := s.svc.RegistrationVerificationPolicy()
-	requiresVerification := policy == embedded.RegistrationVerificationRequired
-	preferredLanguage := preferredLanguageFromRequest(r)
-
-	if isPhone {
-		identifier = embedded.NormalizePhone(identifier)
-		if requiresVerification && !s.svc.SMSAvailable() {
-			serverErr(w, ErrPhoneRegistrationUnavailable)
-			return
-		}
-		phoneTaken, usernameTaken, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), identifier, username)
-		if err != nil {
-			s.logInternalError(r, "register", "check_phone_conflict", "database_error", err)
-			serverErr(w, ErrDatabaseError)
-			return
-		}
-		if phoneTaken {
-			badRequest(w, ErrPhoneInUse)
-			return
-		}
-		if usernameTaken {
-			badRequest(w, ErrUsernameInUse)
-			return
-		}
-		_, err = s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), identifier, username, phc, preferredLanguage)
-		if err != nil {
-			if s.handleDeliveryError(w, r, "register", "send_phone_verification", err) {
-				return
-			}
-			if errors.Is(err, authkit.ErrPhoneInUse) {
-				badRequest(w, ErrPhoneInUse)
-				return
-			}
-			if errors.Is(err, authkit.ErrUsernameInUse) {
-				badRequest(w, ErrUsernameInUse)
-				return
-			}
-			if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-				badRequest(w, code)
-				return
-			}
-			if errors.Is(err, authkit.ErrRegistrationDisabled) {
-				registrationDisabled(w)
-				return
-			}
-			serverErr(w, ErrRegistrationFailed)
-			return
-		}
-
-		nextAction := registrationNextActionNone
-		var tokens *authkit.TokenSet
-		if requiresVerification {
-			nextAction = registrationNextActionVerifyPhone
-		} else {
-			u, err := s.svc.GetUserByPhone(r.Context(), identifier)
-			if err != nil || u == nil {
-				serverErr(w, ErrRegistrationFailed)
-				return
-			}
-			tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
-			if err != nil {
-				if errors.Is(err, authkit.ErrUserBanned) {
-					unauthorized(w, ErrUserBanned)
-					return
-				}
-				serverErr(w, ErrTokenIssueFailed)
-				return
-			}
-			delivered := s.deliverRefreshToken(w, r, tokenSet)
-			tokens = &delivered
-		}
-
-		writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, nil, &identifier, nextAction, tokens))
-		return
-	}
-
-	identifier = embedded.NormalizeEmail(identifier)
-	if requiresVerification && !s.svc.HasEmailSender() {
-		serverErr(w, ErrEmailRegistrationUnavailable)
-		return
-	}
-	emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), identifier, username)
-	if err != nil {
-		s.logInternalError(r, "register", "check_email_conflict", "database_error", err)
-		serverErr(w, ErrDatabaseError)
-		return
-	}
-	if emailTaken {
-		badRequest(w, ErrEmailInUse)
-		return
-	}
-	if usernameTaken {
-		badRequest(w, ErrUsernameInUse)
-		return
-	}
-	ctx := authcore.WithAccountRegistrationInviteToken(r.Context(), req.AccountInviteToken)
-	_, err = s.svc.CreatePendingRegistrationWithLanguage(ctx, identifier, username, phc, 0, preferredLanguage)
-	if err != nil {
-		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
-			return
-		}
-		// #326: the race loser of check-then-insert gets the typed conflict.
-		if errors.Is(err, authkit.ErrEmailInUse) {
-			badRequest(w, ErrEmailInUse)
-			return
-		}
-		if errors.Is(err, authkit.ErrUsernameInUse) {
-			badRequest(w, ErrUsernameInUse)
-			return
-		}
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		if errors.Is(err, authkit.ErrRegistrationDisabled) {
-			registrationDisabled(w)
-			return
-		}
-		serverErr(w, ErrRegistrationFailed)
-		return
-	}
-
-	nextAction := registrationNextActionNone
 	var tokens *authkit.TokenSet
-	if requiresVerification {
+	nextAction := registrationNextActionNone
+	switch out.Kind {
+	case authcore.RegisterVerifyEmail:
 		nextAction = registrationNextActionVerifyEmail
-	} else {
-		u, err := s.svc.GetUserByEmail(r.Context(), identifier)
-		if err != nil || u == nil {
-			serverErr(w, ErrRegistrationFailed)
-			return
-		}
-		tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
-		if err != nil {
-			if errors.Is(err, authkit.ErrUserBanned) {
-				unauthorized(w, ErrUserBanned)
-				return
-			}
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
-		delivered := s.deliverRefreshToken(w, r, tokenSet)
+	case authcore.RegisterVerifyPhone:
+		nextAction = registrationNextActionVerifyPhone
+	default:
+		delivered := s.deliverRefreshToken(w, r, out.Session.TokenSet())
 		tokens = &delivered
 	}
+	writeJSON(w, http.StatusAccepted, newRegistrationResponse(out.Username, out.Email, out.Phone, nextAction, tokens))
+}
 
-	writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, &identifier, nil, nextAction, tokens))
+func (s *Service) writeRegisterError(w http.ResponseWriter, r *http.Request, err error) {
+	if s.handleDeliveryError(w, r, "register", flowStage(err), err) {
+		return
+	}
+	if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
+		badRequest(w, code)
+		return
+	}
+	switch {
+	case errors.Is(err, authkit.ErrRegistrationDisabled):
+		registrationDisabled(w)
+	case errors.Is(err, authkit.ErrInvalidIdentifier):
+		badRequest(w, ErrInvalidIdentifier)
+	case errors.Is(err, authkit.ErrEmailInUse):
+		badRequest(w, ErrEmailInUse)
+	case errors.Is(err, authkit.ErrPhoneInUse):
+		badRequest(w, ErrPhoneInUse)
+	case errors.Is(err, authkit.ErrUsernameInUse):
+		badRequest(w, ErrUsernameInUse)
+	case errors.Is(err, authkit.ErrEmailRegistrationUnavailable):
+		serverErr(w, ErrEmailRegistrationUnavailable)
+	case errors.Is(err, authkit.ErrPhoneRegistrationUnavailable):
+		serverErr(w, ErrPhoneRegistrationUnavailable)
+	case errors.Is(err, authkit.ErrUserBanned):
+		unauthorized(w, ErrUserBanned)
+	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
+		s.send2FAEnrollmentRequiredError(w)
+	case errors.Is(err, authkit.ErrSessionIssueFailed):
+		serverErr(w, ErrTokenIssueFailed)
+	default:
+		switch flowStage(err) {
+		case "validate_username", "check_phone_conflict", "check_email_conflict":
+			s.logInternalError(r, "register", flowStage(err), "database_error", err)
+			serverErr(w, ErrDatabaseError)
+		case "hash_password":
+			serverErr(w, ErrHashFailed)
+		default:
+			serverErr(w, ErrRegistrationFailed)
+		}
+	}
 }
 
 // handlePendingRegistrationAbandonPOST lets a user cancel/abandon a pending

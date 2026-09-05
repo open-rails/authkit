@@ -44,6 +44,13 @@ func NewListPage[T any](items []T, nextCursor string) ListPage[T] {
 
 // ActionAvailability reports whether a cooldown-gated action is currently
 // allowed; it rides on GET /me and on 429 error metadata.
+// Action names carried by ActionAvailability.
+const (
+	ActionUpdateUsername       = "update_username"
+	ActionRequestPasswordReset = "request_password_reset"
+	ActionRequestVerification  = "request_verification"
+)
+
 type ActionAvailability struct {
 	Action            string     `json:"action"`
 	Allowed           bool       `json:"allowed"`

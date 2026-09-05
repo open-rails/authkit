@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // Session-establishing responses (#313): every route hands out the same
@@ -21,22 +22,14 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 }
 
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authkit.TokenSet, error) {
-	ua := r.UserAgent()
-	ip := parseIP(remoteIP(r))
-	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, ua, ip, authMethodsForSessionMethod(method))
+	session, err := s.svc.IssueLoginSession(r.Context(), authcore.LoginSessionInput{
+		UserID: userID, AuthMethods: authMethodsForSessionMethod(method), Event: method,
+		UserAgent: r.UserAgent(), IP: remoteIP(r),
+	})
 	if err != nil {
 		return authkit.TokenSet{}, err
 	}
-
-	ipStr := remoteIP(r)
-	uaPtr, ipPtr := &ua, &ipStr
-	s.svc.LogSessionCreated(r.Context(), userID, method, sid, ipPtr, uaPtr)
-
-	accessToken, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sid})
-	if err != nil {
-		return authkit.TokenSet{}, err
-	}
-	return authkit.NewTokenSet(accessToken, rt, exp), nil
+	return session.TokenSet(), nil
 }
 
 // deliverRefreshToken routes the refresh token to whichever transport this

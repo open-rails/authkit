@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
@@ -203,8 +204,9 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"New-password-12345"}`)
 	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
-	_, _, err = srv.svc.PasswordLogin(ctx, email, "New-password-12345", nil)
+	login, err := srv.svc.PasswordLogin(ctx, authcore.PasswordLoginInput{Identifier: email, Password: "New-password-12345"})
 	require.NoError(t, err)
+	require.Equal(t, authcore.LoginSessionIssued, login.Kind)
 
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"Another-password-12345"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())

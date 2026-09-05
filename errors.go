@@ -104,6 +104,28 @@ var (
 	ErrWalletChangeRequiresUnlink        = errors.New("wallet_change_requires_unlink")
 	ErrProviderAlreadyLinked             = errors.New("provider_already_linked")
 	ErrProviderChangeRequiresUnlink      = errors.New("provider_change_requires_unlink")
+
+	// Login / registration / 2FA-enrollment flow outcomes (ak#318): the engine
+	// owns the decision trees; these name the failures a transport maps.
+	ErrInvalidCredentials           = errors.New("invalid_credentials")
+	ErrAccountExistsLinkRequired    = errors.New("account_exists_link_required")
+	ErrProviderLinkFailed           = errors.New("provider_link_failed")
+	ErrUserCreationFailed           = errors.New("user_creation_failed")
+	ErrInvalidIdentifier            = errors.New("invalid_identifier")
+	ErrEmailRegistrationUnavailable = errors.New("email_registration_unavailable")
+	ErrPhoneRegistrationUnavailable = errors.New("phone_registration_unavailable")
+	ErrEmailVerificationSendFailed  = errors.New("email_verification_failed")
+	ErrPhoneVerificationSendFailed  = errors.New("phone_verification_failed")
+	ErrTwoFASendFailed              = errors.New("2fa_send_failed")
+	ErrTwoFAChallengeFailed         = errors.New("2fa_challenge_failed")
+	ErrSessionIssueFailed           = errors.New("session_issue_failed")
+	ErrInvalidTwoFAMethod           = errors.New("invalid_method")
+	ErrPhoneNumberRequired          = errors.New("phone_and_code_required")
+	ErrPhoneNumberMustBeE164        = errors.New("phone_number_must_be_e164")
+	ErrInvalidCode                  = errors.New("invalid_code")
+	ErrPhoneTwoFAUnavailable        = errors.New("phone_2fa_unavailable")
+	ErrTwoFASetupCodeSendFailed     = errors.New("send_code_failed")
+	ErrTwoFAEnableFailed            = errors.New("enable_2fa_failed")
 )
 
 // ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
@@ -142,6 +164,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrApplicationSignatureStale:   http.StatusUnauthorized,
 	ErrUserBanned:                  http.StatusUnauthorized,
 	ErrPasswordResetRequired:       http.StatusUnauthorized,
+	ErrInvalidCredentials:          http.StatusUnauthorized,
 	ErrSIWSChallengeNotFound:       http.StatusUnauthorized,
 	ErrSIWSChallengeExpired:        http.StatusUnauthorized,
 	ErrSIWSChallengeMismatch:       http.StatusUnauthorized,
@@ -185,6 +208,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrProviderAlreadyLinked:           http.StatusConflict,
 	ErrUserReferenced:                  http.StatusConflict,
 	ErrProviderChangeRequiresUnlink:    http.StatusConflict,
+	ErrAccountExistsLinkRequired:       http.StatusConflict,
 
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
@@ -193,6 +217,24 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRenamesDisabled:      http.StatusForbidden,
 	ErrNameAdmissionRefused: http.StatusForbidden,
 	// 400 — malformed / invalid input.
+	ErrInvalidIdentifier:     http.StatusBadRequest,
+	ErrInvalidTwoFAMethod:    http.StatusBadRequest,
+	ErrPhoneNumberRequired:   http.StatusBadRequest,
+	ErrPhoneNumberMustBeE164: http.StatusBadRequest,
+	ErrInvalidCode:           http.StatusBadRequest,
+	// 500 — the flow itself failed after the input was accepted.
+	ErrProviderLinkFailed:             http.StatusInternalServerError,
+	ErrUserCreationFailed:             http.StatusInternalServerError,
+	ErrEmailRegistrationUnavailable:   http.StatusInternalServerError,
+	ErrPhoneRegistrationUnavailable:   http.StatusInternalServerError,
+	ErrEmailVerificationSendFailed:    http.StatusInternalServerError,
+	ErrPhoneVerificationSendFailed:    http.StatusInternalServerError,
+	ErrTwoFASendFailed:                http.StatusInternalServerError,
+	ErrTwoFAChallengeFailed:           http.StatusInternalServerError,
+	ErrSessionIssueFailed:             http.StatusInternalServerError,
+	ErrPhoneTwoFAUnavailable:          http.StatusInternalServerError,
+	ErrTwoFASetupCodeSendFailed:       http.StatusInternalServerError,
+	ErrTwoFAEnableFailed:              http.StatusInternalServerError,
 	ErrApplicationDocumentInvalid:     http.StatusBadRequest,
 	ErrApplicationDomainInvalid:       http.StatusBadRequest,
 	ErrApplicationTierInvalid:         http.StatusBadRequest,
@@ -312,6 +354,11 @@ var errorSentinels = []error{
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
 	ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
+	ErrInvalidCredentials, ErrAccountExistsLinkRequired, ErrProviderLinkFailed, ErrUserCreationFailed,
+	ErrInvalidIdentifier, ErrEmailRegistrationUnavailable, ErrPhoneRegistrationUnavailable,
+	ErrEmailVerificationSendFailed, ErrPhoneVerificationSendFailed, ErrTwoFASendFailed, ErrTwoFAChallengeFailed,
+	ErrSessionIssueFailed, ErrInvalidTwoFAMethod, ErrPhoneNumberRequired, ErrPhoneNumberMustBeE164, ErrInvalidCode,
+	ErrPhoneTwoFAUnavailable, ErrTwoFASetupCodeSendFailed, ErrTwoFAEnableFailed,
 	// #247: permission-group hardening — role-assignability + custom-role +
 	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps
 	// them via errors.Is instead of strings.Contains.
