@@ -1,583 +1,133 @@
-# AuthKit — Semantic Versioning Contract (v1.0.0)
+# AuthKit — Semantic Versioning Contract
 
-This document defines the **public contract** of AuthKit: everything an embedding
-application is allowed to depend on, and therefore everything whose change forces a
-version bump. It is written as if we were cutting `v1.0.0` from the current tree.
+What an embedding application may depend on, and therefore what forces a
+version bump. Module `github.com/open-rails/authkit` · Go 1.26 · Postgres 18+.
 
-Module path: `github.com/open-rails/authkit` · Go: `1.26`
-
-> **Status:** proposed v1.0.0 contract. The current line is `v0.52.x`. Nothing here
-> is frozen until `v1.0.0` is tagged. The [Pre-1.0 freeze risks](#11-pre-10-freeze-risks-advisory)
-> section flags surfaces to shrink *before* we commit.
-
----
+> **Status:** pre-1.0 (`v0.98.x`). Nothing is frozen until `v1.0.0`; until
+> then breaking changes ship as MINOR bumps with a migration note, and
+> [§9](#9-pre-10-freeze-list) lists what shrinks first.
 
 ## 1. Versioning policy
 
-AuthKit follows [Semantic Versioning 2.0.0](https://semver.org). Given `MAJOR.MINOR.PATCH`:
+[Semantic Versioning 2.0.0](https://semver.org):
 
-- **MAJOR** — a change that can break a conforming consumer: removing/renaming any
-  covered symbol, route, field, constant value, or error code; tightening accepted
-  input; changing a response shape, a JWT claim, an HTTP status, or a stored-schema
-  invariant; or any change requiring a destructive/irreversible migration.
-- **MINOR** — backward-compatible additions: new packages, exported symbols, optional
-  config fields, new routes, new *optional* response fields, new error codes on paths
-  that could already fail, additive forward-only migrations.
-- **PATCH** — backward-compatible bug fixes that do not change any covered surface.
+- **MAJOR** — anything that can break a conforming consumer: removing or
+  renaming a covered symbol, route, field, constant value or error code;
+  tightening input; changing a response shape, JWT claim, HTTP status,
+  documented default, fixed TTL or schema invariant; adding a method to an
+  interface consumers implement; raising the Postgres floor; a destructive
+  migration.
+- **MINOR** — compatible additions: packages, symbols, optional fields,
+  routes, error codes, additive forward-only migrations, relaxed validation.
+- **PATCH** — behaviour-preserving fixes.
 
-A change is **breaking** if a consumer who only used the covered contract — compiling
-against the Go API, calling the documented routes, parsing the documented wire shapes,
-and running the published migrations — could stop compiling, stop parsing, or observe a
-different documented result.
+A consumer is conforming when it only compiles against the Go API, calls the
+documented routes, parses the documented wire shapes and runs the published
+migrations.
 
-### 1.1 The four contract planes
+### 1.1 The four planes
 
-AuthKit is consumed in four distinct ways, each with its own rules:
-
-| Plane | Consumed by | Covered by §|
+| Plane | Consumed by | Section |
 |---|---|---|
-| **A. Go library API** | apps that `import` AuthKit packages | [§4](#4-plane-a--go-library-api) |
-| **B. HTTP route surface** | browsers/clients hitting mounted routes | [§5](#5-plane-b--http-route-surface) |
-| **C. Wire formats** | any client parsing JSON / verifying tokens | [§6](#6-plane-c--wire-formats) |
-| **D. Persistence & operations** | operators running migrations / configuring keys | [§7](#7-plane-d--persistence--operations) |
+| **A. Go library API** | apps that `import` AuthKit | [§3](#3-plane-a--go-library-api) |
+| **B. HTTP routes** | clients hitting mounted routes | [§4](#4-plane-b--http-route-surface) |
+| **C. Wire formats** | anything parsing JSON or verifying tokens | [§5](#5-plane-c--wire-formats) |
+| **D. Persistence & operations** | operators running migrations, configuring keys | [§6](#6-plane-d--persistence--operations) |
 
-Compatibility is judged **per plane**. A purely additive Go method (Plane A minor) is
-still minor even if it touches code behind a frozen route. Conversely, an internal
-refactor that changes a JSON field name (Plane C) is **major** even though no Go symbol
-changed.
+Compatibility is judged per plane: an additive Go method is MINOR even behind
+a frozen route; a renamed JSON field is MAJOR even when no Go symbol changed.
+Symbol lists, route tables, code catalogs and config fields live in the
+generated or canonical sources named below, not here.
 
-### 1.2 What is explicitly NOT covered
+## 2. Stability tiers
 
-See [§9](#9-explicitly-out-of-contract). In short: `internal/`, the `cmd/authkit-server` dev harness,
-`*_test.go` helpers (except package `testing`), unexported behavior, log lines, exact
-error *messages* (the `message` field), wall-clock timing, and any symbol/field marked
-*Experimental* or *Deprecated*.
-
----
-
-## 2. Conventions for this document
-
-- "Covered symbol" = an exported (capitalized) Go identifier in a non-`internal`
-  package listed in [§4.1](#41-packages--import-path--package-name).
-- "Wire field" = a JSON key in a request or response body, an HTTP status code, a route
-  method+path, a JWT claim, or an error `code`.
-- The authoritative live enumeration of Plane A is `go doc ./<pkg>`; CI should diff it
-  (see [§10](#10-enforcement)). The lists in this file are a snapshot for review.
-
----
-
-## 3. Stability tiers
-
-Not every exported symbol carries the same weight. Each package is assigned a tier; the
-tier sets the *default* promise. Individual symbols may be annotated otherwise in their
-doc comment.
-
-| Tier | Meaning | Change discipline |
+| Tier | Meaning | Discipline |
 |---|---|---|
-| **Stable** | Primary embedding surface. | Full semver; breaking = MAJOR. |
-| **Stable (verify-only)** | Dependency-light verification surface. | Full semver; extra care: resource servers depend on it without pgx. |
-| **Provided** | Optional first-party plug-ins (adapters, providers, stores). | Full semver, but may evolve with their upstream (gin/chi/redis/twilio). |
-| **Advanced** | Low-level building blocks (key sources, signers, raw stores). | Covered, but intended for power users; prefer the Stable engine surface. |
-| **Experimental** | Marked in doc comments. | **Not covered.** May change in MINOR. |
+| **Stable** | Primary embedding surface | Full semver |
+| **Stable (verify-only)** | Verification surface with no pgx/redis | Full semver |
+| **Provided** | First-party plug-ins (adapters, providers, backends) | Full semver, may move with their upstream |
+| **Advanced** | Key sources, signers, raw stores | Covered; prefer the engine surface |
+| **Experimental** | Marked in doc comments | Not covered; may change in MINOR |
 
----
+## 3. Plane A — Go library API
 
-## 4. Plane A — Go library API
+### 3.1 Packages
 
-### 4.1 Packages — import path → package name
-
-Several import paths bind a differently-named package; the **package name** is what
-appears in consumer code. Renaming either is breaking.
-
-| Import path | Package name | Tier | Role |
+| Import path | Package | Tier | Role |
 |---|---|---|---|
-| `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
-| `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)`, the concrete `*Client` (implements `authkit.Client`), config, deps, sender/provider interfaces and engine-only types (#289) |
-| `…/authhttp` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
-| `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
-| `…/documents` | `documents` | Stable | Generic immutable signed-document envelopes, references, verification, authenticated publication, and resolution |
-| `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
-| `…/authprovider` | `authprovider` | Stable | Identity providers (interface + built-ins) |
-| `…/oidckit` | `oidckit` | Stable | Browser-flow state (StateCache/StateData/PKCE) |
-| `…/password` | `password` | Stable | argon2id/bcrypt hash + verify |
-| `…/lang` | `lang` | Stable | Language context helpers |
+| `github.com/open-rails/authkit` | `authkit` | Stable | `Client` interface, domain/wire types, typed identifiers, error catalog, verify-only primitives |
+| `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)` |
+| `…/authhttp` | `authhttp` | Stable | HTTP transport: `New(client, Config)`, `MountHandler` |
+| `…/verify` | `verify` | Stable (verify-only) | Verifier, `Claims`, middleware, permission/liveness gates |
+| `…/documents` | `documents` | Stable | Signed-document envelopes, publisher/resolver, service |
+| `…/authprovider` | `authprovider` | Stable | `Provider` interface + built-in IdPs |
+| `…/oidckit` | `oidckit` | Stable | Browser-flow state, PKCE |
+| `…/password` | `password` | Stable | argon2id/bcrypt |
+| `…/ratelimit` (+ `/memory`, `/redis`) | `ratelimit` | Stable / Provided | `Limit`/`Result` and the two backends |
+| `…/authkitmigrate`, `…/migrations/postgres` | `authkitmigrate`, `migrations` | Stable | Migration API and embedded files |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
-| `…/ratelimit` | `ratelimit` | Stable | Rate-limit result + `Limit` types and helpers |
-| `…/adapters/gin` | `authkitgin` | Provided | Gin middleware bridges (mounting is `authhttp.MountHandler`, #250); own module |
-| `…/adapters/twilio/email` | `twilio` | Provided | Twilio/SendGrid email sender |
-| `…/adapters/twilio/sms` | `twilio` | Provided | Twilio SMS sender |
-| `…/adapters/riverjobs` | `riverjobs` | Provided | River background workers; own module |
-| `…/migrations/postgres` | `migrations` | Stable | Embedded Postgres migrations (`FS`, `FSForSchema`) |
-| `…/internal/*` | (various) | **Out of contract** | `internal/db` (sqlc-generated), stores, siws; never import |
+| `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
+| `…/adapters/gin`, `…/adapters/riverjobs` | `authkitgin`, `riverjobs` | Provided | Own modules |
+| `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
-**Adding a package** is MINOR. **Removing or renaming** a package, or changing its
-package name, is MAJOR.
+Renaming an import path or package name is MAJOR; adding a package is MINOR.
+`go doc` is the live enumeration of each surface; CI does not yet diff it (§8).
 
-**Nested modules (#321).** `adapters/gin` and `adapters/riverjobs` are their own Go
-modules (`github.com/open-rails/authkit/adapters/gin`, `…/adapters/riverjobs`) so gin,
-river and cron never enter the root `go.mod`; a host that imports one adds that module
-to its own `go.mod`. `go.work` wires them into the tree for local dev and CI; each
-nested `go.mod` carries `replace github.com/open-rails/authkit => ../..` (ignored by
-consumers). Each module is versioned and tagged independently: `vX.Y.Z` for the root,
-`adapters/gin/vX.Y.Z` and `adapters/riverjobs/vX.Y.Z` for the adapters. Release order:
-tag the root first, bump each nested `require github.com/open-rails/authkit` to that tag,
-then tag the adapters. Their semver follows the adapter's own surface plus the upstream
-(gin / river) version they pin.
+**Nested modules.** `adapters/gin` and `adapters/riverjobs` are their own
+modules so gin and river never enter the root `go.mod`. Tags: `vX.Y.Z` (root),
+`adapters/gin/vX.Y.Z`, `adapters/riverjobs/vX.Y.Z`. Release order: tag the
+root, bump each nested `require github.com/open-rails/authkit` to it, tag the
+adapters.
 
-### 4.2 Root `authkit` & `embedded` — exported surface
+### 3.2 Rules
 
-The root **`authkit`** package is the contract. It defines the **`Client` interface** —
-one flat interface grounded in the operations consumers actually call (#289: the topic
-interfaces are gone) — plus the public data/result types, identifiers, constants,
-sentinel errors, and the permission/API-key primitives. The concrete engine is the
-**`embedded`** package: `embedded.New(cfg, deps) (*embedded.Client, error)` returns the
-engine itself, which implements `authkit.Client` and additionally carries the infra
-accessors, the transport-driven browser flows, the passkey ceremonies and `Genesis()`.
-There is no facade, no alias layer and no `internal` engine: every exported `embedded`
-method is the engine's real surface, and the `authkit.Client` subset is the covered host
-contract (§9 for the rest). Adding a method to `Client` is MAJOR — consumers implement it.
+- **Hold `authkit.Client`.** It is the covered host contract. `*embedded.Client`
+  also exposes transport-driven flows, in-process ceremonies and infra
+  accessors; those engine-only methods may change in MINOR.
+- **`Client` membership.** Adding a method is MAJOR (fakes implement it). A
+  method belongs only when a server calls it in-process; browser flows belong
+  to the HTTP layer. Lifecycle pairs stay together (`MintAPIKeyWithOptions` ⇒
+  `RevokeAPIKey`).
+- **Operation shape.** Collection reads are `(ctx, []ID) (map[ID]T, error)`
+  with missing ids absent; bulk mutations return per-item `[]OpResult` or are
+  documented all-or-nothing; single-subject auth primitives are never batched.
+- **Typed identifiers.** `Persona`/`Role`/`Perm`, `GroupRef`/`Subject`; groups
+  are identified by immutable UUID and a resolved name never transfers
+  authority (`docs/naming-policy.md`).
+- **Interfaces consumers implement** — `EmailSender`, `SMSSender`,
+  `EntitlementsProvider`, `EphemeralStore`, `CustomRoleResolver`,
+  `authprovider.Provider`, `authhttp.DocumentProvider`, `verify.LivenessSource`,
+  `verify.PermissionChecker` — adding a method is MAJOR.
+- **Verify-only build graph.** Root and `verify` import no Postgres, Redis or
+  engine package (`deps_guard_test.go`).
+- **No API returns a private key or PEM.**
 
-**Recommended held type — the interface, not the concrete.** Hold `authkit.Client`,
-never `*embedded.Client`, unless a call site needs something only the engine has:
-`var c authkit.Client = embedded.New(cfg, deps)`. AuthKit's own adapters follow this
-(e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
-accessors (`Postgres`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
-interface (§9), so code that genuinely needs them — and only that code — holds the concrete
-`*embedded.Client`.
+## 4. Plane B — HTTP route surface
 
-**Constructors** (`embedded`; `Config`/`Deps` are aliases to the internal service types —
-one config type, one dependency type, no functional options; #314):
-```
-func New(cfg Config, deps Deps) (*Client, error)
-type Deps struct { Postgres; Redis; EphemeralStore; Email; SMS; Entitlements;
-  DelegatedAuthorization; ApplicationAdmission; InstanceAdmission; NameAdmission;
-  SolanaSNSResolver; OutboundHTTP; Clock }
-Context helpers: WithSessionRevokeReason, WithResolvedGroup
-(#245 BREAKING: WithClickHouse removed — session-event history is Postgres-backed
-and always on; see §7.1/§7.3.)
-```
+- Routes are prefix-neutral. `authhttp.MountHandler(svc, MountOptions)` serves
+  the whole surface: JSON API under `APIPrefix` (default `/api/v1`), browser
+  OIDC at `/oidc`, JWKS at `/.well-known/jwks.json`, documents at
+  `/.well-known/authkit/documents/{digest}`.
+- Covered: `MountOptions{Groups, APIPrefix, ExcludeRoutes, Wrap, RefreshCookie}`,
+  `RouteRef`, `RouteSpec`, the `RouteGroup` constants and their membership, and
+  `svc.JWKSHandler()` / `APIRoutes()` / `OIDCBrowserRoutes()` /
+  `PermissionGroupRoutes()`.
+- **The route table is `docs/api-endpoints.md`**, generated from the registry
+  by `TestAPIEndpointsDoc`; CI fails when stale. Method, path, group, auth,
+  rate-limit bucket and mount condition of every row are covered.
+- Permission-group routes are generated per persona and addressed by
+  `{instance_slug}`; a capability the persona does not enable emits no route
+  (404).
+- The browser OIDC fragment contract (README, "Browser OIDC") is covered.
 
-**Config types** (every field is covered; see [§7.3](#73-config-surface)):
-`Config`, `TokenConfig`, `FrontendConfig`, `RegistrationConfig`, `KeysConfig`,
-`IdentityConfig`, `APIKeysConfig`, `TwoFactorConfig`, `PasskeyConfig`, `RBACConfig`.
-(Solana chain selection is the flat `Config.SolanaNetwork string`; SNS
-is always-on with fixed timeout/cache — there is no `SolanaConfig`.)
+Adding a route is MINOR. Removing or renaming one, or changing its method,
+group or auth requirement, is MAJOR.
 
-**Mint APIs** (free functions + `*embedded.Client` methods — wire-shape owners):
-```
-MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken
-```
-with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplicationAccessParams`.
+## 5. Plane C — Wire formats
 
-**Signed-document API:** `(*embedded.Client).SignDocument` uses the current
-AuthKit signer and returns `documents.SignedDocument`. The dependency-light
-`documents` package owns `Reference`, `Envelope`, strict digest/type parsing,
-the authenticated well-known publisher/resolver, and stable document errors.
-`verify.Verifier.VerifyDocument` reuses the registered issuer/JWKS cache and
-key-rotation refresh. AuthKit treats `Envelope.Payload` as opaque JSON.
+### 5.1 Error envelope
 
-**Passkeys: browser flows are HTTP-transport-driven; in-process ceremonies live on
-`*embedded.Client` (ak#279).** `BeginPasskeyLogin`/`Finish…`, `ListPasskeys`, `RenamePasskey`
-and `DeletePasskey` live on `*embedded.Client` and are exercised through the `RoutePasskeys`
-HTTP routes ([§5.3](#53-static-api-route-table-covered)). Hosts that drive WebAuthn themselves
-get, on the concrete `*embedded.Client` (not the `authkit.Client` interface, which stays free of
-`go-webauthn` types): `BeginDiscoverablePasskeyVerification`/`Finish…` (identity proof, no
-session), `BeginPasskeyAccount`/`Finish…` (passkey-only user), `BeginPasskeyRegistration` with
-`FinishPasskeyRegistration` (add) or `FinishPasskeyReplacement` (atomic single-passkey rotate).
-The covered passkey **library** surface is therefore those methods, the `PasskeyConfig`
-([§7.3](#73-config-surface)), the `Passkey` / `PasskeyLoginResult` / `VerifiedPasskey` /
-`PendingPasskeyAccount` types, and the `ErrPasskey*` sentinels below; the ceremony
-request/response JSON bodies follow the W3C WebAuthn standard
-(`navigator.credentials.create`/`get`).
-
-**Passwordless & refresh-token exchange are HTTP-transport-driven (relocated off `Client`, #201).**
-Like Passkeys, these are browser/end-user request flows, not backend-embedder capabilities, so the
-methods live on `*embedded.Client` and are exercised through routes only — `StartPasswordless`/
-`ConfirmPasswordless{Code,Token}`/`RecordFailedPasswordlessCode`/`ClearPasswordlessCodeAttempts` via the
-passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the `/token` endpoint. The
-`Passwordless{Start,Confirm}*` request/response types stay covered (below); the methods are NOT on
-`authkit.Client`.
-
-**`Client` interface membership rule (#201) — governs what may be ADDED to the contract too:**
-1. **Layer test.** The Go `Client` is the *backend embedder's* capability surface. A method belongs on
-   it only if a server calls it in-process; a browser/end-user request flow (passkey login, passwordless,
-   refresh exchange) belongs on the HTTP layer only.
-2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKeyWithOptions`
-   ⇒ `RevokeAPIKey`) — removing one arm is a footgun.
-3. **Commitment.** Only a WHOLE speculative feature is a YAGNI cut; a route-wired committed feature
-   (invite links, api-key / remote-app management) is kept even at low adoption.
-Adoption count alone is NOT a criterion for adding or removing a method.
-
-**Operation shape rule (#219) — batch-native for collection ops; governs future methods too:**
-- **Reads over a collection**: `(ctx, []ID) (map[ID]T, error)` — missing IDs are simply absent from the
-  map; a single-item call is the batch with a one-element slice and an `m[id]` read.
-- **Bulk-capable mutations**: return PER-ITEM results — `[]OpResult{ID string; Err error}` — so partial
-  failure is expressible; OR be explicitly all-or-nothing transactional where that is the right semantic
-  (chosen and documented per operation). A bare `([]T) error` single-error on a bulk write is the
-  anti-pattern: the caller cannot tell which item failed.
-- **Exclusions (never batch)**: request-scoped single-subject auth primitives — `Verify`/`VerifyRequest`,
-  password login, `MintAccessToken`, `Can(subject, …)`, `ResolveAPIKey`, refresh exchange. They are
-  inherently one-principal/one-request; batching them puts partial-failure ambiguity on the auth path.
-  The exclusion is about the DECISION, not the read behind it: `UserLivenessByIDs` (#267) is a
-  collection read and batch-native, even though its hot caller (`VerifyRequestLive`) passes one id —
-  a map read either yields the verdict or does not, so there is no partial-failure ambiguity to carry.
-
-**`Client` interface methods** (covered) — the curated embedder surface, defined on
-`authkit.Client` and implemented by `*embedded.Client`. Adding
-a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
-`ImportUsers`, `UpdateImportedUser`, `GetUserBy{Email,Username,Phone}`, `BanUser`/`UnbanUser`,
-`{Soft,Hard}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
-`AdminListUsers`/`AdminGetUser`/…); tokens
-(`Mint{Access,Service,RemoteApplication}*` (#214), `SignDocument`); passwords (`UpsertPasswordHash`);
-RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
-(batch, per-item authz, #222), `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
-links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
-`ExternalInvitesEnabled`); API keys
-(`MintAPIKeyWithOptions`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey`); remote
-apps; identity linking; bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
-`Options`, `PublicKeysByKID`, …). Browser/end-user flows (refresh exchange, sessions,
-password change, invite redemption, delegated-token minting) are HTTP-layer only (§4.2 layer
-test), served by `*embedded.Client`. Every method on the `Client` interface is
-covered; the engine methods on `*embedded.Client` beyond what `Client` exposes are
-**not** (§9). (Method names above are illustrative; `client.go` is authoritative.)
-
-**Domain & result types** (covered): `User`, `UserRef`, `PublicUserRef` (#268 — a widening of
-this type is BREAKING in spirit as well as version: it is the public-safe projection, and it
-may never acquire an email-shaped field), `UserLiveness` (#267), `AdminUser`, `AdminUserStatus`,
-`AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`,
-`ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
-`SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
-`PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `VerifiedPasskey`, `PendingPasskeyAccount`,
-`PasswordlessStartRequest`,
-`PasswordlessStartResult`, `PasswordlessConfirmResult`, `APIKey`, `APIKeyMintOptions`, `APIKeyResource` (alias),
-`ResolvedAPIKey` (alias), `TwoFactorSettings`, `TwoFactorFactor`, `MFAStatus`,
-`RemovedMFARoleAssignment`, `VerificationMessage`, `SolanaLinkedAccount`, `ValidationError`.
-
-**Permission-group / RBAC types** (covered): `GroupSchema`, `PersonaDef`, `RoleDef`,
-`PermissionDef`, `ManagementProfile`, `GeneratedRoute`, `GroupAssignment`,
-`GroupMember`, `SubjectGroupMembership`, `CreatePermissionGroupRequest`,
-`GroupInviteLink`, `GroupInviteLinkCreated`, `CreateGroupInviteLinkRequest`,
-`RedeemGroupInviteLinkResult` (#134/#147 invite links — these REPLACE the removed
-`GroupInvite`/`GroupInviteStatus*` user_id-invite API),
-`CustomRoleResolver`, `PermissionGroupStore`,
-the typed identifiers `Persona`/`Role`/`Perm`/`SubjectKind` with `GroupRef`/`Subject`
-(ak#317: every group/role/permission parameter is typed — `AssignGroupRoleAs(ctx, actor,
-GroupRef, Subject, Role)`, `Can(ctx, Subject, GroupRef, Perm)`), the `SubjectKind*`/`RootPersona`/
-`OwnerRole` consts, the `PermRoot*` constants, and the `Perm*(Persona) Perm` builders.
-
-(#247 BREAKING: one role per subject per group is now a HARD rule — no per-group
-role unions (the additive walk-up union ACROSS ancestor groups is unchanged).
-`GroupAssignment.Roles []string` is now `GroupAssignment.Role string`.
-`PermissionGroupStore.UpsertCustomRole` gained a `requiresMFA bool` parameter
-and a new `CustomRole` lookup method; assigning a role now REPLACES a subject's
-existing role in that group via a single atomic upsert, backed by a partial
-unique index on `(permission_group_id, subject)` — see §7.1. Custom-role
-`requires_mfa` is honored by the same assignment/redeem-time MFA gate as
-catalog roles. Invite-link `ExpiresIn` is now clamped to a 30-day ceiling at
-mint — never rejected, silently capped.)
-
-**Interfaces consumers implement** (covered — adding a method is MAJOR for an interface
-consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
-`EntitlementsProvider` (batch-native, #221: `ListEntitlements(ctx, []userID) (map[userID][]string, error)`
-— the former single-user signature + optional `BatchEntitlementsProvider` upgrade are gone),
-`EntitlementFilterProvider`, `EphemeralStore`, `CustomRoleResolver`.
-Verification senders receive final AuthKit-built URLs in `VerificationMessage.LinkURL`;
-password-reset senders receive the final reset URL, not a raw token.
-
-**Bootstrap types** (covered): `BootstrapManifest`, `BootstrapManifestUser`,
-`BootstrapManifestGlobalRole`, `BootstrapManifestResult`, `BootstrapReconcileOptions`,
-`BootstrapUserPassword`, `LoadBootstrapManifestFile`,
-`DefaultBootstrapManifestPath`. The **YAML manifest schema** is itself a wire contract
-(see [§6.6](#66-bootstrap-manifest-yaml)).
-
-**Validation helpers** (covered — these are AuthKit's identity policy, deliberately not
-overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
-`NormalizeEmail`, `ValidateEmail`, `NormalizePhone`, `ValidatePhone`,
-`NormalizePreferredLanguage`, `ValidatePermission`, `ValidateGrantPattern`,
-`ValidationErrorCode` (a validation failure is a `*authkit.Error` carrying one of the
-catalogued validation codes; `param` names the field).
-
-**Sentinel errors** (covered — consumers compare with `errors.Is`): `ErrUserBanned`,
-`ErrPasswordResetRequired` (→ HTTP `password_reset_required`), `ErrStepUpRequired` (→ HTTP `step_up_required`),
-`ErrTwoFAEnrollmentRequired`, `ErrRenameRateLimited`, `ErrOwnerSlugTaken`,
-`ErrPasskeyNotFound`, `ErrPasskeyUserVerificationRequired`, `ErrPasskeyCloneDetected`,
-`ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteLinkNotFound`, `ErrInviteLinkExpired`,
-`ErrInviteLinkRevoked`, `ErrExternalInvitesDisabled` (#134/#147), `ErrUserRoleNotFound`,
-`ErrCannotRemoveLastAdminRole`, `ErrInsufficientRoleAuthority`, `ErrRoleAssignmentEscalation`
-(the actor-checked no-escalation role path — `*As` methods on `Roles`/`Groups`),
-`ErrEntitlementFilterUnavailable`,
-`ErrInvalidBootstrapManifest`, `ErrRemoteApplicationNotFound`,
-`ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` verify-only sentinels (§4.3).
-`HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
-
-> **Done (#126 → #143):** the former dual API (a ~230-method flat `*core.Service` plus an
-> unused 166-method facet mirror) was collapsed (#126), then the public surface was
-> re-shaped (#143) into the **`authkit.Client` interface** with the concrete implementation
-> behind `embedded.New`, then (#289) the engine itself became `embedded.Client` — no
-> facade, no aliases, no `internal/authcore`. This *is* the Stable core.
-
-### 4.3 `verify` & the verify-only primitives in root `authkit`
-
-`verify` imports **no** Postgres/Redis/storage. A pure resource server depends on it plus
-the dependency-light primitives in root `authkit` (formerly the separate `authbase`
-package, now folded into root) to keep `pgx`/`redis` out of its build graph. `authhttp`
-re-exports every name below, so token-issuing apps need no change.
-
-**`verify`** (Stable, verify-only):
-```
-type Verifier; NewVerifier(opts ...VerifierOption) *Verifier
-  WithAPIKeyPrefix, WithAlgorithms, WithHTTPClient, WithPermissions, WithRequireMFAEnrollment, WithSSRFGuard, WithSkew
-(*Verifier).ValidateDocumentIssuer, (*Verifier).VerifyDocument
-(*Verifier).WithService(Enricher) attaches DB-backed enrichment
-type Claims (see §6.4); ClaimsFromContext, GetClaims, SetClaims
-Middleware: Required, Optional, RequiredServiceJWT, RequireACR, RequireAMR, RequireMFA,
-  RequireFreshAuth, RequireDelegatedOrigin,
-  RemoteApplicationCORS, Sensitive
-Helpers: SensitiveClaims, SensitiveOptions, NewSSRFGuardedClient, DefaultOutboundTimeout
-Principals: DelegatedPrincipal, ServiceJWTPrincipal (+FromContext), Enricher,
-  RemoteApplicationSource, IssuerKey, IssuerOptions
-Service-JWT verify: ServiceJWTVerifyOption (WithServiceJWTMaxLifetime)
-Policy callbacks: PermissionValidator
-Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenType,
-  DefaultSensitiveMaxAge=15m, DefaultOutboundTimeout=30s
-```
-`Enricher` is satisfied by `*embedded.Client`; attaching DB-backed enrichment is opt-in
-via `(*Verifier).WithService(...)`.
-
-**Root `authkit` verify-only primitives** (Stable, verify-only; formerly package
-`authbase`): `ErrorEnvelope`, `ErrorObject`, `ErrorEnvelopeFor`, `WriteError`
-(see [§6.1](#61-error-envelope)); `APIKeyResource`, `RemoteApplication`,
-`RemoteAppKey`, `RemoteAppAttributeDef`, `ResolvedAPIKey`, `ServiceJWTClaims`; opaque-key
-funcs `APIKeyMarker`, `FormatAPIKey`, `ParseAPIKey`, `HasAPIKeyPrefix`; permission match
-method `Perm.Matches`, `PermWildcard="*"`; origin funcs
-`NormalizeAllowedOrigin(s)`, `OriginAllowed`; the error model `Code`, `Error`, `E`,
-`AsError`, `Recode`, `DescribeCode`, `Codes`, `ErrorTypeForStatus`, `ErrorTypeInvalidRequest…` consts; mode consts `RemoteAppModeJWKS`,
-`ServiceJWTTokenUse="service"`; sentinels `ErrInvalidAccessToken="invalid_token"`,
-`ErrInvalidServiceJWT`, `ErrInvalidRemoteApplication`, `ErrAttributeDefNotFound`.
-
-### 4.4 Other packages — exported surface (snapshot)
-
-- **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PayloadSigner`/`PublicKeySigner`
-  interfaces; `SignPayloadWithType`, `ErrPayloadSignerRequired`;
-  `RSASigner`/`NewRSASigner`, `Ed25519Signer`/`NewEd25519Signer`; `KeySource` +
-  `StaticKeySource`, `NewStaticKeySourceFromPEM`, `FileKeySource`/`NewFileKeySource(path, interval, *slog.Logger)`, `ResolveKeySource(path, allowEphemeralDevKeys, *slog.Logger)`
-  (#208: the reloadable/generated key-source machinery is unexported — reachable only through
-  `ResolveKeySource`; the former `KeyRing`/`EnvKeySource`/`FileKeySource`/`NewAutoKeySource`
-  are gone); `JWK`, `JWKS`, `ServeJWKS`, conversion funcs; token-type consts
-  (`AccessTokenType="access+jwt"`, …); `DefaultAuthKeysPath="/vault/auth"`;
-  `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `ErrUnsupportedJWK`.
-  **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
-- **`authprovider`**: `Provider` interface (`Name`, `DisplayName`, `Issuer`, `PKCE`,
-  `ResponseModeFormPost`, `SupportsStepUp`, `AuthCodeURL`, `Exchange`, `Validate`),
-  `Identity`, `AuthRequest`, `ExchangeRequest`; constructors `Google`, `Apple(clientID,
-  AppleSecret)`, `Discord`, `GitHub`, `OIDC(name, issuer, clientID, secret, opts...)`,
-  `OAuth2(name, issuer, Endpoint, clientID, secret, UserInfoFunc, opts...)`; `Secret`
-  (`StaticSecret`, `SecretFunc`), `Option`s (`WithScopes`, `WithDisplayName`, `WithSecret`,
-  `WithPKCE`, `WithHTTPClient`, `WithAuthParams`), `GetJSON`, `IdentityID`,
-  `ErrProviderInvalid`, `ErrProviderNonHTTPSURL`.
-- **`oidckit`**: `StateCache`, `StateData`, `GeneratePKCE`.
-- **`password`**: `HashArgon2id`, `VerifyArgon2id`, `VerifyBcrypt`, `IsBcryptHash`,
-  `Validate`, `Params`, `DefaultParams`. **Accepted hash formats (argon2id, bcrypt) are a
-  covered whitelist** — see [§6.7](#67-password-hash-policy).
-- **`lang`**: `LanguageFromContext`, `WithLanguage`.
-- **`authtest`**: `TestIssuer`, `NewTestIssuer(WithAudience|WithSigner)`.
-- **`ratelimit`**: `Result`, `Reason*` consts, `Limit` (the single hoisted limit type, #188),
-  `LookupLimit`, `Remaining`. The memory/redis limiter BACKENDS, the memory/redis ephemeral
-  STORES, and the `siws` protocol package moved behind `internal/` (#202) — consumers only ever
-  reached them through `embedded.Deps.Redis`/`authhttp.Config.Redis`/internal wiring, never by name.
-- **`authkitgin`**: the gin-native `Required`/`Optional` middleware (#209), `Use`,
-  `Fallback` (NoRoute-safe mount bridge), `Principal`, `UserClaims`, `RequirePermission`.
-  (#250 BREAKING: the `Register*` route-registration surface and the `authkitchi`
-  package were DELETED — hosts mount `authhttp.MountHandler` once instead.)
-- **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
-- **`riverjobs`**: `PurgeDeletedUsersWorker`/`Args`, `RegisterPurgeDeletedUsersWorker`,
-  `BeforeUserHardDeleteFunc`, `DefaultQueue` (#246).
-  (#246 BREAKING: the job no longer inserts onto `river.QueueDefault` — it inserts onto
-  `DefaultQueue = "authkit"` unless the new `PurgeDeletedUsersArgs.Queue` field overrides
-  it. The queue name a River job inserts onto is a covered operational default: River
-  fetches jobs by queue name only, so a client polling a queue it has no worker for burns
-  a failed attempt, and a client that doesn't poll a job's queue never works it at all.
-  Pinning to the shared `default` queue poisoned any host that also ran its own jobs
-  there. Every host embedding `RegisterPurgeDeletedUsersWorker` MUST add `DefaultQueue`
-  (or its own `Args.Queue` override) to its `river.Config.Queues` map at the next bump, or
-  the periodic purge job silently stops being worked.)
-
-### 4.5 `authhttp` re-exports & server surface
-
-`authhttp` is the integration entry point. Covered:
-```
-type Service; New(client *embedded.Client, cfg Config) (*Service, error)
-  (the host builds the *embedded.Client via embedded.New(cfg, deps) and uses it directly
-   as the authkit.Client surface — there is no svc.Core() accessor; the former
-   `Server = Service` alias and the one-step New/WithEngine were removed pre-1.0, #206/#314)
-type Config struct { Redis; RateLimits; Limiter; DisableRateLimiting; TrustedProxies;
-  CloudflareProxies; DirectPeerIP; ClientIP; Languages LanguageConfig; Documents }
-  Config.Validate(): parseable proxy CIDRs, one rate-limit choice, and a REQUIRED
-  client-IP posture (TrustedProxies / CloudflareProxies / DirectPeerIP / ClientIP)
-Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
-  MountHandler anchors the MFA-enrollment exempt routes at its APIPrefix and the verifier
-  matches them exactly; the suffix match covers only verifiers that never mounted (ak#324).
-  svc.JWKSHandler(), svc.APIRoutes(groups...), svc.OIDCBrowserRoutes(),
-  svc.PermissionGroupRoutes()
-Verification surface: NOT re-exported (#206 — the former verify_aliases re-exports were
-  removed pre-1.0). Import github.com/open-rails/authkit/verify directly for Verifier,
-  Claims, Required/Optional/Sensitive/Require* middleware, and the With* verifier options.
-  (admin authorization is permission-based via the root permission group — there is no
-   bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
-Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
-  DefaultRateLimits() (returns map[string]ratelimit.Limit), RL* consts
-Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare)
-Language: LanguageConfig, LanguageMiddleware
-Routing: RouteGroup (+consts), RouteSpec
-Errors: none — every code is an `authkit.Code` (§6.2)
-```
-
----
-
-## 5. Plane B — HTTP route surface
-
-### 5.1 Mounting model (covered behavior)
-
-- Routes are **prefix-neutral**. AuthKit's internal paths (`/token`, `/me`,
-  `/admin/users`, …) are fixed; `authhttp.MountHandler(svc, MountOptions)` (#250) serves
-  the whole surface as one handler: API under `APIPrefix` (default `/api/v1`), browser
-  OIDC at `/oidc`, JWKS at `/.well-known/jwks.json`.
-- `MountOptions{Groups, APIPrefix, ExcludeRoutes, Wrap, RefreshCookie}` and
-  `RouteRef{Method, Path}` are covered. Hosts select capability subsets via
-  `MountOptions.Groups` (or `svc.APIRoutes(groups...)` for direct table access). The set
-  of `RouteGroup` values and their membership is covered.
-- `RouteSpec{Method, Path, Group, Handler}` shape is covered. Path params use net/http
-  `{param}` syntax.
-- The lower-level pieces stay covered for hosts that assemble their own mux:
-  `svc.JWKSHandler()`, `svc.APIRoutes()`, `svc.OIDCBrowserRoutes()`.
-
-**Adding a route** to an existing group is MINOR. **Removing/renaming a route, changing
-its method, moving it between groups, or changing its auth requirement** is MAJOR.
-
-### 5.2 Route groups (covered constants)
-
-`RoutePublic`, `RouteRegister`, `RouteSession`, `RouteUser`, `RoutePasskeys`, `RouteAdmin`,
-`RouteBrowserOIDC`, `RoutePermissionGroups`.
-
-### 5.3 Static API route table (covered)
-
-| Method | Path | Group | Auth |
-|---|---|---|---|
-| GET | `/identity-providers` | public | none |
-| POST | `/token` | session | none (refresh token in body) |
-| DELETE | `/logout` | session | required |
-| POST | `/password/login` | session | none |
-| POST | `/passwordless/start` | session | none |
-| POST | `/passwordless/confirm` | session | none |
-| POST | `/passkeys/login/begin` | passkeys | none |
-| POST | `/passkeys/login/finish` | passkeys | none |
-| POST | `/password/reset/request` | session | none (#312 — `{identifier}`, email or phone) |
-| GET | `/password/reset/confirm` | session | none |
-| POST | `/password/reset/confirm` | session | none |
-| POST | `/2fa/challenge` | session | none |
-| POST | `/2fa/verify` | session | none |
-| POST | `/solana/challenge` | session | none |
-| POST | `/solana/login` | session | none |
-| POST | `/register` | register | none |
-| GET | `/register/availability` | register | none |
-| POST | `/register/resend` | register | none (#312 — `{identifier}`) |
-| POST | `/register/abandon` | register | none |
-| POST | `/verify/request` | register/user | optional (#312 — `{identifier, password?}`, email or phone) |
-| GET | `/verify/confirm` | register | none |
-| POST | `/verify/confirm` | register/user | optional (`{identifier, code}` or `{token}`) |
-| GET | `/me` | user | required |
-| POST | `/user/password` | user | required |
-| GET | `/user/sessions` | user | required |
-| DELETE | `/user/sessions/{id}` | user | required |
-| DELETE | `/user/sessions` | user | required |
-| PATCH | `/user/username` | user | required |
-| PATCH | `/user/preferred-language` | user | required |
-| DELETE | `/user` | user | required |
-| DELETE | `/user/providers/{provider}` | user | required |
-| POST | `/passkeys/register/begin` | passkeys | required |
-| POST | `/passkeys/register/finish` | passkeys | required |
-| GET | `/passkeys` | passkeys | required |
-| PATCH | `/passkeys/{id}` | passkeys | required |
-| DELETE | `/passkeys/{id}` | passkeys | required |
-| POST | `/step-up/password` | user | required |
-| POST | `/step-up/2fa` | user | required |
-| POST | `/oidc/{provider}/link/start` | user | required |
-| POST | `/oidc/{provider}/step-up/start` (providers whose `SupportsStepUp` is true — OIDC; OAuth2 providers answer `invalid_method`) | user | required |
-| GET | `/user/2fa` | user | required |
-| POST | `/user/2fa` | user | required |
-| DELETE | `/user/2fa` | user | required |
-| POST | `/user/2fa/backup-codes` | user | required |
-| POST | `/solana/link` | user | required |
-| GET | `/admin/users` | admin | `root:resources:read` |
-| GET | `/admin/users/{user_id}` | admin | `root:resources:read` |
-| GET | `/admin/users/{user_id}/signins` | admin | `root:resources:read` |
-| POST | `/admin/users/{user_id}/ban` | admin | `root:users:ban` |
-| POST | `/admin/users/{user_id}/unban` | admin | `root:users:ban` |
-| POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` |
-| DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
-| POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; the slug is a separately claimed handle; mounted only with `Applications.SelfRegistration`) |
-| POST | `/delegated/token` | delegated | required user (#261/#277 — certificate-bound `cnf.x5t#S256`; mounted only when `Delegated.Audiences` is set and `WithDelegatedAuthorization` is wired) |
-| GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application pinned by `Documents.Readers` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
-
-### 5.4 Generated permission-group routes (covered, schema-derived)
-
-For each configured permission-group persona, AuthKit **generates** routes
-addressed by the persona's **instance slug** (`{instance_slug}` — which specific
-merchant/team/etc.; renamed from `resource_slug` in #135 — a breaking change to the
-path param name AND to the `instance_slug` field in JSON responses). A capability a
-profile disables emits **no** route (calling it 404s — stronger than 403). The
-cross-persona `GET /me/groups` and `POST /invites/redeem` are always present.
-
-| Method | Path shape | Wired |
-|---|---|---|
-| GET | `/me/groups` | yes |
-| POST | `/invites/redeem` | yes (#134 — any authenticated user redeems an invite-link `code`) |
-| GET | `/{persona}/{instance_slug}/members` | yes |
-| POST | `/{persona}/{instance_slug}/members` | yes |
-| DELETE | `/{persona}/{instance_slug}/members/{user}` | yes |
-| PUT | `/{persona}/{instance_slug}/members/{user}/roles/{role}` | yes |
-| GET | `/{persona}/{instance_slug}/roles` | yes (catalog read) |
-| POST | `/{persona}/{instance_slug}/roles` | **501 stub** |
-| DELETE | `/{persona}/{instance_slug}/roles/{role}` | **501 stub** |
-| GET | `/{persona}/{instance_slug}/api-keys` | yes |
-| POST | `/{persona}/{instance_slug}/api-keys` | yes |
-| DELETE | `/{persona}/{instance_slug}/api-keys/{key}` | yes |
-| GET | `/{persona}/{instance_slug}/remote-applications` | yes |
-| POST | `/{persona}/{instance_slug}/remote-applications` | yes |
-| DELETE | `/{persona}/{instance_slug}/remote-applications/{app}` | yes |
-| GET | `/{persona}/{instance_slug}/invites/links` | yes (#134 — list invite links) |
-| POST | `/{persona}/{instance_slug}/invites/links` | yes (#134 — mint; returns the code once) |
-| DELETE | `/{persona}/{instance_slug}/invites/links/{link}` | yes (#134 — revoke) |
-| PATCH | `/{persona}/{instance_slug}` | yes (#264 — group settings: slug rename with tombstone-forwarding, display name; gated `<persona>:settings:manage`) |
-
-> The custom-role **define/delete** routes return `501 not_implemented`. Promoting them
-> from 501 to a working response is **not** breaking; the `not_implemented` code on those
-> two paths is therefore *not* a frozen guarantee. All other generated routes are covered.
-
-### 5.5 Browser OIDC routes (covered, group `browser_oidc`)
-
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/{provider}/login` | begins OIDC, redirects to provider; optional app-relative `return_to` |
-| GET | `/{provider}/callback` | full-page callback → `{BaseURL}{OIDCReturnPath}#access_token=…&refresh_token=…&return_to=…` |
-| GET | `/{provider}/step-up/callback` | step-up variant |
-
-The fragment-callback contract (tokens in the URL `#fragment`, default callback
-`/login/callback`) is covered. `return_to`, when supplied at login start, is
-validated as an app-relative path and emitted in the callback fragment; absolute,
-protocol-relative, backslash, and CR/LF values are dropped.
-
----
-
-## 6. Plane C — Wire formats
-
-Every JSON request/response body of a covered route is part of the contract. The
-cross-cutting shapes below are pinned exactly; per-route bodies follow the
-[response-evolution rules](#68-requestresponse-body-evolution-rules).
-
-### 6.1 Error envelope
-
-All error responses use the **Stripe-style nested envelope** (`authbase.ErrorEnvelope`):
+Every error response is the nested envelope written by `authkit.WriteError`:
 
 ```json
 { "error": { "type": "invalid_request_error", "code": "password_too_short",
@@ -585,320 +135,160 @@ All error responses use the **Stripe-style nested envelope** (`authbase.ErrorEnv
              "metadata": { "retry_after_seconds": 30 } } }
 ```
 
-| Field | Covered guarantee |
+| Field | Guarantee |
 |---|---|
-| `error.code` | Stable machine code; one of [§6.2](#62-error-codes). **Frozen string value.** |
-| `error.type` | Category derived from status: `invalid_request_error` (400/404/409), `authentication_error` (401), `authorization_error` (403), `rate_limit_error` (429), `api_error` (5xx). |
-| `error.message` | Human-readable English. **NOT covered** — for display/logging, never matching. |
-| `error.param` | Optional offending field on validation errors. |
-| `error.metadata` | Optional machine-readable context (rate-limit `retry_after_seconds`/`limit`/`remaining`, action-availability fields). |
+| `code` | Stable machine code from the catalog (§5.2). Frozen string. |
+| `type` | From status: `invalid_request_error` (400/404/409), `authentication_error` (401), `authorization_error` (403), `rate_limit_error` (429), `api_error` (5xx). |
+| `message` | English, **not covered** — never match on it. |
+| `param` | Optional offending field on validation errors. |
+| `metadata` | Optional machine-readable context (rate-limit fields, pending-challenge state). |
 
-> This envelope was **breaking as of v0.52.0** (was flat `{"error":"<code>"}`). At v1.0.0
-> the nested shape is the frozen contract; reverting it would be MAJOR.
+Every failure is a `*authkit.Error{Code, Status, Param, Meta}`; `errors.Is`
+compares codes. Every status-500 failure is `internal_error` on the wire;
+502/503 keep their codes.
 
-### 6.2 Error codes (covered enumeration)
+### 5.2 Error codes
 
-The `authkit.Code` catalog (root `errors.go`; enumerate with `authkit.Codes()`, describe
-with `authkit.DescribeCode`) is the wire-code contract. The **string value** of each code
-is frozen; removing a code or changing its value is MAJOR. Adding a new code is MINOR (a
-client must already tolerate unknown codes). Compare against the values
-(e.g. `authkit.CodePasswordResetRequired`), never copied literals.
+The catalog is `authkit.Codes()` (root `errors.go`), pinned by
+`errors_test.go` and `authhttp/error_catalog_integration_test.go`. A code's
+string and status are frozen; removing one is MAJOR, adding one is MINOR
+(clients must tolerate unknown codes). Compare against `authkit.Code*`
+constants.
 
-One error model (ak#290): every failure is a `*authkit.Error{Code, Status, Param, Meta}`;
-`errors.Is` compares codes, so the `authkit.ErrX` sentinels, a fresh `authkit.E(CodeX)`
-and any wrapper are one identity. `authkit.WriteError` is the one writer: status, code,
-param and metadata come from the error, the message from the catalog. Every status-500
-code is `internal_error` on the wire (the operation name is logged, never sent); 502/503
-keep their codes. Notable stable codes referenced by behavior elsewhere in this contract:
-`invalid_request`, `not_found`,
-`unauthorized`, `forbidden`, `rate_limited`, `internal_error`, `invalid_credentials`,
-`password_too_short`, `password_reset_required`, `passwordless_disabled`, `registration_disabled`,
-`step_up_required`, `2fa_enrollment_required`,
-`rename_rate_limited`, `owner_slug_taken`, `username_not_allowed`,
-`permission_grant_denied`, `unknown_permission`, `unknown_role`,
-`role_not_grantable_to_api_key`, `resource_scope_denied`.
+### 5.3 Success shapes
 
-### 6.3 Success shapes: TokenSet, list, ack, profile (covered)
+- **`authkit.TokenSet`** `{access_token, token_type: "Bearer", expires_in,
+  refresh_token?}` is the whole body of every session-establishing route, or
+  sits under `token_set` beside route fields (registration, step-up, device
+  keys). `refresh_token` is omitted under the refresh cookie.
+- **Pending challenges are 403 envelopes** (`2fa_required`,
+  `2fa_enrollment_required`, `verification_required`) with the challenge in
+  `metadata`, never a 200 with an error field.
+- **`authkit.ListPage`** `{object: "list", data, next_cursor?}` for every list.
+- `204` for mutations with nothing to return; `202` empty for anti-enumeration
+  sends. No `{"ok": true}` bodies.
+- **`authkit.UserProfile`** is `GET /me`.
 
-One vocabulary for every success body (#313), defined as Go types in the root package:
+### 5.4 JWT taxonomy & claims
 
-- **`authkit.TokenSet`** — every session-establishing route (login, refresh, OIDC JSON,
-  Solana, passwordless, passkeys, verification, 2FA verify) returns
-  `{ "access_token", "token_type": "Bearer", "expires_in", "refresh_token"? }` as the whole
-  body, or under `"token_set"` when the response says more: registration
-  (`{next_action, user, token_set?}`), step-up (`{token_set, fresh_auth}`), device keys
-  (`{token_set, device_key}`), passwordless/SIWS/OIDC JSON (`{token_set, return_to? | created,
-  user}`). `refresh_token` is omitted when the mount uses the refresh cookie (ak#271).
-- **Pending-challenge outcomes are 403 error envelopes**, never a 200 with an error field:
-  `2fa_required` (metadata: `user_id`, `method`, `verification_id`, `challenge`,
-  `default_factor`, `available_factors`; the `/2fa/challenge` re-send and `/step-up/2fa`
-  start carry `method`, `verification_id`[, `factor`]), `2fa_enrollment_required`
-  (metadata: `requires_2fa_enrollment`, `allowed_methods`, and `token_set` holding the
-  enrollment-only bearer scoped to `GET/POST /user/2fa`), `verification_required`
-  (metadata: `identifier`, `channel`).
-- **`authkit.ListPage`** — every list is `{ "object": "list", "data": [...], "next_cursor"? }`;
-  `GET /admin/users` pages with `?cursor=&limit=` (cursors are opaque and bound to the page
-  size they were issued with).
-- **Acks** — a mutation with nothing to return answers `204`; anti-enumeration sends
-  (`/verify/request`, `/password/reset/request`, `/register/resend`, `/passwordless/start`)
-  answer `202` with an empty body. No `{"ok": true}` / `"message"` bodies exist.
-- **`authkit.UserProfile`** — `GET /me`; session/step-up/MFA state sits under `security`.
-- `POST /delegated/token` keeps its own `{token, expires_at, ...}` shape (#277).
+All token classes are signed with the deployment's keypair and differ only in
+claims and `typ`; the `typ` values and claim semantics are frozen:
 
-### 6.4 JWT token taxonomy & claims (covered)
-
-AuthKit signs all token classes with the app's single keypair (one `kid` on JWKS); they
-differ only in claims/`typ`. The **`typ` header values and claim semantics are frozen**:
-
-| Credential | `typ` / marker | Authority source |
+| Credential | `typ` / marker | Authority |
 |---|---|---|
-| User access token | `access+jwt` | local user identity + `sid` + short-lived `entitlements` |
-| Delegated access token | `delegated-access+jwt` + `delegated_sub` (+ `cnf.x5t#S256` when certificate-bound, #277) | `permissions`, validated vs issuer's stored authority; a bound token requires the exact TLS peer leaf |
-| Remote application access token | `remote-application-access+jwt` (no `sub`/`delegated_sub`) | stored authority resolved from validated `iss` |
-| Service JWT | `service+jwt` + `token_use=service` | receiver intersects requested perms with server grants |
-| API key | opaque `<prefix>_st_<key_id>_<secret>` | DB perms/resources resolved by hashing secret |
+| User access token | `access+jwt` | local identity + `sid` + short-lived `entitlements` |
+| Delegated access token | `delegated-access+jwt` + `delegated_sub` (+ `cnf.x5t#S256` when bound) | `permissions` vs the issuer's stored authority; a bound token needs the exact TLS peer leaf |
+| Remote application token | `remote-application-access+jwt`, no `sub` | stored authority from validated `iss` |
+| Service JWT | `service+jwt` + `token_use=service` | receiver intersects requested perms with its grants |
+| API key | opaque `<prefix>_st_<key_id>_<secret>` | one group role, resolved at verify time |
 
-**User access-token claims** are uniform: registered claims + `sub` + `sid` +
-authoritative short-lived `entitlements`. Profile and permission-group state is
-resolved server-side via `/me` and route state. This compact shape is a covered invariant.
+User access tokens carry registered claims + `sub` + `sid` + `entitlements`;
+profile and group state are never claimed. `attributes` is the namespaced,
+opaque escape hatch AuthKit never interprets; `documents` is the validated
+`type -> sha256:<digest>` map. The Go view is `verify.Claims`: removing or
+retyping a field is MAJOR, adding one is MINOR.
 
-The Go view is `verify.Claims` (covered struct). Removing/retyping a field is MAJOR;
-adding a field is MINOR. Key fields: `UserID`, `SessionID`, `Entitlements`, `AMR`, `ACR`,
-`AuthTime`, `TwoFAEnrollment`, `Issuer`, `JTI`, `TokenTyp`, `TokenType`, `Permissions`,
-`Resources`, `DelegatedSubject`, `DelegatedRoles`, `Attributes`, `Documents`,
-`ConfirmationCertificateSHA256`, `UserTier`,
-`RemoteApplicationID`/`Slug`. `Attributes` (the `attributes` claim) is the namespaced,
-opaque escape hatch AuthKit transports but never interprets. Delegated-token
-`Documents` is the validated top-level `documents` map (versioned type -> exact
-`sha256:` digest); tokens without it remain valid.
+### 5.5 API key format
 
-### 6.5 API key format (covered)
+`Authorization: Bearer <prefix>_st_<key_id>_<secret>`; `<prefix>` is
+`Config.APIKeys.Prefix` (empty ⇒ bare `st_`). `key_id` is a non-secret index,
+only `sha256(secret)` is stored, the full key is shown once. A key holds one
+role; its permissions re-resolve at verify time.
 
-`Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is
-`Config.APIKeys.Prefix`. `key_id` is a non-secret indexed id; only `sha256(secret)` is
-stored; the full key is shown once at mint. Parsing is via `authbase.ParseAPIKey` /
-`FormatAPIKey`. An API key holds exactly **one** permission-group role; its permissions re-resolve
-from that role at verify time. The format and resolution semantics are covered.
+### 5.6 Bootstrap manifest
 
-### 6.6 Bootstrap manifest YAML
+The YAML schema (`users`, `remote_applications`, password modes `plaintext` /
+`hash`+`hash_algo` / `reset_required`, `root_role`) parsed by
+`LoadBootstrapManifestFile` / `ParseBootstrapManifestYAML` is a wire contract;
+removing or renaming a field is MAJOR.
 
-The bootstrap manifest schema (`users`, `remote_applications`, and the three
-password modes: `plaintext`, `hash`+`hash_algo`, `reset_required`) is a
-covered wire contract parsed by `LoadBootstrapManifestFile` /
-`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. Per-user
-`root_role: owner` seeds the apex owner SEED-IF-ABSENT — owner is the built-in
-apex of every group, never defined here, only assigned. Per-remote-application
-`root_role` assigns root authority to that trusted issuer.
+### 5.7 Password hash policy
 
-### 6.7 Password hash policy (covered)
+Exactly argon2id (native) and bcrypt (legacy, re-hashed on first login) are
+accepted. Narrowing is MAJOR; adding a format is a security decision, not a
+routine MINOR. Unverifiable imports use `hash_algo = "legacy-reset-required"`
+and surface `password_reset_required`. Minimum length 8.
 
-Verification accepts exactly **argon2id** (native) and **bcrypt** (legacy, lazily
-re-hashed to argon2id on first login). The whitelist itself is the invariant; *narrowing*
-it is breaking, and adding a format is a deliberate security decision, not a routine
-minor. Unverifiable imports use `hash_algo = "legacy-reset-required"` and surface
-`password_reset_required`. Minimum password length is 8 (`password_too_short`).
+### 5.8 Body evolution rules
 
-### 6.8 Request/response body evolution rules
+- Removing or renaming an honoured request field, or any response field → MAJOR.
+- Adding a required request field, tightening validation, changing a field's
+  JSON type or an outcome's status → MAJOR.
+- Adding an optional request field with a compatible default, or any response
+  field → MINOR; clients must ignore unknown fields.
+- `omitempty` fields may be absent; their presence semantics are covered.
 
-- **Removing or renaming** a request field that was honored, or a response field, → MAJOR.
-- **Adding a required request field**, or tightening validation on an existing field, → MAJOR.
-- **Adding an optional request field** (with backward-compatible default) → MINOR.
-- **Adding a response field** → MINOR (clients must ignore unknown fields).
-- **Changing a field's JSON type, or an HTTP status code** for a given outcome → MAJOR.
-- Fields tagged `omitempty` may be absent; their presence/absence semantics are covered.
+## 6. Plane D — Persistence & operations
 
-Action-availability responses (e.g. `rename_rate_limited`) carry the shared fields
-`action`, `allowed`, `reason`, `retry_after_seconds`, `next_allowed_at`,
-`cooldown_seconds`; these are covered. (`time_until_rename_available` is retained as a
-covered compatibility alias.)
+### 6.1 Schema & migrations
 
----
+- Embedded at `migrations/postgres` (`FS`, `FSForSchema`), applied through
+  `authkitmigrate`, name-tracked so nothing is re-applied.
+- Forward-only and append-only after v1.0.0: published files are immutable;
+  evolution ships as new migrations. A destructive migration is MAJOR.
+- Tables live in `Config.Schema` (default `profiles`; `^[a-z_][a-z0-9_]*$`,
+  ≤63 bytes). Postgres 18+ (native `uuidv7()`); raising the floor is MAJOR.
+- The interface is the Go API and routes, not SQL. Covered invariants:
+  deterministic UUIDv5 role ids, the `legacy-reset-required` hash-algo value,
+  the owner-namespace states, the seeded restricted names.
 
-## 7. Plane D — Persistence & operations
+### 6.2 Keys & environment
 
-### 7.1 Database schema & migrations
+The library reads no environment variables (`env_doctrine_test.go`); a binary
+reads env once and passes explicit config. With `Keys.Source == nil` the
+resolver loads `<Keys.Path>/keys.json` (default `/vault/auth`; envelope
+`{active_key_id, active_private_key_pem, public_keys}`, hot-reloaded), else
+generates an in-memory dev keypair only with `Keys.AllowEphemeralDevKeys`,
+else construction fails. `<Keys.Path>/totp.key` encrypts TOTP secrets.
 
-- Postgres migrations are embedded at `migrations/postgres` (`FS`, `FSForSchema(schema)`).
-  (#245 BREAKING: `migrations/clickhouse` removed — session-event history now lives in
-  the Postgres `session_events` table, retained per `Config.SessionEventRetention` and
-  pruned by `CleanupExpiredAuthState`.) (#247 BREAKING, pre-v1.0.0 rewrite of `0001`:
-  `group_user_roles`/`group_remote_application_roles`'s live-unique index is now
-  `(permission_group_id, subject)` — NOT including `role` — enforcing the hard
-  one-role-per-subject-per-group rule structurally; `group_custom_roles` gained a
-  `requires_mfa boolean NOT NULL DEFAULT false` column.) They are run with
-  [migratekit](https://github.com/open-rails/migratekit), name-tracked in
-  `public.migrations` so a recorded migration is never re-applied.
-- **Migrations are forward-only and append-only after v1.0.0.** Published migration files
-  are immutable; schema evolution ships as *new* migrations. A migration that drops a
-  column/table relied on by a prior release, or that is destructive/irreversible, is MAJOR.
-- AuthKit's tables live in the schema named by `Config.Schema` (default `profiles`).
-  Non-default schemas must run `FSForSchema`-rendered migrations. The configurable-schema
-  behavior and the `^[a-z_][a-z0-9_]*$` (≤63 byte) name rule are covered.
-- **PostgreSQL 18+ is required** (native `uuidv7()` defaults). Raising the floor is MAJOR.
-- Tables/columns are *operationally* observable but the **canonical interface is the Go
-  API + routes**, not direct SQL. Stable, externally-relied-upon invariants that ARE
-  covered: deterministic UUIDv5 role IDs (derived from the role slug; the derivation is now
-  internal but the resulting IDs must stay stable across environments), the `legacy-reset-required`
-  hash-algo value, the owner-namespace states (`restricted_name`/`parked_org`/
-  `registered_org`), and seeded restricted names (`admin`, `superuser`, `root`, `sudo`).
+### 6.3 Config surface
 
-### 7.2 Key resolution & environment variables (covered)
+`embedded.Config`, `embedded.Deps` and `authhttp.Config` are covered field by
+field; each field's godoc is the canonical description and default. Removing
+or renaming a field, or changing a documented default, is MAJOR; adding an
+optional field with a compatible zero value is MINOR. Every dev behaviour is an
+explicit field with the safe default, and `authhttp.Config` requires a
+client-IP posture.
 
-**The library reads NO environment variables — ever (#231).** In embedded mode the
-host owns the process env; env is read once, at the binary boundary
-(`cmd/authkit-server`), and flows in as explicit config. A guard test
-(`env_doctrine_test.go`) enforces this.
+### 6.4 Fixed policy constants
 
-When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
-1. **File** — `<dir>/keys.json` where `dir` = `Config.Keys.Path` → `/vault/auth`
-   (default; no env fallback). Envelope: `{active_key_id, active_private_key_pem,
-   public_keys}`. Hot-reloaded on rotation.
-2. **Dev-gen** — auto-generates an in-memory keypair (written to
-   `<Keys.Path>/keys.json` only when `Keys.Path` is explicit), ONLY with the
-   explicit `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
-   The opt-in is an explicit field, never inferred.
+Non-configurable and covered: email verify 60m, phone verify 15m, password
+reset 1h, server-sent 2FA codes 10m; username rules (4–30 chars, letter start,
+`[A-Za-z0-9_]`); 10 backup codes; 15m sensitive-action freshness;
+invite-link default TTL 72h, hard ceiling 30d (clamped).
+Default rate limits: `authhttp.DefaultRateLimits()`.
 
-Hosts with in-memory key material pass an explicit `Keys.Source`
-(`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The `cmd/authkit-server`
-harness still honors `AUTHKIT_ACTIVE_KEY_ID`/`AUTHKIT_ACTIVE_PRIVATE_KEY_PEM`/`AUTHKIT_PUBLIC_KEYS` and
-`AUTHKIT_KEYS_PATH` — read in the binary, not the library.
+## 7. Explicitly out of contract
 
-The default path, the file envelope shape, and the fail-closed no-keys hard error
-are covered. AuthKit reads **no** provider env vars directly — hosts inject senders.
+- Anything under `internal/`; `cmd/authkit-server` and its env vars; the root
+  `docker-compose.yaml`.
+- `*_test.go` and test-only helpers (`authtest` IS covered).
+- Error `message` strings, log lines, metrics names.
+- Table/column layout beyond §6.1; timing; ordering of unordered collections.
+- Anything marked **Experimental** or **Deprecated**.
+- The `501 not_implemented` answer on the custom-role define/delete routes.
+- Third-party types in signatures (`pgxpool`, `gin`, `redis`, `river`).
 
-### 7.3 Config surface (covered, field by field)
+## 8. Enforcement
 
-The service `Config` (`embedded.Config`, aliasing the internal config type) carries
-data/policy only (deps are injected via options). Every field below
-is covered; removing/renaming a field, or changing a documented default, is MAJOR. Adding
-an optional field with a backward-compatible zero-value default is MINOR.
+Mechanical today:
 
-- **`Token`** `TokenConfig`: `Issuer`, `IssuedAudiences`, `ExpectedAudiences`,
-  `AccessTokenDuration`, `RefreshTokenDuration`, `SessionMaxPerUser` (0 ⇒ default 3).
-- **`Frontend`** `FrontendConfig`: `BaseURL` (defaults to issuer if empty),
-  `OIDCReturnPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
-  `PasswordResetPath` (default `/reset`), `PasswordlessPath` (default `/passwordless`).
-  The link-landing redirect to `VerifyPath` / `PasswordResetPath` carries `token`, `status`,
-  `channel` and `return_to` in the URL FRAGMENT (`#token=…`) with `Cache-Control: no-store`;
-  frontends read `location.hash`, never the query (ak#324).
-- **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
-  default `none`), `NativeUserMode` (`open` default; non-open disables public signup),
-  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false),
-  `AllowMissingSenders` (default false: a flow that needs an unwired email/SMS sender
-  is an error; true lets it proceed undelivered — dev rigs only).
-  The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.
-- **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
-  `ErrMissingSigner`, verification/JWKS still work), `AllowEphemeralDevKeys` (default
-  false ⇒ no keys is a hard construction error; dev-only opt-in, #231).
-- **`Identity`** `IdentityConfig`: `Providers` (`[]authprovider.Provider`).
-- **`APIKeys`** `APIKeysConfig`: `Prefix` (lowercase alnum 1–16; empty ⇒ bare `st_`),
-  `MaxTTL` (0 ⇒ uncapped).
-- **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 raw bytes; an OVERRIDE —
-  the normal path loads `<Keys.Path>/totp.key`, wired in construction per #232; any
-  other override length is a construction error). Role-level MFA requirements live on
-  `RoleDef.RequiresMFA`.
-- **`Passkeys`** `PasskeyConfig`: `RPID` (WebAuthn relying-party id; defaults to the
-  `Frontend.BaseURL` hostname), `RPDisplayName` (defaults to `Token.Issuer`, else RPID),
-  `Origins` (allowed WebAuthn origins; defaults to `[BaseURL origin]`; every origin host
-  must equal `RPID` or be a subdomain of it), `UserVerification` (`preferred` default |
-  `required` | `discouraged`). Requires a valid `Frontend.BaseURL` origin to be usable.
-- **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
-- **Top-level**: `Schema`, `SolanaNetwork` (empty ⇒ mainnet), `SessionEventRetention`
-  (session-event history retention, #245: 0 ⇒ default 365 days; negative ⇒ keep forever).
-  There is no `Environment` (#314): every formerly env-gated behaviour is an explicit
-  field with the safe default — `Keys.AllowEphemeralDevKeys`, `Ephemeral.AllowMemory`,
-  `Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`, and the
-  mandatory `authhttp` client-IP posture.
+1. **Route table** — `TestAPIEndpointsDoc` regenerates `docs/api-endpoints.md`;
+   a stale file fails CI.
+2. **Error catalog** — `errors_test.go` and
+   `authhttp/error_catalog_integration_test.go` pin every code's status and
+   envelope.
+3. **Env doctrine** — `TestLibraryCodeReadsNoEnvironment`,
+   `TestBinaryEnvNamesAreAuthkitPrefixed`.
+4. **Build graph** — `TestRootAndVerifyArePgxFree`, `TestSharedLeavesAreStdlibOnly`.
 
-The constructor-injected dependencies (`embedded.Deps`: `Postgres`/`Redis`/`Email`/
-`SMS`/`Entitlements`/…) are covered as Plane A.
+Still advisory: a `go doc`/`apidiff` snapshot of Plane A and a checksum gate on
+published migration files.
 
-### 7.4 Fixed policy constants (covered)
+## 9. Pre-1.0 freeze list
 
-These are intentionally non-configurable and part of the contract: email verification &
-reset link/code TTLs (email verify 60m, phone verify 15m, password reset 1h, server-sent
-2FA codes 10m); username rules (4–30 chars, ASCII-letter start, `[A-Za-z0-9_]`, no `@`,
-no leading `+`); user rename cooldown 72h; 10 backup codes (8-char alphanumeric);
-`SensitiveActionFreshAuthWindow = 15m`; SNS lookup timeout 3s / cache TTL 24h;
-group invite-link default TTL 72h, HARD ceiling 30d (#247 — `ExpiresIn` longer than
-30d is clamped at mint, never rejected).
-Default rate-limit buckets come from `DefaultRateLimits()`.
-
----
-
-## 8. Compatibility quick-reference
-
-A change is **MAJOR (breaking)** if it does any of:
-
-- removes/renames a covered package, symbol, route, JSON field, config field, or constant;
-- changes a constant's value, an enum's accepted set, a JSON field's type, or an HTTP status;
-- changes a JWT `typ`, claim name/semantics, or the API-key/token-pair/error-envelope shape;
-- changes an error `code` string (the `message` is exempt);
-- adds a method to an interface that consumers implement;
-- adds a required request field, or tightens accepted input / validation;
-- raises the Postgres floor, mutates a published migration, or ships a destructive migration;
-- changes a documented default, fixed TTL, or key-resolution precedence.
-
-A change is **MINOR** if it: adds a package/symbol/route/optional-field/error-code,
-relaxes validation, or ships an additive forward-only migration. **PATCH** = behavior-
-preserving fixes.
-
----
-
-## 9. Explicitly out of contract
-
-- `internal/db` and anything under `internal/` (sqlc-generated; may change any release).
-- The dev/CI harness (`cmd/authkit-server/` — its `Dockerfile`/`README.md` — and the
-  root `docker-compose.yaml`) and its operational env vars — a tool, not a library contract.
-- `*_test.go` files and test-only helpers (the `authtest` package IS covered).
-- Error `message` strings (the human-readable `error.message`); log lines; metrics names.
-- Exact DB table/column layout beyond the invariants pinned in [§7.1](#71-database-schema--migrations).
-- Wall-clock timing, ordering of unordered collections, and unspecified internal behavior.
-- Any symbol/field/route whose doc comment marks it **Experimental** or **Deprecated**
-  (deprecated items remain for one MAJOR cycle, then may be removed).
-- The `501 not_implemented` response on the custom-role define/delete generated routes
-  ([§5.4](#54-generated-permission-group-routes-covered-schema-derived)).
-- Transitive third-party dependency types re-exposed only incidentally (e.g. `pgxpool`,
-  `gin`, `chi`, `redis`, `river` types in signatures) follow their own upstream semver;
-  we cover *our* signatures, not their internals.
-
----
-
-## 10. Enforcement
-
-To keep this document honest, CI should gate the contract mechanically:
-
-1. **Go API diff** — snapshot `go doc ./...` (or `gorelease` / `apidiff`) for every
-   non-`internal` package; fail the build if a symbol is removed/changed without a MAJOR
-   bump. This is the source of truth for Plane A.
-2. **Route table diff** — assert `svc.APIRoutes()` + `OIDCBrowserRoutes()` +
-   `PermissionGroupRoutes()` against a golden list ([§5](#5-plane-b--http-route-surface)).
-3. **Error-code diff** — assert `authkit.Codes()` against a golden list.
-4. **Wire-shape tests** — golden JSON for the error envelope, token-pair, `/me`, and the
-   2FA login responses.
-5. **Migration immutability** — checksum published migration files; forbid edits.
-
----
-
-## 11. Pre-1.0 freeze risks (advisory)
-
-The original list is mostly **resolved** by #126 (the public-surface shrink). Remaining
-items are advisory — resolve before tagging v1.0.0:
-
-1. ~~`*core.Service`'s ~230 flat methods + the unused 166-method facet mirror.~~ **DONE
-   (#126):** facets deleted; implementation moved to `internal/authcore`; the public
-   `core.Service` is now a curated ~66-method facade. This is the Stable core.
-2. ~~Empty `OrgsFacet`.~~ **DONE (#126):** removed with the facet layer.
-3. ~~Legacy `RBACConfig` fields (`DefaultRoles`, `OwnerOwnsAppResources`) + the orphaned
-   `DefaultRole` type.~~ **DONE (#126):** removed.
-4. ~~`MaxDelegatedRoles = maxDelegatedRoles` re-export.~~ **DONE (#126):** collapsed to a
-   single exported `verify.MaxDelegatedRoles = 64`.
-5. **Duplicate-shaped 2FA variants** (`Enable2FA`/`Enable2FADefault`,
-   `Require2FAForLogin`/`…Factor`, etc.). DEFERRED in #126 (overlapped #125's live 2FA
-   rewrite); now *internal* to `authcore`, so **no longer a public-contract risk** — tidy
-   at leisure.
-6. ~~Curate the facade further (or add facets).~~ **DONE (#143):** the surface is now the
-   `authkit.Client` interface, composed of cohesive topic interfaces (`Users`, `Tokens`,
-   `Groups`, …). Trim any topic method that proves unused before tagging v1.0.0.
-7. **Advanced `jwtkit` surface.** Confirm which signer/key-source types are meant for
-   consumers vs. internal-only, and consider moving the latter behind `internal/`.
+1. **`jwtkit` surface.** Decide which signer and key-source types are for
+   consumers; move the rest behind `internal/`.
+2. **Custom-role define/delete routes.** Wire them or drop them from the
+   generated table; `501` is not a v1 answer.
+3. **Plane A diff and migration checksums in CI** (§8).
