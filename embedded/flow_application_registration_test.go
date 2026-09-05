@@ -1,22 +1,16 @@
 package embedded
 
-// #264 unit tests: domain normalization, application.json validation, and
-// per-message JWS verification — all DB-free (the DB-backed end-to-end flow
-// lives in authhttp/application_registration_integration_test.go).
+// #264 unit tests: domain normalization and application.json validation —
+// DB-free (the DB-backed end-to-end flow lives in
+// authhttp/application_registration_integration_test.go).
 
 import (
-	"context"
-	"crypto/x509"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 func newAppTestService(t *testing.T, allowPrivateNetwork bool) *Client {
@@ -151,99 +145,6 @@ func TestRemoteAppSlugAllowsDomains(t *testing.T) {
 	require.Error(t, validateRemoteAppSlug("co..zy.art"))
 	require.Error(t, validateRemoteAppSlug(".cozy.art"))
 	require.Error(t, validateRemoteAppSlug("cozy.art."))
-}
-
-func pemForSigner(t *testing.T, signer *jwtkit.RSASigner) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(signer.PublicKey())
-	require.NoError(t, err)
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
-func signAppRequest(t *testing.T, signer *jwtkit.RSASigner, typ string, payload map[string]any) string {
-	t.Helper()
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	compact, err := jwtkit.SignPayloadWithType(context.Background(), signer, raw, typ)
-	require.NoError(t, err)
-	return compact
-}
-
-func TestVerifyApplicationJWS(t *testing.T) {
-	svc := newAppTestService(t, true)
-	ctx := context.Background()
-
-	signer, err := jwtkit.NewRSASigner(2048, "app-key-1")
-	require.NoError(t, err)
-	app := &RemoteApplication{
-		Slug: "cozy.art",
-		Mode: RemoteAppModeStatic,
-		PublicKeys: []authkit.RemoteAppKey{
-			{KID: "app-key-1", PublicKeyPEM: pemForSigner(t, signer)},
-		},
-		Enabled: true,
-	}
-	valid := func() map[string]any {
-		return map[string]any{
-			"op":   "rotate",
-			"slug": "cozy.art",
-			"aud":  "https://hub.example.com",
-			"iat":  time.Now().Unix(),
-			"public_keys": []map[string]string{
-				{"kid": "app-key-2", "public_key_pem": pemForSigner(t, signer)},
-			},
-		}
-	}
-
-	t.Run("valid request verifies", func(t *testing.T) {
-		req, err := svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, applicationRequestJOSEType, valid()), "rotate")
-		require.NoError(t, err)
-		require.Equal(t, "cozy.art", req.Slug)
-		require.Len(t, req.PublicKeys, 1)
-	})
-
-	t.Run("wrong JOSE typ rejected", func(t *testing.T) {
-		_, err := svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, "JOSE", valid()), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-	})
-
-	t.Run("stale iat rejected", func(t *testing.T) {
-		p := valid()
-		p["iat"] = time.Now().Add(-applicationJWSMaxSkew - time.Minute).Unix()
-		_, err := svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, applicationRequestJOSEType, p), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureStale)
-	})
-
-	t.Run("wrong audience rejected", func(t *testing.T) {
-		p := valid()
-		p["aud"] = "https://other-platform.example"
-		_, err := svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, applicationRequestJOSEType, p), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-	})
-
-	t.Run("op and slug are bound", func(t *testing.T) {
-		_, err := svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, applicationRequestJOSEType, valid()), "repoint")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-
-		p := valid()
-		p["slug"] = "evil.example"
-		_, err = svc.verifyApplicationJWS(ctx, app, signAppRequest(t, signer, applicationRequestJOSEType, p), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-	})
-
-	t.Run("untrusted signer rejected", func(t *testing.T) {
-		other, err := jwtkit.NewRSASigner(2048, "app-key-1") // same kid, different key
-		require.NoError(t, err)
-		_, err = svc.verifyApplicationJWS(ctx, app, signAppRequest(t, other, applicationRequestJOSEType, valid()), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-	})
-
-	t.Run("unknown kid rejected", func(t *testing.T) {
-		strange, err := jwtkit.NewRSASigner(2048, "unknown-kid")
-		require.NoError(t, err)
-		_, err = svc.verifyApplicationJWS(ctx, app, signAppRequest(t, strange, applicationRequestJOSEType, valid()), "rotate")
-		require.ErrorIs(t, err, ErrApplicationSignatureInvalid)
-	})
 }
 
 func TestApplicationsConfigValidatedAtConstruction(t *testing.T) {

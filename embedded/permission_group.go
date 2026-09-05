@@ -118,12 +118,6 @@ type PersonaDef struct {
 	Parent       authkit.Persona // declared persona; empty only for root. Non-root must name exactly one parent.
 	Capabilities PersonaCapabilities
 	Catalog      []string
-	// RequireConsent makes admitting a NEW member to a group of this persona require
-	// the invitee's acceptance (#193): an owner/manager cannot silently direct-add an
-	// existing user — the add always routes through a consent invite the user accepts.
-	// Default false (instant direct-add allowed; what root uses). This is a JOIN-time
-	// policy only — it does NOT affect changing or removing an existing member's role.
-	RequireConsent bool
 	// Creation opts the persona into the generated instance-creation route
 	// (#263): POST /<persona>, owner seeded from the authenticated user. Only
 	// root-parented personas may enable it (validated at schema build).
@@ -369,13 +363,6 @@ func (s *GroupSchema) validateContainment() error {
 func (s *GroupSchema) Persona(name authkit.Persona) (PersonaDef, bool) {
 	t, ok := s.types[name]
 	return t, ok
-}
-
-// RequireConsent reports whether admitting a new member to a group of this persona
-// requires the invitee's acceptance (#193). Unknown personas default to false.
-func (s *GroupSchema) RequireConsent(persona authkit.Persona) bool {
-	t, ok := s.types[persona]
-	return ok && t.RequireConsent
 }
 
 // CreationDef returns a persona's generated-creation config (#263); ok is false

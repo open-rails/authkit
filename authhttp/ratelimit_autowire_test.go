@@ -3,9 +3,9 @@ package authhttp
 import (
 	"testing"
 
-	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
-	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 	"github.com/open-rails/authkit/internal/testdb"
+	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
+	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 	"github.com/stretchr/testify/require"
 )
 

@@ -18,7 +18,6 @@ import (
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
-	authlang "github.com/open-rails/authkit/lang"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,7 +75,7 @@ type recordingEmailSender struct {
 }
 
 func (s *recordingEmailSender) SendVerification(ctx context.Context, email, username string, msg embedded.VerificationMessage) error {
-	lang, _ := authlang.LanguageFromContext(ctx)
+	lang, _ := authkit.LanguageFromContext(ctx)
 	s.languages = append(s.languages, lang)
 	return nil
 }

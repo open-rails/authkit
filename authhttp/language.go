@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	authlang "github.com/open-rails/authkit/lang"
+	authkit "github.com/open-rails/authkit"
 )
 
 // LanguageConfig declares the supported UI languages and default. The query
@@ -129,7 +129,7 @@ func LanguageMiddleware(cfg *LanguageConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			lang := resolveRequestLanguage(r, c)
-			r = r.WithContext(authlang.WithLanguage(r.Context(), lang))
+			r = r.WithContext(authkit.WithLanguage(r.Context(), lang))
 			next.ServeHTTP(w, r)
 		})
 	}

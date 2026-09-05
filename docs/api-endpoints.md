@@ -53,9 +53,8 @@ v0.52.0).** Every error response is:
 
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
-`core.LoadBootstrapManifestFile`, `core.ParseBootstrapManifestYAML`, and
-`(*Service).ApplyBootstrapManifestFile(ctx, path, opts)`, or
-`authkit bootstrap apply --file ./bootstrap.yaml`. Host applications layer their
+`embedded.LoadBootstrapManifestFile`, `embedded.ParseBootstrapManifestYAML`, and
+`(*embedded.Client).ApplyBootstrapManifest(ctx, manifest, opts)`. Host applications layer their
 own domain bootstrap after AuthKit has applied users, root role assignments,
 remote applications, and group role assignments.
 
@@ -88,9 +87,6 @@ remote applications, and group role assignments.
 | GET | `{api}/register/availability` | registration | public | `auth_register_availability` |  |
 | POST | `{api}/register/resend` | registration | public | `auth_register_resend` | Registration.NativeUserMode != closed |
 | GET | `{api}/me` | account | required | `auth_user_me` |  |
-| GET | `{api}/me/group-invites` | account | required |  |  |
-| POST | `{api}/me/group-invites/{id}/accept` | account | required |  |  |
-| POST | `{api}/me/group-invites/{id}/decline` | account | required |  |  |
 | GET | `{api}/me/groups` | account | required |  | RBAC persona profile |
 | GET | `{api}/me/permissions` | account | required |  |  |
 | POST | `{api}/oidc/{provider}/link/start` | account | required |  | Identity.Providers |
@@ -191,8 +187,8 @@ underneath is `Client.UserLivenessByIDs(ctx, ids)`.
 
 Fail-closed, no cache: a lookup error denies, and there is exactly one liveness
 lookup per gated request with no memoization (any cache reintroduces the window
-the gate closes). Mounting `RequiredLive` without `WithLiveness` PANICS at mount;
-out of band the same condition is `verify.ErrLivenessUnconfigured`, never a 401.
+the gate closes). Building `RequiredLive` without `WithLiveness` returns
+`verify.ErrLivenessUnconfigured` from the constructor, never a 401.
 
 **Rendering users to other users** (ak#268, v0.92.0): use
 `Client.PublicUsersByIDs(ctx, ids) → map[string]PublicUserRef`, never
@@ -247,7 +243,7 @@ Passwordless login:
 - Magic links use `Frontend.PasswordlessPath`; absolute or protocol-relative `return_to` values are dropped.
 
 Passkeys:
-- Configure `core.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;
+- Configure `embedded.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;
   empty values derive from `Frontend.BaseURL`/`Token.Issuer`.
 - Registration is authenticated and freshness-gated:
   `POST /passkeys/register/begin`, then POST the `PublicKeyCredential` JSON from
@@ -298,14 +294,6 @@ that persona's management profile:
 
 Built-in `root` emits member-management plus role-list routes by default.
 
-Self-service membership (the caller's OWN auth, not `members:manage`):
-
-Persona join policy: a persona declared with `RequireConsent: true` (in `Config.RBAC`)
-can never be silently direct-added into — every join routes through a consent invite the
-invitee accepts. Default is `false` (instant direct-add), which is what `root` uses.
-`RequireConsent` gates the JOIN only; changing or removing an existing member's role is
-admin authority and stays immediate.
-
 ---
 
 ## API keys (opaque machine credentials)
@@ -313,12 +301,12 @@ admin authority and stays immediate.
 Long-lived, revocable bearer credentials owned by a permission group, for
 machine/automation callers (CI, operator CLIs, service-to-service). An API key
 acts as an API-key principal for that permission group: middleware sets
-`Claims.Permissions`, `Claims.Resources`, and an API-key marker
-(`Claims.IsAPIKey()`), with no `UserID`. Permissions are opaque to AuthKit; the
+`Claims.Permissions` and `TokenType = verify.APIKeyPrincipalType`
+(`Claims.PrincipalKind() == authkit.PrincipalKindAPIKey`), with no `UserID`. Permissions are opaque to AuthKit; the
 embedding app owns the vocabulary and enforces meaning.
 
 **Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
-the host's configured `core.Config.APIKeys.Prefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
+the host's configured `embedded.Config.APIKeys.Prefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
 bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
 `sha256(secret)` is stored. The full token is shown **once** at creation.
 
@@ -337,30 +325,18 @@ no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. An API key carries no user, so it can never
 mint/list/revoke API keys.
 
-**Resource scopes.** API keys may also carry `resources: [{persona, id}]`. AuthKit
-stores these as opaque exact-match Persona/ID pairs and returns them from
-`ListAPIKeys`, `ResolveAPIKeyWithResources`, and API key middleware
-`Claims.Resources`. AuthKit validates only shape/length and duplicate pairs; it
-does not interpret resource personas or grant wildcards by itself. A host may use
-literal IDs such as `"*"` if that host wants wildcard semantics. Hosts that need
-resource no-escalation install `core.WithAPIKeyResourceAuthorizer` or
-`authhttp.WithAPIKeyResourceAuthorizer`; without that hook, non-empty resource
-scopes fail closed. The rule is: **permissions say what; resources say
-where**.
-
 ## Service JWTs (OIDC/JWKS machine credentials)
 
 First-party services that have their own AuthKit issuer/JWKS should mint
 short-lived service JWTs instead of receiving generated opaque API keys
 from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
-`iat`, `nbf`, `exp`, `jti`, `token_use=service`, and `permissions: []`, with
-optional `resources: [{persona,id}]`. AuthKit's default mint lifetime is 15 minutes.
+`iat`, `nbf`, `exp`, `jti`, `token_use=service`, `permissions: []` and `scope: []`.
+AuthKit's default mint lifetime is 15 minutes.
 
-Use `core.MintServiceJWT` or `(*core.Service).MintServiceJWT` on the caller side,
-and `authhttp.Verifier.VerifyServiceJWT` or `authhttp.RequiredServiceJWT` on the
-receiver side. Verification uses registered issuers/JWKS, including
+Use `embedded.MintServiceJWT` or `(*embedded.Client).MintServiceJWT` on the caller side,
+and `(*verify.Verifier).VerifyServiceJWT` on the receiver side. Verification uses registered issuers/JWKS, including
 remote-application issuer lazy-load; disabled issuer rows fail closed. AuthKit parses requested
-permissions/resources but does not grant them. The resource service must
+permissions but does not grant them. The resource service must
 intersect requested permissions with server-side grants for the issuer/subject.
 
 Recommended pattern for Doujins/Hentai0 -> OpenRails: caller caches a 15-minute
@@ -369,22 +345,15 @@ OpenRails verifies the issuer/JWKS and audience, then authorizes using
 OpenRails-owned service grants. Generated opaque API keys remain for
 non-OIDC clients, manual API-key-like credentials, and bootstrap/admin scripts.
 
-Example:
+API-key mint body:
 
 ```json
 {
   "name": "cozy-spend",
-  "permissions": ["openrails:credits:spend"],
-  "resources": [
-    {"kind": "openrails.org", "id": "0190a1b2-c3d4-7e5f-8a6b-9c0d1e2f3a4b"},
-    {"kind": "openrails.org_subject", "id": "0190a1b2-c3d4-7e5f-8a6b-9c0d1e2f3a4c"}
-  ]
+  "role": "spender",
+  "expires_at": "2027-01-01T00:00:00Z"
 }
 ```
-
-Resource IDs are opaque to authkit, but hosts must use **durable identifiers**
-(uuids), never mutable slugs — a slug-keyed resource scope silently detaches
-from its target on rename.
 
 **Lifetime.** Optional `expires_at` (null = non-expiring). A host may set a max
 TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
@@ -393,12 +362,10 @@ checked on every request.
 **Storage.** `profiles.api_keys` (`key_id` unique, `secret_hash` bytea,
 single `role`, `created_by` audit-only & `ON DELETE SET NULL` so a token
 outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
-best-effort/async) plus `profiles.api_key_resources` for opaque
-Persona/ID scope rows.
+best-effort/async).
 
-**Configuration.** `core.Config.APIKeys.Prefix` (lowercase alnum, ≤16 chars; empty
-→ `st_`), `core.Config.APIKeys.MaxTTL` (0 = no cap), and optional
-`core.WithAPIKeyResourceAuthorizer` / `authhttp.WithAPIKeyResourceAuthorizer`.
+**Configuration.** `embedded.Config.APIKeys.Prefix` (lowercase alnum, ≤16 chars; empty
+→ `st_`) and `embedded.Config.APIKeys.MaxTTL` (0 = no cap).
 
 ---
 
@@ -408,7 +375,7 @@ Persona/ID scope rows.
 ## Two-Factor Authentication
 
 Hosts may require 2FA for permission-group roles with
-`core.RoleDef{RequiresMFA: true}`. Assigning that role, or accepting an invite
+`embedded.RoleDef{RequiresMFA: true}`. Assigning that role, or redeeming an invite link
 for it, returns `2fa_enrollment_required` until account MFA is enabled with at
 least one factor. Disabling MFA removes those MFA-required user role assignments.
 

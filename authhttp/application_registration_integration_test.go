@@ -157,13 +157,6 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, "key-b", ra.PublicKeys[0].KID, "domain re-proof adopts the NEW keys with the old keypair gone")
 	require.Equal(t, "App "+suffix+" renamed", ra.DisplayName)
 
-	// ---- approval is an admin act ----
-	ra2, err := core.SetApplicationTier(ctx, slug, "approved")
-	require.NoError(t, err)
-	require.Equal(t, "approved", ra2.Tier)
-
-	_, err = core.SetApplicationTier(ctx, slug, "funded")
-	require.ErrorIs(t, err, authkit.ErrApplicationTierInvalid)
 }
 
 func TestGroupSlugRenameTombstones(t *testing.T) {

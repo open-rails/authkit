@@ -343,16 +343,6 @@ func (s *Client) UnassignGroupRole(ctx context.Context, group authkit.GroupRef, 
 	return st.UnassignRole(ctx, gid, subject, role)
 }
 
-// RemoveGroupSubject revokes every role a subject holds in a group.
-func (s *Client) RemoveGroupSubject(ctx context.Context, group authkit.GroupRef, subject authkit.Subject) error {
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
-	if err != nil {
-		return err
-	}
-	return st.UnassignSubject(ctx, gid, subject)
-}
-
 // DeletePermissionGroupOptions controls the delete-time naming rule (#264).
 type DeletePermissionGroupOptions = authkit.DeletePermissionGroupOptions
 

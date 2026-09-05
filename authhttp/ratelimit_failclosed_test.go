@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 	"github.com/open-rails/authkit/internal/testdb"
+	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )

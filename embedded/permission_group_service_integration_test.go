@@ -187,8 +187,8 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	if ok, err := svc.Can(ctx, authkit.UserSubject(uid), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:billing:read"); err != nil || !ok {
 		t.Errorf("custom auditor role should grant org:billing:read; got %v,%v", ok, err)
 	}
-	if err := svc.RemoveGroupSubject(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(uid)); err != nil {
-		t.Fatalf("RemoveGroupSubject: %v", err)
+	if err := svc.RemoveGroupSubjectAs(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(uid)); err != nil {
+		t.Fatalf("RemoveGroupSubjectAs: %v", err)
 	}
 	if ok, _ := svc.Can(ctx, authkit.UserSubject(uid), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:billing:read"); ok {
 		t.Errorf("removing a member should revoke custom-role grants too")

@@ -65,20 +65,6 @@ type ProfilesGroupInviteLink struct {
 	UpdatedAt         time.Time
 }
 
-type ProfilesGroupMembershipInvite struct {
-	ID                string
-	PermissionGroupID string
-	UserID            string
-	Role              string
-	InvitedBy         string
-	ExpiresAt         time.Time
-	AcceptedAt        *time.Time
-	DeclinedAt        *time.Time
-	RevokedAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
 // Declared containment schema: the single parent persona for each permission-group persona. root is absent.
 type ProfilesGroupPersonaParent struct {
 	Persona       string

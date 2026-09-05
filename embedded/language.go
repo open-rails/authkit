@@ -8,7 +8,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
-	authlang "github.com/open-rails/authkit/lang"
 )
 
 // Preferred-language: validation, get/set on the user profile, and the
@@ -56,7 +55,7 @@ func contextWithPreferredLanguage(ctx context.Context, language string) context.
 	if strings.TrimSpace(language) == "" {
 		return ctx
 	}
-	return authlang.WithLanguage(ctx, language)
+	return authkit.WithLanguage(ctx, language)
 }
 
 func (s *Client) contextWithUserPreferredLanguage(ctx context.Context, userID string) context.Context {

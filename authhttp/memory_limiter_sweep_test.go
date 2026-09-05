@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
+	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	"github.com/stretchr/testify/require"
 )
 

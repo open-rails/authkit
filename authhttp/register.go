@@ -8,7 +8,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/embedded"
-	authlang "github.com/open-rails/authkit/lang"
 )
 
 type registrationNextAction string
@@ -45,7 +44,7 @@ func preferredLanguageFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	language, ok := authlang.LanguageFromContext(r.Context())
+	language, ok := authkit.LanguageFromContext(r.Context())
 	if !ok {
 		return ""
 	}

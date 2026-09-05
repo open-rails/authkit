@@ -1,3 +1,5 @@
+// Package redislimiter is the Redis-backed sliding-window rate limiter over
+// ratelimit.Limit buckets.
 package redislimiter
 
 import (

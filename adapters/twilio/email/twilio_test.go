@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authlang "github.com/open-rails/authkit/lang"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -164,7 +164,7 @@ func TestDefaultMessagesUseContextLanguage(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	esCtx := authlang.WithLanguage(context.Background(), "es")
+	esCtx := authkit.WithLanguage(context.Background(), "es")
 	if err := s.SendLoginCode(esCtx, "user@example.com", "alice", "654321"); err != nil {
 		t.Fatalf("SendLoginCode es: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestDefaultMessagesUseContextLanguage(t *testing.T) {
 		t.Fatalf("expected Spanish login-code payload: %#v", payloads[0])
 	}
 
-	frCtx := authlang.WithLanguage(context.Background(), "fr")
+	frCtx := authkit.WithLanguage(context.Background(), "fr")
 	if err := s.SendLoginCode(frCtx, "user@example.com", "alice", "654321"); err != nil {
 		t.Fatalf("SendLoginCode fallback: %v", err)
 	}
