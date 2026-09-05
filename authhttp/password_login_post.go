@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // handlePasswordLoginPOST: decode, rate-limit, one engine call, one switch.
 // The login policy (identifier resolution, pending-registration recovery, the
 // verification gate, credentials, liveness, 2FA, session) is
-// authcore.PasswordLogin (ak#318).
+// embedded.PasswordLogin (ak#318).
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Identifier string `json:"identifier"` // email, phone number, or username
@@ -33,7 +33,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	out, err := s.svc.PasswordLogin(r.Context(), authcore.PasswordLoginInput{
+	out, err := s.svc.PasswordLogin(r.Context(), embedded.PasswordLoginInput{
 		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})
 	if err != nil {
@@ -55,13 +55,13 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	switch out.Kind {
-	case authcore.LoginSessionIssued:
+	case embedded.LoginSessionIssued:
 		s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
-	case authcore.LoginVerificationRequired:
+	case embedded.LoginVerificationRequired:
 		writeVerificationRequired(w, out.Verification.Identifier, out.Verification.Channel)
-	case authcore.LoginTwoFactorRequired:
+	case embedded.LoginTwoFactorRequired:
 		s.writeTwoFactorRequired(w, out.UserID, out.Challenge)
-	case authcore.LoginTwoFAEnrollmentRequired:
+	case embedded.LoginTwoFAEnrollmentRequired:
 		s.send2FAEnrollmentRequired(w, r, out.UserID)
 	default:
 		unauthorized(w, loginRejectionCode(out.Reason))
@@ -70,7 +70,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 
 // flowStage names the engine stage a FlowError failed in, for internal logs.
 func flowStage(err error) string {
-	var fe *authcore.FlowError
+	var fe *embedded.FlowError
 	if errors.As(err, &fe) {
 		return fe.Stage
 	}
@@ -90,11 +90,11 @@ func loginRejectionCode(reason error) ErrorCode {
 
 // writeTwoFactorRequired emits the 403 2fa_required envelope: the issued
 // challenge, the factor the code went to, and the factor menu.
-func (s *Service) writeTwoFactorRequired(w http.ResponseWriter, userID string, ch *authcore.TwoFactorChallenge) {
+func (s *Service) writeTwoFactorRequired(w http.ResponseWriter, userID string, ch *embedded.TwoFactorChallenge) {
 	sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 		"user_id":         userID,
 		"method":          ch.Method,
-		"verification_id": authcore.MaskDestination(ch.Destination),
+		"verification_id": embedded.MaskDestination(ch.Destination),
 		"challenge":       ch.Challenge,
 		"default_factor": twoFactorFactorResponse{
 			ID:          ch.Factor.ID,

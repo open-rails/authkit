@@ -1,0 +1,117 @@
+package embedded
+
+import (
+	"testing"
+
+	authkit "github.com/open-rails/authkit"
+)
+
+func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
+	// merchant: members + api-keys, NO custom-roles, NO remote-apps, NO invites.
+	// repo: members only.
+	s, err := BuildSchema(
+		PersonaDef{
+			Name: "merchant", Parent: RootPersona,
+			Capabilities: PersonaCapabilities{APIKeys: true},
+			Roles:        []RoleDef{{Name: "support", Permissions: []string{"merchant:payments:refund"}}},
+		},
+		PersonaDef{
+			Name: "repo", Parent: RootPersona,
+		},
+	)
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+
+	has := func(persona authkit.Persona, method, path string) bool {
+		for _, r := range s.GeneratedRoutes() {
+			if r.Persona == persona && r.Method == method && r.Path == path {
+				return true
+			}
+		}
+		return false
+	}
+
+	// merchant: members + api-keys present.
+	if !has("merchant", "POST", "/merchant/:instance_slug/members") {
+		t.Errorf("merchant member-assignment route missing")
+	}
+	if !has("merchant", "POST", "/merchant/:instance_slug/api-keys") {
+		t.Errorf("merchant api-key route missing")
+	}
+	// merchant: custom-roles OFF -> NO define route (the 404 invariant); GET roles still present.
+	if has("merchant", "POST", "/merchant/:instance_slug/roles") {
+		t.Errorf("merchant has custom-role-creation OFF; POST /roles must NOT be generated")
+	}
+	if !has("merchant", "GET", "/merchant/:instance_slug/roles") {
+		t.Errorf("listing the role catalog should always be available")
+	}
+	// merchant: remote-apps OFF; invite links are standard for non-root personas.
+	if has("merchant", "POST", "/merchant/:instance_slug/remote-applications") {
+		t.Errorf("remote-apps OFF must not be generated")
+	}
+	if !has("merchant", "POST", "/merchant/:instance_slug/invites/links") {
+		t.Errorf("non-root invite links should be generated")
+	}
+
+	// repo: members present, api-keys absent.
+	if !has("repo", "POST", "/repo/:instance_slug/members") {
+		t.Errorf("repo member route missing")
+	}
+	if has("repo", "POST", "/repo/:instance_slug/api-keys") {
+		t.Errorf("repo api-keys OFF must not be generated")
+	}
+}
+
+func TestGeneratedRoutes_RootWithoutCapabilitiesEmitsNoPublicRoutes(t *testing.T) {
+	s, err := BuildSchema(PersonaDef{
+		Name: RootPersona,
+	})
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	for _, r := range s.GeneratedRoutes() {
+		t.Fatalf("root without capabilities emitted route: %+v", r)
+	}
+}
+
+func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
+	s, _ := BuildSchema(PersonaDef{
+		Name:         "org",
+		Parent:       RootPersona,
+		Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true, RemoteApplications: true},
+	})
+	want := map[string]string{ // "METHOD path" -> gate perm
+		"POST /org/:instance_slug/members":                    "org:members:manage",
+		"GET /org/:instance_slug/members":                     "org:members:read",
+		"POST /org/:instance_slug/roles":                      "org:roles:manage",
+		"GET /org/:instance_slug/roles":                       "org:roles:read",
+		"GET /org/:instance_slug/api-keys":                    "org:credentials:read",
+		"POST /org/:instance_slug/api-keys":                   "org:credentials:manage",
+		"DELETE /org/:instance_slug/api-keys/:key":            "org:credentials:manage",
+		"GET /org/:instance_slug/remote-applications":         "org:credentials:read",
+		"POST /org/:instance_slug/remote-applications":        "org:credentials:manage",
+		"DELETE /org/:instance_slug/remote-applications/:app": "org:credentials:manage",
+		"POST /org/:instance_slug/invites/links":              "org:members:manage",
+		"GET /org/:instance_slug/invites/links":               "org:members:read",
+		"DELETE /org/:instance_slug/invites/links/:link":      "org:members:manage",
+	}
+	got := map[string]string{}
+	for _, r := range s.GeneratedRoutes() {
+		got[r.Method+" "+r.Path] = string(r.Perm)
+	}
+	for k, perm := range want {
+		if got[k] != perm {
+			t.Errorf("route %q gate = %q, want %q", k, got[k], perm)
+		}
+	}
+	// Every generated gate is a valid concrete 3-segment perm in the persona namespace.
+	for _, r := range s.GeneratedRoutes() {
+		if err := ValidatePermission(string(r.Perm)); err != nil {
+			t.Errorf("gate %q is not a valid 3-segment perm: %v", r.Perm, err)
+		}
+		if authkit.Perm(r.Perm).Persona() != r.Persona {
+			t.Errorf("gate %q is not in persona %q", r.Perm, r.Persona)
+		}
+	}
+}

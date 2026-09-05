@@ -18,7 +18,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +36,7 @@ func docService(t *testing.T) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "doc")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"doc": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"doc": signer.PublicKey()}}
 	cfg := embedded.Config{
 		Token:     embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour},
 		Frontend:  embedded.FrontendConfig{BaseURL: "https://example.com"},
@@ -61,7 +60,7 @@ func docService(t *testing.T) *Service {
 			Creation:     authkit.InstanceCreationDef{Enabled: true},
 		}},
 	}
-	core, err := authcore.NewService(cfg, ks, depsOf())
+	core, err := embedded.NewWithKeys(cfg, ks, depsOf())
 	require.NoError(t, err)
 	s := serviceFromCore(t, core)
 	providers, err := providerRegistry(cfg.Identity.Providers)

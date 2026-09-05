@@ -294,7 +294,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 		Enabled:           true,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = embedded.Unwrap(client).DeleteRemoteApplication(ctx, app.Issuer) })
+	t.Cleanup(func() { _ = client.DeleteRemoteApplication(ctx, app.Issuer) })
 
 	rolePath := func(instance, appSlug, role string) string {
 		return "/org/" + instance + "/remote-applications/" + appSlug + "/roles/" + role
@@ -326,7 +326,7 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 		Enabled:           true,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = embedded.Unwrap(client).DeleteRemoteApplication(ctx, foreign.Issuer) })
+	t.Cleanup(func() { _ = client.DeleteRemoteApplication(ctx, foreign.Issuer) })
 	w = serveAuthJSON(srv, http.MethodPut, rolePath("approles", foreign.Slug, "member"), ``, ownerToken)
 	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 

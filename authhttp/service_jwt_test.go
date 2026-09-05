@@ -13,7 +13,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -177,7 +176,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	}, map[string]any{"typ": AccessTokenType})
 	require.NoError(t, err)
 
-	delegatedToken, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	delegatedToken, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: issuer, Audiences: []string{"openrails"},
 		DelegatedSubject: "external-user-1", TTL: time.Minute,
 	})

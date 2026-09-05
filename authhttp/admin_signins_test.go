@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -25,7 +24,7 @@ func TestAdminSignins_EndToEnd(t *testing.T) {
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	issuer := "https://signins-e2e.test"
 	engine := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}}, ks, withPostgres(pool))
 	svc := &Service{svc: engine}

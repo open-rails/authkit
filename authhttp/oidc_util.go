@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // buildRedirectURI computes the OAuth/OIDC redirect_uri for this request's flow.
@@ -86,7 +86,7 @@ func stateCookieName(state string) string {
 // navigation back from the IdP to the callback. A response_mode=form_post
 // provider (Apple) returns a cross-site POST, which browsers do not attach Lax
 // cookies to, so only those providers get SameSite=None; Secure (#295) —
-// NewServer refuses form_post on non-HTTPS deployments.
+// authhttp.New refuses form_post on non-HTTPS deployments.
 func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
 	c := &http.Cookie{
 		Name:     stateCookieName(state),
@@ -138,7 +138,7 @@ func stateCookieMatches(r *http.Request, state string) bool {
 	if err != nil || c == nil || c.Value == "" {
 		return false
 	}
-	return authcore.SecretEqual(c.Value, state)
+	return embedded.SecretEqual(c.Value, state)
 }
 
 // cookieSecure reports whether auth cookies should carry the Secure attribute:

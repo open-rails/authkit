@@ -26,7 +26,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -94,7 +93,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	client := newServerClient(t, cfg, pool)
 	s, err := newServer(client)
 	require.NoError(t, err)
-	core := embedded.Unwrap(client)
+	core := client
 	require.NoError(t, core.SeedPermissionGroupContainment(ctx))
 	h, err := MountHandler(s, MountOptions{})
 	require.NoError(t, err)
@@ -135,7 +134,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, true, body["created"])
 
 	// Service-owned org: the application principal owns its own group.
-	can, err := core.Can(ctx, authkit.RemoteAppSubject(appID), authkit.GroupRef{Persona: "org", Instance: slug}, authcore.PermSettingsManage("org"))
+	can, err := core.Can(ctx, authkit.RemoteAppSubject(appID), authkit.GroupRef{Persona: "org", Instance: slug}, embedded.PermSettingsManage("org"))
 	require.NoError(t, err)
 	require.True(t, can, "the application principal must own its service-owned org")
 
@@ -178,7 +177,7 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	cfg.RBAC = []embedded.PersonaDef{{Name: "org", Parent: "root"}}
 	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org", AllowPrivateNetworkJWKS: true}
 	client := newServerClient(t, cfg, pool)
-	core := embedded.Unwrap(client)
+	core := client
 	require.NoError(t, core.SeedPermissionGroupContainment(ctx))
 	_, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)

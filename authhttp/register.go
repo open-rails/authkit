@@ -8,7 +8,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/authcore"
 	authlang "github.com/open-rails/authkit/lang"
 )
 
@@ -56,7 +55,7 @@ func preferredLanguageFromRequest(r *http.Request) string {
 // handleRegisterUnifiedPOST: decode, rate-limit, one engine call, one switch.
 // The registration policy (identifier classification, validation, verification
 // mode, conflicts, the pending write + code send, the session) is
-// authcore.Register (ak#318).
+// embedded.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
 	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeClosed {
 		registrationDisabled(w)
@@ -83,7 +82,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out, err := s.svc.Register(r.Context(), authcore.RegisterInput{
+	out, err := s.svc.Register(r.Context(), embedded.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
 		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
 		UserAgent: r.UserAgent(), IP: remoteIP(r),
@@ -95,9 +94,9 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	var tokens *authkit.TokenSet
 	nextAction := registrationNextActionNone
 	switch out.Kind {
-	case authcore.RegisterVerifyEmail:
+	case embedded.RegisterVerifyEmail:
 		nextAction = registrationNextActionVerifyEmail
-	case authcore.RegisterVerifyPhone:
+	case embedded.RegisterVerifyPhone:
 		nextAction = registrationNextActionVerifyPhone
 	default:
 		delivered := s.deliverRefreshToken(w, r, out.Session.TokenSet())

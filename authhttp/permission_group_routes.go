@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -208,7 +207,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.writeGroupOpError(w, err)
 			return
 		}
-		r = r.WithContext(authcore.WithResolvedGroup(r.Context(), instance, instanceSlug))
+		r = r.WithContext(embedded.WithResolvedGroup(r.Context(), instance, instanceSlug))
 
 		// Authorize: the caller (a user) must hold route.Perm on this group.
 		allowed, err := s.groupCan(r, claims.UserID, group, gr.Perm)

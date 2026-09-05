@@ -9,7 +9,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // Test-only embedded.Deps builders so a call site names only what it wires.
@@ -49,8 +48,16 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 	return d
 }
 
-// coreFromConfig is authcore.NewFromConfig with the pool positional and Deps
+// coreFromConfig is embedded.NewFromConfig with the pool positional and Deps
 // composed from options.
-func coreFromConfig(cfg authcore.Config, pool *pgxpool.Pool, opts ...coreOpt) (*authcore.Service, error) {
-	return authcore.NewFromConfig(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
+// coreFromConfig is embedded.New with the pool positional and Deps composed
+// from options. A test that wires neither Redis nor an EphemeralStore gets the
+// memory store New defaults to, so the opt-in is implied (the host-facing
+// refusal is pinned in embedded and by TestNewServer_RequiresClientIPPosture).
+func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Client, error) {
+	deps := depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...)
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		cfg.Ephemeral.AllowMemory = true
+	}
+	return embedded.New(cfg, deps)
 }

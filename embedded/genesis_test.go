@@ -8,7 +8,6 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -66,7 +65,7 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	require.NotContains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
 
 	// Enroll 2FA; the SAME calls now succeed.
-	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
+	_, err = client.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	// Genesis().AssignGroupRole grants with NO actor check; RemoveRoleBySlug

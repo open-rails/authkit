@@ -7,7 +7,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			// #148 note b: hand back a usable enrollment token (like the login
 			// path) so a refresh-gated user can reach the enroll routes instead of
 			// a dead-end token-less 403.
-			var ee *authcore.TwoFAEnrollmentRequiredError
+			var ee *embedded.TwoFAEnrollmentRequiredError
 			userID := ""
 			if errors.As(err, &ee) {
 				userID = ee.UserID

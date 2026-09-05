@@ -41,7 +41,7 @@ type MountOptions struct {
 	// ExcludeRoutes drops routes the host shadows with its own handlers.
 	// Matched by method + prefix-neutral RouteSpec path. Exclusion does NOT
 	// alter the verifier's MFA-enrollment exempt-path set — that is derived
-	// from the full route registry at NewServer time, so a shadowed enroll
+	// from the full route registry at authhttp.New time, so a shadowed enroll
 	// route stays reachable through the host's replacement.
 	ExcludeRoutes []RouteRef
 	// Wrap decorates every RouteSpec-backed handler (API + browser OIDC) at
@@ -71,7 +71,7 @@ type MountOptions struct {
 // gate its RouteSpec carries; the mount adds no auth and removes none.
 func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	if svc == nil || svc.svc == nil || svc.verifier == nil {
-		return nil, errors.New("authkit: MountHandler requires a Service constructed by authhttp.NewServer")
+		return nil, errors.New("authkit: MountHandler requires a Service constructed by authhttp.New")
 	}
 	apiPrefix, err := normalizeAPIPrefix(opts.APIPrefix)
 	if err != nil {

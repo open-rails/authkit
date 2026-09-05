@@ -25,10 +25,10 @@ func TestNewRefusesMemoryEphemeralWithoutOptIn(t *testing.T) {
 	allowed.Ephemeral = EphemeralConfig{AllowMemory: true}
 	c, err := New(allowed, Deps{Postgres: pool})
 	require.NoError(t, err)
-	require.Equal(t, "memory", Unwrap(c).EphemeralBackend())
+	require.Equal(t, "memory", c.EphemeralBackend())
 
 	rdb := testdb.ScratchRedis(t)
 	c, err = New(base, Deps{Postgres: pool, Redis: rdb})
 	require.NoError(t, err)
-	require.Equal(t, "redis", Unwrap(c).EphemeralBackend())
+	require.Equal(t, "redis", c.EphemeralBackend())
 }

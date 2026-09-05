@@ -6,7 +6,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// Contract DTOs relocated from internal/authcore (#138 inversion): plain data,
+// Contract DTOs (#138 inversion): plain data,
 // stdlib-only. The engine aliases these back.
 
 type DocumentReference = documents.Reference

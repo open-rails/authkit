@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 
 	"github.com/open-rails/authkit/password"
@@ -46,7 +46,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 	claims := unverifiedAccessClaims(t, body.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd"}, claims["amr"])
-	require.Equal(t, authcore.AssuranceLevelPassword, claims["acr"])
+	require.Equal(t, embedded.AssuranceLevelPassword, claims["acr"])
 }
 
 // A password-only re-auth on a session that was established with MFA must NOT
@@ -83,7 +83,7 @@ func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 
 	claims := unverifiedAccessClaims(t, body.AccessToken)
 	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"], "password re-auth must preserve MFA methods")
-	require.Equal(t, authcore.AssuranceLevelMFA, claims["acr"], "password re-auth must not downgrade MFA assurance")
+	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"], "password re-auth must not downgrade MFA assurance")
 }
 
 func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
@@ -134,7 +134,7 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 	claims := unverifiedAccessClaims(t, body.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
-	require.Equal(t, authcore.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
 }
 
 func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
@@ -276,7 +276,7 @@ func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 
 	// Enroll a usable second factor → claim true on the next token.
 	phone := "+15555550177"
-	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone, authcore.AllowAdditionalFactors)
+	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone, embedded.AllowAdditionalFactors)
 	require.NoError(t, err)
 	tok2, _, err := srv.svc.MintAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
 )
@@ -41,7 +41,7 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("preferred language = %q", language)
 		}
 
-		svc, err := authcore.NewService(authcore.Config{}, authcore.Keyset{}, authcore.Deps{Postgres: pg.Pool})
+		svc, err := embedded.NewWithKeys(embedded.Config{}, embedded.Keyset{}, embedded.Deps{Postgres: pg.Pool})
 		requireNoError(t, err)
 		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract_user_new"))
 		aliases, err := q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: time.Now()})
@@ -186,7 +186,7 @@ func TestQueryContracts(t *testing.T) {
 
 	t.Run("remote applications and permission groups", func(t *testing.T) {
 		schema := testGroupSchema(t)
-		store := authcore.NewPermissionGroupStore(pg.Pool)
+		store := embedded.NewPermissionGroupStore(pg.Pool)
 		requireNoError(t, store.SeedContainment(ctx, schema))
 		rootID, err := store.CreateGroup(ctx, authkit.RootGroup(), "")
 		requireNoError(t, err)
@@ -196,10 +196,10 @@ func TestQueryContracts(t *testing.T) {
 		requireNoError(t, err)
 
 		userID := createUser(t, ctx, q, 30, "group-user")
-		requireNoError(t, store.AssignRole(ctx, orgID, authkit.UserSubject(userID), authcore.OwnerRoleName))
+		requireNoError(t, store.AssignRole(ctx, orgID, authkit.UserSubject(userID), embedded.OwnerRoleName))
 		assignments, err := store.WalkAssignments(ctx, repoID, authkit.UserSubject(userID))
 		requireNoError(t, err)
-		if len(assignments) != 1 || assignments[0].Persona != "org" || assignments[0].Role != authcore.OwnerRoleName {
+		if len(assignments) != 1 || assignments[0].Persona != "org" || assignments[0].Role != embedded.OwnerRoleName {
 			t.Fatalf("WalkAssignments = %+v", assignments)
 		}
 		can, err := store.CanOnGroup(ctx, schema, authkit.UserSubject(userID), repoID, "org:repo:read")
@@ -250,20 +250,20 @@ func createUser(t *testing.T, ctx context.Context, q *db.Queries, n int, usernam
 	return userID
 }
 
-func testGroupSchema(t *testing.T) *authcore.GroupSchema {
+func testGroupSchema(t *testing.T) *embedded.GroupSchema {
 	t.Helper()
-	schema, err := authcore.BuildSchema(
-		authcore.PersonaDef{
-			Name:  authcore.RootPersona,
-			Roles: []authcore.RoleDef{{Name: authcore.OwnerRoleName, Permissions: []string{"root:*"}}},
+	schema, err := embedded.BuildSchema(
+		embedded.PersonaDef{
+			Name:  embedded.RootPersona,
+			Roles: []embedded.RoleDef{{Name: embedded.OwnerRoleName, Permissions: []string{"root:*"}}},
 		},
-		authcore.PersonaDef{
-			Name: "org", Parent: authcore.RootPersona,
-			Roles: []authcore.RoleDef{{Name: authcore.OwnerRoleName, Permissions: []string{"org:*"}}},
+		embedded.PersonaDef{
+			Name: "org", Parent: embedded.RootPersona,
+			Roles: []embedded.RoleDef{{Name: embedded.OwnerRoleName, Permissions: []string{"org:*"}}},
 		},
-		authcore.PersonaDef{
+		embedded.PersonaDef{
 			Name: "repo", Parent: "org",
-			Roles: []authcore.RoleDef{{Name: "reader", Permissions: []string{"repo:repo:read"}}},
+			Roles: []embedded.RoleDef{{Name: "reader", Permissions: []string{"repo:repo:read"}}},
 		},
 	)
 	requireNoError(t, err)

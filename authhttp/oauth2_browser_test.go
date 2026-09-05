@@ -14,7 +14,6 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +25,7 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone, NativeUserMode: nativeMode}}
 	coreSvc := newCore(t, opts, ks)
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
@@ -39,8 +38,8 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 
 // externalIdentity is the engine's view of a provider identity, as the
 // callback builds it before CompleteExternalLogin.
-func externalIdentity(p authprovider.Provider, id authprovider.Identity) authcore.ExternalIdentity {
-	return authcore.ExternalIdentity{
+func externalIdentity(p authprovider.Provider, id authprovider.Identity) embedded.ExternalIdentity {
+	return embedded.ExternalIdentity{
 		Provider: p.Name(), Issuer: p.Issuer(), Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified,
 		PreferredUsername: id.PreferredUsername, DisplayName: id.DisplayName,
 	}
@@ -52,7 +51,7 @@ func externalIdentity(p authprovider.Provider, id authprovider.Identity) authcor
 func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	identity := authprovider.Identity{Subject: "brand-new-subject", Email: "newuser@example.com", EmailVerified: true}
-	_, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity)})
+	_, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity)})
 	require.ErrorIs(t, err, authkit.ErrRegistrationDisabled)
 	require.False(t, created)
 }
@@ -62,7 +61,7 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	identity := authprovider.Identity{Subject: "linked-subject", Email: "linked@example.com"}
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity), LinkUserID: "user-123"})
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity), LinkUserID: "user-123"})
 	require.NoError(t, err)
 	require.Equal(t, "user-123", uid)
 	require.False(t, created)

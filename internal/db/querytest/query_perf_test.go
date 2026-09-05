@@ -147,7 +147,7 @@ func TestQueryPerformance(t *testing.T) {
 		},
 		{
 			// RAW exception: group-role authorization is dynamic SQL built in
-			// internal/authcore/permission_group_store.go, not an sqlc query, so it
+			// embedded/permission_group_store.go, not an sqlc query, so it
 			// has no generated constant to source. Kept hand-written and flagged; if
 			// authcore's SQL changes this must be updated by hand.
 			Name: "root_roles_for_page (raw authcore)", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,

@@ -31,7 +31,7 @@ func TestApplicationSelfRegistration_RefusesReservedSlug(t *testing.T) {
 	client := newServerClient(t, cfg, pool)
 	s, err := newServer(client)
 	require.NoError(t, err)
-	require.NoError(t, embedded.Unwrap(client).SeedPermissionGroupContainment(ctx))
+	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	h, err := MountHandler(s, MountOptions{})
 	require.NoError(t, err)
 

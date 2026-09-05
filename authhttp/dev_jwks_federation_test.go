@@ -14,7 +14,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -47,13 +46,13 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 	s, err := newServer(client)
 	require.NoError(t, err)
 
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	iss := srv.URL
 	slug := fmt.Sprintf("dev-fed-%d", time.Now().UnixNano())
-	ra, err := core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+	ra, err := core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 		Slug:              slug,
 		PermissionGroupID: gid,
 		Issuer:            iss,
@@ -68,7 +67,7 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 	aud := []string{"test-app"}
 	require.NoError(t, s.Verifier().LoadRemoteApplications(ctx, nil, aud))
 
-	tok, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	require.NoError(t, err)
@@ -91,18 +90,18 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	s, err := newServer(client, WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err)
 
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	// Registration stays fail-closed with today's messages.
 	slug := fmt.Sprintf("prod-fed-%d", time.Now().UnixNano())
-	_, err = core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+	_, err = core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 		Slug: slug, PermissionGroupID: gid,
 		Issuer: srv.URL, JWKSURI: srv.URL + "/.well-known/jwks.json", Enabled: true,
 	})
 	require.ErrorContains(t, err, "jwks_uri must use https")
-	_, err = core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+	_, err = core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 		Slug: slug, PermissionGroupID: gid,
 		Issuer: "https://127.0.0.1:1/x", JWKSURI: "https://127.0.0.1:1/jwks", Enabled: true,
 	})
@@ -114,7 +113,7 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	require.NoError(t, s.Verifier().AddIssuer(srv.URL, aud, verify.IssuerOptions{
 		JWKSURI: srv.URL + "/.well-known/jwks.json",
 	}))
-	tok, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer: srv.URL, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	require.NoError(t, err)

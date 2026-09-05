@@ -7,14 +7,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 // GroupDirectory reads immutable group identities and current/active alias names.
 // It uses AuthKit's existing store; it carries no signer, issuer or session state.
 type GroupDirectory struct {
-	store *authcore.PermissionGroupStore
+	store *PermissionGroupStore
 }
 
 // NewGroupDirectory creates a read-only view of an already migrated schema.
@@ -31,7 +30,7 @@ func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, erro
 	if !db.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("authkit: invalid schema %q", schema)
 	}
-	return &GroupDirectory{store: authcore.NewPermissionGroupStore(db.ForSchema(pool, schema))}, nil
+	return &GroupDirectory{store: NewPermissionGroupStore(db.ForSchema(pool, schema))}, nil
 }
 
 func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {

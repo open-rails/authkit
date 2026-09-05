@@ -13,7 +13,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -67,7 +66,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
 	srv, err := newServer(client)
 	require.NoError(t, err)
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
@@ -76,7 +75,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 		signer, err := jwtkit.NewRSASigner(2048, name+"-kid")
 		require.NoError(t, err)
 		jwks := newLoopbackJWKSServer(t, signer)
-		ra, err := core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+		ra, err := core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 			Slug: fmt.Sprintf("%s-%d", name, time.Now().UnixNano()), PermissionGroupID: gid,
 			Issuer: jwks.URL, JWKSURI: jwks.URL + "/.well-known/jwks.json", Enabled: true,
 		})
@@ -88,7 +87,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 	}
 	mint := func(signer *jwtkit.RSASigner, iss string) string {
 		t.Helper()
-		tok, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+		tok, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 			Issuer: iss, Audiences: []string{"test-app"}, DelegatedSubject: "u1", TTL: time.Minute,
 		})
 		require.NoError(t, err)
@@ -105,7 +104,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 		return err == nil
 	}, 10*time.Second, 200*time.Millisecond, "an application registered after the snapshot is visible within one TTL")
 
-	_, err = core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+	_, err = core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 		Slug: fmt.Sprintf("bad-iss-%d", time.Now().UnixNano()), PermissionGroupID: gid,
 		Issuer: "not-a-url", JWKSURI: iss1 + "/.well-known/jwks.json", Enabled: true,
 	})

@@ -9,7 +9,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -46,8 +45,8 @@ type contactChannel struct {
 	confirmVerifyToken  func(context.Context, string) (string, error)
 	confirmChangeToken  func(context.Context, string) (string, error)
 
-	getUser       func(context.Context, string) (*authcore.User, error)
-	isVerified    func(*authcore.User) bool
+	getUser       func(context.Context, string) (*embedded.User, error)
+	isVerified    func(*embedded.User) bool
 	pendingExists func(context.Context, string) (bool, error)
 
 	errVerifyUnavailable ErrorCode
@@ -92,7 +91,7 @@ func (s *Service) emailChannel() contactChannel {
 		confirmVerifyToken:  s.svc.ConfirmEmailVerificationByToken,
 		confirmChangeToken:  s.svc.ConfirmEmailChangeByToken,
 		getUser:             s.svc.GetUserByEmail,
-		isVerified:          func(u *authcore.User) bool { return u.EmailVerified },
+		isVerified:          func(u *embedded.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -140,7 +139,7 @@ func (s *Service) phoneChannel() contactChannel {
 		confirmVerifyToken:  s.svc.ConfirmPhoneVerificationByTokenUserID,
 		confirmChangeToken:  s.svc.ConfirmPhoneChangeByToken,
 		getUser:             s.svc.GetUserByPhone,
-		isVerified:          func(u *authcore.User) bool { return u.PhoneVerified },
+		isVerified:          func(u *embedded.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err

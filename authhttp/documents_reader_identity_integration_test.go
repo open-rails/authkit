@@ -24,7 +24,7 @@ func registerReaderApp(t *testing.T, core *embedded.Client, gid, slug, issuer st
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
-	ra, err := embedded.Unwrap(core).UpsertRemoteApplication(ctx, authkit.RemoteApplication{
+	ra, err := core.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
 		Slug: slug, PermissionGroupID: gid, Issuer: issuer, Enabled: true,
 		PublicKeys: []authkit.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
@@ -49,7 +49,7 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 	// Registration happens before the reader config exists (the host's own
 	// boot order: bootstrap manifest, then readers by identity).
 	pre := newServerClient(t, base, pool)
-	coreSvc := embedded.Unwrap(pre)
+	coreSvc := pre
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	rootGID, err := coreSvc.EnsureRootGroup(ctx)
 	require.NoError(t, err)

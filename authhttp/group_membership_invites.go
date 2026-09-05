@@ -8,7 +8,7 @@ import (
 
 	"github.com/open-rails/authkit/verify"
 
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // #147 known-user permission-group invites: the invitee accepts/declines from
@@ -65,7 +65,7 @@ func (s *Service) meGroupInviteRespond(w http.ResponseWriter, r *http.Request, a
 	} else {
 		err = s.svc.DeclineGroupMembershipInvite(r.Context(), claims.UserID, inviteID)
 	}
-	if errors.Is(err, authcore.ErrGroupMembershipInviteNotFound) {
+	if errors.Is(err, embedded.ErrGroupMembershipInviteNotFound) {
 		notFound(w, ErrNotFound)
 		return
 	}

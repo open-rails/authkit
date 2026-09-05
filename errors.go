@@ -8,7 +8,7 @@ import (
 )
 
 // Sentinel errors — the error identities hosts match with errors.Is (#138
-// contract inversion). internal/authcore aliases these.
+// contract inversion). The embedded engine aliases these.
 var (
 	ErrApplicationDocumentFetchFailed  = errors.New("application_document_fetch_failed")
 	ErrApplicationDocumentInvalid      = errors.New("application_document_invalid")

@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
@@ -22,7 +22,7 @@ import (
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
-	svc                 *authcore.Service
+	svc                 *embedded.Client
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
@@ -179,11 +179,9 @@ func (s *Service) SMSHealthy() bool { return s.svc.SMSHealthy() }
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
-// Verifier returns the server's token verifier. The embedder-facing client (for
-// provisioning/minting/management) is the *embedded.Client the host built and
-// passed to NewServer — code against authkit.Client to stay backend-agnostic
-// across the embedded↔standalone swap (#138); the server no longer vends it
-// (client-first, #142).
+// Verifier returns the server's token verifier. The engine is the
+// *embedded.Client the host built and passed to New; the transport does not
+// vend it back (client-first, #142).
 func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 
 // publicRegistrationDisabled reports whether public user self-registration /

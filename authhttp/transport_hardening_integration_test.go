@@ -12,7 +12,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
@@ -30,14 +29,14 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
 	srv, err := newServer(client)
 	require.NoError(t, err)
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	signer, err := jwtkit.NewRSASigner(2048, "aud-kid")
 	require.NoError(t, err)
 	jwks := newLoopbackJWKSServer(t, signer)
-	ra, err := core.UpsertRemoteApplication(ctx, authcore.RemoteApplication{
+	ra, err := core.UpsertRemoteApplication(ctx, embedded.RemoteApplication{
 		Slug: fmt.Sprintf("aud-%d", time.Now().UnixNano()), PermissionGroupID: gid,
 		Issuer: jwks.URL, JWKSURI: jwks.URL + "/.well-known/jwks.json", Enabled: true,
 	})
@@ -46,7 +45,7 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE id=$1::uuid`, ra.ID)
 	})
 	mint := func(aud string) string {
-		tok, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+		tok, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 			Issuer: jwks.URL, Audiences: []string{aud}, DelegatedSubject: "u1", TTL: time.Minute,
 		})
 		require.NoError(t, err)

@@ -13,14 +13,13 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 func TestDelegatedDocumentsFederatedContract(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "issuer-kid")
 	issuer := "https://site-a.example"
-	service := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer}}, authcore.Keyset{
+	service := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer}}, embedded.Keyset{
 		Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	})
 	references := map[string]string{
@@ -79,12 +78,12 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 
 	bad := base
 	bad.Documents = map[string]string{"unversioned": documents.Digest([]byte("x"))}
-	if _, err := authcore.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrInvalidReference) {
+	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrInvalidReference) {
 		t.Fatalf("bad type = %v", err)
 	}
 	bad = base
 	bad.Attributes = map[string]any{"documents": map[string]string{"example.entitlements/v1": documents.Digest([]byte("x"))}}
-	if _, err := authcore.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrReservedAttribute) {
+	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrReservedAttribute) {
 		t.Fatalf("shadowing attribute = %v", err)
 	}
 	bad = base
@@ -92,7 +91,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 	for i := 0; i <= documents.MaxReferences; i++ {
 		bad.Documents[fmt.Sprintf("example.type%d/v1", i)] = documents.Digest([]byte(fmt.Sprint(i)))
 	}
-	if _, err := authcore.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrTooManyReferences) {
+	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrTooManyReferences) {
 		t.Fatalf("too many mint references = %v", err)
 	}
 	bad = base
@@ -100,7 +99,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 	for i := 0; i < documents.MaxReferences; i++ {
 		bad.Documents[strings.Repeat("a", 230)+fmt.Sprint(i)+"/v1"] = documents.Digest([]byte(fmt.Sprint(i)))
 	}
-	if _, err := authcore.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrReferencesTooLarge) {
+	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, bad); !errors.Is(err, documents.ErrReferencesTooLarge) {
 		t.Fatalf("oversized mint references = %v", err)
 	}
 
@@ -143,7 +142,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 	// not populate the canonical top-level documents map.
 	oldAttribute := base
 	oldAttribute.Attributes = map[string]any{"policy_digest": strings.Repeat("a", 64)}
-	token, err := authcore.MintDelegatedAccessToken(context.Background(), signer, oldAttribute)
+	token, err := embedded.MintDelegatedAccessToken(context.Background(), signer, oldAttribute)
 	if err != nil {
 		t.Fatal(err)
 	}

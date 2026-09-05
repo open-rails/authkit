@@ -170,7 +170,7 @@ func TestBinaryEnvNamesAreAuthkitPrefixed(t *testing.T) {
 }
 
 var ephemeralDevKeysAllowlist = map[string]string{
-	"internal/authcore/constructor_keys_test.go": "tests the dev-key generator itself",
+	"embedded/constructor_keys_test.go": "tests the dev-key generator itself",
 	"jwtkit/": "owns the generator",
 }
 

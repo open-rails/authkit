@@ -77,7 +77,7 @@ doc comment.
 | **Stable** | Primary embedding surface. | Full semver; breaking = MAJOR. |
 | **Stable (verify-only)** | Dependency-light verification surface. | Full semver; extra care: resource servers depend on it without pgx. |
 | **Provided** | Optional first-party plug-ins (adapters, providers, stores). | Full semver, but may evolve with their upstream (gin/chi/redis/twilio). |
-| **Advanced** | Low-level building blocks (key sources, signers, raw stores). | Covered, but intended for power users; prefer the Stable facade. |
+| **Advanced** | Low-level building blocks (key sources, signers, raw stores). | Covered, but intended for power users; prefer the Stable engine surface. |
 | **Experimental** | Marked in doc comments. | **Not covered.** May change in MINOR. |
 
 ---
@@ -92,7 +92,7 @@ appears in consumer code. Renaming either is breaking.
 | Import path | Package name | Tier | Role |
 |---|---|---|---|
 | `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
-| `…/embedded` | `embedded` | Stable | In-process embedding facade — `New(cfg, pg, …) (*Client, …)` plus type/func aliases re-exporting the internal service surface |
+| `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)`, the concrete `*Client` (implements `authkit.Client`), config, deps, sender/provider interfaces and engine-only types (#289) |
 | `…/authhttp` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
 | `…/documents` | `documents` | Stable | Generic immutable signed-document envelopes, references, verification, authenticated publication, and resolution |
@@ -108,7 +108,7 @@ appears in consumer code. Renaming either is breaking.
 | `…/adapters/twilio/sms` | `twilio` | Provided | Twilio SMS sender |
 | `…/adapters/riverjobs` | `riverjobs` | Provided | River background workers; own module |
 | `…/migrations/postgres` | `migrations` | Stable | Embedded Postgres migrations (`FS`, `FSForSchema`) |
-| `…/internal/*` | (various) | **Out of contract** | `internal/db` (sqlc-generated), `internal/authcore` (service impl); never import |
+| `…/internal/*` | (various) | **Out of contract** | `internal/db` (sqlc-generated), stores, siws; never import |
 
 **Adding a package** is MINOR. **Removing or renaming** a package, or changing its
 package name, is MAJOR.
@@ -127,24 +127,19 @@ then tag the adapters. Their semver follows the adapter's own surface plus the u
 ### 4.2 Root `authkit` & `embedded` — exported surface
 
 The root **`authkit`** package is the contract. It defines the **`Client` interface** —
-composed (#143) from cohesive topic interfaces (`Users`, `Passwords`, `Admin`, `Roles`,
-`Groups`, `Tokens`, `Documents`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`,
-`Bootstrap`, `Senders`, `Entitlements`, `Maintenance`) so a host can depend on the slice
-it needs — plus the public data/result types, config, constants, sentinel errors, and the
-permission/API-key primitives. The concrete in-process implementation is the **`embedded`**
-facade: `embedded.New(cfg, pg, …) (*embedded.Client, error)` returns a `*Client` that
-satisfies `authkit.Client`, and `embedded` re-exports (via aliases) the service-side
-constructors, options, and types hosts need — and only those: an alias stays because a
-host or this repo names it, or because it is a `Config` field, option parameter or
-host-implemented interface type a host must be able to write down (#333 pruned the
-rest). The full service implementation lives in
-**`internal/authcore`** (driven by the `authkit/authhttp` transport) and is **out of contract**
-(§9). Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers
-implement it.
+one flat interface grounded in the operations consumers actually call (#289: the topic
+interfaces are gone) — plus the public data/result types, identifiers, constants,
+sentinel errors, and the permission/API-key primitives. The concrete engine is the
+**`embedded`** package: `embedded.New(cfg, deps) (*embedded.Client, error)` returns the
+engine itself, which implements `authkit.Client` and additionally carries the infra
+accessors, the transport-driven browser flows, the passkey ceremonies and `Genesis()`.
+There is no facade, no alias layer and no `internal` engine: every exported `embedded`
+method is the engine's real surface, and the `authkit.Client` subset is the covered host
+contract (§9 for the rest). Adding a method to `Client` is MAJOR — consumers implement it.
 
-**Recommended held type — the interface, not the concrete.** Hold `authkit.Client` (or the
-narrowest topic slice a call site needs), never `*embedded.Client` (#143):
-`var c authkit.Client = embedded.New(cfg, pg)`. AuthKit's own adapters follow this
+**Recommended held type — the interface, not the concrete.** Hold `authkit.Client`,
+never `*embedded.Client`, unless a call site needs something only the engine has:
+`var c authkit.Client = embedded.New(cfg, deps)`. AuthKit's own adapters follow this
 (e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
 accessors (`Postgres`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
 interface (§9), so code that genuinely needs them — and only that code — holds the concrete
@@ -168,7 +163,7 @@ and always on; see §7.1/§7.3.)
 (Solana chain selection is the flat `Config.SolanaNetwork string`; SNS
 is always-on with fixed timeout/cache — there is no `SolanaConfig`.)
 
-**Mint APIs** (free functions + `*Service` facade methods — wire-shape owners):
+**Mint APIs** (free functions + `*embedded.Client` methods — wire-shape owners):
 ```
 MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken
 ```
@@ -183,7 +178,7 @@ key-rotation refresh. AuthKit treats `Envelope.Payload` as opaque JSON.
 
 **Passkeys: browser flows are HTTP-transport-driven; in-process ceremonies live on
 `*embedded.Client` (ak#279).** `BeginPasskeyLogin`/`Finish…`, `ListPasskeys`, `RenamePasskey`
-and `DeletePasskey` live on `internal/authcore` and are exercised through the `RoutePasskeys`
+and `DeletePasskey` live on `*embedded.Client` and are exercised through the `RoutePasskeys`
 HTTP routes ([§5.3](#53-static-api-route-table-covered)). Hosts that drive WebAuthn themselves
 get, on the concrete `*embedded.Client` (not the `authkit.Client` interface, which stays free of
 `go-webauthn` types): `BeginDiscoverablePasskeyVerification`/`Finish…` (identity proof, no
@@ -197,7 +192,7 @@ request/response JSON bodies follow the W3C WebAuthn standard
 
 **Passwordless & refresh-token exchange are HTTP-transport-driven (relocated off `Client`, #201).**
 Like Passkeys, these are browser/end-user request flows, not backend-embedder capabilities, so the
-methods live on `internal/authcore` and are exercised through routes only — `StartPasswordless`/
+methods live on `*embedded.Client` and are exercised through routes only — `StartPasswordless`/
 `ConfirmPasswordless{Code,Token}`/`RecordFailedPasswordlessCode`/`ClearPasswordlessCodeAttempts` via the
 passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the `/token` endpoint. The
 `Passwordless{Start,Confirm}*` request/response types stay covered (below); the methods are NOT on
@@ -228,7 +223,7 @@ Adoption count alone is NOT a criterion for adding or removing a method.
   a map read either yields the verdict or does not, so there is no partial-failure ambiguity to carry.
 
 **`Client` interface methods** (covered) — the curated embedder surface, defined on
-`authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
+`authkit.Client` and implemented by `*embedded.Client`. Adding
 a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
 `ImportUsers`, `UpdateImportedUser`, `GetUserBy{Email,Username,Phone}`, `BanUser`/`UnbanUser`,
 `{Soft,Hard}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
@@ -238,13 +233,13 @@ RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
 (batch, per-item authz, #222), `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
 `ExternalInvitesEnabled`); API keys
-(`MintAPIKeyWithOptions`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[Detailed]`); remote
+(`MintAPIKeyWithOptions`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey`); remote
 apps; identity linking; bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
 `Options`, `PublicKeysByKID`, …). Browser/end-user flows (refresh exchange, sessions,
 password change, invite redemption, delegated-token minting) are HTTP-layer only (§4.2 layer
-test), served by `internal/authcore.Service`. Every method on the `Client` interface is
-covered; the implementation methods on `internal/authcore.Service` (beyond what `Client`
-exposes) are **not**. (Method names above are illustrative; `client.go` is authoritative.)
+test), served by `*embedded.Client`. Every method on the `Client` interface is
+covered; the engine methods on `*embedded.Client` beyond what `Client` exposes are
+**not** (§9). (Method names above are illustrative; `client.go` is authoritative.)
 
 **Domain & result types** (covered): `User`, `UserRef`, `PublicUserRef` (#268 — a widening of
 this type is BREAKING in spirit as well as version: it is the public-safe projection, and it
@@ -316,9 +311,9 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 
 > **Done (#126 → #143):** the former dual API (a ~230-method flat `*core.Service` plus an
 > unused 166-method facet mirror) was collapsed (#126), then the public surface was
-> re-shaped (#143) into the **`authkit.Client` interface** (composed of topic interfaces)
-> with the concrete implementation behind `embedded.New`. The old `core` package is gone;
-> the implementation lives in `internal/authcore`. This *is* the Stable core.
+> re-shaped (#143) into the **`authkit.Client` interface** with the concrete implementation
+> behind `embedded.New`, then (#289) the engine itself became `embedded.Client` — no
+> facade, no aliases, no `internal/authcore`. This *is* the Stable core.
 
 ### 4.3 `verify` & the verify-only primitives in root `authkit`
 
@@ -345,8 +340,8 @@ Policy callbacks: PermissionValidator
 Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenType,
   DefaultSensitiveMaxAge=15m, DefaultOutboundTimeout=30s
 ```
-`Enricher` is satisfied by the embedding service (the `*embedded.Client`'s underlying
-service); attaching DB-backed enrichment is opt-in via `(*Verifier).WithService(...)`.
+`Enricher` is satisfied by `*embedded.Client`; attaching DB-backed enrichment is opt-in
+via `(*Verifier).WithService(...)`.
 
 **Root `authkit` verify-only primitives** (Stable, verify-only; formerly package
 `authbase`): `ErrorEnvelope`, `ErrorObject`, `NewErrorEnvelope`

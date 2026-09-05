@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 
-	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
 )
 
-// handleUserMeGET: the profile projection is authcore.UserProfile (ak#318);
+// handleUserMeGET: the profile projection is embedded.UserProfile (ak#318);
 // the transport contributes only what the verified claims and the provider
 // registry know.
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +17,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	profile, err := s.svc.UserProfile(r.Context(), authcore.ProfileInput{
+	profile, err := s.svc.UserProfile(r.Context(), embedded.ProfileInput{
 		UserID:                 claims.UserID,
 		ClaimsUsername:         claims.Username,
 		AuthTime:               claims.AuthTime,
@@ -26,7 +26,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		ProviderSupportsStepUp: s.providerSupportsStepUp,
 	})
 	if err != nil {
-		var fe *authcore.FlowError
+		var fe *embedded.FlowError
 		if errors.As(err, &fe) && fe.Stage == "load_user" {
 			serverErr(w, ErrUserLookupFailed)
 			return

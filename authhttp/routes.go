@@ -70,7 +70,7 @@ type RouteSpec struct {
 	Bucket string
 	// MFAEnrollmentExempt marks a route as part of the 2FA enroll/challenge/
 	// verify surface a forced-enrollment-gated user (verify.WithRequireMFAEnrollment)
-	// must still be able to reach. NewServer derives the verifier's exempt-path
+	// must still be able to reach. authhttp.New derives the verifier's exempt-path
 	// allowlist from routes tagged here (#243) — the route table is the single
 	// source of truth, so a rename/add stays consistent by construction.
 	MFAEnrollmentExempt bool
@@ -360,7 +360,7 @@ func (r RouteSpec) Requires() string {
 
 // mfaEnrollmentExemptPaths returns the distinct Path values of the routes tagged
 // MFAEnrollmentExempt — the authoritative 2FA enroll/challenge/verify surface a
-// forced-enrollment-gated request must still reach (#243). NewServer feeds this
+// forced-enrollment-gated request must still reach (#243). authhttp.New feeds this
 // into the verifier via verify.Verifier.SetMFAEnrollmentExemptPaths so the gate's
 // allowlist is derived from the route registry rather than a hand-maintained list.
 func mfaEnrollmentExemptPaths(specs []RouteSpec) []string {

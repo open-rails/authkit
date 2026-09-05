@@ -11,7 +11,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -78,7 +77,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(body.Method))
-	if method != "" && !authcore.ValidTwoFactorStepUpMethod(method) {
+	if method != "" && !embedded.ValidTwoFactorStepUpMethod(method) {
 		badRequest(w, ErrInvalidMethod)
 		return
 	}
@@ -98,7 +97,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		}
 		sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 			"method":          method,
-			"verification_id": authcore.MaskDestination(destination),
+			"verification_id": embedded.MaskDestination(destination),
 		})
 		return
 	}
@@ -285,7 +284,7 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 	}
 	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
 	providerSlugs, _ := s.svc.ProviderSlugs(r.Context(), userID)
-	return authcore.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
+	return embedded.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
 }
 
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authkit.StepUpTwoFactorOptions {
@@ -304,7 +303,7 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authki
 			break
 		}
 	}
-	return authcore.StepUpTwoFactorOptions(settings, email)
+	return embedded.StepUpTwoFactorOptions(settings, email)
 }
 
 func sessionFreshnessResponse(f embedded.SessionFreshness) map[string]any {
