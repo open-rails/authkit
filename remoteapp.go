@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"encoding/json"
-	"errors"
 	"net/url"
 	"time"
 )
@@ -35,11 +34,11 @@ func ValidRemoteApplicationIssuer(iss string) bool {
 
 // ErrAttributeDefNotFound indicates no registered remote-application attribute
 // definition matched.
-var ErrAttributeDefNotFound = errors.New("attribute_def_not_found")
+var ErrAttributeDefNotFound = E(CodeAttributeDefNotFound)
 
 // ErrInvalidRemoteApplication indicates a malformed remote_application
 // registration payload.
-var ErrInvalidRemoteApplication = errors.New("invalid_remote_application")
+var ErrInvalidRemoteApplication = E(CodeInvalidRemoteApplication)
 
 // Remote-application trust modes (#74). A remote_application is a federation
 // PRINCIPAL whose credential is a key, with exactly one trust source:

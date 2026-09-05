@@ -54,25 +54,25 @@ type delegatedTokenResponse struct {
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	authorize := s.svc.DelegationAuthorizer()
 	if authorize == nil {
-		sendErr(w, http.StatusServiceUnavailable, ErrDelegationAuthorizerUnavailable)
+		sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegationAuthorizerUnavailable)
 		return
 	}
 
 	var req delegatedTokenRequest
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 
 	cfg := s.svc.Config().Delegated
 	audiences, err := resolveDelegatedAudiences(cfg.Audiences, req.Audiences)
 	if err != nil {
-		badRequest(w, ErrInvalidAudiences)
+		badRequest(w, authkit.CodeInvalidAudiences)
 		return
 	}
 	ttl := clampDelegatedTTL(cfg, req.TTLSeconds)
@@ -81,15 +81,15 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 
 	certificate, err := parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
 	if err != nil {
-		badRequestParam(w, ErrInvalidDelegateCertificate, "delegate_certificate_der_b64url")
+		badRequestParam(w, authkit.CodeInvalidDelegateCertificate, "delegate_certificate_der_b64url")
 		return
 	}
 	if expiresAt.After(certificate.NotAfter) {
-		badRequestParam(w, ErrTTLExceedsDelegateCertificate, "ttl_seconds")
+		badRequestParam(w, authkit.CodeTTLExceedsDelegateCertificate, "ttl_seconds")
 		return
 	}
 	if !validRequestedGrant(req.RequestedGrant) {
-		badRequestParam(w, ErrInvalidRequestedGrant, "requested_grant")
+		badRequestParam(w, authkit.CodeInvalidRequestedGrant, "requested_grant")
 		return
 	}
 	thumbprint := jwtkit.CertificateSHA256(certificate.Raw)
@@ -102,12 +102,8 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		DelegateCertificate:           certificate,
 		RequestedGrant:                req.RequestedGrant,
 	})
-	switch {
-	case errors.Is(err, authkit.ErrDelegationRefused):
-		forbidden(w, ErrDelegationRefused)
-		return
-	case err != nil:
-		sendErr(w, http.StatusServiceUnavailable, ErrDelegationAuthorizerUnavailable)
+	if err != nil {
+		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
 		return
 	}
 
@@ -121,7 +117,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	for _, p := range s.documentProviders {
 		ref := p.Reference()
 		if existing, dup := references[ref.Type]; dup && existing != ref.Digest {
-			sendErr(w, http.StatusServiceUnavailable, ErrDelegatedDocumentUnavailable)
+			sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
 			return
 		}
 		references[ref.Type] = ref.Digest
@@ -137,11 +133,11 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		ConfirmationCertificateSHA256: &thumbprint,
 	})
 	if err != nil {
-		serverErr(w, ErrDelegatedMintFailed)
+		serverErr(w, authkit.CodeDelegatedMintFailed)
 		return
 	}
 	if len(token) > maxDelegatedTokenBytes {
-		serverErr(w, ErrDelegatedTokenTooLarge)
+		serverErr(w, authkit.CodeDelegatedTokenTooLarge)
 		return
 	}
 
@@ -152,17 +148,17 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	if len(s.documentProviders) > 0 {
 		kid, err := delegatedTokenSigningKID(token)
 		if err != nil {
-			sendErr(w, http.StatusServiceUnavailable, ErrDelegatedDocumentUnavailable)
+			sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
 			return
 		}
 		for _, p := range s.documentProviders {
 			if err := p.EnsureSigningKID(r.Context(), kid); err != nil {
-				sendErr(w, http.StatusServiceUnavailable, ErrDelegatedDocumentUnavailable)
+				sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
 				return
 			}
 			digest, err := p.CurrentDigest(r.Context())
 			if err != nil || digest != references[p.Reference().Type] {
-				sendErr(w, http.StatusServiceUnavailable, ErrDelegatedDocumentUnavailable)
+				sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
 				return
 			}
 		}

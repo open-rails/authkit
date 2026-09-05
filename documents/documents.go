@@ -34,34 +34,6 @@ const (
 	MaxReferencesJSONBytes = 4 << 10
 )
 
-var (
-	ErrInvalidReference     = errors.New("invalid_document_reference")
-	ErrInvalidType          = errors.New("invalid_document_type")
-	ErrInvalidDigest        = errors.New("invalid_document_digest")
-	ErrDuplicateReference   = errors.New("duplicate_document_reference")
-	ErrTooManyReferences    = errors.New("too_many_document_references")
-	ErrReferencesTooLarge   = errors.New("document_references_too_large")
-	ErrWrongTokenType       = errors.New("documents_wrong_token_type")
-	ErrReservedAttribute    = errors.New("reserved_document_attribute")
-	ErrInvalidEnvelope      = errors.New("invalid_document_envelope")
-	ErrPayloadTooLarge      = errors.New("document_payload_too_large")
-	ErrMalformedJWS         = errors.New("malformed_document_jws")
-	ErrWrongJOSEType        = errors.New("wrong_document_jose_type")
-	ErrUnsupportedAlgorithm = errors.New("unsupported_document_algorithm")
-	ErrUnsupportedSigner    = errors.New("unsupported_document_signer")
-	ErrUnknownKey           = errors.New("unknown_document_key")
-	ErrInvalidSignature     = errors.New("invalid_document_signature")
-	ErrDigestMismatch       = errors.New("document_digest_mismatch")
-	ErrIssuerMismatch       = errors.New("document_issuer_mismatch")
-	ErrAudienceMismatch     = errors.New("document_audience_mismatch")
-	ErrTypeMismatch         = errors.New("document_type_mismatch")
-	ErrUntrustedIssuer      = errors.New("untrusted_document_issuer")
-	ErrUnauthorized         = errors.New("document_unauthorized")
-	ErrNotFound             = errors.New("document_not_found")
-	ErrFetch                = errors.New("document_fetch_failed")
-	ErrRedirect             = errors.New("document_redirect_rejected")
-)
-
 // Reference identifies one exact signed envelope. Type carries the application
 // schema version (for example, example.catalog/v1); Digest covers the exact JWS
 // payload bytes, not a decoded/re-encoded JSON value.

@@ -11,7 +11,7 @@ import (
 
 // #179: a banned user confirming a PHONE verification link must get 401 — the same
 // as the email channel. Before the verify-confirm-twin unification the phone path
-// lacked the ErrUserBanned→401 mapping the email path had, so a banned user hit a
+// lacked the authkit.CodeUserBanned→401 mapping the email path had, so a banned user hit a
 // generic 500. This pins the unified behaviour.
 func TestPhoneVerifyConfirm_BannedUserGets401(t *testing.T) {
 	pool := testdb.Pool(t)

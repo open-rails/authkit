@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/oidckit"
 )
@@ -110,15 +111,15 @@ func TestBrowserCallback_IdPError_SanitizesReflectedCode(t *testing.T) {
 }
 
 func TestSanitizeProviderErrorCode(t *testing.T) {
-	cases := map[string]ErrorCode{
+	cases := map[string]authkit.Code{
 		"access_denied":         "access_denied",
 		"ACCESS_DENIED":         "access_denied",
 		" invalid_scope ":       "invalid_scope",
 		"temporarily-down.v2":   "temporarily-down.v2",
-		"":                      ErrProviderError,
-		"<script>":              ErrProviderError,
-		"two words":             ErrProviderError,
-		strings.Repeat("a", 65): ErrProviderError,
+		"":                      authkit.CodeProviderError,
+		"<script>":              authkit.CodeProviderError,
+		"two words":             authkit.CodeProviderError,
+		strings.Repeat("a", 65): authkit.CodeProviderError,
 	}
 	for in, want := range cases {
 		require.Equal(t, want, sanitizeProviderErrorCode(in), "input %q", in)

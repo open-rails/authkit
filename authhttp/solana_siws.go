@@ -3,7 +3,6 @@ package authhttp
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -76,17 +75,17 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		ChainID  string `json:"chain_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 
 	address := strings.TrimSpace(req.Address)
 	if address == "" {
-		badRequest(w, ErrAddressRequired)
+		badRequest(w, authkit.CodeAddressRequired)
 		return
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		badRequest(w, ErrInvalidAddress)
+		badRequest(w, authkit.CodeInvalidAddress)
 		return
 	}
 
@@ -97,7 +96,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), s.siwsCache(), domain, address, req.Username)
 	if err != nil {
-		serverErr(w, ErrChallengeFailed)
+		serverErr(w, authkit.CodeChallengeFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -115,28 +114,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 
 	accessToken, expiresAt, refreshToken, userID, created, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsCache(), output, nil)
 	if err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
-			return
-		}
-		if errors.Is(err, authkit.ErrRegistrationDisabled) {
-			registrationDisabled(w)
-			return
-		}
-		switch {
-		case errors.Is(err, authkit.ErrSIWSChallengeNotFound), errors.Is(err, authkit.ErrSIWSChallengeExpired):
-			unauthorized(w, ErrChallengeExpired)
-		case errors.Is(err, authkit.ErrSIWSSignatureInvalid):
-			unauthorized(w, ErrInvalidSignature)
-		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
-			badRequest(w, ErrAddressMismatch)
-		case errors.Is(err, authkit.ErrSIWSDomainInvalid), errors.Is(err, authkit.ErrSIWSChallengeMismatch):
-			unauthorized(w, ErrAuthenticationFailed)
-		case errors.Is(err, authkit.ErrSIWSTimestampInvalid):
-			unauthorized(w, ErrChallengeExpired)
-		default:
-			unauthorized(w, ErrAuthenticationFailed)
-		}
+		writeError(w, fallback(remap(err, siwsCodes), authkit.CodeAuthenticationFailed))
 		return
 	}
 
@@ -156,7 +134,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrAuthenticationRequired)
+		unauthorized(w, authkit.CodeAuthenticationRequired)
 		return
 	}
 
@@ -169,26 +147,22 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.svc.LinkSolanaWallet(r.Context(), s.siwsCache(), claims.UserID, output); err != nil {
-		switch {
-		case errors.Is(err, authkit.ErrSIWSChallengeNotFound), errors.Is(err, authkit.ErrSIWSChallengeExpired):
-			unauthorized(w, ErrChallengeExpired)
-		case errors.Is(err, authkit.ErrSIWSSignatureInvalid):
-			unauthorized(w, ErrInvalidSignature)
-		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
-			badRequest(w, ErrAddressMismatch)
-		case errors.Is(err, authkit.ErrSIWSDomainInvalid), errors.Is(err, authkit.ErrSIWSChallengeMismatch):
-			unauthorized(w, ErrAuthenticationFailed)
-		case errors.Is(err, authkit.ErrWalletAlreadyLinked):
-			sendErr(w, http.StatusConflict, ErrWalletAlreadyLinked)
-		case errors.Is(err, authkit.ErrWalletChangeRequiresUnlink):
-			sendErr(w, http.StatusConflict, ErrWalletChangeRequiresUnlink)
-		default:
-			serverErr(w, ErrLinkFailed)
-		}
+		writeError(w, remap(err, siwsCodes))
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"solana_address": output.Account.Address})
+}
+
+// siwsCodes: the wire codes a SIWS ceremony failure answers.
+var siwsCodes = map[error]authkit.Code{
+	authkit.ErrSIWSChallengeNotFound: authkit.CodeChallengeExpired,
+	authkit.ErrSIWSChallengeExpired:  authkit.CodeChallengeExpired,
+	authkit.ErrSIWSTimestampInvalid:  authkit.CodeChallengeExpired,
+	authkit.ErrSIWSSignatureInvalid:  authkit.CodeInvalidSignature,
+	authkit.ErrSIWSAddressMismatch:   authkit.CodeAddressMismatch,
+	authkit.ErrSIWSDomainInvalid:     authkit.CodeAuthenticationFailed,
+	authkit.ErrSIWSChallengeMismatch: authkit.CodeAuthenticationFailed,
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —
@@ -215,17 +189,17 @@ func decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput
 		} `json:"output"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return siws.SignInOutput{}, false
 	}
 	signature, err := decodeSIWSB64(req.Output.Signature)
 	if err != nil {
-		badRequest(w, ErrInvalidSignatureEncoding)
+		badRequest(w, authkit.CodeInvalidSignatureEncoding)
 		return siws.SignInOutput{}, false
 	}
 	signedMessage, err := decodeSIWSB64(req.Output.SignedMessage)
 	if err != nil {
-		badRequest(w, ErrInvalidMessageEncoding)
+		badRequest(w, authkit.CodeInvalidMessageEncoding)
 		return siws.SignInOutput{}, false
 	}
 	// Public key is optional and best-effort (the address is authoritative).

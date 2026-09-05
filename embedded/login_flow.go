@@ -18,18 +18,9 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// FlowError tags an engine failure with the stage it happened in, so a
-// transport can log where a flow broke without re-deriving the flow.
-// errors.Is / errors.As see through it to the wrapped cause.
-type FlowError struct {
-	Stage string
-	Err   error
-}
-
-func (e *FlowError) Error() string { return e.Stage + ": " + e.Err.Error() }
-func (e *FlowError) Unwrap() error { return e.Err }
-
-func stageErr(stage string, err error) error { return &FlowError{Stage: stage, Err: err} }
+// stageErr prefixes an engine failure with the stage it happened in, for the
+// transport's log; errors.Is/As see through it to the wrapped cause.
+func stageErr(stage string, err error) error { return fmt.Errorf("%s: %w", stage, err) }
 
 // IssuedSession is a freshly established refresh session plus its paired
 // access token.
@@ -125,7 +116,7 @@ type PasswordLoginInput struct {
 
 // PasswordLogin runs the whole password-login decision tree. It returns an
 // error only when the engine itself failed (a send, the challenge store, the
-// session insert — each tagged with its FlowError stage and, for sends, the
+// session insert — each prefixed with its stage and, for sends, the
 // delivery sentinel); every policy result is a LoginOutcome.
 func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error) {
 	identifier := strings.TrimSpace(in.Identifier)

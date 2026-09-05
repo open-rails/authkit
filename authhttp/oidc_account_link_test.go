@@ -25,17 +25,18 @@ import (
 // code in the fragment.
 func TestAccountExistsLinkRequiredOutcome(t *testing.T) {
 	s := newTestService(t)
+	status, code := wireCode(authkit.ErrAccountExistsLinkRequired)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
 	r.Header.Set("Accept", "application/json")
-	s.accountExistsLinkRequired(w, r, nil, "google")
+	s.failBrowserFlow(w, r, nil, "google", status, code)
 	require.Equal(t, http.StatusConflict, w.Code)
 	require.Contains(t, w.Body.String(), "account_exists_link_required")
 
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
-	s.accountExistsLinkRequired(w, r, nil, "google")
+	s.failBrowserFlow(w, r, nil, "google", status, code)
 	require.Equal(t, http.StatusFound, w.Code)
 	require.Contains(t, w.Header().Get("Location"), "error=account_exists_link_required")
 }

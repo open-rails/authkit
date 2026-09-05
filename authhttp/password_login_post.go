@@ -19,7 +19,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
@@ -29,7 +29,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if identifier == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 
@@ -37,21 +37,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})
 	if err != nil {
-		if s.handleDeliveryError(w, r, "password_login", flowStage(err), err) {
-			return
-		}
-		switch {
-		case errors.Is(err, authkit.ErrEmailVerificationSendFailed):
-			serverErr(w, ErrEmailVerificationFailed)
-		case errors.Is(err, authkit.ErrPhoneVerificationSendFailed):
-			serverErr(w, ErrPhoneVerificationFailed)
-		case errors.Is(err, authkit.ErrTwoFASendFailed):
-			serverErr(w, ErrTwoFASendFailed)
-		case errors.Is(err, authkit.ErrTwoFAChallengeFailed):
-			serverErr(w, ErrTwoFAChallengeFailed)
-		default:
-			serverErr(w, ErrSessionCreationFailed)
-		}
+		writeError(w, err)
 		return
 	}
 	switch out.Kind {
@@ -68,30 +54,21 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// flowStage names the engine stage a FlowError failed in, for internal logs.
-func flowStage(err error) string {
-	var fe *embedded.FlowError
-	if errors.As(err, &fe) {
-		return fe.Stage
-	}
-	return ""
-}
-
-func loginRejectionCode(reason error) ErrorCode {
+func loginRejectionCode(reason error) authkit.Code {
 	switch {
 	case errors.Is(reason, authkit.ErrUserBanned):
-		return ErrUserBanned
+		return authkit.CodeUserBanned
 	case errors.Is(reason, authkit.ErrPasswordResetRequired):
-		return ErrPasswordResetRequired
+		return authkit.CodePasswordResetRequired
 	default:
-		return ErrInvalidCredentials
+		return authkit.CodeInvalidCredentials
 	}
 }
 
 // writeTwoFactorRequired emits the 403 2fa_required envelope: the issued
 // challenge, the factor the code went to, and the factor menu.
 func (s *Service) writeTwoFactorRequired(w http.ResponseWriter, userID string, ch *embedded.TwoFactorChallenge) {
-	sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
+	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, map[string]any{
 		"user_id":         userID,
 		"method":          ch.Method,
 		"verification_id": embedded.MaskDestination(ch.Destination),
@@ -111,7 +88,7 @@ func (s *Service) writeTwoFactorRequired(w http.ResponseWriter, userID string, c
 // already (re)sent a fresh verification code; the frontend routes the user to
 // the OTP verify page using metadata.identifier + metadata.channel.
 func writeVerificationRequired(w http.ResponseWriter, identifier, channel string) {
-	sendErrData(w, http.StatusForbidden, ErrVerificationRequired, map[string]any{
+	sendErrData(w, http.StatusForbidden, authkit.CodeVerificationRequired, map[string]any{
 		"identifier": identifier,
 		"channel":    channel,
 	})

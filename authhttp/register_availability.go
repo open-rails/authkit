@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
@@ -23,7 +24,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	email := strings.TrimSpace(r.URL.Query().Get("email"))
 	phone := strings.TrimSpace(r.URL.Query().Get("phone_number"))
 	if username == "" && email == "" && phone == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 
@@ -32,13 +33,13 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	if s.publicRegistrationDisabled() {
 		resp := registrationAvailabilityResponse{}
 		if username != "" {
-			resp.Username = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
+			resp.Username = &registrationAvailabilityField{Available: false, Error: authkit.CodeRegistrationDisabled.String()}
 		}
 		if email != "" {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
+			resp.Email = &registrationAvailabilityField{Available: false, Error: authkit.CodeRegistrationDisabled.String()}
 		}
 		if phone != "" {
-			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
+			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: authkit.CodeRegistrationDisabled.String()}
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
@@ -57,11 +58,11 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 	if username != "" {
 		if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-			code := ErrorCode(embedded.ValidationErrorCode(err))
+			code := embedded.ValidationErrorCode(err)
 			if code == "" {
 				// Not a validation error — an internal failure.
 				s.logInternalError(r, "register_availability", "username", "database_error", err)
-				serverErr(w, ErrDatabaseError)
+				serverErr(w, authkit.CodeDatabaseError)
 				return
 			}
 			resp.Username = &registrationAvailabilityField{Available: false, Error: code.String()}
@@ -72,7 +73,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	}
 	if email != "" {
 		if err := embedded.ValidateEmail(email); err != nil {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}
+			resp.Email = &registrationAvailabilityField{Available: false, Error: embedded.ValidationErrorCode(err).String()}
 		} else {
 			checkEmail = embedded.NormalizeEmail(email)
 			emailNeedsConflictCheck = true
@@ -83,7 +84,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), checkEmail, checkUsername)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "identifier", "database_error", err)
-			serverErr(w, ErrDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError)
 			return
 		}
 		if usernameNeedsConflictCheck {
@@ -106,7 +107,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationPhoneAvailability(r, phone)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "phone_number", "database_error", err)
-			serverErr(w, ErrDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError)
 			return
 		}
 		resp.PhoneNumber = field
@@ -117,7 +118,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
 	if err := embedded.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}, nil
+		return &registrationAvailabilityField{Available: false, Error: embedded.ValidationErrorCode(err).String()}, nil
 	}
 	phone = embedded.NormalizePhone(phone)
 

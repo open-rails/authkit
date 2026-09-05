@@ -3,7 +3,6 @@ package embedded
 import (
 	"context"
 	"errors"
-	"fmt"
 	stdlog "log"
 	"strings"
 
@@ -72,7 +71,7 @@ func (s *Client) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 
 	// Re-check uniqueness before committing (not reserved at request time).
 	if existing, _ := s.getUserByEmail(ctx, rec.Target); existing != nil && existing.ID != rec.UserID {
-		return "", fmt.Errorf("email already in use")
+		return "", ErrEmailInUse
 	}
 
 	if err := s.applyContactChange(ctx, rec.UserID, keepSessionID, func(q *db.Queries) error {
@@ -104,7 +103,7 @@ func (s *Client) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 	}
 
 	if existing, _ := s.getUserByPhone(ctx, rec.Target); existing != nil && existing.ID != rec.UserID {
-		return "", fmt.Errorf("phone already in use")
+		return "", ErrPhoneInUse
 	}
 
 	if err := s.applyContactChange(ctx, rec.UserID, keepSessionID, func(q *db.Queries) error {

@@ -8,7 +8,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Request) {
@@ -20,12 +19,12 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLPasswordlessStart, identifier) {
@@ -40,28 +39,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		AccountInviteToken: req.AccountInviteToken,
 	})
 	if err != nil {
-		if errors.Is(err, authkit.ErrPasswordlessDisabled) {
-			forbidden(w, ErrPasswordlessDisabled)
-			return
-		}
-		if errors.Is(err, authkit.ErrRegistrationDisabled) {
-			registrationDisabled(w)
-			return
-		}
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		if errors.Is(err, authkit.ErrEmailSenderUnavailable) {
-			serverErr(w, ErrEmailVerificationUnavailable)
-			return
-		}
-		if errors.Is(err, authkit.ErrSMSSenderUnavailable) {
-			serverErr(w, ErrPhoneVerificationUnavailable)
-			return
-		}
-		s.logInternalError(r, "passwordless_start", "start_passwordless", "passwordless_start_failed", err)
-		serverErr(w, ErrDatabaseError)
+		writeError(w, err)
 		return
 	}
 	accepted(w)
@@ -74,7 +52,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		Token      string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
@@ -91,7 +69,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		usedCode = true
 		result, err = s.svc.ConfirmPasswordlessCode(r.Context(), identifier, strings.TrimSpace(req.Code))
 	} else {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if err != nil {
@@ -101,22 +79,20 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 				s.svc.RecordFailedPasswordlessCode(r.Context(), identifier)
 			}
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
-			badRequest(w, ErrInvalidOrExpiredCode)
+			badRequest(w, authkit.CodeInvalidOrExpiredCode)
 		case errors.Is(err, authkit.ErrRegistrationDisabled), errors.Is(err, authkit.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
-			forbidden(w, ErrPasswordlessDisabled)
+			forbidden(w, authkit.CodePasswordlessDisabled)
 		default:
 			logLoginFailed(s, r, "", "passwordless_failed")
-			s.logInternalError(r, "passwordless_confirm", "confirm_passwordless", "passwordless_confirm_failed", err)
-			serverErr(w, ErrDatabaseError)
+			writeError(w, err)
 		}
 		return
 	}
 
 	tokens, err := s.createTokensForUser(r, result.UserID, result.Method)
 	if err != nil {
-		s.logInternalError(r, "passwordless_confirm", "issue_tokens", "passwordless_issue_tokens_failed", err)
-		serverErr(w, ErrAccessTokenCreateFailed)
+		writeError(w, err)
 		return
 	}
 	var extra map[string]any

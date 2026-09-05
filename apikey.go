@@ -8,7 +8,6 @@
 package authkit
 
 import (
-	"errors"
 	"strings"
 )
 
@@ -16,11 +15,11 @@ var (
 	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
 	// secret, or whose owning permission group is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
-	ErrInvalidAccessToken = errors.New("invalid_token")
+	ErrInvalidAccessToken = E(CodeInvalidToken)
 	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.
-	ErrAccessTokenRevoked = errors.New("token_revoked")
+	ErrAccessTokenRevoked = E(CodeAccessTokenRevoked)
 	// ErrAccessTokenExpired indicates the API key is past its expires_at.
-	ErrAccessTokenExpired = errors.New("token_expired")
+	ErrAccessTokenExpired = E(CodeAccessTokenExpired)
 )
 
 // apiKeyTypeSegment is the FIXED, non-configurable type tag. The full marker is

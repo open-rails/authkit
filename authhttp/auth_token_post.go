@@ -16,7 +16,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	// ak#271: the credential is the body's when the client still holds one,
@@ -25,7 +25,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	// state after the migration, not a malformed request.
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	ua := r.UserAgent()
@@ -47,14 +47,14 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, authkit.ErrUserBanned) {
 			// Authoritative about the whole browser: the cookie goes.
 			s.clearRefreshCookie(w, r)
-			unauthorized(w, ErrUserBanned)
+			unauthorized(w, authkit.CodeUserBanned)
 			return
 		}
 		// Deliberately NOT cleared here: an unknown token is indistinguishable
 		// from a stale one (a lost response after a committed rotation), and
 		// clearing would destroy a still-live jar value over a transient
 		// failure. The client re-authenticates; the cookie is overwritten then.
-		unauthorized(w, ErrInvalidRefreshToken)
+		unauthorized(w, authkit.CodeInvalidRefreshToken)
 		return
 	}
 
@@ -74,18 +74,18 @@ func (s *Service) send2FAEnrollmentRequired(w http.ResponseWriter, r *http.Reque
 	if userID != "" {
 		token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
 		if err != nil {
-			serverErr(w, ErrTokenIssueFailed)
+			serverErr(w, authkit.CodeTokenIssueFailed)
 			return
 		}
 		metadata["token_set"] = authkit.TokenSet{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())}
 	}
-	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, metadata)
+	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, metadata)
 }
 
 // send2FAEnrollmentRequiredError is the tokenless form for callers without a
 // user id (or a request).
 func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
-	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
+	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, map[string]any{
 		"requires_2fa_enrollment": true,
 		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
 	})

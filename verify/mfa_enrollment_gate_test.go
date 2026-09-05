@@ -53,4 +53,3 @@ func TestMFAEnrollmentExemptPath_UnsetIsFailClosed(t *testing.T) {
 		t.Fatal("a Verifier with no exempt paths set must not exempt any route")
 	}
 }
-

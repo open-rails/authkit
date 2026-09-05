@@ -29,7 +29,7 @@ type ProfileInput struct {
 }
 
 // UserProfile builds the caller's profile. Errors: the user row is missing
-// (FlowError "load_user"), or a store failure (FlowError "load_password" /
+// (stage "load_user"), or a store failure (stage "load_password" /
 // "load_2fa").
 func (s *Client) UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error) {
 	u, err := s.AdminGetUser(ctx, in.UserID)

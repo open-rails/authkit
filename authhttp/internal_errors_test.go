@@ -42,7 +42,7 @@ func TestLogInternalErrorLogsToSlog(t *testing.T) {
 	require.Empty(t, buf.String())
 }
 
-func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
+func TestWriteErrorMapsHonestTargetErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -62,9 +62,7 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			if !handleVerificationRequestError(w, tt.err) {
-				t.Fatal("expected error to be handled")
-			}
+			writeError(w, tt.err)
 			if w.Code != tt.status {
 				t.Fatalf("status=%d, want %d; body=%s", w.Code, tt.status, w.Body.String())
 			}

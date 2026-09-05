@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -100,7 +101,7 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	require.NoError(t, err)
 	frag, err = url.ParseQuery(target.Fragment)
 	require.NoError(t, err)
-	require.Equal(t, string(ErrInvalidState), frag.Get("error"))
+	require.Equal(t, string(authkit.CodeInvalidState), frag.Get("error"))
 	require.Empty(t, frag.Get("access_token"))
 
 	// Non-form_post providers keep the Lax cookie: the GET path is not weakened.

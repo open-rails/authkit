@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"encoding/base64"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,16 +84,12 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
-			unauthorized(w, ErrNotAuthenticated)
+			unauthorized(w, authkit.CodeNotAuthenticated)
 			return
 		}
 		group, err := s.svc.GroupInstanceForSlug(r.Context(), group)
-		if errors.Is(err, authkit.ErrGroupNotFound) {
-			forbidden(w, ErrForbidden)
-			return
-		}
 		if err != nil {
-			serverErr(w, ErrDatabaseError)
+			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
 		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
@@ -107,7 +102,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 		case strings.TrimSpace(claims.UserID) != "":
 			allowed, err := s.svc.CanOnGroup(r.Context(), authkit.UserSubject(claims.UserID), group.ID, perm)
 			if err != nil {
-				serverErr(w, ErrDatabaseError)
+				serverErr(w, authkit.CodeDatabaseError)
 				return
 			}
 			if allowed {
@@ -115,7 +110,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 				return
 			}
 		}
-		forbidden(w, ErrForbidden)
+		forbidden(w, authkit.CodeForbidden)
 	})
 }
 
@@ -126,7 +121,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return "", false
 	}
 	return claims.UserID, true
@@ -135,16 +130,12 @@ func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	opts, ok := adminUserListOptionsFromQuery(r)
 	if !ok {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
-		if errors.Is(err, authkit.ErrEntitlementFilterUnavailable) {
-			badRequest(w, ErrEntitlementFilterUnavailable)
-			return
-		}
-		serverErr(w, ErrFailedToListUsers)
+		writeError(w, err)
 		return
 	}
 	next := ""
@@ -158,7 +149,7 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	u, err := s.svc.AdminGetUser(r.Context(), id)
 	if err != nil || u == nil {
-		notFound(w, ErrNotFound)
+		notFound(w, authkit.CodeNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -171,7 +162,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		Until  *string `json:"until"`
 	}
 	if err := decodeOptionalJSON(r, &req); err != nil || userID == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -180,36 +171,29 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	}
 	var untilPtr *time.Time
 	if req.Until == nil {
-		badRequest(w, ErrInvalidUntil)
+		badRequest(w, authkit.CodeInvalidUntil)
 		return
 	}
 	untilStr := strings.TrimSpace(*req.Until)
 	if untilStr == "" {
-		badRequest(w, ErrInvalidUntil)
+		badRequest(w, authkit.CodeInvalidUntil)
 		return
 	}
 	if !strings.EqualFold(untilStr, "infinite") {
 		parsed, err := time.Parse(time.RFC3339, untilStr)
 		if err != nil {
-			badRequest(w, ErrInvalidUntil)
+			badRequest(w, authkit.CodeInvalidUntil)
 			return
 		}
 		parsed = parsed.UTC()
 		if !parsed.After(time.Now().UTC()) {
-			badRequest(w, ErrInvalidUntil)
+			badRequest(w, authkit.CodeInvalidUntil)
 			return
 		}
 		untilPtr = &parsed
 	}
 	if err := s.svc.BanUser(r.Context(), userID, req.Reason, untilPtr, actor); err != nil {
-		switch {
-		case errors.Is(err, authkit.ErrInvalidUntil):
-			badRequest(w, ErrInvalidUntil)
-		case errors.Is(err, authkit.ErrAccountAuthorityEscalation):
-			forbidden(w, ErrAccountAuthorityEscalation)
-		default:
-			serverErr(w, ErrFailedToBan)
-		}
+		writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -218,11 +202,11 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.UnbanUser(r.Context(), userID); err != nil {
-		serverErr(w, ErrFailedToUnban)
+		serverErr(w, authkit.CodeFailedToUnban)
 		return
 	}
 	noContent(w)
@@ -231,7 +215,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -239,11 +223,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := s.svc.SoftDeleteUserAs(r.Context(), actor, id); err != nil {
-		if errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
-			forbidden(w, ErrAccountAuthorityEscalation)
-			return
-		}
-		serverErr(w, ErrFailedToDelete)
+		writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -252,7 +232,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -263,11 +243,7 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 		embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonAdminRevokeAll),
 		actor, userID,
 	); err != nil {
-		if errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
-			forbidden(w, ErrAccountAuthorityEscalation)
-			return
-		}
-		serverErr(w, ErrFailedToRevokeSessions)
+		writeError(w, err)
 		return
 	}
 	noContent(w)

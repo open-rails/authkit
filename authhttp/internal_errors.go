@@ -2,12 +2,8 @@ package authhttp
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
-
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // logInternalError records a swallowed internal handler error to the
@@ -35,43 +31,4 @@ func (s *Service) logInternalError(r *http.Request, route, stage, code string, e
 		slog.String("path", path),
 		slog.String("error", err.Error()),
 	)
-}
-
-func (s *Service) handleDeliveryError(w http.ResponseWriter, r *http.Request, route, stage string, err error) bool {
-	code := deliveryErrCode(err)
-	if code == "" {
-		return false
-	}
-	s.logInternalError(r, route, stage, code.String(), err)
-	deliveryErr(w, code)
-	return true
-}
-
-func handleVerificationRequestError(w http.ResponseWriter, err error) bool {
-	if err == nil {
-		return false
-	}
-	if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-		badRequest(w, code)
-		return true
-	}
-	switch {
-	case errors.Is(err, authkit.ErrUserNotFound):
-		notFound(w, ErrUserNotFound)
-		return true
-	case errors.Is(err, authkit.ErrPendingRegistrationNotFound):
-		notFound(w, ErrPendingRegistrationNotFound)
-		return true
-	case errors.Is(err, authkit.ErrEmailAlreadyVerified):
-		sendErr(w, http.StatusConflict, ErrEmailAlreadyVerified)
-		return true
-	case errors.Is(err, authkit.ErrPhoneAlreadyVerified):
-		sendErr(w, http.StatusConflict, ErrPhoneAlreadyVerified)
-		return true
-	case errors.Is(err, authkit.ErrVerificationLinkExpired):
-		sendErr(w, http.StatusGone, ErrVerificationLinkExpired)
-		return true
-	default:
-		return false
-	}
 }

@@ -1,9 +1,9 @@
 package authhttp
 
 import (
-	"errors"
 	"net/http"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
 )
@@ -14,7 +14,7 @@ import (
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	profile, err := s.svc.UserProfile(r.Context(), embedded.ProfileInput{
@@ -26,12 +26,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		ProviderSupportsStepUp: s.providerSupportsStepUp,
 	})
 	if err != nil {
-		var fe *embedded.FlowError
-		if errors.As(err, &fe) && fe.Stage == "load_user" {
-			serverErr(w, ErrUserLookupFailed)
-			return
-		}
-		serverErr(w, ErrDatabaseError)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, profile)

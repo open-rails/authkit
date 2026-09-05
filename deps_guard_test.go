@@ -16,10 +16,11 @@ var forbiddenDepPrefixes = []string{
 }
 
 // sharedStdlibLeaves are engine-free internal packages the verify surface may
-// share with the engine (ak#316: one outbound/SSRF policy). Each is pinned to
-// the standard library by TestSharedLeavesAreStdlibOnly.
+// share with the engine (ak#316: one outbound/SSRF policy; ak#290: one error
+// model). Each is pinned to the standard library by TestSharedLeavesAreStdlibOnly.
 var sharedStdlibLeaves = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard": true,
+	"github.com/open-rails/authkit/internal/errmodel": true,
 }
 
 func listDeps(t *testing.T, pkg string) []string {

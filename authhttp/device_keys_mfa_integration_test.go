@@ -58,7 +58,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &refused))
-	require.Equal(t, string(ErrStepUpRequired), refused.Error.Code)
+	require.Equal(t, string(authkit.CodeStepUpRequired), refused.Error.Code)
 	require.Equal(t, "totp", refused.Error.Metadata["method"])
 	require.Equal(t, "code_2fa", refused.Error.Metadata["param"])
 

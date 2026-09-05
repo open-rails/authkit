@@ -47,7 +47,7 @@ func RequirePermission(checker PermissionChecker, perm authkit.Perm, resolve fun
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil {
-				forbidden(w, "forbidden")
+				forbidden(w, authkit.CodeForbidden)
 				return
 			}
 			// Token-carried authority short-circuits without a scope ONLY for
@@ -59,13 +59,13 @@ func RequirePermission(checker PermissionChecker, perm authkit.Perm, resolve fun
 				return
 			}
 			if resolve == nil {
-				forbidden(w, "forbidden")
+				forbidden(w, authkit.CodeForbidden)
 				return
 			}
 			scope := resolve(r)
 			ok, err := Allow(r.Context(), checker, cl, perm, scope)
 			if err != nil || !ok {
-				forbidden(w, "forbidden")
+				forbidden(w, authkit.CodeForbidden)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))

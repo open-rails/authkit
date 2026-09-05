@@ -237,7 +237,7 @@ func TestGroupAPIKeyMintRejectsRoleEscalation_HTTP(t *testing.T) {
 	mintGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:manage"}
 	w := s.drive(t, mintGR, "m-role-denied", weakActor, `{"name":"escalate-role","role":"member"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrForbidden))
+	require.Contains(t, w.Body.String(), string(authkit.CodeForbidden))
 
 	listGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:read"}
 	w = s.drive(t, listGR, "m-role-denied", caller, "")

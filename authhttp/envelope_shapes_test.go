@@ -35,7 +35,7 @@ func requireTwoFARequired(t *testing.T, w *httptest.ResponseRecorder) twoFAChall
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, string(ErrTwoFARequired), body.Error.Code)
+	require.Equal(t, string(authkit.CodeTwoFARequired), body.Error.Code)
 	return twoFAChallenge{UserID: body.Error.Metadata.UserID, Method: body.Error.Metadata.Method, Challenge: body.Error.Metadata.Challenge}
 }
 
@@ -53,7 +53,7 @@ func requireEnrollmentToken(t *testing.T, w *httptest.ResponseRecorder) string {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, string(ErrTwoFAEnrollmentRequired), body.Error.Code)
+	require.Equal(t, string(authkit.CodeTwoFAEnrollmentRequired), body.Error.Code)
 	require.NotEmpty(t, body.Error.Metadata.TokenSet.AccessToken)
 	return body.Error.Metadata.TokenSet.AccessToken
 }

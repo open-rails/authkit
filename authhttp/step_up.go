@@ -19,34 +19,34 @@ const oidcStepUpClockSkew = 2 * time.Minute
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 	var body struct {
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Password == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
 		if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 			// The stored hash can never verify (legacy reset-required); the user
 			// cannot step up with a password and must reset it first.
-			unauthorized(w, ErrPasswordResetRequired)
+			unauthorized(w, authkit.CodePasswordResetRequired)
 			return
 		}
-		unauthorized(w, ErrInvalidPassword)
+		unauthorized(w, authkit.CodeInvalidPassword)
 		return
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, ErrStepUpFailed)
+		serverErr(w, authkit.CodeStepUpFailed)
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 	if err != nil {
-		serverErr(w, ErrTokenIssueFailed)
+		serverErr(w, authkit.CodeTokenIssueFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -55,7 +55,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, claims.UserID) {
@@ -69,16 +69,16 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if strings.TrimSpace(body.FactorID) != "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(body.Method))
 	if method != "" && !embedded.ValidTwoFactorStepUpMethod(method) {
-		badRequest(w, ErrInvalidMethod)
+		badRequest(w, authkit.CodeInvalidTwoFAMethod)
 		return
 	}
 
@@ -86,16 +86,13 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		destination, method, _, err := s.svc.Require2FAForStepUpMethod(r.Context(), claims.UserID, claims.SessionID, method)
 		if err != nil {
 			if method != "" {
-				badRequest(w, ErrInvalidMethod)
+				badRequest(w, authkit.CodeInvalidTwoFAMethod)
 				return
 			}
-			if s.handleDeliveryError(w, r, "step_up_2fa", "send_2fa_code", err) {
-				return
-			}
-			serverErr(w, ErrTwoFASendFailed)
+			writeError(w, err)
 			return
 		}
-		sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
+		sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, map[string]any{
 			"method":          method,
 			"verification_id": embedded.MaskDestination(destination),
 		})
@@ -110,18 +107,18 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		valid, err = s.svc.Verify2FAStepUpMethodCode(r.Context(), claims.UserID, claims.SessionID, method, strings.TrimSpace(body.Code))
 	}
 	if err != nil || !valid {
-		unauthorized(w, ErrInvalidCode)
+		unauthorized(w, authkit.CodeInvalidCode)
 		return
 	}
 
 	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"}); err != nil {
-		serverErr(w, ErrStepUpFailed)
+		serverErr(w, authkit.CodeStepUpFailed)
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 	if err != nil {
-		serverErr(w, ErrTokenIssueFailed)
+		serverErr(w, authkit.CodeTokenIssueFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -131,7 +128,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	provider := strings.TrimSpace(r.PathValue("provider"))
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, ErrNotAuthenticated)
+		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
 
@@ -145,15 +142,15 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	// silently re-authorize an approved app, so completing them proves nothing.
 	p, known := s.provider(provider)
 	if !known {
-		badRequest(w, ErrUnknownProvider)
+		badRequest(w, authkit.CodeUnknownProvider)
 		return
 	}
 	if !p.SupportsStepUp() {
-		badRequest(w, ErrInvalidMethod)
+		badRequest(w, authkit.CodeInvalidTwoFAMethod)
 		return
 	}
 	if !s.userHasLinkedIssuerProvider(r, claims.UserID, p.Issuer(), p.Name()) {
-		badRequest(w, ErrProviderNotLinked)
+		badRequest(w, authkit.CodeProviderNotLinked)
 		return
 	}
 	s.startProviderFlow(w, r, p.Name(), flowStart{
@@ -225,20 +222,20 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 	if password != "" {
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
 			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
-				unauthorized(w, ErrPasswordResetRequired)
+				unauthorized(w, authkit.CodePasswordResetRequired)
 				return false, nil
 			}
-			unauthorized(w, ErrInvalidPassword)
+			unauthorized(w, authkit.CodeInvalidPassword)
 			return false, nil
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, ErrStepUpFailed)
+			serverErr(w, authkit.CodeStepUpFailed)
 			return false, nil
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, ErrTokenIssueFailed)
+			serverErr(w, authkit.CodeTokenIssueFailed)
 			return false, nil
 		}
 		return true, body
@@ -250,7 +247,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
 	methods, err := s.stepUpMethods(r, claims.UserID)
 	if err != nil {
-		serverErr(w, ErrDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError)
 		return
 	}
 	metadata := map[string]any{
@@ -263,7 +260,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims v
 		// clear the gate; tell the client to route to 2FA.
 		metadata["mfa_required"] = true
 	}
-	sendErrData(w, http.StatusForbidden, ErrStepUpRequired, metadata)
+	sendErrData(w, http.StatusForbidden, authkit.CodeStepUpRequired, metadata)
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness embedded.SessionFreshness) (map[string]any, error) {

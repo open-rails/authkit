@@ -68,12 +68,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || strings.TrimSpace(req.Username) == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	// Per-identifier check: prevents spamming verification emails to the same
@@ -88,7 +88,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})
 	if err != nil {
-		s.writeRegisterError(w, r, err)
+		s.writeRegisterError(w, err)
 		return
 	}
 	var tokens *authkit.TokenSet
@@ -105,46 +105,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusAccepted, newRegistrationResponse(out.Username, out.Email, out.Phone, nextAction, tokens))
 }
 
-func (s *Service) writeRegisterError(w http.ResponseWriter, r *http.Request, err error) {
-	if s.handleDeliveryError(w, r, "register", flowStage(err), err) {
-		return
-	}
-	if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-		badRequest(w, code)
-		return
-	}
-	switch {
-	case errors.Is(err, authkit.ErrRegistrationDisabled):
-		registrationDisabled(w)
-	case errors.Is(err, authkit.ErrInvalidIdentifier):
-		badRequest(w, ErrInvalidIdentifier)
-	case errors.Is(err, authkit.ErrEmailInUse):
-		badRequest(w, ErrEmailInUse)
-	case errors.Is(err, authkit.ErrPhoneInUse):
-		badRequest(w, ErrPhoneInUse)
-	case errors.Is(err, authkit.ErrUsernameInUse):
-		badRequest(w, ErrUsernameInUse)
-	case errors.Is(err, authkit.ErrEmailRegistrationUnavailable):
-		serverErr(w, ErrEmailRegistrationUnavailable)
-	case errors.Is(err, authkit.ErrPhoneRegistrationUnavailable):
-		serverErr(w, ErrPhoneRegistrationUnavailable)
-	case errors.Is(err, authkit.ErrUserBanned):
-		unauthorized(w, ErrUserBanned)
-	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
+func (s *Service) writeRegisterError(w http.ResponseWriter, err error) {
+	if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
 		s.send2FAEnrollmentRequiredError(w)
-	case errors.Is(err, authkit.ErrSessionIssueFailed):
-		serverErr(w, ErrTokenIssueFailed)
-	default:
-		switch flowStage(err) {
-		case "validate_username", "check_phone_conflict", "check_email_conflict":
-			s.logInternalError(r, "register", flowStage(err), "database_error", err)
-			serverErr(w, ErrDatabaseError)
-		case "hash_password":
-			serverErr(w, ErrHashFailed)
-		default:
-			serverErr(w, ErrRegistrationFailed)
-		}
+		return
 	}
+	writeError(w, err)
 }
 
 // handlePendingRegistrationAbandonPOST lets a user cancel/abandon a pending
@@ -163,12 +129,12 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || req.Password == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
@@ -182,7 +148,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, ErrAbandonFailed)
+				serverErr(w, authkit.CodeAbandonFailed)
 				return
 			}
 		}
@@ -194,7 +160,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, ErrAbandonFailed)
+			serverErr(w, authkit.CodeAbandonFailed)
 			return
 		}
 	}

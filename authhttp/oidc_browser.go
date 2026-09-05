@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -27,7 +26,7 @@ type flowStart struct {
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
-		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, ErrAuthRequiredForLink)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, authkit.CodeAuthRequiredForLink)
 		return
 	}
 	s.startProviderFlow(w, r, provider, flowStart{})
@@ -36,7 +35,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, ErrUnauthorized)
+		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -52,7 +51,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 // (and any POST) are fetch calls and receive {"auth_url","state"} JSON.
 func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name string, start flowStart) {
 	browserNav := start.linkUserID == "" && start.stepUp == nil && r.Method != http.MethodPost
-	fail := func(status int, code ErrorCode) {
+	fail := func(status int, code authkit.Code) {
 		if browserNav {
 			s.failBrowserFlow(w, r, nil, name, status, code)
 			return
@@ -61,7 +60,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	}
 	p, ok := s.provider(name)
 	if !ok {
-		fail(http.StatusBadRequest, ErrUnknownProvider)
+		fail(http.StatusBadRequest, authkit.CodeUnknownProvider)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -72,7 +71,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	if browserNav {
 		ui = r.URL.Query().Get("ui")
 		if ui != "" && ui != "popup" {
-			fail(http.StatusBadRequest, ErrInvalidUI)
+			fail(http.StatusBadRequest, authkit.CodeInvalidUI)
 			return
 		}
 		popupNonce = r.URL.Query().Get("popup_nonce")
@@ -84,7 +83,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	if p.PKCE() {
 		var err error
 		if verifier, challenge, err = oidckit.GeneratePKCE(); err != nil {
-			fail(http.StatusInternalServerError, ErrPKCEGenerationFailed)
+			fail(http.StatusInternalServerError, authkit.CodePKCEGenerationFailed)
 			return
 		}
 	}
@@ -96,7 +95,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		State: state, Nonce: nonce, CodeChallenge: challenge, RedirectURI: redirectURI, Params: start.params,
 	})
 	if err != nil {
-		fail(http.StatusBadRequest, ErrOIDCBeginFailed)
+		fail(http.StatusBadRequest, authkit.CodeOIDCBeginFailed)
 		return
 	}
 	sd := oidckit.StateData{
@@ -119,7 +118,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		sd.StepUpStartedAt = start.stepUp.StepUpStartedAt
 	}
 	if err := s.stateCache().Put(r.Context(), state, sd); err != nil {
-		fail(http.StatusInternalServerError, ErrStateStoreFailed)
+		fail(http.StatusInternalServerError, authkit.CodeStateStoreFailed)
 		return
 	}
 	if browserNav {
@@ -138,7 +137,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	name := r.PathValue("provider")
 	p, ok := s.provider(name)
 	if !ok {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, ErrUnknownProvider)
+		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeUnknownProvider)
 		return
 	}
 	name = p.Name()
@@ -155,7 +154,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	state := params.Get("state")
 	code := params.Get("code")
 	if state == "" || code == "" {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, ErrInvalidRequest)
+		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidRequest)
 		return
 	}
 
@@ -165,12 +164,12 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	cookieOK := stateCookieMatches(r, state)
 	clearStateCookie(w, state)
 	if !cookieOK {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)
 		return
 	}
 	sd, ok, err := consumeState(r.Context(), s.stateCache(), state)
 	if err != nil || !ok || sd.Provider != name {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)
 		return
 	}
 
@@ -178,7 +177,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		Code: code, CodeVerifier: sd.Verifier, Nonce: sd.Nonce, RedirectURI: sd.RedirectURI,
 	})
 	if err != nil || strings.TrimSpace(identity.Subject) == "" {
-		s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, ErrOIDCExchangeFailed)
+		s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, authkit.CodeOIDCExchangeFailed)
 		return
 	}
 	if s.completeOIDCStepUp(w, r, sd, name, p.Issuer(), identity.Subject, identity.AuthTime) {
@@ -195,24 +194,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		Event: "oidc_login", UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, authkit.ErrProviderAlreadyLinked):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusConflict, ErrProviderAlreadyLinked)
-		case errors.Is(err, authkit.ErrProviderChangeRequiresUnlink):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusConflict, ErrProviderChangeRequiresUnlink)
-		case errors.Is(err, authkit.ErrAccountExistsLinkRequired):
-			s.accountExistsLinkRequired(w, r, &sd, name)
-		case errors.Is(err, authkit.ErrRegistrationDisabled):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusForbidden, ErrRegistrationDisabled)
-		case errors.Is(err, authkit.ErrProviderLinkFailed):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrProviderLinkFailed)
-		case errors.Is(err, authkit.ErrUserBanned):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, ErrUserBanned)
-		case errors.Is(err, authkit.ErrSessionIssueFailed):
-			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrSessionIssueFailed)
-		default:
-			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrUserCreationFailed)
-		}
+		status, code := wireCode(err)
+		s.failBrowserFlow(w, r, &sd, name, status, code)
 		return
 	}
 	if out.Kind == embedded.ExternalTwoFAEnrollmentRequired {
@@ -234,7 +217,7 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
 		if !ok {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrInvalidBaseURL)
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, authkit.CodeInvalidBaseURL)
 			return
 		}
 		deliveredRT := s.deliverRefreshToken(w, r, authkit.NewTokenSet(token, rt, exp)).RefreshToken
@@ -258,7 +241,7 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 		// nullable address, including on an explicit provider-link callback.
 		user, err := s.svc.AdminGetUser(r.Context(), userID)
 		if err != nil || user == nil {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrUserLookupFailed)
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, authkit.CodeUserLookupFailed)
 			return
 		}
 		s.writeTokenSetWith(w, r, http.StatusOK, authkit.NewTokenSet(token, rt, exp), map[string]any{
@@ -279,17 +262,6 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 	// the response must never be cached.
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
-}
-
-// accountExistsLinkRequired is the C-2-safe outcome for a callback whose
-// (issuer, sub) is not yet linked but whose asserted email already belongs to a
-// local account. We refuse to silently link the identity (that is the
-// account-takeover vector) and signal that the user must sign in and link the
-// provider explicitly via the authenticated /oidc/link/start flow. 409 Conflict
-// (JSON callers) / the browser error contract, with a stable machine-readable
-// code so frontends can route to the link flow.
-func (s *Service) accountExistsLinkRequired(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string) {
-	s.failBrowserFlow(w, r, sd, provider, http.StatusConflict, ErrAccountExistsLinkRequired)
 }
 
 func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {

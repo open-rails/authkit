@@ -1,389 +1,428 @@
 package authkit
 
+// The one error model (ak#290): a Code, an Error carrying code + HTTP status +
+// param + metadata + cause, and ONE catalog fixing every code's status and
+// message. Engine, documents, verify and authhttp all return E(CodeX);
+// authhttp/verify write the wire envelope with WriteError. Every 500 collapses
+// to internal_error on the wire (the specific code stays in the log).
+
 import (
-	"errors"
-	"net/http"
-
-	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Sentinel errors — the error identities hosts match with errors.Is (#138
-// contract inversion). The embedded engine aliases these.
+type (
+	Code        = errmodel.Code
+	Error       = errmodel.Error
+	ErrorOption = errmodel.Option
+)
+
+// E builds an Error for a catalogued code; the status comes from the catalog.
+func E(code Code, opts ...ErrorOption) *Error { return errmodel.E(code, opts...) }
+
+func WithParam(param string) ErrorOption         { return errmodel.WithParam(param) }
+func WithStatus(status int) ErrorOption          { return errmodel.WithStatus(status) }
+func WithCause(cause error) ErrorOption          { return errmodel.WithCause(cause) }
+func WithMeta(key string, value any) ErrorOption { return errmodel.WithMeta(key, value) }
+func WithMetadata(m map[string]any) ErrorOption  { return errmodel.WithMetadata(m) }
+
+// AsError returns the *Error in err's chain, or nil.
+func AsError(err error) *Error { return errmodel.As(err) }
+
+// Recode re-tags err with a route-specific code, keeping err as the cause.
+func Recode(err error, code Code, opts ...ErrorOption) *Error {
+	return errmodel.Recode(err, code, opts...)
+}
+
+// DescribeCode reports a code's catalog status and message.
+func DescribeCode(code Code) (status int, message string, ok bool) { return errmodel.Describe(code) }
+
+// Codes lists every catalogued code (authkit + documents), sorted.
+func Codes() []Code { return errmodel.Codes() }
+
+func def(code string, status int, message string) Code { return errmodel.Define(code, status, message) }
+func defParam(code string, status int, param, message string) Code {
+	return errmodel.DefineParam(code, status, param, message)
+}
+
+// The catalog: every wire code with its HTTP status and message.
 var (
-	ErrApplicationDocumentFetchFailed  = errors.New("application_document_fetch_failed")
-	ErrApplicationDocumentInvalid      = errors.New("application_document_invalid")
-	ErrApplicationDomainConflict       = errors.New("application_domain_conflict")
-	ErrApplicationDomainInvalid        = errors.New("application_domain_invalid")
-	ErrApplicationIssuerConflict       = errors.New("application_issuer_conflict")
-	ErrApplicationNotDomainRooted      = errors.New("application_not_domain_rooted")
-	ErrApplicationRegistrationDisabled = errors.New("application_registration_disabled")
-	ErrApplicationSignatureInvalid     = errors.New("application_signature_invalid")
-	ErrApplicationSignatureStale       = errors.New("application_signature_stale")
-	ErrApplicationSlugConflict         = errors.New("application_slug_conflict")
-	ErrApplicationTierInvalid          = errors.New("application_tier_invalid")
-	ErrBootstrapDatabaseNotEmpty       = errors.New("bootstrap_database_not_empty")
-	ErrGroupSlugApplicationManaged     = errors.New("group_slug_application_managed")
-	ErrGroupSlugTaken                  = errors.New("group_slug_taken")
-	// #263 generated persona-instance creation.
-	ErrGroupSlugReserved    = errors.New("group_slug_reserved")
-	ErrGroupSlugInvalid     = errors.New("group_slug_invalid")
-	ErrGroupCreationRefused = errors.New("group_creation_refused")
-	// #262 first-class avatar URL field.
-	ErrAvatarURLInvalid                  = errors.New("avatar_url_invalid")
-	ErrCannotRemoveLastAdminRole         = errors.New("cannot_remove_last_admin_role")
-	ErrAccountRegistrationInviteConsumed = errors.New("account_registration_invite_consumed")
-	ErrAccountRegistrationInviteExpired  = errors.New("account_registration_invite_expired")
-	ErrAccountRegistrationInviteNotFound = errors.New("account_registration_invite_not_found")
-	ErrAccountRegistrationInviteRevoked  = errors.New("account_registration_invite_revoked")
-	ErrCustomRoleGrantCrossPersona       = errors.New("custom_role_grant_cross_persona")
-	ErrCustomRoleGrantOutsideCatalog     = errors.New("custom_role_grant_outside_catalog")
-	ErrCustomRoleIsCatalogRole           = errors.New("custom_role_is_catalog_role")
-	ErrCustomRoleNameInvalid             = errors.New("custom_role_name_invalid")
-	ErrCustomRolesNotSupported           = errors.New("custom_roles_not_supported")
-	ErrEmailAlreadyVerified              = errors.New("email_already_verified")
-	ErrEmailDeliveryFailed               = errors.New("email_delivery_failed")
-	ErrEmailInUse                        = errors.New("email_in_use")
-	ErrEmailSenderUnavailable            = errors.New("email_sender_unavailable")
-	ErrEntitlementFilterUnavailable      = errors.New("entitlement_filter_unavailable")
-	ErrExternalInvitesDisabled           = errors.New("external_invites_disabled")
-	ErrGroupNotFound                     = errors.New("permission_group_not_found")
-	ErrInsufficientRoleAuthority         = errors.New("insufficient_role_authority")
-	ErrInvalidAttributeDef               = errors.New("invalid_attribute_def")
-	ErrInvalidBootstrapManifest          = errors.New("invalid_bootstrap_manifest")
-	ErrInvalidExpiry                     = errors.New("invalid_expiry")
-	ErrInvalidInvite                     = errors.New("invalid_invite")
-	ErrInvalidRole                       = errors.New("invalid_role")
-	ErrInvalidUntil                      = errors.New("invalid_until")
-	ErrInviteLinkExpired                 = errors.New("group_invite_link_expired")
-	ErrInviteLinkNotFound                = errors.New("group_invite_link_not_found")
-	ErrInviteLinkRevoked                 = errors.New("group_invite_link_revoked")
-	ErrMissingName                       = errors.New("missing_name")
-	ErrMissingSigner                     = errors.New("missing_signer")
-	ErrNotGroupMember                    = errors.New("not_group_member")
-	ErrOwnerSlugTaken                    = errors.New("owner_slug_taken")
-	ErrPasskeyCloneDetected              = errors.New("passkey_clone_detected")
-	ErrPasskeyNotFound                   = errors.New("passkey_not_found")
-	ErrPasskeyUserVerificationRequired   = errors.New("passkey_user_verification_required")
-	ErrPasswordlessDisabled              = errors.New("passwordless_disabled")
-	ErrDeviceKeysDisabled                = errors.New("device_keys_disabled")
-	ErrPasswordResetRequired             = errors.New("password_reset_required")
-	ErrPendingRegistrationNotFound       = errors.New("pending_registration_not_found")
-	ErrPhoneAlreadyVerified              = errors.New("phone_already_verified")
-	ErrPhoneInUse                        = errors.New("phone_in_use")
-	ErrUsernameInUse                     = errors.New("username_in_use")
-	ErrRegistrationDisabled              = errors.New("registration_disabled")
-	ErrRemoteApplicationIssuerConflict   = errors.New("remote_application_issuer_conflict")
-	ErrRemoteApplicationNotFound         = errors.New("remote_application_not_found")
-	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
-	ErrRenamesDisabled                   = errors.New("renames_disabled")
-	ErrNameAdmissionRefused              = errors.New("name_admission_refused")
-	ErrReservedIssuer                    = errors.New("reserved_issuer")
-	ErrRoleAssignmentEscalation          = errors.New("role_assignment_escalation")
-	ErrAccountAuthorityEscalation        = errors.New("account_authority_escalation")
-	ErrRoleNotAssignable                 = errors.New("role_not_assignable")
-	ErrSMSDeliveryFailed                 = errors.New("sms_delivery_failed")
-	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
-	ErrStepUpRequired                    = errors.New("step_up_required")
-	ErrTwoFAFactorExists                 = errors.New("2fa_factor_exists")
-	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
-	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
-	ErrUnknownRole                       = errors.New("unknown_role")
-	ErrUserBanned                        = errors.New("user_banned")
-	ErrUserNotFound                      = errors.New("user_not_found")
-	ErrUserReferenced                    = errors.New("user_referenced")
-	ErrUserRoleNotFound                  = errors.New("user_role_not_found")
-	ErrVerificationLinkExpired           = errors.New("verification_link_expired")
-	ErrSIWSAddressMismatch               = errors.New("siws_address_mismatch")
-	ErrSIWSChallengeExpired              = errors.New("siws_challenge_expired")
-	ErrSIWSChallengeMismatch             = errors.New("siws_challenge_mismatch")
-	ErrSIWSChallengeNotFound             = errors.New("siws_challenge_not_found")
-	ErrSIWSDomainInvalid                 = errors.New("siws_domain_invalid")
-	ErrSIWSSignatureInvalid              = errors.New("siws_signature_invalid")
-	ErrSIWSTimestampInvalid              = errors.New("siws_timestamp_invalid")
-	ErrWalletAlreadyLinked               = errors.New("wallet_already_linked")
-	ErrWalletChangeRequiresUnlink        = errors.New("wallet_change_requires_unlink")
-	ErrProviderAlreadyLinked             = errors.New("provider_already_linked")
-	ErrProviderChangeRequiresUnlink      = errors.New("provider_change_requires_unlink")
-
-	// Login / registration / 2FA-enrollment flow outcomes (ak#318): the engine
-	// owns the decision trees; these name the failures a transport maps.
-	ErrInvalidCredentials           = errors.New("invalid_credentials")
-	ErrAccountExistsLinkRequired    = errors.New("account_exists_link_required")
-	ErrProviderLinkFailed           = errors.New("provider_link_failed")
-	ErrUserCreationFailed           = errors.New("user_creation_failed")
-	ErrInvalidIdentifier            = errors.New("invalid_identifier")
-	ErrEmailRegistrationUnavailable = errors.New("email_registration_unavailable")
-	ErrPhoneRegistrationUnavailable = errors.New("phone_registration_unavailable")
-	ErrEmailVerificationSendFailed  = errors.New("email_verification_failed")
-	ErrPhoneVerificationSendFailed  = errors.New("phone_verification_failed")
-	ErrTwoFASendFailed              = errors.New("2fa_send_failed")
-	ErrTwoFAChallengeFailed         = errors.New("2fa_challenge_failed")
-	ErrSessionIssueFailed           = errors.New("session_issue_failed")
-	ErrInvalidTwoFAMethod           = errors.New("invalid_method")
-	ErrPhoneNumberRequired          = errors.New("phone_and_code_required")
-	ErrPhoneNumberMustBeE164        = errors.New("phone_number_must_be_e164")
-	ErrInvalidCode                  = errors.New("invalid_code")
-	ErrPhoneTwoFAUnavailable        = errors.New("phone_2fa_unavailable")
-	ErrTwoFASetupCodeSendFailed     = errors.New("send_code_failed")
-	ErrTwoFAEnableFailed            = errors.New("enable_2fa_failed")
+	CodeTwoFAChallengeFailed              = def("2fa_challenge_failed", 500, "The two-factor challenge could not be created.")
+	CodeTwoFAEnrollmentRequired           = def("2fa_enrollment_required", 403, "Two-factor authentication must be enrolled to continue.")
+	CodeTwoFAFactorExists                 = def("2fa_factor_exists", 409, "A two-factor authentication method is already enrolled. Remove it before enrolling a replacement.")
+	CodeTwoFAMethodUnavailable            = def("2fa_method_unavailable", 400, "That two-factor method is unavailable.")
+	CodeTwoFARequired                     = def("2fa_required", 403, "Two-factor authentication is required.")
+	CodeTwoFASendFailed                   = def("2fa_send_failed", 500, "The two-factor code could not be sent.")
+	CodeAbandonFailed                     = def("abandon_failed", 500, "The registration could not be abandoned.")
+	CodeAccessTokenCreateFailed           = def("access_token_create_failed", 500, "The access token could not be created.")
+	CodeAccessTokenHasSub                 = def("access_token_has_sub", 401, "An access token must not carry a subject.")
+	CodeAccessTokenWrongTyp               = def("access_token_wrong_typ", 401, "The token type is wrong for an access token.")
+	CodeAccountAuthorityEscalation        = def("account_authority_escalation", 403, "That account holds authority you do not.")
+	CodeAccountDisabled                   = def("account_disabled", 401, "This account is disabled.")
+	CodeAccountExistsLinkRequired         = def("account_exists_link_required", 409, "An account with this email already exists. Sign in and link the provider.")
+	CodeAccountRegistrationInviteConsumed = def("account_registration_invite_consumed", 410, "The registration invite has already been used.")
+	CodeAccountRegistrationInviteExpired  = def("account_registration_invite_expired", 410, "The registration invite has expired.")
+	CodeAccountRegistrationInviteNotFound = def("account_registration_invite_not_found", 404, "The registration invite was not found.")
+	CodeAccountRegistrationInviteRevoked  = def("account_registration_invite_revoked", 410, "The registration invite was revoked.")
+	CodeAddressMismatch                   = def("address_mismatch", 400, "The address does not match.")
+	CodeAddressRequired                   = def("address_required", 400, "An address is required.")
+	CodeApplicationDocumentFetchFailed    = def("application_document_fetch_failed", 502, "The application document could not be fetched.")
+	CodeApplicationDocumentInvalid        = def("application_document_invalid", 400, "The application document is invalid.")
+	CodeApplicationDomainConflict         = def("application_domain_conflict", 409, "That domain already belongs to another application.")
+	CodeApplicationDomainInvalid          = def("application_domain_invalid", 400, "The application domain is invalid.")
+	CodeApplicationIssuerConflict         = def("application_issuer_conflict", 409, "That issuer already belongs to another application.")
+	CodeApplicationNotDomainRooted        = def("application_not_domain_rooted", 409, "The application is not domain-rooted.")
+	CodeApplicationRegistrationDisabled   = def("application_registration_disabled", 403, "Application registration is disabled.")
+	CodeApplicationSignatureInvalid       = def("application_signature_invalid", 401, "The application signature is invalid.")
+	CodeApplicationSignatureStale         = def("application_signature_stale", 401, "The application signature is stale.")
+	CodeApplicationSlugConflict           = def("application_slug_conflict", 409, "That application slug is taken.")
+	CodeApplicationTierInvalid            = def("application_tier_invalid", 400, "The application tier is invalid.")
+	CodeAttributeDefNotFound              = def("attribute_def_not_found", 404, "The attribute definition was not found.")
+	CodeAuthRequiredForLink               = def("auth_required_for_link", 401, "Sign in before linking a provider.")
+	CodeAuthenticationFailed              = def("authentication_failed", 401, "Authentication failed.")
+	CodeAuthenticationRequired            = def("authentication_required", 401, "Authentication is required.")
+	CodeAvatarURLInvalid                  = def("avatar_url_invalid", 400, "The avatar URL is invalid.")
+	CodeBadAudience                       = def("bad_audience", 401, "The token audience is not accepted.")
+	CodeBadIssuer                         = def("bad_issuer", 401, "The token issuer is not trusted.")
+	CodeBootstrapDatabaseNotEmpty         = def("bootstrap_database_not_empty", 409, "The database is not empty; bootstrap refused.")
+	CodeCannotRemoveLastAdminRole         = def("cannot_remove_last_admin_role", 409, "The last owner cannot be removed.")
+	CodeCannotRemoveLastOwner             = def("cannot_remove_last_owner", 409, "The last owner cannot be removed.")
+	CodeCannotUnlinkLastLoginMethod       = def("cannot_unlink_last_login_method", 400, "The last login method cannot be unlinked.")
+	CodeChallengeExpired                  = def("challenge_expired", 401, "The challenge has expired.")
+	CodeChallengeFailed                   = def("challenge_failed", 500, "The challenge could not be created.")
+	CodeChallengeVerifyFailed             = def("challenge_verify_failed", 500, "The challenge could not be verified.")
+	CodeConfirmationWrongTokenType        = def("confirmation_wrong_token_type", 401, "This token type does not accept a confirmation claim.")
+	CodeConflictingSubject                = def("conflicting_subject", 401, "The token carries conflicting subjects.")
+	CodeCustomRoleGrantCrossPersona       = def("custom_role_grant_cross_persona", 400, "A custom role may only grant permissions in its own persona.")
+	CodeCustomRoleGrantOutsideCatalog     = def("custom_role_grant_outside_catalog", 400, "A custom role grant is outside the persona catalog.")
+	CodeCustomRoleIsCatalogRole           = def("custom_role_is_catalog_role", 400, "A catalog role cannot be redefined as a custom role.")
+	CodeCustomRoleNameInvalid             = def("custom_role_name_invalid", 400, "The custom role name is invalid.")
+	CodeCustomRolesNotSupported           = def("custom_roles_not_supported", 400, "This persona does not support custom roles.")
+	CodeDatabaseError                     = def("database_error", 500, "An internal error occurred. Please try again.")
+	CodeDelegatedAccessHasRoles           = def("delegated_access_has_roles", 401, "A delegated token must not carry roles.")
+	CodeDelegatedAccessHasUserTier        = def("delegated_access_has_user_tier", 401, "A delegated token must not carry a user tier.")
+	CodeDelegatedAccessWrongTyp           = def("delegated_access_wrong_typ", 401, "The token type is wrong for delegated access.")
+	CodeDelegatedDocumentUnavailable      = def("delegated_document_unavailable", 503, "The delegated document is unavailable.")
+	CodeDelegatedMintFailed               = def("delegated_mint_failed", 500, "The delegated token could not be minted.")
+	CodeDelegatedTokenTooLarge            = def("delegated_token_too_large", 500, "The delegated token is too large.")
+	CodeDelegationAuthorizerUnavailable   = def("delegation_authorizer_unavailable", 503, "Delegation is unavailable.")
+	CodeDelegationRefused                 = def("delegation_refused", 403, "The delegation was refused.")
+	CodeDeviceKeysDisabled                = def("device_keys_disabled", 403, "Device keys are disabled.")
+	CodeDisableTwoFAFailed                = def("disable_2fa_failed", 500, "Two-factor authentication could not be disabled.")
+	CodeDuplicateClaim                    = def("duplicate_claim", 401, "The document carries a duplicate claim.")
+	CodeEmailAlreadyVerified              = def("email_already_verified", 409, "The email address is already verified.")
+	CodeEmailDeliveryFailed               = def("email_delivery_failed", 502, "The email could not be delivered.")
+	CodeEmailInUse                        = def("email_in_use", 400, "That email address is already in use.")
+	CodeEmailPasswordResetUnavailable     = def("email_password_reset_unavailable", 503, "Password reset by email is unavailable.")
+	CodeEmailRegistrationUnavailable      = def("email_registration_unavailable", 500, "Email registration is unavailable.")
+	CodeEmailSenderUnavailable            = def("email_sender_unavailable", 503, "Email sending is unavailable.")
+	CodeEmailUnavailable                  = def("email_unavailable", 503, "Email is unavailable.")
+	CodeEmailUnchanged                    = def("email_unchanged", 400, "The email address is unchanged.")
+	CodeEmailVerificationSendFailed       = def("email_verification_failed", 500, "The verification email could not be sent.")
+	CodeEmailVerificationUnavailable      = def("email_verification_unavailable", 500, "Email verification is unavailable.")
+	CodeTwoFAEnableFailed                 = def("enable_2fa_failed", 500, "Two-factor authentication could not be enabled.")
+	CodeEntitlementFilterUnavailable      = def("entitlement_filter_unavailable", 400, "Entitlement filtering is unavailable.")
+	CodeExternalInvitesDisabled           = def("external_invites_disabled", 403, "Invite links are disabled.")
+	CodeFailedToBan                       = def("failed_to_ban", 500, "The user could not be banned.")
+	CodeFailedToDelete                    = def("failed_to_delete", 500, "The delete failed.")
+	CodeFailedToList                      = def("failed_to_list", 500, "The list could not be loaded.")
+	CodeFailedToListSignins               = def("failed_to_list_signins", 500, "Sign-ins could not be listed.")
+	CodeFailedToListUsers                 = def("failed_to_list_users", 500, "Users could not be listed.")
+	CodeFailedToLogout                    = def("failed_to_logout", 500, "Logout failed.")
+	CodeFailedToRequestEmailChange        = def("failed_to_request_email_change", 400, "The email change could not be requested.")
+	CodeFailedToRequestPhoneChange        = def("failed_to_request_phone_change", 400, "The phone change could not be requested.")
+	CodeFailedToRevoke                    = def("failed_to_revoke", 500, "The revoke failed.")
+	CodeFailedToRevokeAll                 = def("failed_to_revoke_all", 500, "The sessions could not be revoked.")
+	CodeFailedToRevokeSessions            = def("failed_to_revoke_sessions", 500, "The sessions could not be revoked.")
+	CodeFailedToUnban                     = def("failed_to_unban", 500, "The user could not be unbanned.")
+	CodeFailedToUnlink                    = def("failed_to_unlink", 500, "The provider could not be unlinked.")
+	CodeFailedToUpdatePreferredLanguage   = def("failed_to_update_preferred_language", 400, "The preferred language could not be updated.")
+	CodeFailedToUpdateUsername            = def("failed_to_update_username", 400, "The username could not be updated.")
+	CodeForbidden                         = def("forbidden", 403, "You do not have permission to perform this action.")
+	CodeGroupCreationRefused              = def("group_creation_refused", 403, "Group creation was refused.")
+	CodeInviteLinkExpired                 = def("group_invite_link_expired", 400, "The invite link has expired.")
+	CodeInviteLinkNotFound                = def("group_invite_link_not_found", 404, "The invite link was not found.")
+	CodeInviteLinkRevoked                 = def("group_invite_link_revoked", 400, "The invite link was revoked.")
+	CodeGroupMembershipInviteNotFound     = def("group_membership_invite_not_found", 404, "The membership invite was not found.")
+	CodeGroupSlugApplicationManaged       = def("group_slug_application_managed", 409, "The group slug is managed by its application.")
+	CodeGroupSlugInvalid                  = def("group_slug_invalid", 400, "The group slug is invalid.")
+	CodeGroupSlugReserved                 = def("group_slug_reserved", 403, "That group slug is reserved.")
+	CodeGroupSlugTaken                    = def("group_slug_taken", 409, "That group slug is taken.")
+	CodeHashFailed                        = def("hash_failed", 500, "The password could not be hashed.")
+	CodeInsufficientRoleAuthority         = def("insufficient_role_authority", 403, "You do not have the authority for this role change.")
+	CodeInternalError                     = def("internal_error", 500, "An internal error occurred. Please try again.")
+	CodeInvalidAddress                    = def("invalid_address", 400, "The address is invalid.")
+	CodeInvalidAttributeDef               = def("invalid_attribute_def", 400, "The attribute definition is invalid.")
+	CodeInvalidAudiences                  = def("invalid_audiences", 400, "The audiences are invalid.")
+	CodeInvalidBaseURL                    = def("invalid_base_url", 500, "The frontend base URL is invalid.")
+	CodeInvalidBootstrapManifest          = def("invalid_bootstrap_manifest", 400, "The bootstrap manifest is invalid.")
+	CodeInvalidChallenge                  = def("invalid_challenge", 401, "The challenge is invalid.")
+	CodeInvalidCode                       = def("invalid_code", 400, "The code is invalid.")
+	CodeInvalidConfirmation               = def("invalid_confirmation", 401, "The confirmation claim is invalid.")
+	CodeInvalidCredentials                = def("invalid_credentials", 401, "Invalid credentials.")
+	CodeInvalidDelegateCertificate        = def("invalid_delegate_certificate", 400, "The delegate certificate is invalid.")
+	CodeInvalidEmail                      = defParam("invalid_email", 400, "email", "The email address is invalid.")
+	CodeInvalidExpiry                     = def("invalid_expiry", 400, "The expiry is invalid.")
+	CodeInvalidIdentifier                 = def("invalid_identifier", 400, "The identifier must be an email address or a phone number.")
+	CodeInvalidInvite                     = def("invalid_invite", 400, "The invite is invalid.")
+	CodeInvalidMessageEncoding            = def("invalid_message_encoding", 400, "The message encoding is invalid.")
+	CodeInvalidTwoFAMethod                = def("invalid_method", 400, "The method is invalid.")
+	CodeInvalidOrExpiredCode              = def("invalid_or_expired_code", 400, "The code is invalid or has expired.")
+	CodeInvalidOrExpiredToken             = def("invalid_or_expired_token", 400, "The token is invalid or has expired.")
+	CodeInvalidPassword                   = def("invalid_password", 401, "The password is incorrect.")
+	CodeInvalidPhoneNumber                = defParam("invalid_phone_number", 400, "phone_number", "The phone number is invalid.")
+	CodeInvalidPreferredLanguage          = defParam("invalid_preferred_language", 400, "preferred_language", "The preferred language is invalid.")
+	CodeInvalidProvider                   = def("invalid_provider", 400, "The provider is invalid.")
+	CodeInvalidRefreshToken               = def("invalid_refresh_token", 401, "The refresh token is invalid.")
+	CodeInvalidRemoteApplication          = def("invalid_remote_application", 400, "The remote application is invalid.")
+	CodeInvalidRequest                    = def("invalid_request", 400, "The request is invalid.")
+	CodeInvalidRequestedGrant             = def("invalid_requested_grant", 400, "The requested grant is invalid.")
+	CodeInvalidRole                       = def("invalid_role", 400, "The role is invalid.")
+	CodeInvalidServiceJWT                 = def("invalid_service_jwt", 401, "The service token is invalid.")
+	CodeInvalidSignature                  = def("invalid_signature", 401, "The signature is invalid.")
+	CodeInvalidSignatureEncoding          = def("invalid_signature_encoding", 400, "The signature encoding is invalid.")
+	CodeInvalidState                      = def("invalid_state", 400, "The state is invalid.")
+	CodeInvalidToken                      = def("invalid_token", 401, "The authentication token is invalid.")
+	CodeInvalidUI                         = def("invalid_ui", 400, "The ui parameter is invalid.")
+	CodeInvalidUntil                      = def("invalid_until", 400, "The until value is invalid.")
+	CodeLinkFailed                        = def("link_failed", 400, "The link failed.")
+	CodeLivenessUnavailable               = def("liveness_unavailable", 401, "Account status could not be verified.")
+	CodeMalformedPayload                  = def("malformed_payload", 401, "The token payload is malformed.")
+	CodeMalformedPermissions              = def("malformed_permissions", 401, "The permissions claim is malformed.")
+	CodeMissingAudience                   = def("missing_audience", 401, "The token carries no audience.")
+	CodeMissingDelegatedSub               = def("missing_delegated_sub", 401, "The delegated token carries no subject.")
+	CodeMissingExp                        = def("missing_exp", 401, "The token carries no expiry.")
+	CodeMissingFields                     = def("missing_fields", 400, "Required fields are missing.")
+	CodeMissingIAT                        = def("missing_iat", 401, "The token carries no issued-at.")
+	CodeMissingKID                        = def("missing_kid", 401, "The token names no key.")
+	CodeMissingName                       = def("missing_name", 400, "A name is required.")
+	CodeMissingNBF                        = def("missing_nbf", 401, "The token carries no not-before.")
+	CodeMissingSessionID                  = def("missing_session_id", 400, "A session id is required.")
+	CodeMissingSidClaim                   = def("missing_sid_claim", 400, "The token carries no session.")
+	CodeMissingSigner                     = def("missing_signer", 500, "No signing key is configured.")
+	CodeMissingSub                        = def("missing_sub", 401, "The token carries no subject.")
+	CodeMissingToken                      = def("missing_token", 401, "A bearer token is required.")
+	CodeMissingTokenTyp                   = def("missing_token_typ", 401, "The token carries no type.")
+	CodeNameAdmissionRefused              = def("name_admission_refused", 403, "That name was refused.")
+	CodeNilToken                          = def("nil_token", 500, "No token was presented.")
+	CodeNotAuthenticated                  = def("not_authenticated", 401, "Authentication is required.")
+	CodeNotDelegatedAccessToken           = def("not_delegated_access_token", 401, "The token is not a delegated access token.")
+	CodeNotFound                          = def("not_found", 404, "The requested resource was not found.")
+	CodeNotGroupMember                    = def("not_group_member", 403, "The subject is not a member of the group.")
+	CodeNotImplemented                    = def("not_implemented", 501, "Not implemented.")
+	CodeOIDCBeginFailed                   = def("oidc_begin_failed", 400, "The provider login could not be started.")
+	CodeOIDCExchangeFailed                = def("oidc_exchange_failed", 401, "The provider login could not be completed.")
+	CodeOwnerSlugTaken                    = defParam("owner_slug_taken", 400, "username", "That name is taken.")
+	CodePasskeyCloneDetected              = def("passkey_clone_detected", 401, "The passkey appears to have been cloned.")
+	CodePasskeyFailed                     = def("passkey_failed", 500, "The passkey operation failed.")
+	CodePasskeyNotFound                   = def("passkey_not_found", 404, "The passkey was not found.")
+	CodePasskeyUserVerificationRequired   = def("passkey_user_verification_required", 401, "The passkey must verify the user.")
+	CodePasswordChangeFailed              = def("password_change_failed", 400, "The password could not be changed.")
+	CodePasswordResetRequestFailed        = def("password_reset_request_failed", 500, "The password reset could not be requested.")
+	CodePasswordResetRequired             = def("password_reset_required", 401, "A password reset is required before you can sign in.")
+	CodePasswordTooShort                  = defParam("password_too_short", 400, "password", "The password is too short.")
+	CodePasswordlessDisabled              = def("passwordless_disabled", 403, "Passwordless login is disabled.")
+	CodePendingRegistrationNotFound       = def("pending_registration_not_found", 404, "No pending registration was found.")
+	CodeGroupNotFound                     = def("permission_group_not_found", 404, "The permission group was not found.")
+	CodePermissionNotGranted              = def("permission_not_granted", 403, "The token claims a permission it was not granted.")
+	CodePhoneTwoFAUnavailable             = def("phone_2fa_unavailable", 500, "SMS two-factor authentication is unavailable.")
+	CodePhoneAlreadyVerified              = def("phone_already_verified", 409, "The phone number is already verified.")
+	CodePhoneNumberRequired               = def("phone_and_code_required", 400, "A phone number is required.")
+	CodePhoneInUse                        = def("phone_in_use", 400, "That phone number is already in use.")
+	CodePhoneNumberMustBeE164             = def("phone_number_must_be_e164", 400, "The phone number must be in E.164 format.")
+	CodePhoneRegistrationUnavailable      = def("phone_registration_unavailable", 500, "Phone registration is unavailable.")
+	CodePhoneUnavailable                  = def("phone_unavailable", 503, "Phone is unavailable.")
+	CodePhoneUnchanged                    = def("phone_unchanged", 400, "The phone number is unchanged.")
+	CodePhoneVerificationSendFailed       = def("phone_verification_failed", 500, "The verification SMS could not be sent.")
+	CodePhoneVerificationUnavailable      = def("phone_verification_unavailable", 500, "Phone verification is unavailable.")
+	CodePKCEGenerationFailed              = def("pkce_generation_failed", 500, "The login could not be started.")
+	CodePreferredLanguageLookupFailed     = def("preferred_language_lookup_failed", 500, "The preferred language could not be read.")
+	CodeProviderAlreadyLinked             = def("provider_already_linked", 409, "That provider identity is already linked to another account.")
+	CodeProviderChangeRequiresUnlink      = def("provider_change_requires_unlink", 409, "Unlink the current provider account before linking another.")
+	CodeProviderError                     = def("provider_error", 400, "The provider returned an error.")
+	CodeProviderLinkFailed                = def("provider_link_failed", 500, "The provider could not be linked.")
+	CodeProviderNotLinked                 = def("provider_not_linked", 400, "That provider is not linked.")
+	CodeRateLimited                       = def("rate_limited", 429, "Too many requests. Please try again later.")
+	CodeRegenerateCodesFailed             = def("regenerate_codes_failed", 500, "Backup codes could not be regenerated.")
+	CodeRegistrationDisabled              = def("registration_disabled", 403, "Registration is currently disabled.")
+	CodeRegistrationFailed                = def("registration_failed", 500, "Registration failed.")
+	CodeRemoteApplicationAccessHasSubject = def("remote_application_access_has_subject", 401, "A remote-application token must not carry a subject.")
+	CodeRemoteApplicationIssuerConflict   = def("remote_application_issuer_conflict", 409, "That issuer already belongs to another remote application.")
+	CodeRemoteApplicationNotFound         = def("remote_application_not_found", 404, "The remote application was not found.")
+	CodeRenameRateLimited                 = def("rename_rate_limited", 429, "Too many renames. Please try again later.")
+	CodeRenamesDisabled                   = def("renames_disabled", 403, "Renames are disabled.")
+	CodeResendFailed                      = def("resend_failed", 500, "The code could not be resent.")
+	CodeReservedIssuer                    = def("reserved_issuer", 400, "That issuer is reserved.")
+	CodeRoleAssignmentEscalation          = def("role_assignment_escalation", 403, "That role confers authority you do not hold.")
+	CodeRoleNotAssignable                 = def("role_not_assignable", 400, "The role cannot be assigned in this group.")
+	CodeTwoFASetupCodeSendFailed          = def("send_code_failed", 500, "The code could not be sent.")
+	CodeSenderProofRequired               = def("sender_proof_required", 401, "The token requires sender proof.")
+	CodeServiceJWTLifetimeExceeded        = def("service_jwt_lifetime_exceeded", 401, "The service token lifetime is too long.")
+	CodeSessionCreationFailed             = def("session_creation_failed", 500, "The session could not be created.")
+	CodeSessionIssueFailed                = def("session_issue_failed", 500, "The session could not be created.")
+	CodeSIWSAddressMismatch               = def("siws_address_mismatch", 400, "The wallet address does not match the challenge.")
+	CodeSIWSChallengeExpired              = def("siws_challenge_expired", 401, "The sign-in challenge has expired.")
+	CodeSIWSChallengeMismatch             = def("siws_challenge_mismatch", 401, "The sign-in challenge does not match.")
+	CodeSIWSChallengeNotFound             = def("siws_challenge_not_found", 401, "The sign-in challenge was not found.")
+	CodeSIWSDomainInvalid                 = def("siws_domain_invalid", 401, "The sign-in domain is invalid.")
+	CodeSIWSSignatureInvalid              = def("siws_signature_invalid", 401, "The wallet signature is invalid.")
+	CodeSIWSTimestampInvalid              = def("siws_timestamp_invalid", 401, "The sign-in timestamp is invalid.")
+	CodeSMSDeliveryFailed                 = def("sms_delivery_failed", 502, "The SMS could not be delivered.")
+	CodeSMSSenderUnavailable              = def("sms_unavailable", 503, "SMS sending is unavailable.")
+	CodeStateStoreFailed                  = def("state_store_failed", 500, "The login state could not be stored.")
+	CodeStepUpFailed                      = def("step_up_failed", 500, "Step-up verification failed.")
+	CodeStepUpRequired                    = def("step_up_required", 403, "Additional verification is required to continue.")
+	CodeAccessTokenExpired                = def("token_expired", 401, "The authentication token has expired.")
+	CodeTokenIssueFailed                  = def("token_issue_failed", 500, "The token could not be issued.")
+	CodeTokenNotYetValid                  = def("token_not_yet_valid", 401, "The token is not yet valid.")
+	CodeAccessTokenRevoked                = def("token_revoked", 401, "The access token has been revoked.")
+	CodeTTLExceedsDelegateCertificate     = def("ttl_exceeds_delegate_certificate", 400, "The TTL exceeds the delegate certificate.")
+	CodeUnauthenticated                   = def("unauthenticated", 401, "Authentication is required.")
+	CodeUnauthorized                      = def("unauthorized", 401, "Authentication is required.")
+	CodeUnknownGroupPersona               = def("unknown_group_persona", 400, "Unknown group persona.")
+	CodeUnknownKID                        = def("unknown_kid", 401, "The token names an unknown key.")
+	CodeUnknownProvider                   = def("unknown_provider", 400, "Unknown provider.")
+	CodeUnknownRole                       = def("unknown_role", 400, "Unknown role.")
+	CodeUnsupportedTokenTyp               = def("unsupported_token_typ", 401, "The token type is not supported.")
+	CodeUserBanned                        = def("user_banned", 401, "This account is banned.")
+	CodeUserCreationFailed                = def("user_creation_failed", 500, "The user could not be created.")
+	CodeUserLookupFailed                  = def("user_lookup_failed", 500, "The user could not be loaded.")
+	CodeUserNotFound                      = def("user_not_found", 404, "User not found.")
+	CodeUserReferenced                    = def("user_referenced", 409, "The user is still referenced.")
+	CodeUserRoleNotFound                  = def("user_role_not_found", 404, "The user does not hold that role.")
+	CodeUsernameCannotContainAt           = defParam("username_cannot_contain_at", 400, "username", "The username cannot contain @.")
+	CodeUsernameCannotStartWithPlus       = defParam("username_cannot_start_with_plus", 400, "username", "The username cannot start with +.")
+	CodeUsernameInUse                     = def("username_in_use", 400, "That username is already in use.")
+	CodeUsernameInvalidCharacters         = defParam("username_invalid_characters", 400, "username", "The username contains invalid characters.")
+	CodeUsernameMustStartWithLetter       = defParam("username_must_start_with_letter", 400, "username", "The username must start with a letter.")
+	CodeUsernameNotAllowed                = defParam("username_not_allowed", 400, "username", "That username is not allowed.")
+	CodeUsernameTooLong                   = defParam("username_too_long", 400, "username", "The username is too long.")
+	CodeUsernameTooShort                  = defParam("username_too_short", 400, "username", "The username is too short.")
+	CodeVerificationLinkExpired           = def("verification_link_expired", 410, "The verification link has expired.")
+	CodeVerificationRequestFailed         = def("verification_request_failed", 500, "The verification could not be requested.")
+	CodeVerificationRequired              = def("verification_required", 403, "Verify your contact details to continue.")
+	CodeWalletAlreadyLinked               = def("wallet_already_linked", 409, "That wallet is already linked to another account.")
+	CodeWalletChangeRequiresUnlink        = def("wallet_change_requires_unlink", 409, "Unlink your current wallet before connecting another.")
 )
 
-// ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
-// sentinel, so a remote client re-derives errors.Is(err, authkit.ErrX) identity
-// across the network. Unknown/empty codes return nil — the caller supplies its own
-// fallback. The server emits err.Error() as the code; remote/ resolves it here, so
-// the wire-error contract has ONE source of truth (#142).
-func ErrorForCode(code string) error { return errorsByCode[code] }
-
-// CodeForError resolves an error to its wire code by walking the error chain: it
-// returns the first sentinel's .Error() for which errors.Is(err, sentinel) holds,
-// or "" if none match. Unlike keying off err.Error() directly, this handles WRAPPED
-// sentinels (e.g. fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, cause)) — the server
-// emits that code so the remote client re-derives errors.Is(err, ErrX) identity and
-// the status classification stays correct across the wire (#197).
-func CodeForError(err error) string {
-	if err == nil {
-		return ""
-	}
-	for _, sentinel := range errorSentinels {
-		if errors.Is(err, sentinel) {
-			return sentinel.Error()
-		}
-	}
-	return ""
-}
-
-// sentinelHTTPStatus assigns each sentinel its HTTP status for HTTPStatus (#213).
-// DERIVED from the authhttp handlers' existing errors.Is chains (2026-07-04
-// inventory) — this table transcribes shipped behavior, it does not invent it.
-// Sentinels absent here default to 422 Unprocessable Entity, matching the
-// management transport's historical classification of domain errors.
-var sentinelHTTPStatus = map[error]int{
-	// 401 — authentication failures.
-	ErrApplicationSignatureInvalid: http.StatusUnauthorized,
-	ErrApplicationSignatureStale:   http.StatusUnauthorized,
-	ErrUserBanned:                  http.StatusUnauthorized,
-	ErrPasswordResetRequired:       http.StatusUnauthorized,
-	ErrInvalidCredentials:          http.StatusUnauthorized,
-	ErrSIWSChallengeNotFound:       http.StatusUnauthorized,
-	ErrSIWSChallengeExpired:        http.StatusUnauthorized,
-	ErrSIWSChallengeMismatch:       http.StatusUnauthorized,
-	ErrSIWSSignatureInvalid:        http.StatusUnauthorized,
-	ErrSIWSDomainInvalid:           http.StatusUnauthorized,
-	ErrSIWSTimestampInvalid:        http.StatusUnauthorized,
-	// 403 — authenticated but not allowed.
-	ErrApplicationRegistrationDisabled: http.StatusForbidden,
-	ErrRegistrationDisabled:            http.StatusForbidden,
-	ErrPasswordlessDisabled:            http.StatusForbidden,
-	ErrDeviceKeysDisabled:              http.StatusForbidden,
-	ErrTwoFAEnrollmentRequired:         http.StatusForbidden,
-	ErrTwoFAFactorExists:               http.StatusConflict,
-	ErrStepUpRequired:                  http.StatusForbidden,
-	ErrExternalInvitesDisabled:         http.StatusForbidden,
-	ErrInsufficientRoleAuthority:       http.StatusForbidden,
-	ErrRoleAssignmentEscalation:        http.StatusForbidden,
-	ErrAccountAuthorityEscalation:      http.StatusForbidden,
-	ErrGroupSlugReserved:               http.StatusForbidden,
-	ErrGroupCreationRefused:            http.StatusForbidden,
-	// 404 — subject not found.
-	ErrUserNotFound:                http.StatusNotFound,
-	ErrPendingRegistrationNotFound: http.StatusNotFound,
-	ErrPasskeyNotFound:             http.StatusNotFound,
-	ErrGroupNotFound:               http.StatusNotFound,
-	ErrRemoteApplicationNotFound:   http.StatusNotFound,
-	ErrInviteLinkNotFound:          http.StatusNotFound,
-	// 409 — conflicts with current state.
-	ErrApplicationDomainConflict:       http.StatusConflict,
-	ErrApplicationIssuerConflict:       http.StatusConflict,
-	ErrRemoteApplicationIssuerConflict: http.StatusConflict,
-	ErrApplicationNotDomainRooted:      http.StatusConflict,
-	ErrApplicationSlugConflict:         http.StatusConflict,
-	ErrGroupSlugApplicationManaged:     http.StatusConflict,
-	ErrGroupSlugTaken:                  http.StatusConflict,
-	ErrEmailAlreadyVerified:            http.StatusConflict,
-	ErrPhoneAlreadyVerified:            http.StatusConflict,
-	ErrCannotRemoveLastAdminRole:       http.StatusConflict,
-	ErrWalletAlreadyLinked:             http.StatusConflict,
-	ErrWalletChangeRequiresUnlink:      http.StatusConflict,
-	ErrProviderAlreadyLinked:           http.StatusConflict,
-	ErrUserReferenced:                  http.StatusConflict,
-	ErrProviderChangeRequiresUnlink:    http.StatusConflict,
-	ErrAccountExistsLinkRequired:       http.StatusConflict,
-
-	// 410 — expired one-shot links.
-	ErrVerificationLinkExpired: http.StatusGone,
-	// 429 — rate limits.
-	ErrRenameRateLimited:    http.StatusTooManyRequests,
-	ErrRenamesDisabled:      http.StatusForbidden,
-	ErrNameAdmissionRefused: http.StatusForbidden,
-	// 400 — malformed / invalid input.
-	ErrInvalidIdentifier:     http.StatusBadRequest,
-	ErrInvalidTwoFAMethod:    http.StatusBadRequest,
-	ErrPhoneNumberRequired:   http.StatusBadRequest,
-	ErrPhoneNumberMustBeE164: http.StatusBadRequest,
-	ErrInvalidCode:           http.StatusBadRequest,
-	// 500 — the flow itself failed after the input was accepted.
-	ErrProviderLinkFailed:             http.StatusInternalServerError,
-	ErrUserCreationFailed:             http.StatusInternalServerError,
-	ErrEmailRegistrationUnavailable:   http.StatusInternalServerError,
-	ErrPhoneRegistrationUnavailable:   http.StatusInternalServerError,
-	ErrEmailVerificationSendFailed:    http.StatusInternalServerError,
-	ErrPhoneVerificationSendFailed:    http.StatusInternalServerError,
-	ErrTwoFASendFailed:                http.StatusInternalServerError,
-	ErrTwoFAChallengeFailed:           http.StatusInternalServerError,
-	ErrSessionIssueFailed:             http.StatusInternalServerError,
-	ErrPhoneTwoFAUnavailable:          http.StatusInternalServerError,
-	ErrTwoFASetupCodeSendFailed:       http.StatusInternalServerError,
-	ErrTwoFAEnableFailed:              http.StatusInternalServerError,
-	ErrApplicationDocumentInvalid:     http.StatusBadRequest,
-	ErrApplicationDomainInvalid:       http.StatusBadRequest,
-	ErrApplicationTierInvalid:         http.StatusBadRequest,
-	ErrInvalidUntil:                   http.StatusBadRequest,
-	ErrAvatarURLInvalid:               http.StatusBadRequest,
-	ErrGroupSlugInvalid:               http.StatusBadRequest,
-	ErrEmailInUse:                     http.StatusBadRequest,
-	ErrPhoneInUse:                     http.StatusBadRequest,
-	ErrUsernameInUse:                  http.StatusBadRequest,
-	ErrEntitlementFilterUnavailable:   http.StatusBadRequest,
-	ErrInvalidRemoteApplication:       http.StatusBadRequest,
-	ErrReservedIssuer:                 http.StatusBadRequest,
-	ErrInviteLinkExpired:              http.StatusBadRequest,
-	ErrInviteLinkRevoked:              http.StatusBadRequest,
-	ErrSIWSAddressMismatch:            http.StatusBadRequest,
-	ErrOwnerSlugTaken:                 http.StatusBadRequest,
-	ErrRoleNotAssignable:              http.StatusBadRequest,
-	ErrInvalidRole:                    http.StatusBadRequest,
-	ErrUnknownRole:                    http.StatusBadRequest,
-	ErrMissingName:                    http.StatusBadRequest,
-	ErrInvalidInvite:                  http.StatusBadRequest,
-	ErrInvalidExpiry:                  http.StatusBadRequest,
-	ErrUnknownGroupPersona:            http.StatusBadRequest,
-	ErrCustomRolesNotSupported:        http.StatusBadRequest,
-	ErrCustomRoleNameInvalid:          http.StatusBadRequest,
-	ErrCustomRoleIsCatalogRole:        http.StatusBadRequest,
-	ErrCustomRoleGrantCrossPersona:    http.StatusBadRequest,
-	ErrCustomRoleGrantOutsideCatalog:  http.StatusBadRequest,
-	documents.ErrInvalidReference:     http.StatusBadRequest,
-	documents.ErrInvalidType:          http.StatusBadRequest,
-	documents.ErrInvalidDigest:        http.StatusBadRequest,
-	documents.ErrDuplicateReference:   http.StatusBadRequest,
-	documents.ErrTooManyReferences:    http.StatusBadRequest,
-	documents.ErrReferencesTooLarge:   http.StatusBadRequest,
-	documents.ErrWrongTokenType:       http.StatusBadRequest,
-	documents.ErrReservedAttribute:    http.StatusBadRequest,
-	documents.ErrInvalidEnvelope:      http.StatusBadRequest,
-	documents.ErrPayloadTooLarge:      http.StatusBadRequest,
-	documents.ErrMalformedJWS:         http.StatusBadRequest,
-	documents.ErrWrongJOSEType:        http.StatusBadRequest,
-	documents.ErrUnsupportedAlgorithm: http.StatusBadRequest,
-	documents.ErrUnsupportedSigner:    http.StatusBadRequest,
-	documents.ErrUnknownKey:           http.StatusBadRequest,
-	documents.ErrInvalidSignature:     http.StatusBadRequest,
-	documents.ErrDigestMismatch:       http.StatusBadRequest,
-	documents.ErrIssuerMismatch:       http.StatusBadRequest,
-	documents.ErrAudienceMismatch:     http.StatusBadRequest,
-	documents.ErrTypeMismatch:         http.StatusBadRequest,
-	documents.ErrUntrustedIssuer:      http.StatusForbidden,
-	documents.ErrDigestCollision:      http.StatusConflict,
-	documents.ErrUnauthorized:         http.StatusUnauthorized,
-	documents.ErrNotFound:             http.StatusNotFound,
-	documents.ErrFetch:                http.StatusBadGateway,
-	documents.ErrRedirect:             http.StatusBadGateway,
-	// 502/503 — delivery/dependency failures.
-	ErrApplicationDocumentFetchFailed: http.StatusBadGateway,
-	ErrEmailDeliveryFailed:            http.StatusBadGateway,
-	ErrSMSDeliveryFailed:              http.StatusBadGateway,
-	ErrEmailSenderUnavailable:         http.StatusServiceUnavailable,
-	ErrSMSSenderUnavailable:           http.StatusServiceUnavailable,
-}
-
-// HTTPStatus maps an error to its HTTP status and wire code (#213): the ONE
-// chain-aware mapper for consumers calling Client methods directly and for the
-// management transport, so hosts stop re-implementing the errors.Is chains
-// authkit already encodes. Non-sentinel errors return (500, "internal_error");
-// sentinels without an explicit status entry return 422 with their code.
-// (The authhttp handlers keep their own chains where they deliberately emit
-// context-specific wire codes — e.g. last-admin-role maps to a different code
-// on the group routes than the sentinel's own.)
-func HTTPStatus(err error) (int, string) {
-	code := CodeForError(err)
-	if code == "" {
-		return http.StatusInternalServerError, "internal_error"
-	}
-	if status, ok := sentinelHTTPStatus[ErrorForCode(code)]; ok {
-		return status, code
-	}
-	return http.StatusUnprocessableEntity, code
-}
-
-// ErrorCodes returns every registered wire code (each sentinel's Error()
-// string), for parity guards between this registry and transport code tables.
-func ErrorCodes() []string {
-	out := make([]string, 0, len(errorSentinels))
-	for _, sentinel := range errorSentinels {
-		out = append(out, sentinel.Error())
-	}
-	return out
-}
-
-// errorSentinels is the single hand-listed source of truth for both errorsByCode
-// and CodeForError. NOTE: hand-listed because Go can't enumerate package vars —
-// a new sentinel needs a line here too; the uniqueness check in errors_test.go
-// fails loudly if two share a code.
-var errorSentinels = []error{
-	ErrApplicationDocumentFetchFailed, ErrApplicationDocumentInvalid, ErrApplicationDomainConflict, ErrApplicationDomainInvalid,
-	ErrApplicationIssuerConflict, ErrApplicationNotDomainRooted, ErrApplicationRegistrationDisabled,
-	ErrApplicationSignatureInvalid, ErrApplicationSignatureStale, ErrApplicationSlugConflict,
-	ErrApplicationTierInvalid, ErrGroupSlugApplicationManaged, ErrGroupSlugTaken,
-	ErrGroupSlugReserved, ErrGroupSlugInvalid, ErrGroupCreationRefused, ErrAvatarURLInvalid,
-	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
-	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
-	ErrAccountRegistrationInviteRevoked, ErrDelegationRefused, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
-	ErrEmailSenderUnavailable, ErrEntitlementFilterUnavailable,
-	ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
-	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
-	ErrInviteLinkExpired, ErrInviteLinkNotFound, ErrInviteLinkRevoked,
-	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
-	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled, ErrDeviceKeysDisabled,
-	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-	ErrPhoneInUse, ErrUsernameInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
-	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
-	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
-	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
-
-	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
-	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
-	ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
-	ErrInvalidCredentials, ErrAccountExistsLinkRequired, ErrProviderLinkFailed, ErrUserCreationFailed,
-	ErrInvalidIdentifier, ErrEmailRegistrationUnavailable, ErrPhoneRegistrationUnavailable,
-	ErrEmailVerificationSendFailed, ErrPhoneVerificationSendFailed, ErrTwoFASendFailed, ErrTwoFAChallengeFailed,
-	ErrSessionIssueFailed, ErrInvalidTwoFAMethod, ErrPhoneNumberRequired, ErrPhoneNumberMustBeE164, ErrInvalidCode,
-	ErrPhoneTwoFAUnavailable, ErrTwoFASetupCodeSendFailed, ErrTwoFAEnableFailed,
-	// #247: permission-group hardening — role-assignability + custom-role +
-	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps
-	// them via errors.Is instead of strings.Contains.
-	ErrRoleNotAssignable, ErrInvalidRole, ErrUnknownRole, ErrMissingName,
-	ErrInvalidInvite, ErrInvalidExpiry, ErrUnknownGroupPersona,
-	ErrCustomRolesNotSupported, ErrCustomRoleNameInvalid, ErrCustomRoleIsCatalogRole,
-	ErrCustomRoleGrantCrossPersona, ErrCustomRoleGrantOutsideCatalog,
-	// #253-#255: generic immutable signed-document contract.
-	documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
-	documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
-	documents.ErrWrongTokenType, documents.ErrReservedAttribute, documents.ErrInvalidEnvelope,
-	documents.ErrPayloadTooLarge, documents.ErrMalformedJWS, documents.ErrWrongJOSEType,
-	documents.ErrUnsupportedAlgorithm, documents.ErrUnsupportedSigner, documents.ErrUnknownKey,
-	documents.ErrInvalidSignature, documents.ErrDigestMismatch, documents.ErrIssuerMismatch,
-	documents.ErrAudienceMismatch, documents.ErrTypeMismatch, documents.ErrUntrustedIssuer,
-	documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
-	// #260: authkit-owned signed-document store.
-	documents.ErrDigestCollision,
-}
-
-// errorsByCode is built once from every sentinel in errorSentinels.
-var errorsByCode = func() map[string]error {
-	m := make(map[string]error, len(errorSentinels))
-	for _, e := range errorSentinels {
-		m[e.Error()] = e
-	}
-	return m
-}()
+// Sentinels — the identities Go callers match with errors.Is.
+var (
+	ErrApplicationDocumentFetchFailed    = E(CodeApplicationDocumentFetchFailed)
+	ErrApplicationDocumentInvalid        = E(CodeApplicationDocumentInvalid)
+	ErrApplicationDomainConflict         = E(CodeApplicationDomainConflict)
+	ErrApplicationDomainInvalid          = E(CodeApplicationDomainInvalid)
+	ErrApplicationIssuerConflict         = E(CodeApplicationIssuerConflict)
+	ErrApplicationNotDomainRooted        = E(CodeApplicationNotDomainRooted)
+	ErrApplicationRegistrationDisabled   = E(CodeApplicationRegistrationDisabled)
+	ErrApplicationSignatureInvalid       = E(CodeApplicationSignatureInvalid)
+	ErrApplicationSignatureStale         = E(CodeApplicationSignatureStale)
+	ErrApplicationSlugConflict           = E(CodeApplicationSlugConflict)
+	ErrApplicationTierInvalid            = E(CodeApplicationTierInvalid)
+	ErrBootstrapDatabaseNotEmpty         = E(CodeBootstrapDatabaseNotEmpty)
+	ErrGroupSlugApplicationManaged       = E(CodeGroupSlugApplicationManaged)
+	ErrGroupSlugTaken                    = E(CodeGroupSlugTaken)
+	ErrGroupSlugReserved                 = E(CodeGroupSlugReserved)
+	ErrGroupSlugInvalid                  = E(CodeGroupSlugInvalid)
+	ErrGroupCreationRefused              = E(CodeGroupCreationRefused)
+	ErrAvatarURLInvalid                  = E(CodeAvatarURLInvalid)
+	ErrCannotRemoveLastAdminRole         = E(CodeCannotRemoveLastAdminRole)
+	ErrAccountRegistrationInviteConsumed = E(CodeAccountRegistrationInviteConsumed)
+	ErrAccountRegistrationInviteExpired  = E(CodeAccountRegistrationInviteExpired)
+	ErrAccountRegistrationInviteNotFound = E(CodeAccountRegistrationInviteNotFound)
+	ErrAccountRegistrationInviteRevoked  = E(CodeAccountRegistrationInviteRevoked)
+	ErrCustomRoleGrantCrossPersona       = E(CodeCustomRoleGrantCrossPersona)
+	ErrCustomRoleGrantOutsideCatalog     = E(CodeCustomRoleGrantOutsideCatalog)
+	ErrCustomRoleIsCatalogRole           = E(CodeCustomRoleIsCatalogRole)
+	ErrCustomRoleNameInvalid             = E(CodeCustomRoleNameInvalid)
+	ErrCustomRolesNotSupported           = E(CodeCustomRolesNotSupported)
+	ErrEmailAlreadyVerified              = E(CodeEmailAlreadyVerified)
+	ErrEmailDeliveryFailed               = E(CodeEmailDeliveryFailed)
+	ErrEmailInUse                        = E(CodeEmailInUse)
+	ErrEmailSenderUnavailable            = E(CodeEmailSenderUnavailable)
+	ErrEntitlementFilterUnavailable      = E(CodeEntitlementFilterUnavailable)
+	ErrExternalInvitesDisabled           = E(CodeExternalInvitesDisabled)
+	ErrGroupNotFound                     = E(CodeGroupNotFound)
+	ErrInsufficientRoleAuthority         = E(CodeInsufficientRoleAuthority)
+	ErrInvalidAttributeDef               = E(CodeInvalidAttributeDef)
+	ErrInvalidBootstrapManifest          = E(CodeInvalidBootstrapManifest)
+	ErrInvalidExpiry                     = E(CodeInvalidExpiry)
+	ErrInvalidInvite                     = E(CodeInvalidInvite)
+	ErrInvalidRole                       = E(CodeInvalidRole)
+	ErrInvalidUntil                      = E(CodeInvalidUntil)
+	ErrInviteLinkExpired                 = E(CodeInviteLinkExpired)
+	ErrInviteLinkNotFound                = E(CodeInviteLinkNotFound)
+	ErrInviteLinkRevoked                 = E(CodeInviteLinkRevoked)
+	ErrMissingName                       = E(CodeMissingName)
+	ErrMissingSigner                     = E(CodeMissingSigner)
+	ErrNotGroupMember                    = E(CodeNotGroupMember)
+	ErrOwnerSlugTaken                    = E(CodeOwnerSlugTaken)
+	ErrPasskeyCloneDetected              = E(CodePasskeyCloneDetected)
+	ErrPasskeyNotFound                   = E(CodePasskeyNotFound)
+	ErrPasskeyUserVerificationRequired   = E(CodePasskeyUserVerificationRequired)
+	ErrPasswordlessDisabled              = E(CodePasswordlessDisabled)
+	ErrDeviceKeysDisabled                = E(CodeDeviceKeysDisabled)
+	ErrPasswordResetRequired             = E(CodePasswordResetRequired)
+	ErrPendingRegistrationNotFound       = E(CodePendingRegistrationNotFound)
+	ErrPhoneAlreadyVerified              = E(CodePhoneAlreadyVerified)
+	ErrPhoneInUse                        = E(CodePhoneInUse)
+	ErrUsernameInUse                     = E(CodeUsernameInUse)
+	ErrRegistrationDisabled              = E(CodeRegistrationDisabled)
+	ErrRemoteApplicationIssuerConflict   = E(CodeRemoteApplicationIssuerConflict)
+	ErrRemoteApplicationNotFound         = E(CodeRemoteApplicationNotFound)
+	ErrRenameRateLimited                 = E(CodeRenameRateLimited)
+	ErrRenamesDisabled                   = E(CodeRenamesDisabled)
+	ErrNameAdmissionRefused              = E(CodeNameAdmissionRefused)
+	ErrReservedIssuer                    = E(CodeReservedIssuer)
+	ErrRoleAssignmentEscalation          = E(CodeRoleAssignmentEscalation)
+	ErrAccountAuthorityEscalation        = E(CodeAccountAuthorityEscalation)
+	ErrRoleNotAssignable                 = E(CodeRoleNotAssignable)
+	ErrSMSDeliveryFailed                 = E(CodeSMSDeliveryFailed)
+	ErrSMSSenderUnavailable              = E(CodeSMSSenderUnavailable)
+	ErrStepUpRequired                    = E(CodeStepUpRequired)
+	ErrTwoFAFactorExists                 = E(CodeTwoFAFactorExists)
+	ErrTwoFAEnrollmentRequired           = E(CodeTwoFAEnrollmentRequired)
+	ErrUnknownGroupPersona               = E(CodeUnknownGroupPersona)
+	ErrUnknownRole                       = E(CodeUnknownRole)
+	ErrUserBanned                        = E(CodeUserBanned)
+	ErrUserNotFound                      = E(CodeUserNotFound)
+	ErrUserReferenced                    = E(CodeUserReferenced)
+	ErrUserRoleNotFound                  = E(CodeUserRoleNotFound)
+	ErrVerificationLinkExpired           = E(CodeVerificationLinkExpired)
+	ErrSIWSAddressMismatch               = E(CodeSIWSAddressMismatch)
+	ErrSIWSChallengeExpired              = E(CodeSIWSChallengeExpired)
+	ErrSIWSChallengeMismatch             = E(CodeSIWSChallengeMismatch)
+	ErrSIWSChallengeNotFound             = E(CodeSIWSChallengeNotFound)
+	ErrSIWSDomainInvalid                 = E(CodeSIWSDomainInvalid)
+	ErrSIWSSignatureInvalid              = E(CodeSIWSSignatureInvalid)
+	ErrSIWSTimestampInvalid              = E(CodeSIWSTimestampInvalid)
+	ErrWalletAlreadyLinked               = E(CodeWalletAlreadyLinked)
+	ErrWalletChangeRequiresUnlink        = E(CodeWalletChangeRequiresUnlink)
+	ErrProviderAlreadyLinked             = E(CodeProviderAlreadyLinked)
+	ErrProviderChangeRequiresUnlink      = E(CodeProviderChangeRequiresUnlink)
+	ErrInvalidCredentials                = E(CodeInvalidCredentials)
+	ErrAccountExistsLinkRequired         = E(CodeAccountExistsLinkRequired)
+	ErrProviderLinkFailed                = E(CodeProviderLinkFailed)
+	ErrUserCreationFailed                = E(CodeUserCreationFailed)
+	ErrInvalidIdentifier                 = E(CodeInvalidIdentifier)
+	ErrEmailRegistrationUnavailable      = E(CodeEmailRegistrationUnavailable)
+	ErrPhoneRegistrationUnavailable      = E(CodePhoneRegistrationUnavailable)
+	ErrEmailVerificationSendFailed       = E(CodeEmailVerificationSendFailed)
+	ErrPhoneVerificationSendFailed       = E(CodePhoneVerificationSendFailed)
+	ErrTwoFASendFailed                   = E(CodeTwoFASendFailed)
+	ErrTwoFAChallengeFailed              = E(CodeTwoFAChallengeFailed)
+	ErrSessionIssueFailed                = E(CodeSessionIssueFailed)
+	ErrInvalidTwoFAMethod                = E(CodeInvalidTwoFAMethod)
+	ErrPhoneNumberRequired               = E(CodePhoneNumberRequired)
+	ErrPhoneNumberMustBeE164             = E(CodePhoneNumberMustBeE164)
+	ErrInvalidCode                       = E(CodeInvalidCode)
+	ErrPhoneTwoFAUnavailable             = E(CodePhoneTwoFAUnavailable)
+	ErrTwoFASetupCodeSendFailed          = E(CodeTwoFASetupCodeSendFailed)
+	ErrTwoFAEnableFailed                 = E(CodeTwoFAEnableFailed)
+	ErrTwoFAMethodUnavailable            = E(CodeTwoFAMethodUnavailable)
+	ErrGroupMembershipInviteNotFound     = E(CodeGroupMembershipInviteNotFound)
+	ErrInternalError                     = E(CodeInternalError)
+	ErrNotFound                          = E(CodeNotFound)
+	ErrForbidden                         = E(CodeForbidden)
+	ErrNotAuthenticated                  = E(CodeNotAuthenticated)
+	ErrRateLimited                       = E(CodeRateLimited)
+	ErrInvalidRequest                    = E(CodeInvalidRequest)
+)

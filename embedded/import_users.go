@@ -275,7 +275,7 @@ func (s *Client) bulkInsertPasswordHashes(ctx context.Context, rows []preparedIm
 // ImportUserResult. Falls back to the error text.
 func importRejectReason(err error) string {
 	if code := ValidationErrorCode(err); code != "" {
-		return code
+		return string(code)
 	}
 	return err.Error()
 }

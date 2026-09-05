@@ -6,73 +6,27 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
 )
 
-const (
-	ErrCodeUsernameTooShort            = "username_too_short"
-	ErrCodeUsernameTooLong             = "username_too_long"
-	ErrCodeUsernameMustStartWithLetter = "username_must_start_with_letter"
-	ErrCodeUsernameCannotContainAt     = "username_cannot_contain_at"
-	ErrCodeUsernameCannotStartWithPlus = "username_cannot_start_with_plus"
-	ErrCodeUsernameInvalidCharacters   = "username_invalid_characters"
-	ErrCodeOwnerSlugTaken              = "owner_slug_taken"
-	ErrCodeUsernameNotAllowed          = "username_not_allowed"
-	ErrCodeRenameRateLimited           = "rename_rate_limited"
-	ErrCodeInvalidEmail                = "invalid_email"
-	ErrCodeInvalidPhoneNumber          = "invalid_phone_number"
-	ErrCodePasswordTooShort            = "password_too_short"
-)
-
-// ValidationError is the stable identity-policy error returned by AuthKit
-// validation helpers. Code is intended to be exposed directly in route
-// responses as {"error":"code"}.
-type ValidationError struct {
-	Code              string
-	RetryAfterSeconds int64
+// validationCodes are the identity-policy codes ValidationErrorCode reports:
+// a 400 whose param names the offending field.
+var validationCodes = map[authkit.Code]bool{
+	authkit.CodeUsernameTooShort: true, authkit.CodeUsernameTooLong: true, authkit.CodeUsernameMustStartWithLetter: true,
+	authkit.CodeUsernameCannotContainAt: true, authkit.CodeUsernameCannotStartWithPlus: true, authkit.CodeUsernameInvalidCharacters: true,
+	authkit.CodeOwnerSlugTaken: true, authkit.CodeUsernameNotAllowed: true, authkit.CodeRenameRateLimited: true,
+	authkit.CodeInvalidEmail: true, authkit.CodeInvalidPhoneNumber: true, authkit.CodePasswordTooShort: true,
+	authkit.CodeInvalidPreferredLanguage: true,
 }
 
-func (e *ValidationError) Error() string {
-	if e == nil {
-		return ""
+// ValidationErrorCode returns the identity-policy code err carries, or "" when
+// err is not a validation failure.
+func ValidationErrorCode(err error) authkit.Code {
+	if e := authkit.AsError(err); e != nil && validationCodes[e.Code] {
+		return e.Code
 	}
-	return e.Code
-}
-
-func newValidationError(code string) *ValidationError {
-	return &ValidationError{Code: code}
-}
-
-// ValidationErrorCode returns a stable validation code from err when possible.
-func ValidationErrorCode(err error) string {
-	if err == nil {
-		return ""
-	}
-	var validationErr *ValidationError
-	if errors.As(err, &validationErr) {
-		return validationErr.Code
-	}
-	if errors.Is(err, ErrOwnerSlugTaken) {
-		return ErrCodeOwnerSlugTaken
-	}
-	if errors.Is(err, ErrRenameRateLimited) {
-		return ErrCodeRenameRateLimited
-	}
-	switch err.Error() {
-	case ErrCodePasswordTooShort,
-		ErrCodeUsernameTooShort,
-		ErrCodeUsernameTooLong,
-		ErrCodeUsernameMustStartWithLetter,
-		ErrCodeUsernameCannotContainAt,
-		ErrCodeUsernameCannotStartWithPlus,
-		ErrCodeUsernameInvalidCharacters,
-		ErrCodeInvalidEmail,
-		"invalid_preferred_language",
-		ErrCodeInvalidPhoneNumber:
-		return err.Error()
-	default:
-		return ""
-	}
+	return ""
 }
 
 // Username length bounds shared by ValidateUsername and the automatic
@@ -85,20 +39,20 @@ const (
 func ValidateUsername(username string) error {
 	username = strings.TrimSpace(username)
 	if len(username) < usernameMinLen {
-		return newValidationError(ErrCodeUsernameTooShort)
+		return authkit.E(authkit.CodeUsernameTooShort)
 	}
 	if len(username) > usernameMaxLen {
-		return newValidationError(ErrCodeUsernameTooLong)
+		return authkit.E(authkit.CodeUsernameTooLong)
 	}
 	first := username[0]
 	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
-		return newValidationError(ErrCodeUsernameMustStartWithLetter)
+		return authkit.E(authkit.CodeUsernameMustStartWithLetter)
 	}
 	if strings.Contains(username, "@") {
-		return newValidationError(ErrCodeUsernameCannotContainAt)
+		return authkit.E(authkit.CodeUsernameCannotContainAt)
 	}
 	if strings.HasPrefix(username, "+") {
-		return newValidationError(ErrCodeUsernameCannotStartWithPlus)
+		return authkit.E(authkit.CodeUsernameCannotStartWithPlus)
 	}
 	for i := 0; i < len(username); i++ {
 		ch := username[i]
@@ -108,7 +62,7 @@ func ValidateUsername(username string) error {
 		case ch >= '0' && ch <= '9':
 		case ch == '_':
 		default:
-			return newValidationError(ErrCodeUsernameInvalidCharacters)
+			return authkit.E(authkit.CodeUsernameInvalidCharacters)
 		}
 	}
 	return nil
@@ -130,20 +84,20 @@ const importUsernameMaxLen = 64
 func validateImportUsername(username string) error {
 	username = strings.TrimSpace(username)
 	if len(username) < usernameMinLen {
-		return newValidationError(ErrCodeUsernameTooShort)
+		return authkit.E(authkit.CodeUsernameTooShort)
 	}
 	if len(username) > importUsernameMaxLen {
-		return newValidationError(ErrCodeUsernameTooLong)
+		return authkit.E(authkit.CodeUsernameTooLong)
 	}
 	first := username[0]
 	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
-		return newValidationError(ErrCodeUsernameMustStartWithLetter)
+		return authkit.E(authkit.CodeUsernameMustStartWithLetter)
 	}
 	if strings.Contains(username, "@") {
-		return newValidationError(ErrCodeUsernameCannotContainAt)
+		return authkit.E(authkit.CodeUsernameCannotContainAt)
 	}
 	if strings.HasPrefix(username, "+") {
-		return newValidationError(ErrCodeUsernameCannotStartWithPlus)
+		return authkit.E(authkit.CodeUsernameCannotStartWithPlus)
 	}
 	for i := 0; i < len(username); i++ {
 		ch := username[i]
@@ -154,7 +108,7 @@ func validateImportUsername(username string) error {
 		case ch == '_':
 		case ch == '-':
 		default:
-			return newValidationError(ErrCodeUsernameInvalidCharacters)
+			return authkit.E(authkit.CodeUsernameInvalidCharacters)
 		}
 	}
 	return nil
@@ -167,15 +121,15 @@ func NormalizeEmail(email string) string {
 func ValidateEmail(email string) error {
 	email = NormalizeEmail(email)
 	if email == "" || strings.ContainsAny(email, " \t\r\n") {
-		return newValidationError(ErrCodeInvalidEmail)
+		return authkit.E(authkit.CodeInvalidEmail)
 	}
 	at := strings.IndexByte(email, '@')
 	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
-		return newValidationError(ErrCodeInvalidEmail)
+		return authkit.E(authkit.CodeInvalidEmail)
 	}
 	domain := email[at+1:]
 	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || !strings.Contains(domain, ".") {
-		return newValidationError(ErrCodeInvalidEmail)
+		return authkit.E(authkit.CodeInvalidEmail)
 	}
 	return nil
 }
@@ -187,14 +141,14 @@ func NormalizePhone(phone string) string {
 func ValidatePhone(phone string) error {
 	phone = NormalizePhone(phone)
 	if len(phone) < 3 || len(phone) > 16 || phone[0] != '+' {
-		return newValidationError(ErrCodeInvalidPhoneNumber)
+		return authkit.E(authkit.CodeInvalidPhoneNumber)
 	}
 	if phone[1] < '1' || phone[1] > '9' {
-		return newValidationError(ErrCodeInvalidPhoneNumber)
+		return authkit.E(authkit.CodeInvalidPhoneNumber)
 	}
 	for i := 2; i < len(phone); i++ {
 		if phone[i] < '0' || phone[i] > '9' {
-			return newValidationError(ErrCodeInvalidPhoneNumber)
+			return authkit.E(authkit.CodeInvalidPhoneNumber)
 		}
 	}
 	return nil
@@ -202,7 +156,7 @@ func ValidatePhone(phone string) error {
 
 func ValidatePassword(value string) error {
 	if err := password.Validate(value); err != nil {
-		return newValidationError(ErrCodePasswordTooShort)
+		return authkit.E(authkit.CodePasswordTooShort)
 	}
 	return nil
 }
@@ -225,7 +179,7 @@ func (s *Client) validateUsernameForUser(ctx context.Context, username, userID s
 		return "", "", err
 	}
 	if existing != nil && strings.TrimSpace(existing.ID) != strings.TrimSpace(userID) {
-		return "", "", newValidationError(ErrCodeOwnerSlugTaken)
+		return "", "", authkit.E(authkit.CodeOwnerSlugTaken)
 	}
 	return slug, "", nil
 }

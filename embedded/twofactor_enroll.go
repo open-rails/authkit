@@ -85,8 +85,8 @@ type TwoFactorEnrollOutcome struct {
 
 // EnrollTwoFactor runs the enrollment decision tree. Input problems:
 // ErrInvalidTwoFAMethod, ErrPhoneNumberRequired, ErrPhoneNumberMustBeE164,
-// ErrInvalidCode, ErrTwoFAFactorExists; engine failures carry a FlowError
-// stage wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
+// ErrInvalidCode, ErrTwoFAFactorExists; engine failures carry a stage
+// prefix wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
 // the delivery sentinel) / ErrTwoFAEnableFailed.
 func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error) {
 	method := strings.ToLower(strings.TrimSpace(in.Method))

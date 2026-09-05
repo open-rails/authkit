@@ -33,7 +33,7 @@ func (s *Service) confirmBackendFailed(w http.ResponseWriter, r *http.Request, r
 		return false
 	}
 	s.logInternalError(r, route, stage, "database_error", err)
-	serverErr(w, ErrDatabaseError)
+	serverErr(w, authkit.CodeDatabaseError)
 	return true
 }
 
@@ -42,9 +42,9 @@ func (s *Service) confirmBackendFailed(w http.ResponseWriter, r *http.Request, r
 func (s *Service) issueVerificationTokens(w http.ResponseWriter, r *http.Request, userID, method string) {
 	if err := s.issueTokensForUser(w, r, userID, method); err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
+			unauthorized(w, authkit.CodeUserBanned)
 			return
 		}
-		serverErr(w, ErrTokenIssueFailed)
+		serverErr(w, authkit.CodeTokenIssueFailed)
 	}
 }

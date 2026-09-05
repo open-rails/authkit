@@ -18,8 +18,8 @@ never a duplicated allowlist. Browser OIDC login/callback routes mount under
 
 AuthKit is opinionated about identity validation. Host apps should not
 reimplement or customize username, password, email, or phone validation rules.
-AuthKit returns stable error codes, exported from the `authhttp` package as
-typed `ErrorCode` constants, such as `username_too_short`,
+AuthKit returns stable error codes — the `authkit.Code` catalog, enumerated by
+`authkit.Codes()` — such as `username_too_short`,
 `username_must_start_with_letter`, `username_invalid_characters`,
 `owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
 `invalid_email`, `invalid_phone_number`, and `password_too_short`.
@@ -42,7 +42,7 @@ v0.52.0).** Every error response is:
              "metadata": { "...": "optional machine-readable context" } } }
 ```
 
-- `code` is the stable machine code (the `authhttp.ErrorCode` value — unchanged);
+- `code` is the stable machine code (an `authkit.Code`); every 500 is `internal_error`;
   match on `error.code`, not `error` (which was a bare string before v0.52.0).
 - `type` is derived from the HTTP status: `invalid_request_error` (400/404/409),
   `authentication_error` (401), `authorization_error` (403),

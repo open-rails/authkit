@@ -53,7 +53,7 @@ type RegisterOutcome struct {
 // the validation errors (ValidationErrorCode) and the sentinels
 // ErrInvalidIdentifier / ErrEmailInUse / ErrPhoneInUse / ErrUsernameInUse /
 // ErrRegistrationDisabled / ErrEmailRegistrationUnavailable /
-// ErrPhoneRegistrationUnavailable; engine failures carry a FlowError stage
+// ErrPhoneRegistrationUnavailable; engine failures carry a stage prefix
 // and, for sends, the delivery sentinel.
 func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error) {
 	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {

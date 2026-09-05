@@ -1,7 +1,6 @@
 package authkit
 
 import (
-	"errors"
 	"time"
 )
 
@@ -14,7 +13,7 @@ const (
 )
 
 // ErrInvalidServiceJWT indicates a presented service JWT failed verification.
-var ErrInvalidServiceJWT = errors.New("invalid_service_jwt")
+var ErrInvalidServiceJWT = E(CodeInvalidServiceJWT)
 
 // ServiceJWTClaims is the canonical AuthKit claim shape for caller-minted
 // machine-to-machine JWTs. Permissions are requested capabilities; receiving

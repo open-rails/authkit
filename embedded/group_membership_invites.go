@@ -22,7 +22,7 @@ const defaultGroupMembershipInviteTTL = 7 * 24 * time.Hour
 
 // ErrGroupMembershipInviteNotFound indicates no pending invite matched (wrong id,
 // not the caller's, or already accepted/declined/revoked/expired).
-var ErrGroupMembershipInviteNotFound = errors.New("group_membership_invite_not_found")
+var ErrGroupMembershipInviteNotFound = authkit.ErrGroupMembershipInviteNotFound
 
 // GroupMembershipInvite is a pending known-user group invite.
 type GroupMembershipInvite struct {

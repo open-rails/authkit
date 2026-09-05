@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +49,7 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 
 	replay := serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+newEmail+`"}`, access)
 	require.Equal(t, http.StatusBadRequest, replay.Code, replay.Body.String())
-	require.Contains(t, replay.Body.String(), string(ErrInvalidOrExpiredCode))
+	require.Contains(t, replay.Body.String(), string(authkit.CodeInvalidOrExpiredCode))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
 	require.Equal(t, newEmail, current)
 }

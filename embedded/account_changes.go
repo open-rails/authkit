@@ -95,7 +95,7 @@ func (s *Client) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		return err
 	}
 	if u == nil {
-		return fmt.Errorf("user not found")
+		return ErrUserNotFound
 	}
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, trimmed) {
 		if u.PhoneVerified {
@@ -106,7 +106,7 @@ func (s *Client) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	// Check if new phone is already in use by another user.
 	existing, _ := s.getUserByPhone(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
-		return fmt.Errorf("phone already in use")
+		return ErrPhoneInUse
 	}
 
 	code, linkToken, err := s.newPendingContactChange(ctx, KindChangePhone, trimmed, userID, defaultPhoneVerificationTTL)
@@ -150,7 +150,7 @@ func (s *Client) RequestEmailChange(ctx context.Context, userID, newEmail string
 		return err
 	}
 	if u == nil {
-		return fmt.Errorf("user not found")
+		return ErrUserNotFound
 	}
 	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
 		if u.EmailVerified {
@@ -161,7 +161,7 @@ func (s *Client) RequestEmailChange(ctx context.Context, userID, newEmail string
 	// Check if new email is already in use by another user.
 	existing, _ := s.getUserByEmail(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
-		return fmt.Errorf("email already in use")
+		return ErrEmailInUse
 	}
 
 	code, linkToken, err := s.newPendingContactChange(ctx, KindChangeEmail, trimmed, userID, defaultEmailVerificationTTL)

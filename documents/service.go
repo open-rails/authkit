@@ -14,10 +14,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// ErrDigestCollision is returned when a save would change the immutable
-// payload or type stored under an existing digest.
-var ErrDigestCollision = errors.New("document_digest_collision")
-
 // Signer signs one envelope with the process's active AuthKit key and exposes
 // the CURRENT public keys for self-verification. *embedded.Client satisfies it.
 type Signer interface {

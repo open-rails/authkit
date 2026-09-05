@@ -151,7 +151,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, setupToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
-	require.NotContains(t, w.Body.String(), "factor")
+	require.NotContains(t, w.Body.String(), `"factor"`)
 	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp","code":"`+stepUpCode+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

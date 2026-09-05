@@ -4,18 +4,19 @@ import (
 	"net/http"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, ErrInvalidRequest)
+		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	events, err := s.svc.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
 	if err != nil {
-		serverErr(w, ErrFailedToListSignins)
+		serverErr(w, authkit.CodeFailedToListSignins)
 		return
 	}
 
