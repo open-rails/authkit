@@ -533,19 +533,6 @@ func normalizeAuthMethods(methods []string) []string {
 	return out
 }
 
-// ResolveSessionByRefresh finds the session id for a presented refresh token, if valid and active.
-func (s *Service) ResolveSessionByRefresh(ctx context.Context, refreshToken string) (string, error) {
-	if s.pg == nil || strings.TrimSpace(refreshToken) == "" {
-		return "", errors.New("not_found")
-	}
-	h := s.hashRefresh(refreshToken)
-	sid, err := s.q.SessionIDByCurrentTokenHash(ctx, db.SessionIDByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
-		return "", err
-	}
-	return sid, nil
-}
-
 func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error {
 	if s.pg == nil {
 		return nil

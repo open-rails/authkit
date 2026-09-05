@@ -29,8 +29,6 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-const appReqJOSEType = "authkit-application-request+jws" // pinned wire contract
-
 type mutableDocServer struct {
 	mu  sync.Mutex
 	doc authkit.ApplicationDocument
@@ -68,15 +66,6 @@ func staticKey(t *testing.T, signer *jwtkit.RSASigner) authkit.RemoteAppKey {
 	}
 }
 
-func signAppJWS(t *testing.T, signer *jwtkit.RSASigner, payload map[string]any) string {
-	t.Helper()
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	compact, err := jwtkit.SignPayloadWithType(context.Background(), signer, raw, appReqJOSEType)
-	require.NoError(t, err)
-	return compact
-}
-
 func postJSON(t *testing.T, h http.Handler, path string, body map[string]any) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(body)
@@ -111,8 +100,6 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	keyA, err := jwtkit.NewRSASigner(2048, "key-a")
 	require.NoError(t, err)
 	keyB, err := jwtkit.NewRSASigner(2048, "key-b")
-	require.NoError(t, err)
-	keyC, err := jwtkit.NewRSASigner(2048, "key-c")
 	require.NoError(t, err)
 
 	slug := "app-" + suffix
@@ -168,61 +155,6 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Len(t, ra.PublicKeys, 1)
 	require.Equal(t, "key-b", ra.PublicKeys[0].KID, "domain re-proof adopts the NEW keys with the old keypair gone")
 	require.Equal(t, "App "+suffix+" renamed", ra.DisplayName)
-
-	// ---- convenience rotation: old key signs the new trust source ----
-	rotate := signAppJWS(t, keyB, map[string]any{
-		"op":   "rotate",
-		"slug": slug,
-		"aud":  cfg.Token.Issuer,
-		"iat":  time.Now().Unix(),
-		"public_keys": []map[string]string{
-			{"kid": "key-c", "public_key_pem": staticKey(t, keyC).PublicKeyPEM},
-		},
-	})
-	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": rotate})
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	ra, err = core.GetRemoteApplicationBySlug(ctx, slug)
-	require.NoError(t, err)
-	require.Equal(t, "key-c", ra.PublicKeys[0].KID)
-
-	// Stale iat is refused (anti-replay window).
-	stale := signAppJWS(t, keyC, map[string]any{
-		"op": "rotate", "slug": slug, "aud": cfg.Token.Issuer,
-		"iat":         time.Now().Add(-time.Hour).Unix(),
-		"public_keys": []map[string]string{{"kid": "key-c", "public_key_pem": staticKey(t, keyC).PublicKeyPEM}},
-	})
-	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": stale})
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Contains(t, rec.Body.String(), "application_signature_stale")
-
-	// ---- repoint: the TRUST ROOT moves to a new domain; uuid, slug, and the
-	// org are all stable (slugs and domains are separate) ----
-	docSrv2 := newDocServer(t)
-	docSrv2.set(authkit.ApplicationDocument{
-		DisplayName: "App " + suffix + " moved",
-		Issuer:      docSrv2.srv.URL,
-		PublicKeys:  []authkit.RemoteAppKey{staticKey(t, keyC)},
-	})
-	repoint := signAppJWS(t, keyC, map[string]any{
-		"op": "repoint", "slug": slug, "aud": cfg.Token.Issuer,
-		"iat": time.Now().Unix(), "domain": docSrv2.srv.URL,
-	})
-	rec, body = postJSON(t, h, "/api/v1/applications/"+slug+"/repoint", map[string]any{"jws": repoint})
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	require.Equal(t, slug, body["application"].(map[string]any)["slug"], "slug is a claimed handle, stable across repoint")
-	require.Equal(t, appID, body["application"].(map[string]any)["id"], "uuid stable across repoint")
-	require.Equal(t, docSrv2.srv.URL, body["application"].(map[string]any)["domain"], "trust root moved")
-	require.Equal(t, slug, body["org"].(map[string]any)["instance_slug"], "org unchanged")
-
-	// The OLD domain is free again: a new registrant there gets a NEW identity.
-	docSrv.set(authkit.ApplicationDocument{
-		Slug:       "newowner-" + suffix,
-		Issuer:     docSrv.srv.URL + "/other", // distinct issuer
-		PublicKeys: []authkit.RemoteAppKey{staticKey(t, keyA)},
-	})
-	rec, body = postJSON(t, h, "/api/v1/applications/register", map[string]any{"domain": docSrv.srv.URL})
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	require.NotEqual(t, appID, body["application"].(map[string]any)["id"], "a re-registered old domain is a fresh identity")
 
 	// ---- approval is an admin act ----
 	ra2, err := core.SetApplicationTier(ctx, slug, "approved")

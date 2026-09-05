@@ -311,9 +311,6 @@ const (
 	// ErrLinkFailed is the link_failed AuthKit HTTP wire error code.
 	ErrLinkFailed ErrorCode = "link_failed"
 
-	// ErrMetadataKeyReserved is the metadata_key_reserved AuthKit HTTP wire error code.
-	ErrMetadataKeyReserved ErrorCode = "metadata_key_reserved"
-
 	// ErrMissingFields is the missing_fields AuthKit HTTP wire error code.
 	ErrMissingFields ErrorCode = "missing_fields"
 

@@ -2,21 +2,12 @@ package authhttp
 
 // Application self-registration HTTP surface (#264).
 //
-// POST /applications/register        — body {"domain": "..."}; the server-side
-//   fetch of https://<domain>/.well-known/authkit/application.json IS the
-//   domain-control proof. Create-or-reprove idempotency: re-registering the
-//   same domain refreshes keys/config from the re-fetched document (boot-time
-//   self-heal + rotation-from-root).
-// POST /applications/{slug}/rotate   — body {"jws": "<compact>"}; ACME-style
-//   per-message JWS signed by a currently-trusted key (convenience rotation).
-// POST /applications/{slug}/repoint  — body {"jws": "<compact>"}; signed
-//   request + fresh proof of the NEW domain moves the application.
-// POST /admin/applications/{slug}/tier — admin act (root:credentials:manage):
-//   registered|approved.
-//
-// No bearer auth on the first three: the domain proof / message signature IS
-// the authentication (a stolen bearer can be replayed; a signed message with a
-// tight iat window cannot, and registration has no bearer to present yet).
+// POST /applications/register — body {"domain": "..."}; the server-side fetch
+// of https://<domain>/.well-known/authkit/application.json IS the
+// domain-control proof. Create-or-reprove idempotency: re-registering the same
+// domain refreshes keys/config from the re-fetched document (boot-time
+// self-heal + rotation-from-root). No bearer auth: the domain proof IS the
+// authentication, and registration has no bearer to present yet.
 
 import (
 	"errors"
@@ -118,68 +109,4 @@ func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.R
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, registeredApplicationJSON(reg))
-}
-
-func (s *Service) handleApplicationRotatePOST(w http.ResponseWriter, r *http.Request) {
-	s.handleSignedApplicationRequest(w, r, "rotate")
-}
-
-func (s *Service) handleApplicationRepointPOST(w http.ResponseWriter, r *http.Request) {
-	s.handleSignedApplicationRequest(w, r, "repoint")
-}
-
-func (s *Service) handleSignedApplicationRequest(w http.ResponseWriter, r *http.Request, op string) {
-	if s.rateLimited(w, r, RLApplicationRotate) {
-		return
-	}
-	slug := strings.ToLower(strings.TrimSpace(r.PathValue("slug")))
-	if slug == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimitedByIdentifier(w, r, RLApplicationRotate, slug) {
-		return
-	}
-	var req struct {
-		JWS string `json:"jws"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.JWS) == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	switch op {
-	case "rotate":
-		app, err := s.svc.RotateApplicationSigned(r.Context(), slug, strings.TrimSpace(req.JWS))
-		if err != nil {
-			s.writeApplicationError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"application": applicationJSON(*app)})
-	case "repoint":
-		reg, err := s.svc.RepointApplicationSigned(r.Context(), slug, strings.TrimSpace(req.JWS))
-		if err != nil {
-			s.writeApplicationError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, registeredApplicationJSON(reg))
-	}
-}
-
-// handleAdminApplicationTierPOST is the admin approval act: tier
-// registered|approved. Gated by root:credentials:manage (see APIRoutes).
-func (s *Service) handleAdminApplicationTierPOST(w http.ResponseWriter, r *http.Request) {
-	slug := strings.ToLower(strings.TrimSpace(r.PathValue("slug")))
-	var req struct {
-		Tier string `json:"tier"`
-	}
-	if err := decodeJSON(r, &req); err != nil || slug == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	app, err := s.svc.SetApplicationTier(r.Context(), slug, req.Tier)
-	if err != nil {
-		s.writeApplicationError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"application": applicationJSON(*app)})
 }
