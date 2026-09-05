@@ -811,6 +811,24 @@ GET  /api/v1/capabilities
 POST /api/v1/oidc/{provider}/link/start
 ```
 
+### In-process passkey ceremonies (ak#279)
+
+The `/passkeys/*` routes cover browser login and passkey management. A host
+that runs its own WebAuthn page (for example, a phone approving a device) uses
+the same engine directly on `*embedded.Client`; every finish consumes its
+ceremony once and only for the purpose it was begun with, and every ceremony
+keeps the RP/origin binding, user-verification, clone and liveness checks of
+the login route.
+
+| Pair | Result |
+| --- | --- |
+| `BeginDiscoverablePasskeyVerification` / `Finish…(response)` | `VerifiedPasskey{UserID, PasskeyID, CredentialID, BackupEligible, BackupState}` — identity proof only, no session/token/cookie. The host binds it to its own pending operation. |
+| `BeginPasskeyAccount` / `FinishPasskeyAccount(response)` | A new user with no email/username/password whose uuidv7 is both the user id and the WebAuthn user handle, plus its passkey, inserted in one transaction. Requires `Registration.NativeUserMode` open; the ceremony demands a resident credential and user verification. |
+| `BeginPasskeyRegistration(userID)` / `FinishPasskeyRegistration` or `FinishPasskeyReplacement` | Add a passkey to an identified user, or register it and tombstone every prior active passkey in the same transaction (single-passkey hosts). A failed or replayed replacement leaves the current passkey active. |
+
+The host still gates who may call these (fresh authentication for replacement,
+its own rate limits), and never treats a `VerifiedPasskey` as a session.
+
 ### Immutable permission scopes
 
 Resolve each request's group name once and pass its UUID to `PermissionScope.GroupID`.

@@ -59,6 +59,7 @@ type twoFactorData struct {
 }
 
 type passkeyCeremonyData struct {
+	Purpose string `json:"purpose"`
 	UserID  string `json:"user_id,omitempty"`
 	Session []byte `json:"session"`
 }

@@ -181,14 +181,19 @@ the authenticated well-known publisher/resolver, and stable document errors.
 `verify.Verifier.VerifyDocument` reuses the registered issuer/JWKS cache and
 key-rotation refresh. AuthKit treats `Envelope.Payload` as opaque JSON.
 
-**Passkeys are HTTP-transport-driven (no facade methods, by design).** The WebAuthn
-ceremony methods (`BeginPasskeyRegistration`/`Finish…`, `BeginPasskeyLogin`/`Finish…`,
-`ListPasskeys`, `RenamePasskey`, `DeletePasskey`) live on `internal/authcore` and are
-exercised through the `RoutePasskeys` HTTP routes ([§5.3](#53-static-api-route-table-covered)),
-not the `authkit.Client` interface. The covered passkey **library** surface is therefore the
-`PasskeyConfig` ([§7.3](#73-config-surface)), the `Passkey` / `PasskeyLoginResult` types,
-and the `ErrPasskey*` sentinels below; the ceremony request/response JSON bodies follow the
-W3C WebAuthn standard (`navigator.credentials.create`/`get`) and are exercised via the routes.
+**Passkeys: browser flows are HTTP-transport-driven; in-process ceremonies live on
+`*embedded.Client` (ak#279).** `BeginPasskeyLogin`/`Finish…`, `ListPasskeys`, `RenamePasskey`
+and `DeletePasskey` live on `internal/authcore` and are exercised through the `RoutePasskeys`
+HTTP routes ([§5.3](#53-static-api-route-table-covered)). Hosts that drive WebAuthn themselves
+get, on the concrete `*embedded.Client` (not the `authkit.Client` interface, which stays free of
+`go-webauthn` types): `BeginDiscoverablePasskeyVerification`/`Finish…` (identity proof, no
+session), `BeginPasskeyAccount`/`Finish…` (passkey-only user), `BeginPasskeyRegistration` with
+`FinishPasskeyRegistration` (add) or `FinishPasskeyReplacement` (atomic single-passkey rotate).
+The covered passkey **library** surface is therefore those methods, the `PasskeyConfig`
+([§7.3](#73-config-surface)), the `Passkey` / `PasskeyLoginResult` / `VerifiedPasskey` /
+`PendingPasskeyAccount` types, and the `ErrPasskey*` sentinels below; the ceremony
+request/response JSON bodies follow the W3C WebAuthn standard
+(`navigator.credentials.create`/`get`).
 
 **Passwordless & refresh-token exchange are HTTP-transport-driven (relocated off `Client`, #201).**
 Like Passkeys, these are browser/end-user request flows, not backend-embedder capabilities, so the
@@ -200,7 +205,7 @@ passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the
 
 **`Client` interface membership rule (#201) — governs what may be ADDED to the contract too:**
 1. **Layer test.** The Go `Client` is the *backend embedder's* capability surface. A method belongs on
-   it only if a server calls it in-process; a browser/end-user request flow (passkeys, passwordless,
+   it only if a server calls it in-process; a browser/end-user request flow (passkey login, passwordless,
    refresh exchange) belongs on the HTTP layer only.
 2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKeyWithOptions`
    ⇒ `RevokeAPIKey`) — removing one arm is a footgun.
@@ -247,7 +252,8 @@ may never acquire an email-shaped field), `UserLiveness` (#267), `AdminUser`, `A
 `AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`,
 `ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
 `SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
-`PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `PasswordlessStartRequest`,
+`PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `VerifiedPasskey`, `PendingPasskeyAccount`,
+`PasswordlessStartRequest`,
 `PasswordlessStartResult`, `PasswordlessConfirmResult`, `APIKey`, `APIKeyMintOptions`, `APIKeyResource` (alias),
 `ResolvedAPIKey` (alias), `TwoFactorSettings`, `TwoFactorFactor`, `MFAStatus`,
 `RemovedMFARoleAssignment`, `VerificationMessage`, `SolanaLinkedAccount`, `ValidationError`.

@@ -8,11 +8,47 @@ import (
 	"crypto"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
+
+// Passkey ceremonies for hosts that drive WebAuthn in-process (ak#279). Every
+// finish consumes its ceremony exactly once and only for the purpose it was
+// begun with. The verification pair proves identity without minting a session;
+// the account pair creates a passkey-only user; BeginPasskeyRegistration is
+// finished by either FinishPasskeyRegistration (add) or
+// FinishPasskeyReplacement (register then tombstone every prior passkey, atomically).
+
+func (s *Client) BeginDiscoverablePasskeyVerification(ctx context.Context) (*protocol.CredentialAssertion, error) {
+	return s.impl.BeginDiscoverablePasskeyVerification(ctx)
+}
+
+func (s *Client) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (VerifiedPasskey, error) {
+	return s.impl.FinishDiscoverablePasskeyVerification(ctx, response)
+}
+
+func (s *Client) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount, error) {
+	return s.impl.BeginPasskeyAccount(ctx)
+}
+
+func (s *Client) FinishPasskeyAccount(ctx context.Context, response []byte) (*authkit.User, Passkey, error) {
+	return s.impl.FinishPasskeyAccount(ctx, response)
+}
+
+func (s *Client) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
+	return s.impl.BeginPasskeyRegistration(ctx, userID)
+}
+
+func (s *Client) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
+	return s.impl.FinishPasskeyRegistration(ctx, userID, response)
+}
+
+func (s *Client) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
+	return s.impl.FinishPasskeyReplacement(ctx, userID, response)
+}
 
 func (s *Client) AdminGetUser(ctx context.Context, id string) (*authkit.AdminUser, error) {
 	return s.impl.AdminGetUser(ctx, id)
