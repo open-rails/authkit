@@ -26,7 +26,7 @@ type countingSource struct {
 	listErr error
 }
 
-func (s *countingSource) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
+func (s *countingSource) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.list++

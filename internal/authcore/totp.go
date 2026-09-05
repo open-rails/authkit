@@ -67,10 +67,20 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	return secret, buildTOTPURI(s.cfg.Token.Issuer, label, secret), nil
 }
 
+// TOTPEnrollment completes a pending authenticator-app enrollment: Code is the
+// current TOTP for the pending secret; MakeDefault promotes it to the user's
+// default second factor; Mode is the deployment's factor-enrollment policy.
+type TOTPEnrollment struct {
+	UserID      string
+	Code        string
+	MakeDefault bool
+	Mode        FactorEnrollmentMode
+}
+
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
-// the user, returning fresh backup codes. makeDefault sets it as the user's default
-// second factor.
-func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
+// the user, returning fresh backup codes.
+func (s *Service) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string, error) {
+	userID, code, makeDefault, mode := in.UserID, in.Code, in.MakeDefault, in.Mode
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return nil, Err2FAMethodUnavailable
 	}

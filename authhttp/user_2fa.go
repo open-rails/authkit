@@ -168,7 +168,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), claims.UserID, req.Code, req.Default, mode)
+		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), authcore.TOTPEnrollment{UserID: claims.UserID, Code: req.Code, MakeDefault: req.Default, Mode: mode})
 		if errors.Is(err, authkit.ErrTwoFAFactorExists) {
 			sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
 			return

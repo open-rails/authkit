@@ -21,10 +21,7 @@ type memRemoteAppSource struct {
 	apps []authkit.RemoteApplication
 }
 
-func (m *memRemoteAppSource) ListRemoteApplications(_ context.Context, enabledOnly bool) ([]authkit.RemoteApplication, error) {
-	if !enabledOnly {
-		return m.apps, nil
-	}
+func (m *memRemoteAppSource) ListEnabledRemoteApplications(_ context.Context) ([]authkit.RemoteApplication, error) {
 	var out []authkit.RemoteApplication
 	for _, a := range m.apps {
 		if a.Enabled {
@@ -354,7 +351,7 @@ func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, a
 func (e *ceilingEnricher) ResolveAPIKeyDetailed(context.Context, string, string) (authkit.ResolvedAPIKey, error) {
 	return authkit.ResolvedAPIKey{}, errors.New("unused")
 }
-func (e *ceilingEnricher) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
+func (e *ceilingEnricher) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
 	return []authkit.RemoteApplication{{ID: e.appID, Issuer: e.issuer, Enabled: true}}, nil
 }
 func (e *ceilingEnricher) ResolveRemoteAppAttributeDef(context.Context, string, string, int32) (*authkit.RemoteAppAttributeDef, error) {

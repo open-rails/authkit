@@ -31,7 +31,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
-	_, err = srv.svc.EnableTOTP2FA(ctx, user.ID, testTOTPCode(t, secret, step), true, authcore.FirstFactorOnly)
+	_, err = srv.svc.EnableTOTP2FA(ctx, authcore.TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authcore.FirstFactorOnly})
 	require.NoError(t, err)
 
 	publicKey, privateKey := newDeviceKey(t)

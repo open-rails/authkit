@@ -64,7 +64,19 @@ type RemoteAppKey = authkit.RemoteAppKey
 // list means static, otherwise jwks. It is the single validation gate so the XOR
 // rule cannot be bypassed. allowInsecureJWKS relaxes the https/private-address
 // jwks_uri checks (Applications.AllowPrivateNetworkJWKS; local federation only).
-func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteAppKey, allowInsecureJWKS bool) (string, error) {
+// TrustSourcePolicy relaxes remote-application trust-source validation.
+// AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
+// development only; production leaves it off, see Config.Applications).
+type TrustSourcePolicy struct {
+	AllowPrivateNetworkJWKS bool
+}
+
+func (s *Service) trustSourcePolicy() TrustSourcePolicy {
+	return TrustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
+}
+
+func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteAppKey, policy TrustSourcePolicy) (string, error) {
+	allowInsecureJWKS := policy.AllowPrivateNetworkJWKS
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	jwksURI = strings.TrimSpace(jwksURI)
 	if mode == "" {
@@ -229,7 +241,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, ErrInvalidRemoteApplication
 	}
-	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.cfg.Applications.AllowPrivateNetworkJWKS)
+	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +304,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	}
 	// Issuer lookups are verification-facing: a disabled application must fail
 	// closed on the next request, not at the next reconcile (#323). Admin reads
-	// use GetRemoteApplicationBySlug / ListRemoteApplications(false).
+	// use GetRemoteApplicationBySlug / ListRemoteApplications.
 	if !row.Enabled {
 		return nil, ErrRemoteApplicationNotFound
 	}
@@ -318,27 +330,34 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 	return remoteAppFromRow(row), nil
 }
 
-// ListRemoteApplications returns registered remote_applications. When activeOnly
-// is true, only enabled rows are returned.
-func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error) {
+// ListRemoteApplications returns every registered remote_application,
+// enabled or not (the admin read).
+func (s *Service) ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
-	}
-	var out []RemoteApplication
-	if activeOnly {
-		rows, err := s.q.RemoteApplicationsEnabled(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			out = append(out, *remoteAppFromRow(remoteAppRow(r)))
-		}
-		return out, nil
 	}
 	rows, err := s.q.RemoteApplicationsAll(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var out []RemoteApplication
+	for _, r := range rows {
+		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
+	}
+	return out, nil
+}
+
+// ListEnabledRemoteApplications returns only the enabled remote_applications:
+// the verification-facing snapshot a Verifier trusts issuers from.
+func (s *Service) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	rows, err := s.q.RemoteApplicationsEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []RemoteApplication
 	for _, r := range rows {
 		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
 	}
@@ -350,11 +369,11 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 // instanceSlug) (#111). It resolves the group via the store, then filters
 // remote_applications by permission_group_id so a per-persona management caller
 // sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, instanceSlug string) ([]RemoteApplication, error) {
+func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return nil, err
 	}

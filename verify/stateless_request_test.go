@@ -27,7 +27,7 @@ func (e failEnricher) GetRemoteApplication(context.Context, string) (*authkit.Re
 	e.t.Fatalf("GetRemoteApplication called on the stateless native-user path")
 	return nil, nil
 }
-func (e failEnricher) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
+func (e failEnricher) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
 	e.t.Fatalf("ListRemoteApplications called on the stateless native-user path")
 	return nil, nil
 }
