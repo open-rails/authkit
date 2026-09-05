@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 )
 
 type userMeResponse struct {
+	Naming                            authkit.NamingState             `json:"naming"`
 	ID                                string                          `json:"id"`
 	Email                             *string                         `json:"email"`
 	PhoneNumber                       *string                         `json:"phone_number"`
@@ -163,11 +165,21 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	// trying. Same computation the PATCH /user/username 429 path uses; a
 	// lookup failure degrades to omitting the entry rather than failing /me.
 	var availability []ActionAvailability
-	if renameSeconds, renameErr := s.svc.TimeUntilUsernameRenameAvailable(r.Context(), adminUser.ID, time.Now()); renameErr == nil {
-		availability = append(availability, cooldownAvailability(ActionUpdateUsername, renameSeconds, 72*time.Hour, time.Now()))
+	namingState, namingErr := s.svc.UserNamingState(r.Context(), adminUser.ID)
+	if namingErr == nil {
+		entry := ActionAvailability{Action: ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
+		if !namingState.Policy.Enabled {
+			entry.Reason = "renames_disabled"
+		} else {
+			entry.Reason = "cooldown"
+		}
+		seconds := int64(namingState.Policy.RenameInterval / time.Second)
+		entry.CooldownSeconds = &seconds
+		availability = append(availability, entry)
 	}
 
 	resp := userMeResponse{
+		Naming:                            namingState,
 		ID:                                adminUser.ID,
 		Email:                             adminUser.Email,
 		PhoneNumber:                       adminUser.PhoneNumber,

@@ -205,50 +205,6 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 	return i, err
 }
 
-const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE username = $1
-`
-
-type UserByUsernameRow struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	LastLogin     *time.Time
-}
-
-func (q *Queries) UserByUsername(ctx context.Context, username *string) (UserByUsernameRow, error) {
-	row := q.db.QueryRow(ctx, userByUsername, username)
-	var i UserByUsernameRow
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.PhoneNumber,
-		&i.Username,
-		&i.EmailVerified,
-		&i.PhoneVerified,
-		&i.BannedAt,
-		&i.BannedUntil,
-		&i.BanReason,
-		&i.BannedBy,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.LastLogin,
-	)
-	return i, err
-}
-
 const userClearBan = `-- name: UserClearBan :exec
 UPDATE profiles.users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1
 `
@@ -270,12 +226,13 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
 	Email    string
 	Username string
+	AtTime   time.Time
 }
 
 type UserEmailOrUsernameTakenRow struct {
@@ -284,21 +241,24 @@ type UserEmailOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrUsernameTakenParams) (UserEmailOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken, arg.Email, arg.Username)
+	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken, arg.Email, arg.Username, arg.AtTime)
 	var i UserEmailOrUsernameTakenRow
 	err := row.Scan(&i.EmailTaken, &i.UsernameTaken)
 	return i, err
 }
 
 const userImportInsert = `-- name: UserImportInsert :exec
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',$4::text,$1::uuid,$14::timestamptz)
+)
 INSERT INTO profiles.users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
-VALUES (
+SELECT
   $1::uuid, $2, $3, $4, $5, $6,
   $7, $8, $9, $10::uuid, $11::jsonb, $12, $13
-)
+FROM claim
 `
 
 type UserImportInsertParams struct {
@@ -315,6 +275,7 @@ type UserImportInsertParams struct {
 	Metadata      []byte
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	AtTime        time.Time
 }
 
 func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertParams) error {
@@ -332,6 +293,7 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 		arg.Metadata,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.AtTime,
 	)
 	return err
 }
@@ -392,8 +354,11 @@ func (q *Queries) UserImportUpdate(ctx context.Context, arg UserImportUpdatePara
 }
 
 const userInsert = `-- name: UserInsert :one
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
+)
 INSERT INTO profiles.users (id, email, username)
-VALUES ($1::uuid, NULLIF(lower($2::text), ''), $3)
+SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at
 `
 
@@ -401,6 +366,7 @@ type UserInsertParams struct {
 	ID       string
 	Email    string
 	Username *string
+	AtTime   time.Time
 }
 
 type UserInsertRow struct {
@@ -413,7 +379,12 @@ type UserInsertRow struct {
 }
 
 func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserInsertRow, error) {
-	row := q.db.QueryRow(ctx, userInsert, arg.ID, arg.Email, arg.Username)
+	row := q.db.QueryRow(ctx, userInsert,
+		arg.ID,
+		arg.Email,
+		arg.Username,
+		arg.AtTime,
+	)
 	var i UserInsertRow
 	err := row.Scan(
 		&i.ID,
@@ -424,21 +395,6 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserIns
 		&i.DeletedAt,
 	)
 	return i, err
-}
-
-const userLastRenamedAt = `-- name: UserLastRenamedAt :one
-SELECT renamed_at
-FROM   profiles.user_renames
-WHERE  user_id = $1::uuid
-ORDER  BY renamed_at DESC
-LIMIT  1
-`
-
-func (q *Queries) UserLastRenamedAt(ctx context.Context, userID string) (time.Time, error) {
-	row := q.db.QueryRow(ctx, userLastRenamedAt, userID)
-	var renamed_at time.Time
-	err := row.Scan(&renamed_at)
-	return renamed_at, err
 }
 
 const userPasswordInsert = `-- name: UserPasswordInsert :exec
@@ -500,12 +456,13 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {
 	Phone    string
 	Username string
+	AtTime   time.Time
 }
 
 type UserPhoneOrUsernameTakenRow struct {
@@ -514,7 +471,7 @@ type UserPhoneOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserPhoneOrUsernameTaken(ctx context.Context, arg UserPhoneOrUsernameTakenParams) (UserPhoneOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken, arg.Phone, arg.Username)
+	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken, arg.Phone, arg.Username, arg.AtTime)
 	var i UserPhoneOrUsernameTakenRow
 	err := row.Scan(&i.PhoneTaken, &i.UsernameTaken)
 	return i, err
@@ -531,21 +488,6 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 	var language string
 	err := row.Scan(&language)
 	return language, err
-}
-
-const userRenameInsert = `-- name: UserRenameInsert :exec
-INSERT INTO profiles.user_renames (user_id, from_slug)
-VALUES ($1::uuid, $2)
-`
-
-type UserRenameInsertParams struct {
-	UserID   string
-	FromSlug string
-}
-
-func (q *Queries) UserRenameInsert(ctx context.Context, arg UserRenameInsertParams) error {
-	_, err := q.db.Exec(ctx, userRenameInsert, arg.UserID, arg.FromSlug)
-	return err
 }
 
 const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
@@ -671,20 +613,6 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 	return err
 }
 
-const userSetUsername = `-- name: UserSetUsername :exec
-UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetUsernameParams struct {
-	ID       string
-	Username *string
-}
-
-func (q *Queries) UserSetUsername(ctx context.Context, arg UserSetUsernameParams) error {
-	_, err := q.db.Exec(ctx, userSetUsername, arg.ID, arg.Username)
-	return err
-}
-
 const userSoftDelete = `-- name: UserSoftDelete :exec
 UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1
 `
@@ -694,23 +622,17 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 	return err
 }
 
-const userUsernameByID = `-- name: UserUsernameByID :one
-SELECT username::text FROM profiles.users WHERE id = $1::uuid
+const userUsernameExists = `-- name: UserUsernameExists :one
+SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1::text) AND (canonical OR expires_at IS NULL OR expires_at>$2::timestamptz))
 `
 
-func (q *Queries) UserUsernameByID(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, userUsernameByID, id)
-	var username string
-	err := row.Scan(&username)
-	return username, err
+type UserUsernameExistsParams struct {
+	Username string
+	AtTime   time.Time
 }
 
-const userUsernameExists = `-- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1)
-`
-
-func (q *Queries) UserUsernameExists(ctx context.Context, username *string) (bool, error) {
-	row := q.db.QueryRow(ctx, userUsernameExists, username)
+func (q *Queries) UserUsernameExists(ctx context.Context, arg UserUsernameExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userUsernameExists, arg.Username, arg.AtTime)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -107,3 +108,8 @@ func WithSolanaSNSResolver(r SolanaSNSResolver) Option {
 
 // WithSMSSender sets the SMS provider.
 func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = sender } }
+
+// WithNameAdmission supplies a side-effect-free host namespace policy for creation and rename.
+func WithNameAdmission(check func(context.Context, authkit.NameAdmissionRequest) error) Option {
+	return func(s *Service) { s.nameAdmission = check }
+}

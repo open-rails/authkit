@@ -61,22 +61,6 @@ func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.
 	return out
 }
 
-func cooldownAvailability(action string, retryAfterSeconds int64, cooldown time.Duration, now time.Time) ActionAvailability {
-	if retryAfterSeconds < 0 {
-		retryAfterSeconds = 0
-	}
-	next := now.Add(time.Duration(retryAfterSeconds) * time.Second).UTC()
-	cooldownSeconds := int64(math.Ceil(cooldown.Seconds()))
-	return ActionAvailability{
-		Action:            action,
-		Allowed:           retryAfterSeconds == 0,
-		Reason:            ratelimit.ReasonCooldown,
-		RetryAfterSeconds: retryAfterSeconds,
-		NextAllowedAt:     &next,
-		CooldownSeconds:   &cooldownSeconds,
-	}
-}
-
 func actionForRateLimitBucket(bucket string) string {
 	switch bucket {
 	case RLPasswordResetRequest:

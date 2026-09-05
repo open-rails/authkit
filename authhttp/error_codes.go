@@ -9,6 +9,8 @@ type ErrorCode string
 func (c ErrorCode) String() string { return string(c) }
 
 const (
+	ErrRenamesDisabled      ErrorCode = "renames_disabled"
+	ErrNameAdmissionRefused ErrorCode = "name_admission_refused"
 	// ErrTwoFAFactorExists rejects enrollment when the permitted factor slot is occupied.
 	ErrTwoFAFactorExists ErrorCode = "2fa_factor_exists"
 

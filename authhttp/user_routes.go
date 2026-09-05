@@ -30,16 +30,25 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
+		if errors.Is(err, authkit.ErrUsernameInUse) {
+			badRequest(w, ErrUsernameInUse)
+			return
+		}
 		if errors.Is(err, authkit.ErrOwnerSlugTaken) {
 			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
-		if err == authkit.ErrRenameRateLimited {
-			seconds, _ := s.svc.TimeUntilUsernameRenameAvailable(r.Context(), claims.UserID, time.Now())
-			availability := cooldownAvailability(ActionUpdateUsername, seconds, 72*time.Hour, time.Now())
-			data := availability.toMap()
-			data["time_until_rename_available"] = seconds
-			sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, data)
+		if errors.Is(err, authkit.ErrRenamesDisabled) || errors.Is(err, authkit.ErrNameAdmissionRefused) {
+			sendErr(w, http.StatusForbidden, ErrorCode(authkit.CodeForError(err)))
+			return
+		}
+		if errors.Is(err, authkit.ErrRenameRateLimited) {
+			state, stateErr := s.svc.UserNamingState(r.Context(), claims.UserID)
+			if stateErr != nil {
+				serverErr(w, ErrDatabaseError)
+				return
+			}
+			sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(state.Policy.RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": ActionUpdateUsername})
 			return
 		}
 		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
@@ -49,7 +58,17 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		badRequest(w, ErrFailedToUpdateUsername)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time_until_rename_available": int64(0)})
+	state, err := s.svc.UserNamingState(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
+	}
+	users, err := s.svc.PublicUsersByIDs(r.Context(), []string{claims.UserID})
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": claims.UserID, "username": users[claims.UserID].Username, "time_until_rename_available": state.RetryAfterSeconds, "naming": state})
 }
 
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {

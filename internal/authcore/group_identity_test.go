@@ -15,7 +15,9 @@ func TestResolvedGroupIdentitySurvivesNamesAndDeletionRetries(t *testing.T) {
 	resolved, err := svc.GroupInstanceForSlug(ctx, "org", "original")
 	require.NoError(t, err)
 	require.Equal(t, group, resolved.ID)
-	require.NoError(t, svc.RenamePermissionGroupSlugAs(ctx, owner, "org", "original", "renamed"))
+	renamed := "renamed"
+	_, renameErr := svc.UpdateGroupInstanceAs(ctx, owner, group, authkit.GroupInstanceUpdate{Slug: &renamed})
+	require.NoError(t, renameErr)
 	current, err := svc.GroupInstanceByID(ctx, group)
 	require.NoError(t, err)
 	require.Equal(t, "renamed", current.InstanceSlug)

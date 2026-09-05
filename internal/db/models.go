@@ -128,23 +128,25 @@ type ProfilesMfaSetting struct {
 	UpdatedAt   time.Time
 }
 
+type ProfilesNameClaim struct {
+	OwnerKind string
+	Persona   string
+	Name      string
+	OwnerID   string
+	Canonical bool
+	ExpiresAt *time.Time
+}
+
 type ProfilesPermissionGroup struct {
 	ID       string
 	Persona  string
 	ParentID *string
 	// Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.
-	InstanceSlug *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DisplayName  string
-}
-
-// Renamed-away instance slugs, permanently reserved to their group; slug->id resolution forwards through them.
-type ProfilesPermissionGroupSlugTombstone struct {
-	Persona           string
-	Slug              string
-	PermissionGroupID string
-	CreatedAt         time.Time
+	InstanceSlug  *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DisplayName   string
+	LastRenamedAt *time.Time
 }
 
 type ProfilesRefreshSession struct {
@@ -257,7 +259,8 @@ type ProfilesUser struct {
 	// User communication/auth language, e.g. en, es, de, ko, zh
 	PreferredLanguage *string
 	// Host-supplied avatar URL/key string; blob storage is host-owned
-	AvatarUrl *string
+	AvatarUrl     *string
+	LastRenamedAt *time.Time
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

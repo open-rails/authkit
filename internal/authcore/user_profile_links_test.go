@@ -47,7 +47,7 @@ func TestUserProfileLinks(t *testing.T) {
 	if !has(slugs, "google") || !has(slugs, "github") {
 		t.Fatalf("expected provider slugs google+github, got %v", slugs)
 	}
-	if !has(aliases, "oldname") {
-		t.Fatalf("expected alias oldname, got %v", aliases)
+	if has(aliases, "oldname") {
+		t.Fatalf("historical spelling must not imply an active alias: %v", aliases)
 	}
 }

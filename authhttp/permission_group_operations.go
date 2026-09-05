@@ -668,6 +668,20 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 // that matches none of them is a genuine unclassified failure (500).
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, authkit.ErrRenamesDisabled):
+		forbidden(w, ErrRenamesDisabled)
+		return
+	case errors.Is(err, authkit.ErrNameAdmissionRefused):
+		forbidden(w, ErrNameAdmissionRefused)
+		return
+	case errors.Is(err, authkit.ErrRenameRateLimited):
+		var cooldown *authkit.RenameCooldownError
+		data := map[string]any{}
+		if errors.As(err, &cooldown) {
+			data["next_rename_at"] = cooldown.NextRenameAt
+		}
+		sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, data)
+		return
 	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
 		s.send2FAEnrollmentRequiredError(w)
 		return
@@ -804,7 +818,13 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 		s.writeGroupOpError(w, err)
 		return
 	}
+	state, err := s.svc.GroupNamingState(r.Context(), inst.ID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"naming":        state,
 		"ok":            true,
 		"group_id":      inst.ID,
 		"persona":       inst.Persona,
@@ -815,9 +835,8 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 
 // groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):
 // display-name changes and slug renames, gated by <persona>:settings:manage
-// (the owner holds it via the wildcard). A rename tombstones the old slug —
-// permanently reserved to this group, forwarding through slug resolution — so
-// published references keep resolving and nobody can ever re-claim it.
+// (the owner holds it via the wildcard). The captured UUID is retained through
+// authorization, slug rename and display-name mutation in one transaction.
 func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	var req struct {
 		Slug        *string `json:"slug"`
@@ -843,28 +862,20 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, i
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	slug := instanceSlug
-	if req.Slug != nil {
-		newSlug := strings.ToLower(strings.TrimSpace(*req.Slug))
-		if newSlug == "" {
-			badRequest(w, ErrInvalidRequest)
-			return
-		}
-		if err := s.svc.RenamePermissionGroupSlugAs(r.Context(), claims.UserID, persona, instanceSlug, newSlug); err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
-		slug = newSlug
+	inst, err := s.svc.GroupInstanceForSlug(r.Context(), persona, instanceSlug)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	if req.DisplayName != nil {
-		if err := s.svc.SetPermissionGroupDisplayName(r.Context(), persona, slug, *req.DisplayName); err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
+	updated, err := s.svc.UpdateGroupInstanceAs(r.Context(), claims.UserID, inst.ID, authkit.GroupInstanceUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	resp := map[string]any{"ok": true, "persona": persona, "instance_slug": slug}
-	if req.DisplayName != nil {
-		resp["display_name"] = strings.TrimSpace(*req.DisplayName)
+	state, err := s.svc.GroupNamingState(r.Context(), updated.ID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": updated.ID, "persona": updated.Persona, "instance_slug": updated.InstanceSlug, "display_name": updated.DisplayName, "naming": state})
 }

@@ -64,7 +64,7 @@ func newInstanceCreateServer(t *testing.T, opts ...Option) (*Service, *embedded.
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona = 'org'`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_group_slug_tombstones WHERE persona = 'org'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.name_claims WHERE owner_kind='group' AND persona = 'org'`)
 	})
 	return srv, client
 }

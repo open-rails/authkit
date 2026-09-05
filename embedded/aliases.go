@@ -196,3 +196,11 @@ var WithEntitlements = authcore.WithEntitlements
 var WithPostgres = authcore.WithPostgres
 var WithSMSSender = authcore.WithSMSSender
 var WithSessionRevokeReason = authcore.WithSessionRevokeReason
+
+var WithNameAdmission = authcore.WithNameAdmission
+
+// WithResolvedGroup retains an already-authorized group UUID for one request's
+// original persona/reference. It grants no permission, rechecks liveness, and
+// never falls back to a new name owner after deletion. Other references resolve
+// normally. Use the same context for subsequent group operations.
+var WithResolvedGroup = authcore.WithResolvedGroup
