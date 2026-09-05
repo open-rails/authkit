@@ -88,9 +88,6 @@ remote applications, and group role assignments.
 | GET | `{api}/register/availability` | registration | public | `auth_register_availability` |  |
 | POST | `{api}/register/resend` | registration | public | `auth_register_resend` | Registration.NativeUserMode != closed |
 | GET | `{api}/me` | account | required | `auth_user_me` |  |
-| GET | `{api}/me/group-invites` | account | required |  |  |
-| POST | `{api}/me/group-invites/{id}/accept` | account | required |  |  |
-| POST | `{api}/me/group-invites/{id}/decline` | account | required |  |  |
 | GET | `{api}/me/groups` | account | required |  | RBAC persona profile |
 | GET | `{api}/me/permissions` | account | required |  |  |
 | POST | `{api}/oidc/{provider}/link/start` | account | required |  | Identity.Providers |
@@ -297,14 +294,6 @@ For each configured persona, AuthKit emits only the route families enabled by
 that persona's management profile:
 
 Built-in `root` emits member-management plus role-list routes by default.
-
-Self-service membership (the caller's OWN auth, not `members:manage`):
-
-Persona join policy: a persona declared with `RequireConsent: true` (in `Config.RBAC`)
-can never be silently direct-added into — every join routes through a consent invite the
-invitee accepts. Default is `false` (instant direct-add), which is what `root` uses.
-`RequireConsent` gates the JOIN only; changing or removing an existing member's role is
-admin authority and stays immediate.
 
 ---
 

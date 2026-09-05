@@ -24,10 +24,6 @@ type memberRequest struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email,omitempty"`
 	Role   string `json:"role"`
-	// Invite, when true and the subject is an EXISTING user, records a consent
-	// invite the user must accept/deny (#147 known-user path) instead of a silent
-	// direct add. Ignored for the unknown-email path (always a link invite).
-	Invite bool `json:"invite,omitempty"`
 }
 
 // groupMemberAdd assigns a subject (user) a role in the group. Idempotent at the
@@ -105,30 +101,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 			return
 		}
 		userID = u.ID
-	}
-	// #147/#193 consent invite: record a pending invite the existing user
-	// accepts/denies with their own auth instead of a silent add. The caller may
-	// opt in per-request (invite=true), OR the persona policy may MANDATE it
-	// (RequireConsent) — a persona with RequireConsent can never be silently
-	// direct-added into, so a requested direct-add is transparently upgraded to an
-	// invite. The persona policy is a floor: a request can ask for consent where it
-	// isn't required, never bypass it where it is.
-	if body.Invite || s.svc.PermissionGroupSchema().RequireConsent(group.Persona) {
-		inv, err := s.svc.CreateGroupMembershipInvite(r.Context(), actor.UserID, group, userID, role)
-		if err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"ok":            true,
-			"persona":       group.Persona,
-			"instance_slug": group.Instance,
-			"user_id":       userID,
-			"role":          role,
-			"invited":       true,
-			"invite_id":     inv.ID,
-		})
-		return
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
 	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, group, authkit.UserSubject(userID), role); err != nil {

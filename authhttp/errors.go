@@ -67,11 +67,10 @@ func wireCode(err error) (int, authkit.Code) {
 
 // notFoundCodes: the resource-not-found family answers one generic not_found.
 var notFoundCodes = map[error]authkit.Code{
-	authkit.ErrGroupNotFound:                 authkit.CodeNotFound,
-	authkit.ErrRemoteApplicationNotFound:     authkit.CodeNotFound,
-	authkit.ErrInviteLinkNotFound:            authkit.CodeNotFound,
-	authkit.ErrGroupMembershipInviteNotFound: authkit.CodeNotFound,
-	authkit.ErrPasskeyNotFound:               authkit.CodeNotFound,
+	authkit.ErrGroupNotFound:             authkit.CodeNotFound,
+	authkit.ErrRemoteApplicationNotFound: authkit.CodeNotFound,
+	authkit.ErrInviteLinkNotFound:        authkit.CodeNotFound,
+	authkit.ErrPasskeyNotFound:           authkit.CodeNotFound,
 }
 
 func sendErr(w http.ResponseWriter, status int, code authkit.Code) {

@@ -63,8 +63,6 @@ func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 		  WHERE redeemed_at < $1 OR revoked_at < $1 OR expires_at < $1`,
 		`DELETE FROM profiles.account_registration_invites
 		  WHERE consumed_at < $1 OR revoked_at < $1 OR expires_at < $1`,
-		`DELETE FROM profiles.group_membership_invites
-		  WHERE accepted_at < $1 OR declined_at < $1 OR revoked_at < $1 OR expires_at < $1`,
 	} {
 		if _, err := q.Exec(ctx, stmt, cutoff); err != nil {
 			return err

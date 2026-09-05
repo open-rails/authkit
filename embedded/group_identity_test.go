@@ -1,14 +1,40 @@
 package embedded
 
 import (
+	"context"
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
+// orgGroupTestService builds a schema with one "org" persona (member role) over
+// a scratch Postgres, seeded with containment and the root group.
+func orgGroupTestService(t *testing.T) (*Client, *testdb.Postgres, context.Context) {
+	t.Helper()
+	pg := testdb.ScratchPostgres(t)
+	ctx := context.Background()
+	gs, err := BuildSchema(PersonaDef{
+		Name: "org", Parent: RootPersona,
+		Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
+	})
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc.groupSchema = gs
+	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
+		t.Fatalf("SeedPermissionGroupContainment: %v", err)
+	}
+	if _, err := svc.EnsureRootGroup(ctx); err != nil {
+		t.Fatalf("EnsureRootGroup: %v", err)
+	}
+	return svc, pg, ctx
+}
+
 func TestResolvedGroupIdentitySurvivesNamesAndDeletionRetries(t *testing.T) {
-	svc, pg, ctx := inviteTestService(t, false)
+	svc, pg, ctx := orgGroupTestService(t)
 	owner, other := insertBareUser(t, pg.Pool), insertBareUser(t, pg.Pool)
 	group, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "original", OwnerSubjectID: owner})
 	require.NoError(t, err)

@@ -11,31 +11,6 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// TestPersonaRequireConsent covers the #193 per-persona join policy accessor and
-// the root-defaults-to-instant rule (no DB).
-func TestPersonaRequireConsent(t *testing.T) {
-	gs, err := BuildSchema(
-		IntrinsicRootPersona(), // root: RequireConsent defaults to false (instant)
-		PersonaDef{Name: "team", Parent: RootPersona, RequireConsent: true},
-		PersonaDef{Name: "repo", Parent: RootPersona}, // omitted => false
-	)
-	if err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	if gs.RequireConsent(RootPersona) {
-		t.Fatalf("root must default to instant (RequireConsent=false)")
-	}
-	if !gs.RequireConsent("team") {
-		t.Fatalf("team should require consent")
-	}
-	if gs.RequireConsent("repo") {
-		t.Fatalf("repo should be instant (RequireConsent unset)")
-	}
-	if gs.RequireConsent("nonexistent") {
-		t.Fatalf("unknown persona must default to false")
-	}
-}
-
 // TestLastOwnerGuard_DB: an actor-checked removal of the sole owner is refused
 // (it would orphan the group), so authority never silently vanishes.
 func TestLastOwnerGuard_DB(t *testing.T) {

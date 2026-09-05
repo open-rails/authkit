@@ -133,10 +133,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteAccount, Auth: AuthRequired, Bucket: RLAuthSessionsRevoke, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
 		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteAccount, Auth: AuthRequired, Bucket: RLAuthSessionsRevokeAll, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
 		{Method: http.MethodGet, Path: "/me", Group: RouteAccount, Auth: AuthRequired, Bucket: RLUserMe, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
-		// #147 known-user permission-group invites: accepted/declined with the caller's own auth.
-		{Method: http.MethodGet, Path: "/me/group-invites", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handleMeGroupInvitesGET))},
-		{Method: http.MethodPost, Path: "/me/group-invites/{id}/accept", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handleMeGroupInviteAccept))},
-		{Method: http.MethodPost, Path: "/me/group-invites/{id}/decline", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handleMeGroupInviteDecline))},
 		// #193 self-service leave: a user removes themself from a group with their own auth.
 		// #262 user-metadata surface (host-namespaced keys; authkit-internal
 		// flags are filtered from reads and rejected on writes).
