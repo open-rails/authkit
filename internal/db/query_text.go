@@ -21,7 +21,6 @@ var QueryText = map[string]string{
 	"SessionsEvictOldest":          sessionsEvictOldest,
 	"ProviderLinkByIssuer":         providerLinkByIssuer,
 	"UserProviderSlugs":            userProviderSlugs,
-	"ProviderLinkBySlug":           providerLinkBySlug, // gated since migration 003 added user_providers_slug_subject_idx
 	"UsersPurgeCandidates":         usersPurgeCandidates,
 	"SessionsRevokeFamily":         sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
 	// Batched GC sweep; gated since migration 013 added the dead/expires partial

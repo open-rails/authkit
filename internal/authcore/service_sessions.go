@@ -700,11 +700,6 @@ func ipText(ip net.IP) *string {
 	return &v
 }
 
-// Helper exposed for admin endpoints
-func (s *Service) AdminListUserSessions(ctx context.Context, userID string) ([]Session, error) {
-	return s.ListUserSessions(ctx, userID)
-}
-
 func (s *Service) AdminRevokeUserSessions(ctx context.Context, userID string) error {
 	return s.RevokeAllSessions(ctx, userID, nil)
 }

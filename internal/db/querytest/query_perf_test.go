@@ -138,14 +138,6 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"user_providers"},
 		},
 		{
-			// Social-login lookup by (provider_slug, subject). Indexed by
-			// user_providers_slug_subject_idx (migration 003); previously leaned on a
-			// skip scan whose cost grew with issuer count.
-			Name: "provider_by_slug_subject", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
-			SQL: db.QueryText["ProviderLinkBySlug"], Args: []any{"github", perfSubject(hot)},
-			ForbidSeqScan: []string{"user_providers"},
-		},
-		{
 			// Bounded by the partial users_deleted_at_idx (touches only deleted rows),
 			// then top-N sorts the LIMIT page — the planner's correct choice for a
 			// small eligible set, so no ForbidSort here. Gated for no full scan.

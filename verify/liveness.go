@@ -149,7 +149,7 @@ func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, authkit.UserLiv
 // live AND holds perm", in one call.
 //
 // It exists because both consumer hosts had independently written that
-// conjunction by hand, each bolting an IsUserAllowed call in front of
+// conjunction by hand, each bolting a liveness lookup in front of
 // verify.Allow — two gates a caller could get out of order, or forget one half
 // of. A banned user who still holds a permission assignment must be denied, and
 // that ordering is now the library's to guarantee, not the host's to remember.

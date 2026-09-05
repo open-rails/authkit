@@ -19,12 +19,6 @@ SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id = $1);
 -- name: UserProviderDeleteBySlug :exec
 DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2;
 
--- name: UserProviderUnverifiedForUpdate :one
-SELECT id
-FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NULL
-FOR UPDATE;
-
 -- name: UserProviderUpsertByIssuer :one
 INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -39,46 +33,9 @@ SELECT user_id, email_at_provider
 FROM profiles.user_providers
 WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL;
 
--- name: ProviderLinkByIssuerAny :one
-SELECT user_id, email_at_provider, verified_at
-FROM profiles.user_providers
-WHERE issuer = $1 AND subject = $2;
-
--- name: UserProviderByIssuerAny :one
-SELECT subject, verified_at
-FROM profiles.user_providers
-WHERE user_id = $1 AND issuer = $2;
-
--- name: ProviderLinkBySlug :one
-SELECT user_id, email_at_provider
-FROM profiles.user_providers
-WHERE provider_slug = $1 AND subject = $2 AND verified_at IS NOT NULL;
-
--- name: UserProviderImportUnverified :one
-INSERT INTO profiles.user_providers (
-  id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
-)
-VALUES ($1, $2, $3, $4, $5, sqlc.arg(profile)::jsonb, $6, NULL)
-ON CONFLICT DO NOTHING
-RETURNING id, user_id;
-
--- name: UserProviderVerifyImported :one
-UPDATE profiles.user_providers
-SET verified_at = now(),
-    profile = COALESCE(profile, '{}'::jsonb)
-      || jsonb_build_object('verification_required', false)
-WHERE user_id = $1 AND issuer = $2 AND subject = $3
-RETURNING verified_at;
-
 -- name: UserProviderSetUsername :exec
 UPDATE profiles.user_providers SET profile = jsonb_build_object('username', sqlc.arg(username)::text)
 WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL;
-
--- name: UserProviderUsername :one
-SELECT profile->>'username' AS username
-FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NOT NULL
-ORDER BY created_at DESC LIMIT 1;
 
 -- name: UserProviderMergeProfile :exec
 UPDATE profiles.user_providers

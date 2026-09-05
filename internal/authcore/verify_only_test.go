@@ -27,9 +27,6 @@ func TestVerifyOnlyServiceRejectsMinting(t *testing.T) {
 	if _, _, err := svc.MintServiceJWT(ctx, ServiceJWTMintOptions{}); !errors.Is(err, ErrMissingSigner) {
 		t.Fatalf("MintServiceJWT err=%v, want ErrMissingSigner", err)
 	}
-	if _, err := svc.MintCustomJWT(ctx, CustomJWTMintOptions{Claims: map[string]any{"k": "v"}}); !errors.Is(err, ErrMissingSigner) {
-		t.Fatalf("MintCustomJWT err=%v, want ErrMissingSigner", err)
-	}
 	if _, err := svc.MintDelegatedAccessToken(ctx, DelegatedAccessParams{}); !errors.Is(err, ErrMissingSigner) {
 		t.Fatalf("MintDelegatedAccessToken err=%v, want ErrMissingSigner", err)
 	}

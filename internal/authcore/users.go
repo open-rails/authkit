@@ -569,21 +569,3 @@ func (s *Service) UpdateAvatarURL(ctx context.Context, id string, avatarURL *str
 	}
 	return nil
 }
-
-// IsUserAllowed reports whether a user exists and passes access/ban checks.
-func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
-	if s.pg == nil {
-		return true, nil
-	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return false, err
-	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		if errors.Is(err, ErrUserBanned) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}

@@ -172,37 +172,6 @@ func (s *Service) sendAccountRegistrationInviteEmail(ctx context.Context, email,
 	}
 }
 
-func (s *Service) RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	inviteID = strings.TrimSpace(inviteID)
-	actorUserID = strings.TrimSpace(actorUserID)
-	if inviteID == "" || actorUserID == "" {
-		return authkit.ErrInvalidInvite
-	}
-	ok, err := s.Can(ctx, actorUserID, SubjectKindUser, RootPersona, "", PermRootUsersInvite)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrInsufficientRoleAuthority
-	}
-	q := db.ForSchema(s.pg, s.dbSchema())
-	tag, err := q.Exec(ctx,
-		`UPDATE profiles.account_registration_invites
-		 SET revoked_at = now(), updated_at = now()
-		 WHERE id = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL`,
-		inviteID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrAccountRegistrationInviteNotFound
-	}
-	return nil
-}
-
 func (s *Service) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
 	// #147 FINAL: the stranger invite is UNBOUND — the single-use code is the
 	// credential, not the address it was delivered to. We check only that a valid,

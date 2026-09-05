@@ -125,7 +125,7 @@ func TestPasswordReset_GatedAccountWritesNothing(t *testing.T) {
 	require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, time.Minute))
 	_, err = svc.ConfirmPasswordReset(ctx, token, "New-password-12345")
 	require.ErrorIs(t, err, ErrUserBanned)
-	require.False(t, svc.VerifyUserPassword(ctx, u.ID, "New-password-12345"), "no hash may be written for a gated account")
+	require.False(t, svc.CheckUserPassword(ctx, u.ID, "New-password-12345") == nil, "no hash may be written for a gated account")
 }
 
 // The reserved-account lookup is part of the liveness gate every login and

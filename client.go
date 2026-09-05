@@ -8,20 +8,15 @@ import (
 // Client is composed from the small topic interfaces below (#143). Each one is a
 // cohesive slice a host can depend on instead of the whole surface: a login
 // service needs Users + Passwords, a token layer needs Tokens, an authorization
-// layer needs Groups. Client embeds all of them for the full swap seam, and the
-// generator flattens the embedded set, so the remote/server transport is
-// generated method-for-method exactly as if Client were one flat interface.
+// layer needs Groups.
 
-// Users is account create/read/update/delete, identity lookups, metadata, and
-// bulk import/read.
+// Users is account create/read/update/delete, identity lookups, and bulk
+// import/read.
 type Users interface {
 	CreateUser(ctx context.Context, email, username string) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByPhone(ctx context.Context, phone string) (*User, error)
-	GetUserBySolanaAddress(ctx context.Context, address string) (*User, error)
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
-	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
-	PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error
 	// {Hard,Soft}DeleteUsers are batch-native admin bulk mutations (#219/#222):
 	// per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
 	// and the returned OpResults pinpoint the failures. Single-item = one-element
@@ -40,8 +35,6 @@ type Users interface {
 	UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error)
 	ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error)
 	ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
-	TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error)
-	IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	// UsersByIDs resolves many user IDs to slim display projections (id +
 	// username/email) in ONE query: the batch read for "render N authors"
 	// without N+1. Missing IDs are simply absent from the result. (Replaces the
@@ -70,19 +63,15 @@ type Users interface {
 	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]UserLiveness, error)
 }
 
-// Passwords is the password credential surface: change, import, verify.
+// Passwords is the password credential import surface.
 type Passwords interface {
-	ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error
 	UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error
-	VerifyUserPassword(ctx context.Context, userID, pass string) bool
 }
 
 // Admin is the intrinsic admin view of the user directory: list, inspect, ban,
 // and admin-side session/password control.
 type Admin interface {
-	AdminCountUsers(ctx context.Context, opts AdminUserListOptions) (int64, error)
 	AdminGetUser(ctx context.Context, id string) (*AdminUser, error)
-	AdminListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error)
 	AdminRevokeUserSessions(ctx context.Context, userID string) error
 	AdminSetPassword(ctx context.Context, userID, new string) error
@@ -125,12 +114,9 @@ type Groups interface {
 	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
 	GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (GroupInstance, error)
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
-	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
-	RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error
-	LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error
 	ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error)
 	ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error)
 	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
@@ -139,18 +125,14 @@ type Groups interface {
 	CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error)
 	ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]GroupInviteLink, error)
 	RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error
-	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error)
 	ExternalInvitesEnabled() bool
 }
 
-// Tokens issues the app's JWTs: access, service, delegated, remote-application,
-// and custom.
+// Tokens issues the app's JWTs: access, service, and remote-application.
 type Tokens interface {
 	// MintAccessToken signs a user access JWT (#214: Mint* = signing a JWT;
 	// session creation — IssueRefreshSession* on the engine — is not a Mint).
 	MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
-	MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error)
-	MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error)
 	MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error)
 	MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions) (string, ServiceJWTClaims, error)
 }
@@ -163,7 +145,6 @@ type Documents interface {
 
 // APIKeys mints, lists, revokes, and resolves opaque API keys.
 type APIKeys interface {
-	MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error)
 	MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error)
 	ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]APIKey, error)
 	RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error)
@@ -171,29 +152,9 @@ type APIKeys interface {
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
 }
 
-// Sessions is the backend session surface: list and revoke-all. Refresh-token
-// EXCHANGE is deliberately NOT here — it is a browser/end-user request flow served
-// by the /token endpoint, so it lives on the HTTP layer only (layer test, SEMVER
-// §4.2). The engine impl stays on *authcore.Service; authkit's own /token handler
-// calls it there via embedded.Unwrap.
-type Sessions interface {
-	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
-	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
-}
-
-// Providers links and unlinks external identity providers on an account.
+// Providers links external identity providers to an account.
 type Providers interface {
-	// ImportUnverifiedSolanaLinks imports legacy wallet claims without trusting
-	// them as login credentials. Only a later successful SIWS proof promotes an
-	// imported claim to verified state.
-	ImportUnverifiedSolanaLinks(ctx context.Context, inputs []ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinksResult, error)
-	LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error
 	LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error
-	UnlinkProvider(ctx context.Context, userID, provider string) error
-	// ProviderUsernames returns each user's stored username for the given
-	// provider in ONE call (#219/#220; replaces the single GetProviderUsername).
-	// Map keyed by user id; users without a stored username are absent.
-	ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error)
 }
 
 // RemoteApps manages trusted remote applications (federation issuers) and
@@ -201,7 +162,6 @@ type Providers interface {
 type RemoteApps interface {
 	UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error)
-	DeleteRemoteApplication(ctx context.Context, issuer string) error
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (RemoteApplicationAuthority, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error)
@@ -244,7 +204,7 @@ type Maintenance interface {
 }
 
 // Client is the contract hosts hold: the in-process operations composed from
-// the topic interfaces above. Infra accessors (Postgres, Keyfunc, JWKS, raw
+// the topic interfaces above. Infra accessors (Postgres, JWKS, raw
 // Options/Schema) are deliberately OFF this interface; they stay on the
 // concrete *embedded.Client.
 //
@@ -259,7 +219,6 @@ type Client interface {
 	Tokens
 	Documents
 	APIKeys
-	Sessions
 	Providers
 	RemoteApps
 	Bootstrap

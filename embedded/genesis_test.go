@@ -78,16 +78,15 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 
-	// Genesis().AssignGroupRole grants with NO actor check.
+	// Genesis().AssignGroupRole grants with NO actor check; RemoveRoleBySlug
+	// revokes the same way.
 	require.NoError(t, client.Genesis().AssignGroupRole(ctx, RootPersona, "", user.ID, SubjectKindUser, OwnerRoleName))
 	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
-
-	// Genesis().RemoveGroupSubject revokes with NO actor check.
-	require.NoError(t, client.Genesis().RemoveGroupSubject(ctx, RootPersona, "", user.ID, SubjectKindUser))
+	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, OwnerRoleName))
 	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 
-	// Genesis().AssignRoleBySlug / RemoveRoleBySlug are the single-role-slug
-	// shorthand over the root persona, same actor-unchecked seam.
+	// Genesis().AssignRoleBySlug is the single-role-slug shorthand over the
+	// root persona, same actor-unchecked seam.
 	require.NoError(t, client.Genesis().AssignRoleBySlug(ctx, user.ID, OwnerRoleName))
 	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, OwnerRoleName))

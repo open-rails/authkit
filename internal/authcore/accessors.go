@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -156,25 +155,6 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
 // should prefer the WithEntitlements construction option instead.
 func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
-
-// Keyfunc looks up a public key by KID, falling back to the active key if
-// missing. Reads the KeySource fresh on every call (#238), so a rotation is
-// observed on the next verification without re-fetching the Keyfunc.
-func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
-	return func(token *jwt.Token) (any, error) {
-		if kid, _ := token.Header["kid"].(string); kid != "" {
-			if pub, ok := s.keys.PublicKeys()[kid]; ok {
-				return pub, nil
-			}
-		}
-		if ps, ok := s.keys.ActiveSigner().(jwtkit.PublicKeySigner); ok {
-			if pub := ps.PublicKey(); pub != nil {
-				return pub, nil
-			}
-		}
-		return nil, jwt.ErrTokenUnverifiable
-	}
-}
 
 // IsDevEnvironment is THE dev/prod classifier (#231) — the single function all
 // dev-vs-prod behavior switches on (the standalone binary maps AUTHKIT_ENV

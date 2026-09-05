@@ -97,7 +97,7 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, coreSvc.AssignGroupRole(ctx, "repo", alpha, u.ID, authcore.SubjectKindUser, authcore.OwnerRoleName))
 
-	_, token, err := coreSvc.MintAPIKey(ctx, "repo", alpha, "ci-key", "deployer", u.ID, nil)
+	_, token, err := coreSvc.MintAPIKeyWithOptions(ctx, "repo", alpha, authkit.APIKeyMintOptions{Name: "ci-key", Role: "deployer", CreatedBy: u.ID})
 	require.NoError(t, err)
 
 	// The resolved key carries its owning group instance.
