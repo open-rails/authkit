@@ -65,7 +65,7 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	require.NotContains(t, rootRoles(t, client, ctx, user.ID), string(authkit.OwnerRole))
 
 	// Enroll 2FA; the SAME calls now succeed.
-	_, err = client.impl.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors)
+	_, err = client.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	// Genesis().AssignGroupRole grants with NO actor check; RemoveRoleBySlug

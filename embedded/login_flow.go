@@ -59,7 +59,7 @@ type LoginSessionInput struct {
 // writes the session-created audit event — the shared tail of every login.
 // The liveness and MFA gates fire exactly as IssueAuthenticatedSession does
 // (ErrUserBanned, ErrTwoFAEnrollmentRequired).
-func (s *Service) IssueLoginSession(ctx context.Context, in LoginSessionInput) (IssuedSession, error) {
+func (s *Client) IssueLoginSession(ctx context.Context, in LoginSessionInput) (IssuedSession, error) {
 	sid, rt, access, exp, _, err := s.IssueAuthenticatedSession(ctx, in.UserID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods, in.Extra)
 	if err != nil {
 		return IssuedSession{}, err
@@ -127,7 +127,7 @@ type PasswordLoginInput struct {
 // error only when the engine itself failed (a send, the challenge store, the
 // session insert — each tagged with its FlowError stage and, for sends, the
 // delivery sentinel); every policy result is a LoginOutcome.
-func (s *Service) PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error) {
+func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error) {
 	identifier := strings.TrimSpace(in.Identifier)
 	if identifier == "" || in.Password == "" {
 		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
@@ -227,12 +227,12 @@ func loginRejection(err error) error {
 	}
 }
 
-func (s *Service) rejectLogin(ctx context.Context, in PasswordLoginInput, userID string, reason error) LoginOutcome {
+func (s *Client) rejectLogin(ctx context.Context, in PasswordLoginInput, userID string, reason error) LoginOutcome {
 	s.loginFailed(ctx, in, userID, reason.Error())
 	return LoginOutcome{Kind: LoginRejected, UserID: userID, Reason: reason}
 }
 
-func (s *Service) loginFailed(ctx context.Context, in PasswordLoginInput, userID, reason string) {
+func (s *Client) loginFailed(ctx context.Context, in PasswordLoginInput, userID, reason string) {
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
 }
 
@@ -247,7 +247,7 @@ type pendingRecovery struct {
 // account yet but a pending registration whose password matches: the pending
 // registration is re-created (which re-sends the code, or — when verification
 // is not required — creates the account outright).
-func (s *Service) recoverPendingEmailLogin(ctx context.Context, in PasswordLoginInput, email string, requiresVerification bool) (pendingRecovery, bool) {
+func (s *Client) recoverPendingEmailLogin(ctx context.Context, in PasswordLoginInput, email string, requiresVerification bool) (pendingRecovery, bool) {
 	pending, err := s.GetPendingRegistrationByEmail(ctx, email)
 	if err != nil || pending == nil || !s.VerifyPendingPassword(ctx, email, in.Password) {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
@@ -265,7 +265,7 @@ func (s *Service) recoverPendingEmailLogin(ctx context.Context, in PasswordLogin
 	return pendingRecovery{user: u}, true
 }
 
-func (s *Service) recoverPendingPhoneLogin(ctx context.Context, in PasswordLoginInput, phone string, requiresVerification bool) (pendingRecovery, bool) {
+func (s *Client) recoverPendingPhoneLogin(ctx context.Context, in PasswordLoginInput, phone string, requiresVerification bool) (pendingRecovery, bool) {
 	pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
 	if err != nil || pending == nil {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
@@ -293,7 +293,7 @@ var verificationCutoff = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired.
-func (s *Service) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
+func (s *Client) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
 	recent := u.CreatedAt.After(verificationCutoff)
 	needsEmail := recent && !u.EmailVerified && u.Email != nil
 	needsPhone := recent && !u.PhoneVerified && u.PhoneNumber != nil

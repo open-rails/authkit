@@ -42,7 +42,7 @@ type CreateInstanceResult struct {
 // allows; a predicate error is wrapped as ErrGroupCreationRefused. The seam
 // sees the normalized slug (#269) so a host can refuse a specific namespace
 // outright, not merely price the attempt.
-func (s *Service) MayCreateInstance(ctx context.Context, group authkit.GroupRef, subject string) error {
+func (s *Client) MayCreateInstance(ctx context.Context, group authkit.GroupRef, subject string) error {
 	if s.instanceAdmission == nil {
 		return nil
 	}
@@ -57,7 +57,7 @@ func (s *Service) MayCreateInstance(ctx context.Context, group authkit.GroupRef,
 // role, consult the host admission seam, then create the group with ownerUserID
 // seeded as owner. If the slug is already held and the caller is a member of
 // that group, it returns Created=false instead of a conflict.
-func (s *Service) CreateInstanceForSubject(ctx context.Context, group authkit.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error) {
+func (s *Client) CreateInstanceForSubject(ctx context.Context, group authkit.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error) {
 	var out CreateInstanceResult
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -125,7 +125,7 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, group authkit.Gr
 // SlugPattern, and reserved slugs, which only a holder of the configured
 // root-group escalation role may take; with no role configured they are never
 // claimable.
-func (s *Service) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, group authkit.GroupRef, actorUserID string) error {
+func (s *Client) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, group authkit.GroupRef, actorUserID string) error {
 	persona, slug := group.Persona, group.Instance
 	if err := validateGroupInstanceSlug(group); err != nil {
 		return fmt.Errorf("%w: %w", authkit.ErrGroupSlugInvalid, err)
@@ -154,7 +154,7 @@ func slugReserved(reserved []string, slug string) bool {
 
 // userHoldsRootRole reports whether the user holds the named LIVE configured
 // role in the root group (the reserved-slug escalation check).
-func (s *Service) userHoldsRootRole(ctx context.Context, userID string, role authkit.Role) bool {
+func (s *Client) userHoldsRootRole(ctx context.Context, userID string, role authkit.Role) bool {
 	roles, _ := s.rootRoleSlugsByUser(ctx, userID)
 	for _, r := range roles {
 		if r == string(role) {
@@ -166,7 +166,7 @@ func (s *Service) userHoldsRootRole(ctx context.Context, userID string, role aut
 
 // subjectMemberOfGroup reports whether the user holds a DIRECT role in the live
 // group addressed by (persona, slug), and that group's id when they do.
-func (s *Service) subjectMemberOfGroup(ctx context.Context, userID string, group authkit.GroupRef) (string, bool, error) {
+func (s *Client) subjectMemberOfGroup(ctx context.Context, userID string, group authkit.GroupRef) (string, bool, error) {
 	groups, err := s.ListSubjectGroups(ctx, authkit.UserSubject(userID))
 	if err != nil {
 		return "", false, err
@@ -187,7 +187,7 @@ func (s *Service) subjectMemberOfGroup(ctx context.Context, userID string, group
 // actor must hold the persona's credentials:manage capability plus every
 // permission the role confers (no-escalation), so nobody can grant an
 // application authority above their own.
-func (s *Service) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error {
+func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

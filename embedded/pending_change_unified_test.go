@@ -9,9 +9,9 @@ import (
 	"github.com/open-rails/authkit/internal/testclock"
 )
 
-func newPendingChangeTestService(t *testing.T) *Service {
+func newPendingChangeTestService(t *testing.T) *Client {
 	t.Helper()
-	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
+	svc := mustNewWithKeys(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	return svc
 }
 
@@ -127,7 +127,7 @@ func TestPendingChangeKindsAreIsolated(t *testing.T) {
 func TestPendingChangeExpiresByTTL(t *testing.T) {
 	ctx := context.Background()
 	clk := testclock.New()
-	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{},
+	svc := mustNewWithKeys(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{},
 		WithEphemeralStore(memorystore.NewKV(memorystore.WithKVClock(clk.Now))))
 
 	if err := svc.storePendingChange(ctx, pendingChange{Kind: KindChangeEmail, Target: "exp@example.com", UserID: "u-exp", CodeHash: sha256Hex("expcode"), LinkHash: sha256Hex("explink")}, 20*time.Millisecond); err != nil {

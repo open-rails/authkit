@@ -75,7 +75,7 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 	return ParseBootstrapManifestYAML(raw)
 }
 
-func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err
 	}
@@ -192,14 +192,14 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 	return result, nil
 }
 
-func (s *Service) bootstrapApplyName(name string) string {
+func (s *Client) bootstrapApplyName(name string) string {
 	if name = strings.TrimSpace(name); name != "" {
 		return name
 	}
 	return defaultBootstrapApplyName
 }
 
-func (s *Service) lockBootstrapApply(ctx context.Context, name string) (func(), error) {
+func (s *Client) lockBootstrapApply(ctx context.Context, name string) (func(), error) {
 	name = "authkit.bootstrap." + s.bootstrapApplyName(name)
 	conn, err := s.pg.Acquire(ctx)
 	if err != nil {
@@ -221,7 +221,7 @@ func (s *Service) lockBootstrapApply(ctx context.Context, name string) (func(), 
 // graph is accounted for and a new name records itself as already applied
 // instead of refusing. Only a non-empty graph with an EMPTY claim table is
 // refused.
-func (s *Service) claimBootstrapApply(ctx context.Context, name string) (claimed, already bool, err error) {
+func (s *Client) claimBootstrapApply(ctx context.Context, name string) (claimed, already bool, err error) {
 	q := db.ForSchema(s.pg, s.dbSchema())
 	name = s.bootstrapApplyName(name)
 	var nameClaimed, anyClaimed, graphEmpty bool
@@ -250,14 +250,14 @@ func (s *Service) claimBootstrapApply(ctx context.Context, name string) (claimed
 	return true, false, nil
 }
 
-func (s *Service) releaseBootstrapApply(ctx context.Context, name string) error {
+func (s *Client) releaseBootstrapApply(ctx context.Context, name string) error {
 	_, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `DELETE FROM profiles.bootstrap_applies WHERE name = $1`, s.bootstrapApplyName(name))
 	return err
 }
 
 // rootGroupHasOwner reports whether the singleton root group currently has any
 // owner. Used to make manifest owner-seeding seed-if-absent (#136).
-func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
+func (s *Client) rootGroupHasOwner(ctx context.Context) (bool, error) {
 	members, err := s.ListGroupMembers(ctx, authkit.RootGroup())
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
@@ -282,7 +282,7 @@ func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
 // way via assignRoleBySlugGenesis. The manifest is the deploy-time trust root
 // and the ONE seam that bypasses these runtime rules — GenesisClient does NOT
 // bypass the MFA gate.
-func (s *Service) seedBootstrapRootRole(ctx context.Context, userID string, role authkit.Role, rootHasOwner bool) error {
+func (s *Client) seedBootstrapRootRole(ctx context.Context, userID string, role authkit.Role, rootHasOwner bool) error {
 	if role == OwnerRoleName {
 		if rootHasOwner {
 			return nil // break-glass: owners already exist; don't fight runtime
@@ -315,7 +315,7 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 	return nil
 }
 
-func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app BootstrapManifestRemoteApplication) error {
+func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, app BootstrapManifestRemoteApplication) error {
 	gid, err := s.ResolveGroupIDForSlug(ctx, authkit.RootGroup())
 	if err != nil {
 		return err
@@ -366,7 +366,7 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 	return nil
 }
 
-func (s *Service) applyBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, bool, error) {
+func (s *Client) applyBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, bool, error) {
 	existing, err := s.findBootstrapUser(ctx, user)
 	if err != nil {
 		return nil, false, err
@@ -380,7 +380,7 @@ func (s *Service) applyBootstrapUser(ctx context.Context, user BootstrapManifest
 	return applied, false, err
 }
 
-func (s *Service) findBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, error) {
+func (s *Client) findBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, error) {
 	if username := strings.TrimSpace(user.Username); username != "" {
 		existing, err := s.getUserByUsername(ctx, username)
 		if err == nil && existing != nil {
@@ -431,7 +431,7 @@ func bootstrapImportUserInput(user BootstrapManifestUser) ImportUserInput {
 	return input
 }
 
-func (s *Service) applyBootstrapUserPassword(ctx context.Context, userID string, p BootstrapUserPassword) (bool, error) {
+func (s *Client) applyBootstrapUserPassword(ctx context.Context, userID string, p BootstrapUserPassword) (bool, error) {
 	if plaintext := strings.TrimSpace(p.Plaintext); plaintext != "" {
 		if err := s.CheckUserPassword(ctx, userID, plaintext); err == nil {
 			return false, nil

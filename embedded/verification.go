@@ -13,7 +13,7 @@ import (
 )
 
 // getUserByPhone returns a user by phone number (if any)
-func (s *Service) getUserByPhone(ctx context.Context, phone string) (*User, error) {
+func (s *Client) getUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -25,7 +25,7 @@ func (s *Service) getUserByPhone(ctx context.Context, phone string) (*User, erro
 }
 
 // setPhoneVerified sets the phone_verified flag for a user.
-func (s *Service) setPhoneVerified(ctx context.Context, id string, v bool) error {
+func (s *Client) setPhoneVerified(ctx context.Context, id string, v bool) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -33,7 +33,7 @@ func (s *Service) setPhoneVerified(ctx context.Context, id string, v bool) error
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.
-func (s *Service) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
+func (s *Client) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
 	email = NormalizeEmail(email)
 	if err := ValidateEmail(email); err != nil {
 		return err
@@ -58,7 +58,7 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 	return ErrUserNotFound
 }
 
-func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl time.Duration) error {
+func (s *Client) sendEmailVerificationToUser(ctx context.Context, u *User, ttl time.Duration) error {
 	if u == nil {
 		return ErrUserNotFound
 	}
@@ -102,7 +102,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 // address, so the code is only ever compared against that account's own record;
 // the HTTP layer caps attempts per-identifier. For the unguessable 256-bit
 // emailed link token use ConfirmEmailVerificationByToken instead.
-func (s *Service) ConfirmEmailVerification(ctx context.Context, email, code string) (userID string, err error) {
+func (s *Client) ConfirmEmailVerification(ctx context.Context, email, code string) (userID string, err error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -128,7 +128,7 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, email, code stri
 
 // ConfirmEmailVerificationByToken verifies the 256-bit emailed link token and
 // marks email_verified = true. The token's own entropy is the security boundary.
-func (s *Service) ConfirmEmailVerificationByToken(ctx context.Context, token string) (userID string, err error) {
+func (s *Client) ConfirmEmailVerificationByToken(ctx context.Context, token string) (userID string, err error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -151,7 +151,7 @@ func (s *Service) ConfirmEmailVerificationByToken(ctx context.Context, token str
 }
 
 // GetUserByPhone looks up a user by phone number.
-func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
+func (s *Client) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -170,7 +170,7 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 
 // RequestPhoneVerification looks up the user by phone number and sends a verification code.
 // This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
-func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
+func (s *Client) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
 	phone = NormalizePhone(phone)
 	if err := ValidatePhone(phone); err != nil {
 		return err
@@ -204,7 +204,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 // SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
 // Use RequestPhoneVerification if you only have a phone number and need to look up the user.
 // Always returns nil for security.
-func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
+func (s *Client) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
 	}
@@ -240,7 +240,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 }
 
 // ConfirmPhoneVerificationUserID verifies a token, marks phone_verified = true, and returns the user ID.
-func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
+func (s *Client) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
 	userID, err := s.consumePhoneVerification(ctx, "verify_phone", phone, sha256Hex(code))
 	if err != nil {
 		return "", err
@@ -252,7 +252,7 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 }
 
 // ConfirmPhoneVerificationByTokenUserID verifies phone ownership using a one-click token and returns the user ID.
-func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
+func (s *Client) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
 	userID, phone, err := s.consumePhoneVerificationByLink(ctx, "verify_phone", sha256Hex(token))
 	if err != nil {
 		return "", err

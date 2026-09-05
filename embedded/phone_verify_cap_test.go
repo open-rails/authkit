@@ -11,16 +11,16 @@ import (
 // 6-digit SMS code must be invalidated after a per-phone wrong-guess cap so it can't
 // be brute-forced within its TTL, and a success must reset the counter.
 
-func newPhoneVerifyTestService(t *testing.T) *Service {
+func newPhoneVerifyTestService(t *testing.T) *Client {
 	t.Helper()
-	return mustNewService(t,
+	return mustNewWithKeys(t,
 		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}},
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
 	)
 }
 
-func pendingPhoneRegistrationExists(svc *Service, phone string) bool {
+func pendingPhoneRegistrationExists(svc *Client, phone string) bool {
 	_, ok := svc.findPendingChangeByTarget(context.Background(), KindRegisterPhone, phone)
 	return ok
 }

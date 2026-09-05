@@ -26,7 +26,7 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("ensure root group: %v", err)

@@ -8,7 +8,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// TestService_PermissionGroupLifecycle drives the public Service API end-to-end
+// TestService_PermissionGroupLifecycle drives the public Client API end-to-end
 // against a real Postgres (skips without AUTHKIT_TEST_DATABASE_URL, DB migrated
 // through 008). The service methods commit their own transactions, so the test
 // wipes the permission-group tables before/after (disposable test DB).
@@ -37,7 +37,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
@@ -154,7 +154,7 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("seed: %v", err)

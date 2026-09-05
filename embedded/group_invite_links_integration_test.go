@@ -10,10 +10,10 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// setupInviteLinkTest builds a Service with invite links ENABLED (open
+// setupInviteLinkTest builds a Client with invite links ENABLED (open
 // registration) over a real DB, a one-persona schema ("org" with a non-MFA
 // "member" role), and a single org group "acme". Returns the service + pool.
-func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpool.Pool, context.Context) {
+func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Client, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -40,7 +40,7 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 	// through the ephemeral store + an email sender — neither is wired in this DB-only
 	// harness. These tests exercise invite/registration flows directly, so pin None:
 	// users register immediately, matching the register+join assertions below.
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: mode, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: mode, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -68,7 +68,7 @@ func insertUserWithEmail(t *testing.T, pool *pgxpool.Pool, email string, verifie
 // acmeOwner creates a fresh user and seeds them as OWNER of the org/acme group via
 // the genesis (unchecked) path, so they may legitimately mint invites — the mint
 // now enforces no-escalation (AK2-AUTHZ-1), so an unauthorized minter is rejected.
-func acmeOwner(t *testing.T, svc *Service, ctx context.Context, pool *pgxpool.Pool) string {
+func acmeOwner(t *testing.T, svc *Client, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()
 	id := insertBareUser(t, pool)
 	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(id), OwnerRoleName); err != nil {
@@ -77,7 +77,7 @@ func acmeOwner(t *testing.T, svc *Service, ctx context.Context, pool *pgxpool.Po
 	return id
 }
 
-func mustHoldMember(t *testing.T, svc *Service, ctx context.Context, userID string) {
+func mustHoldMember(t *testing.T, svc *Client, ctx context.Context, userID string) {
 	t.Helper()
 	ok, err := svc.Can(ctx, authkit.UserSubject(userID), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read")
 	if err != nil || !ok {
@@ -222,7 +222,7 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("seed containment: %v", err)

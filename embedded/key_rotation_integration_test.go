@@ -1,6 +1,6 @@
 package embedded
 
-// #238 regression coverage: the Service must READ the KeySource per-operation
+// #238 regression coverage: the Client must READ the KeySource per-operation
 // (never freeze a Keyset snapshot at construction), so a rotated keys.json is
 // observed by mint + JWKS without a restart. See jwtkit/keys_reload_test.go
 // for the lower-level FileKeySource poller coverage this builds on.
@@ -66,7 +66,7 @@ func kidOf(t *testing.T, tok string) string {
 	return kid
 }
 
-// TestServiceObservesKeyRotation is the core #238 proof: a Service constructed
+// TestServiceObservesKeyRotation is the core #238 proof: a Client constructed
 // via NewFromConfig with a live, short-interval FileKeySource must pick up a
 // keys.json rotation without a restart — new mints carry the new kid, JWKS
 // serves BOTH the new and the retired key, and a token signed before rotation
@@ -116,14 +116,14 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 
 	// Wait past the reload interval for the poller to pick up the change —
 	// this is the crux of #238: nothing here calls src.Reload() directly, the
-	// Service must observe the SAME background swap jwtkit's poller performs.
+	// Client must observe the SAME background swap jwtkit's poller performs.
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		if _, ok := svc.PublicKeysByKID()["kid-new"]; ok {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("rotation not observed by Service within %s; keys=%v", 3*time.Second, kidsOf(svc.PublicKeysByKID()))
+			t.Fatalf("rotation not observed by Client within %s; keys=%v", 3*time.Second, kidsOf(svc.PublicKeysByKID()))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -136,7 +136,7 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 		t.Fatalf("mint post-rotation: %v", err)
 	}
 	if kid := kidOf(t, postTok); kid != "kid-new" {
-		t.Fatalf("post-rotation mint kid = %q, want kid-new (Service is still reading a frozen snapshot)", kid)
+		t.Fatalf("post-rotation mint kid = %q, want kid-new (Client is still reading a frozen snapshot)", kid)
 	}
 
 	// --- JWKS (both PublicKeysByKID and the served JWKS() shape) has BOTH keys. ---
@@ -156,7 +156,7 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 	}
 
 	// --- Tokens signed BOTH before and after rotation still verify against
-	// the Service's CURRENT key set. ---
+	// the Client's CURRENT key set. ---
 	keyfunc := func(tok *jwt.Token) (any, error) {
 		kid, _ := tok.Header["kid"].(string)
 		if pub, ok := svc.PublicKeysByKID()[kid]; ok {

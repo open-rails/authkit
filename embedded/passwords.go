@@ -14,7 +14,7 @@ import (
 // user row is resolved: the liveness gate, then the stored hash (with the
 // legacy-bcrypt lazy rehash to Argon2id) and the last-login stamp. It mints
 // nothing — PasswordLogin issues the session from its outcome.
-func (s *Service) authenticatePassword(ctx context.Context, u *User, pass string) error {
+func (s *Client) authenticatePassword(ctx context.Context, u *User, pass string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -65,7 +65,7 @@ func errOrUnauthorized(err error) error {
 // HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
 // and a generic unauthorized error otherwise. Callers that need to route
 // reset-required users (step-up, change-password) should use this form.
-func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) error {
+func (s *Client) CheckUserPassword(ctx context.Context, userID, pass string) error {
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
 		return errOrUnauthorized(nil)
 	}
@@ -104,7 +104,7 @@ func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) er
 // If the user already has a password, current must verify; otherwise current is ignored.
 // Always Argon2id-hashes the new password and upserts it, then revokes all
 // other sessions for the user; caller may keep one active session via keepSessionID.
-func (s *Service) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
+func (s *Client) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -171,7 +171,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 // SetPasswordAfterFreshAuth sets a new password without verifying a current one,
 // for flows that already proved freshness (e.g. step-up). It still revokes other
 // sessions, keeping keepSessionID if provided.
-func (s *Service) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
+func (s *Client) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}

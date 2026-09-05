@@ -57,7 +57,7 @@ func TestNewFromConfigSchemaRejected(t *testing.T) {
 }
 
 func TestNewServiceRejectsInvalidSchema(t *testing.T) {
-	if _, err := NewService(Config{Schema: "not;valid"}, Keyset{}, Deps{}); err == nil {
+	if _, err := NewWithKeys(Config{Schema: "not;valid"}, Keyset{}, Deps{}); err == nil {
 		t.Fatal("NewService with invalid Schema should error")
 	}
 }

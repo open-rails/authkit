@@ -31,7 +31,7 @@ type RemoteAppAttributeDef = authkit.RemoteAppAttributeDef
 // remote_application. version defaults to 1 when zero. The caller authority is
 // the remote_application itself (it owns its users' restrictions); the http
 // layer enforces that.
-func (s *Service) RegisterRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32, definition json.RawMessage) (*RemoteAppAttributeDef, error) {
+func (s *Client) RegisterRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32, definition json.RawMessage) (*RemoteAppAttributeDef, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *Service) RegisterRemoteAppAttributeDef(ctx context.Context, appID, key 
 
 // ResolveRemoteAppAttributeDef returns the definition for (appID, key, version).
 // version <= 0 resolves the LATEST version. The returned Definition is opaque.
-func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
+func (s *Client) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}

@@ -28,12 +28,12 @@ func parseHeaderNoValidate(t *testing.T, token string) map[string]any {
 	return parsed.Header
 }
 
-func newClaimTestService(t *testing.T, orgMode string, coreOpts ...Option) (*Service, crypto.PublicKey) {
+func newClaimTestService(t *testing.T, orgMode string, coreOpts ...Option) (*Client, crypto.PublicKey) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	ks := Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"kid": signer.PublicKey()}}
-	s := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, ks, coreOpts...)
+	s := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, ks, coreOpts...)
 	return s, signer.PublicKey()
 }
 

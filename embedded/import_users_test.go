@@ -10,12 +10,12 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// importTestService builds a DB-backed Service for ImportUsers tests. Skips
+// importTestService builds a DB-backed Client for ImportUsers tests. Skips
 // without AUTHKIT_TEST_DATABASE_URL (via testdb.Pool).
-func importTestService(t *testing.T) (*Service, context.Context) {
+func importTestService(t *testing.T) (*Client, context.Context) {
 	t.Helper()
 	pool := testdb.Pool(t)
-	return mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool)), context.Background()
+	return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool)), context.Background()
 }
 
 // uniq returns identity material unique per test run (the test DB persists).

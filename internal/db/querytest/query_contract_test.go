@@ -41,7 +41,7 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("preferred language = %q", language)
 		}
 
-		svc, err := embedded.NewService(embedded.Config{}, embedded.Keyset{}, embedded.Deps{Postgres: pg.Pool})
+		svc, err := embedded.NewWithKeys(embedded.Config{}, embedded.Keyset{}, embedded.Deps{Postgres: pg.Pool})
 		requireNoError(t, err)
 		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract_user_new"))
 		aliases, err := q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: time.Now()})

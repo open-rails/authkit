@@ -13,7 +13,7 @@ import "context"
 //	InviteOnly — true iff a valid, unconsumed, unexpired account-registration invite
 //	             CODE is presented on ctx (#147 FINAL: the stranger invite is UNBOUND;
 //	             the single-use code is the credential, not the email).
-func (s *Service) registrationAllowedForEmail(ctx context.Context, email string) (bool, error) {
+func (s *Client) registrationAllowedForEmail(ctx context.Context, email string) (bool, error) {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil {
 		return false, nil

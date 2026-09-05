@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // #308: the Go-API remote-application role grant is actor-checked
@@ -26,7 +25,7 @@ func TestRemoteApplicationRoleGrant_FacadeIsActorChecked(t *testing.T) {
 		JWKSURI: "http://127.0.0.1:9/jwks.json", Mode: "jwks", Enabled: true,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = embedded.Unwrap(client).DeleteRemoteApplication(ctx, app.Issuer) })
+	t.Cleanup(func() { _ = client.DeleteRemoteApplication(ctx, app.Issuer) })
 	holds := func() bool {
 		can, err := client.Can(ctx, authkit.RemoteAppSubject(app.ID), authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, "org:catalog:read")
 		require.NoError(t, err)

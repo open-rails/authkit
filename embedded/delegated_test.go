@@ -72,7 +72,7 @@ func TestConfigKeysPathResolvesFile(t *testing.T) {
 }
 
 // TestServiceMintDelegatedRoundTrip mints a delegated access token through the
-// Service mint API and verifies its signature against the Service's JWKS public
+// Client mint API and verifies its signature against the Client's JWKS public
 // key — the host passes params only and never touches the key.
 func TestServiceMintDelegatedRoundTrip(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
@@ -128,7 +128,7 @@ func TestServiceMintDelegatedRoundTrip(t *testing.T) {
 }
 
 // TestServiceMintServiceJWTRoundTrip mints a first-party service JWT through the
-// Service and verifies it against the Service JWKS.
+// Client and verifies it against the Client JWKS.
 func TestServiceMintServiceJWTRoundTrip(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 
@@ -148,7 +148,7 @@ func TestServiceMintServiceJWTRoundTrip(t *testing.T) {
 	}
 }
 
-func mustServiceWithGeneratedKeys(t *testing.T) *Service {
+func mustServiceWithGeneratedKeys(t *testing.T) *Client {
 	t.Helper()
 	ks := testKeySource(t)
 	svc, err := newFromConfig(Config{
@@ -165,9 +165,9 @@ func mustServiceWithGeneratedKeys(t *testing.T) *Service {
 	return svc
 }
 
-// verifyAgainstServiceJWKS parses tok using the public key the Service exposes
+// verifyAgainstServiceJWKS parses tok using the public key the Client exposes
 // on its JWKS (by kid), proving the token verifies with public material only.
-func verifyAgainstServiceJWKS(t *testing.T, svc *Service, tok string) jwt.MapClaims {
+func verifyAgainstServiceJWKS(t *testing.T, svc *Client, tok string) jwt.MapClaims {
 	t.Helper()
 	claims := jwt.MapClaims{}
 	_, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tok, claims, func(token *jwt.Token) (any, error) {

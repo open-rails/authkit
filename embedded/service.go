@@ -99,11 +99,11 @@ var (
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
 
-// Service is the core auth service used by HTTP adapters.
-type Service struct {
+// Client is the core auth service used by HTTP adapters.
+type Client struct {
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
-	// behind an atomic pointer, and the Service must observe every swap (#238).
+	// behind an atomic pointer, and the Client must observe every swap (#238).
 	keys         jwtkit.KeySource
 	email        EmailSender
 	sms          SMSSender
@@ -146,7 +146,7 @@ type Service struct {
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.
-func (s *Service) SendWelcome(ctx context.Context, userID string) {
+func (s *Client) SendWelcome(ctx context.Context, userID string) {
 	if s.email == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 }
 
 // HasPassword reports whether the user has a local password set.
-func (s *Service) HasPassword(ctx context.Context, userID string) (bool, error) {
+func (s *Client) HasPassword(ctx context.Context, userID string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
 	}
@@ -174,7 +174,7 @@ func (s *Service) HasPassword(ctx context.Context, userID string) (bool, error) 
 // ListEntitlements returns current entitlement names for a user (fresh from
 // the provider — a one-element batch, #221). A provider failure is logged and
 // returned as none — callers (admin user views) degrade rather than fail.
-func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
+func (s *Client) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
@@ -199,7 +199,7 @@ type PendingRegistration struct {
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
-func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
+func (s *Client) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -217,7 +217,7 @@ func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email strin
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
 // (PendingRegistration.Email carries the phone for phone registrations, preserving prior behavior.)
-func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
+func (s *Client) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -235,7 +235,7 @@ func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone 
 
 // VerifyPendingPassword checks if the provided password matches the pending registration's hash.
 // Returns true if password is correct, false otherwise.
-func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string) bool {
+func (s *Client) VerifyPendingPassword(ctx context.Context, email, pass string) bool {
 	pr, err := s.GetPendingRegistrationByEmail(ctx, email)
 	if err != nil || pr == nil {
 		return false
@@ -248,7 +248,7 @@ func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string)
 
 // VerifyPendingPhonePassword checks if the provided password matches the pending
 // phone registration's hash. Returns true if password is correct, false otherwise.
-func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
+func (s *Client) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
 	pr, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
 	if err != nil || pr == nil {
 		return false
@@ -265,7 +265,7 @@ func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass st
 
 // requirePG returns an error when no Postgres pool is configured (verify-only /
 // config-only construction). Store-backed methods guard on it.
-func (s *Service) requirePG() error {
+func (s *Client) requirePG() error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}

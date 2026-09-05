@@ -50,6 +50,6 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 
 // coreFromConfig is embedded.NewFromConfig with the pool positional and Deps
 // composed from options.
-func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Service, error) {
-	return embedded.NewFromConfig(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
+func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Client, error) {
+	return embedded.New(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }

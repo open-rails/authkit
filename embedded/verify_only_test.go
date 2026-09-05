@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// #87: a VerifyOnly Service builds with NO active signer (no key discovery),
+// #87: a VerifyOnly Client builds with NO active signer (no key discovery),
 // rejects every mint path with ErrMissingSigner, and serves an empty JWKS.
 // Verification + RBAC reads are unaffected (covered by the DB-backed suites).
 // No Postgres required — every mint path checks the signer before touching PG.

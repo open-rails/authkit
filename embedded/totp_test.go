@@ -34,7 +34,7 @@ func TestTOTPCodeMatching(t *testing.T) {
 func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t,
+	svc := mustNewWithKeys(t,
 		Config{Token: TokenConfig{Issuer: "https://test"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: []byte("0123456789abcdef")}},
 		Keyset{},
 		WithPostgres(pool),

@@ -25,7 +25,7 @@ func normalizeRootRoleSlug(role authkit.Role) authkit.Role {
 	return authkit.Role(strings.ToLower(strings.TrimSpace(string(role))))
 }
 
-func (s *Service) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
+func (s *Client) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
 	if len(roles) == 0 {
 		return nil, nil
 	}
@@ -68,7 +68,7 @@ func (s *Service) splitConfiguredRootRoles(roles []string) (live []string, remov
 
 // rootRoleSlugsByUser returns a user's configured root permission-group roles
 // and any stored roles removed from the current schema.
-func (s *Service) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
+func (s *Client) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -92,7 +92,7 @@ func (s *Service) rootRoleSlugsByUser(ctx context.Context, userID string) ([]str
 
 // listRoleSlugsByUser returns a user's configured root permission-group roles.
 // Operator authority is a root-group assignment.
-func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
+func (s *Client) listRoleSlugsByUser(ctx context.Context, userID string) []string {
 	live, _ := s.rootRoleSlugsByUser(ctx, userID)
 	return live
 }
@@ -103,7 +103,7 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 // MFA-required-role enrollment gate is a subject-state invariant and STILL
 // applies — assigning an MFA-required role to a non-enrolled user fails closed
 // with ErrTwoFAEnrollmentRequired.
-func (s *Service) assignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) assignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -116,7 +116,7 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID string, role auth
 // assignRoleBySlugGenesis is assignRoleBySlug WITHOUT the MFA-enrollment gate.
 // Bootstrap-manifest seeding only — a manifest-seeded user has no session to
 // have enrolled MFA with, so deploy-time seeding must never brick on it.
-func (s *Service) assignRoleBySlugGenesis(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) assignRoleBySlugGenesis(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -130,7 +130,7 @@ func (s *Service) assignRoleBySlugGenesis(ctx context.Context, userID string, ro
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug
 // is a known root catalog role, ensures the root group exists, and returns.
-func (s *Service) upsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+func (s *Client) upsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -148,7 +148,7 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name string, role authki
 }
 
 // removeRoleBySlug revokes a user's role in the root permission-group.
-func (s *Service) removeRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) removeRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -156,15 +156,15 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID string, role auth
 }
 
 // Exported wrappers for admin/HTTP adapters.
-func (s *Service) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	return s.assignRoleBySlug(ctx, userID, role)
 }
 
-func (s *Service) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+func (s *Client) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
 	return s.upsertRoleBySlug(ctx, name, role, description)
 }
 
-func (s *Service) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	return s.removeRoleBySlug(ctx, userID, role)
 }
 

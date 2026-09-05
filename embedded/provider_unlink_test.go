@@ -12,7 +12,7 @@ import (
 
 // mkUnlinkUser creates a user with the given provider slugs linked, and optionally
 // a password row, returning the user id.
-func mkUnlinkUser(t *testing.T, ctx context.Context, svc *Service, withPassword bool, providers ...string) string {
+func mkUnlinkUser(t *testing.T, ctx context.Context, svc *Client, withPassword bool, providers ...string) string {
 	t.Helper()
 	uname := fmt.Sprintf("unlink-%d", time.Now().UnixNano())
 	var id string
@@ -35,7 +35,7 @@ func mkUnlinkUser(t *testing.T, ctx context.Context, svc *Service, withPassword 
 	return id
 }
 
-func (s *Service) providerCount(t *testing.T, ctx context.Context, userID string) int {
+func (s *Client) providerCount(t *testing.T, ctx context.Context, userID string) int {
 	t.Helper()
 	var n int
 	if err := s.pg.QueryRow(ctx, `SELECT count(*)::int FROM profiles.user_providers WHERE user_id=$1::uuid`, userID).Scan(&n); err != nil {
@@ -49,7 +49,7 @@ func (s *Service) providerCount(t *testing.T, ctx context.Context, userID string
 func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google")
 
 	removed, err := svc.UnlinkProviderUnlessLast(ctx, uid, "google")
@@ -69,7 +69,7 @@ func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
 func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, true, "google")
 
 	removed, err := svc.UnlinkProviderUnlessLast(ctx, uid, "google")
@@ -87,7 +87,7 @@ func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
 func TestUnlinkProviderUnlessLast_ConcurrentNeverZero(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google", "github")
 
 	var wg sync.WaitGroup

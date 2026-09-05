@@ -37,7 +37,7 @@ type TwoFactorEnrollmentScope struct {
 // enrollment-only token (issued at login when a factor is mandatory) may fill
 // the FIRST factor only, and only while no session or factor exists —
 // ErrTwoFAFactorExists otherwise. A full session may add further factors.
-func (s *Service) BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (TwoFactorEnrollmentScope, error) {
+func (s *Client) BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (TwoFactorEnrollmentScope, error) {
 	factors, err := s.List2FAFactors(ctx, userID)
 	if err != nil {
 		return TwoFactorEnrollmentScope{}, stageErr("list_factors", err)
@@ -88,7 +88,7 @@ type TwoFactorEnrollOutcome struct {
 // ErrInvalidCode, ErrTwoFAFactorExists; engine failures carry a FlowError
 // stage wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
 // the delivery sentinel) / ErrTwoFAEnableFailed.
-func (s *Service) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error) {
+func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error) {
 	method := strings.ToLower(strings.TrimSpace(in.Method))
 	factorID := strings.TrimSpace(in.FactorID)
 	if method == "" && in.MakeDefault && factorID != "" {
@@ -156,7 +156,7 @@ func (s *Service) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) 
 
 // startPhoneTwoFactorSetup sends the six-digit SMS setup code. Deliverability
 // is gated up front so an undeliverable sender fails fast.
-func (s *Service) startPhoneTwoFactorSetup(ctx context.Context, userID, phone string) (TwoFactorEnrollOutcome, error) {
+func (s *Client) startPhoneTwoFactorSetup(ctx context.Context, userID, phone string) (TwoFactorEnrollOutcome, error) {
 	if !s.SMSAvailable() {
 		return TwoFactorEnrollOutcome{}, ErrPhoneTwoFAUnavailable
 	}

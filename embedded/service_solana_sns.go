@@ -118,7 +118,7 @@ type solanaSNSProfile struct {
 // no host toggle or override (the only prerequisite is a Postgres store to read/write).
 // solanaSNS holds the SNS-resolution state the resolver does not own: the
 // cache TTL, fixed in production and settable by tests to force staleness. The
-// injected resolver (Service.solanaSNSResolver) joins it when #314 moves
+// injected resolver (Client.solanaSNSResolver) joins it when #314 moves
 // dependency injection onto the Deps struct.
 type solanaSNS struct {
 	cacheTTL time.Duration
@@ -131,7 +131,7 @@ func (c solanaSNS) ttl() time.Duration {
 	return defaultSolanaSNSCacheTTL
 }
 
-func (s *Service) solanaSNSCacheTTL() time.Duration {
+func (s *Client) solanaSNSCacheTTL() time.Duration {
 	if s == nil {
 		return defaultSolanaSNSCacheTTL
 	}
@@ -149,7 +149,7 @@ func normalizeSolanaSNSName(name string) (string, error) {
 	return normalized, nil
 }
 
-func (s *Service) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
+func (s *Client) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
 	if s.pg == nil {
 		return
 	}
@@ -158,7 +158,7 @@ func (s *Service) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, ad
 
 // resolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
-func (s *Service) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
+func (s *Client) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
 	account := SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
@@ -215,7 +215,7 @@ func (s *Service) resolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 }
 
 // GetSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
-func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*SolanaLinkedAccount, error) {
+func (s *Client) GetSolanaLinkedAccount(ctx context.Context, userID string) (*SolanaLinkedAccount, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

@@ -47,7 +47,7 @@ func (s *inviteCaptureEmailSender) SendContactChanged(context.Context, string, s
 // No DB needed: this exercises the send helper directly.
 func TestSendAccountRegistrationInviteEmail_DeliversToHostSender(t *testing.T) {
 	sender := &inviteCaptureEmailSender{}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEmailSender(sender))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEmailSender(sender))
 
 	svc.sendAccountRegistrationInviteEmail(context.Background(), "invitee@example.com", "https://test/invite?account_invite_token=abc")
 	if sender.inviteEmail != "invitee@example.com" || sender.inviteURL != "https://test/invite?account_invite_token=abc" {
@@ -66,7 +66,7 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	sender := &inviteCaptureEmailSender{}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool), WithEmailSender(sender))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool), WithEmailSender(sender))
 	rootID, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
@@ -184,7 +184,7 @@ func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
 func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	rootID, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)

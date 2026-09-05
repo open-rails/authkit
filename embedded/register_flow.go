@@ -55,7 +55,7 @@ type RegisterOutcome struct {
 // ErrRegistrationDisabled / ErrEmailRegistrationUnavailable /
 // ErrPhoneRegistrationUnavailable; engine failures carry a FlowError stage
 // and, for sends, the delivery sentinel.
-func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error) {
+func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error) {
 	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {
 		return RegisterOutcome{}, ErrRegistrationDisabled
 	}
@@ -154,7 +154,7 @@ func registrationErr(stage string, err error) error {
 	}
 }
 
-func (s *Service) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, userID string) (RegisterOutcome, error) {
+func (s *Client) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, userID string) (RegisterOutcome, error) {
 	session, err := s.IssueLoginSession(ctx, LoginSessionInput{UserID: userID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP})
 	if err != nil {
 		if errors.Is(err, ErrUserBanned) || errors.Is(err, ErrTwoFAEnrollmentRequired) {

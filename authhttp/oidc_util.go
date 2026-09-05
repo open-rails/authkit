@@ -86,7 +86,7 @@ func stateCookieName(state string) string {
 // navigation back from the IdP to the callback. A response_mode=form_post
 // provider (Apple) returns a cross-site POST, which browsers do not attach Lax
 // cookies to, so only those providers get SameSite=None; Secure (#295) —
-// NewServer refuses form_post on non-HTTPS deployments.
+// authhttp.New refuses form_post on non-HTTPS deployments.
 func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
 	c := &http.Cookie{
 		Name:     stateCookieName(state),

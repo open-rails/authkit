@@ -16,13 +16,13 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// Plain accessors and small setters on Service: keys/JWKS, config, the DB pool
+// Plain accessors and small setters on Client: keys/JWKS, config, the DB pool
 // and schema, and the verify-time Keyfunc.
 
 // JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
 // KeySource on every call, so a rotation is reflected on the very next request
 // (#238).
-func (s *Service) JWKS() jwtkit.JWKS {
+func (s *Client) JWKS() jwtkit.JWKS {
 	active := s.keys.ActiveSigner()
 	pubs := s.keys.PublicKeys()
 
@@ -53,7 +53,7 @@ func (s *Service) JWKS() jwtkit.JWKS {
 
 // AdminSetPassword force-sets a user's password
 // (admin only, no current password required)
-func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) error {
+func (s *Client) AdminSetPassword(ctx context.Context, userID, new string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -78,13 +78,13 @@ func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) erro
 	return nil
 }
 
-func (s *Service) EntitlementsProvider() EntitlementsProvider {
+func (s *Client) EntitlementsProvider() EntitlementsProvider {
 	return s.entitlements
 }
 
 // DelegationAuthorizer returns the host-injected delegated-token authorizer
 // (#277), nil when none was wired.
-func (s *Service) DelegationAuthorizer() DelegationAuthorizer {
+func (s *Client) DelegationAuthorizer() DelegationAuthorizer {
 	return s.delegationAuthorizer
 }
 
@@ -93,16 +93,16 @@ func (s *Service) DelegationAuthorizer() DelegationAuthorizer {
 // Config returns THE configuration (#237): the host Config, normalized once at
 // construction. Both the engine and the HTTP transport read it — there is no
 // parallel flat options struct (#236 bug class is structurally impossible).
-func (s *Service) Config() Config { return s.cfg }
+func (s *Client) Config() Config { return s.cfg }
 
 // PublicKeysByKID returns the CURRENT public keys indexed by key ID, read
 // fresh from the KeySource on every call (#238).
-func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
+func (s *Client) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.keys.PublicKeys()
 }
 
 // nowTime is the engine clock (time.Now unless WithClock replaced it).
-func (s *Service) nowTime() time.Time {
+func (s *Client) nowTime() time.Time {
 	if s == nil || s.now == nil {
 		return time.Now()
 	}
@@ -110,15 +110,15 @@ func (s *Service) nowTime() time.Time {
 }
 
 // Postgres returns the attached pgx pool (may be nil).
-func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
+func (s *Client) Postgres() *pgxpool.Pool { return s.pg }
 
 // Schema returns the Postgres schema AuthKit's tables live in ("profiles"
 // unless configured otherwise via Config.Schema).
-func (s *Service) Schema() string { return s.dbSchema() }
+func (s *Client) Schema() string { return s.dbSchema() }
 
 // dbSchema returns the validated schema name, defaulting for zero-value
-// Services (some tests construct Service{} directly).
-func (s *Service) dbSchema() string {
+// Services (some tests construct Client{} directly).
+func (s *Client) dbSchema() string {
 	if s == nil || s.schema == "" {
 		return db.DefaultSchema
 	}
@@ -128,7 +128,7 @@ func (s *Service) dbSchema() string {
 // qtx returns Queries bound to tx with the service's schema rewrite applied.
 // Always use this instead of s.qtx(tx): WithTx is sqlc-generated and
 // wraps the raw tx, which would bypass the schema rewrite.
-func (s *Service) qtx(tx pgx.Tx) *db.Queries {
+func (s *Client) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(db.ForSchema(tx, s.dbSchema()))
 }
 
@@ -137,11 +137,11 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 // This is the ONE sanctioned post-construction setter — #108 otherwise removed
 // every mutating builder in favor of constructor options. It exists for a
 // genuine initialization CYCLE: an embedded billing engine (e.g. OpenRails)
-// authenticates through this Service — it needs the Verifier/Core, so the
-// Service must exist first — yet that same engine is the SOURCE of the
+// authenticates through this Client — it needs the Verifier/Core, so the
+// Client must exist first — yet that same engine is the SOURCE of the
 // entitlements provider, so the provider cannot exist at construction time. The
-// host builds the Service, builds the engine with it, then installs the engine's
+// host builds the Client, builds the engine with it, then installs the engine's
 // provider here. Safe because entitlements are read LAZILY at token-mint time;
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
 // should set Deps.Entitlements instead.
-func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
+func (s *Client) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }

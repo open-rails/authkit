@@ -17,7 +17,7 @@ import (
 // for a remote_application fixture (#111: remote-apps are group-nested; their
 // permission_group_id FK just needs to point at a live group). The slug arg is
 // unused now but kept for call-site stability.
-func createTestGroup(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, slug string) string {
+func createTestGroup(t *testing.T, ctx context.Context, svc *Client, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
 	_ = slug
 	gid, err := svc.EnsureRootGroup(ctx)
@@ -29,7 +29,7 @@ func createTestGroup(t *testing.T, ctx context.Context, svc *Service, pool *pgxp
 
 func TestRemoteApplicationRoundTrip(t *testing.T) {
 	pool := testdb.Pool(t)
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
@@ -107,7 +107,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 
 func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
 	pool := testdb.Pool(t)
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	var removedColumnCount int
@@ -202,7 +202,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 // atomically clear the other trust source (#74).
 func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 	pool := testdb.Pool(t)
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 	pemKey := testPublicKeyPEM(t)
 

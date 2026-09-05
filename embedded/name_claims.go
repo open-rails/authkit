@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-func (s *Service) namingNow() time.Time {
+func (s *Client) namingNow() time.Time {
 	if s.now != nil {
 		return s.now().UTC()
 	}
@@ -61,7 +61,7 @@ func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName,
 }
 
 // ResolveUsername resolves current names and unexpired aliases directly to UUID.
-func (s *Service) ResolveUsername(ctx context.Context, name string) (authkit.NameResolution, error) {
+func (s *Client) ResolveUsername(ctx context.Context, name string) (authkit.NameResolution, error) {
 	if err := s.requirePG(); err != nil {
 		return authkit.NameResolution{}, err
 	}
@@ -69,7 +69,7 @@ func (s *Service) ResolveUsername(ctx context.Context, name string) (authkit.Nam
 	return authkit.NameResolution{ID: row.ID, CanonicalName: row.CanonicalName, IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
 }
 
-func (s *Service) admitName(ctx context.Context, request authkit.NameAdmissionRequest) error {
+func (s *Client) admitName(ctx context.Context, request authkit.NameAdmissionRequest) error {
 	if s.nameAdmission == nil {
 		return nil
 	}
@@ -78,7 +78,7 @@ func (s *Service) admitName(ctx context.Context, request authkit.NameAdmissionRe
 	}
 	return nil
 }
-func (s *Service) UserNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
+func (s *Client) UserNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
 	if err := s.requirePG(); err != nil {
 		return authkit.NamingState{}, err
 	}
@@ -89,7 +89,7 @@ func (s *Service) UserNamingState(ctx context.Context, id string) (authkit.Namin
 	}
 	return s.namingStateWithAliases(ctx, "user", id, last)
 }
-func (s *Service) GroupNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
+func (s *Client) GroupNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
 	if err := s.requirePG(); err != nil {
 		return authkit.NamingState{}, err
 	}
@@ -101,7 +101,7 @@ func (s *Service) GroupNamingState(ctx context.Context, id string) (authkit.Nami
 	return s.namingStateWithAliases(ctx, "group", id, last)
 }
 
-func (s *Service) namingStateWithAliases(ctx context.Context, kind, id string, last *time.Time) (authkit.NamingState, error) {
+func (s *Client) namingStateWithAliases(ctx context.Context, kind, id string, last *time.Time) (authkit.NamingState, error) {
 	now := s.namingNow()
 	state := s.NamingPolicy().State(last, now)
 	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT name,expires_at FROM profiles.name_claims WHERE owner_kind=$1 AND owner_id=$2::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$3) ORDER BY name`, kind, id, now)

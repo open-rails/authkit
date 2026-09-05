@@ -51,7 +51,7 @@ func TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing(t *testing.T
 	ctx := context.Background()
 
 	// Optional policy, no WithEmailSender => s.email == nil.
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{}, WithPostgres(pool))
 
 	email := fmt.Sprintf("opt-no-sender-%d@example.com", time.Now().UnixNano())
 	username := fmt.Sprintf("optnosender%d", time.Now().UnixNano())
@@ -88,7 +88,7 @@ func TestRegistrationOptionalWithSenderSendsAndLeavesUnverified(t *testing.T) {
 	ctx := context.Background()
 
 	spy := &spyEmailSender{}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{},
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{},
 		WithPostgres(pool), WithEmailSender(spy), WithEphemeralStore(memorystore.NewKV()))
 
 	email := fmt.Sprintf("opt-sender-%d@example.com", time.Now().UnixNano())

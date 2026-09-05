@@ -7,9 +7,9 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// SignDocument signs through the Service's live key source, so normal AuthKit
+// SignDocument signs through the Client's live key source, so normal AuthKit
 // key rotation applies without exposing private key material to the host.
-func (s *Service) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
+func (s *Client) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return documents.SignedDocument{}, ErrMissingSigner

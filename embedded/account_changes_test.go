@@ -18,7 +18,7 @@ import (
 // Skips without a test database.
 func TestConfirmContactChange_RequiresEphemeralStore(t *testing.T) {
 	pool := testdb.Pool(t)
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	require.False(t, svc.useEphemeralStore())
 
 	ctx := context.Background()

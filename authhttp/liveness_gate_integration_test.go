@@ -25,7 +25,7 @@ import (
 // over the wire. The gate under test is the one a host mounts — no fakes stand
 // in for the engine, the token, or the transport.
 
-func newLivenessTestEngine(t *testing.T, pool *pgxpool.Pool, issuer string) (*embedded.Service, *verify.Verifier) {
+func newLivenessTestEngine(t *testing.T, pool *pgxpool.Pool, issuer string) (*embedded.Client, *verify.Verifier) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "liveness-kid")
 	require.NoError(t, err)

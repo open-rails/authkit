@@ -39,7 +39,7 @@ type GroupMembershipInvite struct {
 // actor must hold the same no-escalation authority required to assign the role
 // directly; the role is granted only when the invitee accepts. Idempotent on a
 // pending (group, user, role) — a duplicate invite returns the existing one.
-func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID string, group authkit.GroupRef, targetUserID string, role authkit.Role) (GroupMembershipInvite, error) {
+func (s *Client) CreateGroupMembershipInvite(ctx context.Context, actorUserID string, group authkit.GroupRef, targetUserID string, role authkit.Role) (GroupMembershipInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupMembershipInvite{}, err
 	}
@@ -87,7 +87,7 @@ func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID s
 }
 
 // ListPendingGroupMembershipInvites returns the caller's open invites.
-func (s *Service) ListPendingGroupMembershipInvites(ctx context.Context, userID string) ([]GroupMembershipInvite, error) {
+func (s *Client) ListPendingGroupMembershipInvites(ctx context.Context, userID string) ([]GroupMembershipInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (s *Service) ListPendingGroupMembershipInvites(ctx context.Context, userID 
 
 // AcceptGroupMembershipInvite grants the invited role to the caller (own-auth
 // acceptance) and marks the invite accepted. Single-use.
-func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, inviteID string) error {
+func (s *Client) AcceptGroupMembershipInvite(ctx context.Context, userID, inviteID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 }
 
 // DeclineGroupMembershipInvite marks the caller's pending invite declined.
-func (s *Service) DeclineGroupMembershipInvite(ctx context.Context, userID, inviteID string) error {
+func (s *Client) DeclineGroupMembershipInvite(ctx context.Context, userID, inviteID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

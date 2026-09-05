@@ -15,7 +15,7 @@ import (
 func TestUpsertRemoteApplicationRejectsPlatformIssuer(t *testing.T) {
 	pool := testdb.Pool(t)
 	const platformIssuer = "https://platform.example"
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: platformIssuer}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: platformIssuer}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	orgID := createTestGroup(t, ctx, svc, pool, "reserved-issuer-org")
@@ -51,7 +51,7 @@ func TestUpsertRemoteApplicationRejectsPlatformIssuer(t *testing.T) {
 
 func TestUpsertRemoteApplicationAllowsNonPlatformIssuer(t *testing.T) {
 	pool := testdb.Pool(t)
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://platform.example"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://platform.example"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	orgID := createTestGroup(t, ctx, svc, pool, "ok-issuer-org")

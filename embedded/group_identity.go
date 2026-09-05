@@ -11,7 +11,7 @@ import (
 
 // GroupInstanceByID reads the identity already resolved by a host. It never
 // interprets the UUID as a mutable name.
-func (s *Service) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
+func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupInstance{}, err
 	}
@@ -20,7 +20,7 @@ func (s *Service) GroupInstanceByID(ctx context.Context, groupID string) (GroupI
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
 // or reclaimed name cannot redirect this check to a different owner.
-func (s *Service) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
+func (s *Client) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -30,7 +30,7 @@ func (s *Service) CanOnGroup(ctx context.Context, subject authkit.Subject, group
 // DeleteGroupInstanceByID is the trusted host's lifecycle primitive. The host
 // authorizes deletion before calling it; retries always target the captured UUID.
 // ReleaseSlug releases the current name only, preserving earlier reservations.
-func (s *Service) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error {
+func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

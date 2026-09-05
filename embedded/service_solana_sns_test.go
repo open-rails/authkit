@@ -100,7 +100,7 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"Example.SOL","stale":false}}`))
 	})
 
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "resolved")
 
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -133,7 +133,7 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"cached.sol","stale":false}}`))
 	})
 
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "cache")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
@@ -175,7 +175,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"` + current + `","stale":false}}`))
 	})
 
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	// Force every cached entry to read as stale (test-only seam; production uses the
 	// fixed 24h TTL) so the stale-refresh + ownership-change path is exercised.
 	svc.sns.cacheTTL = time.Nanosecond
@@ -195,7 +195,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	waitForSolanaSNSProfileValue(t, ctx, pool, user.ID, svc.solanaIssuer(), "after.sol")
 
 	setName("")
-	freshSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	freshSvc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := freshSvc.resolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
 		t.Fatalf("resolveAndStoreSolanaSNS clear: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"","stale":false}}`))
 	})
 
-	notFoundSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	notFoundSvc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	notFoundUser := importSNSUser(t, ctx, notFoundSvc, pool, "notfound")
 	if err := notFoundSvc.LinkProviderByIssuer(ctx, notFoundUser.ID, notFoundSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer not found: %v", err)
@@ -233,7 +233,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusBadGateway)
 	})
-	errorSvc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, SolanaNetwork: "devnet"}, Keyset{}, WithPostgres(pool))
+	errorSvc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, SolanaNetwork: "devnet"}, Keyset{}, WithPostgres(pool))
 	errorUser := importSNSUser(t, ctx, errorSvc, pool, "error")
 	if err := errorSvc.LinkProviderByIssuer(ctx, errorUser.ID, errorSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer error: %v", err)
@@ -247,7 +247,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	}
 }
 
-func importSNSUser(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, suffix string) *User {
+func importSNSUser(t *testing.T, ctx context.Context, svc *Client, pool *pgxpool.Pool, suffix string) *User {
 	t.Helper()
 	username := "sns" + suffix + strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username) })

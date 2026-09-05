@@ -41,7 +41,7 @@ func TestPersonaRequireConsent(t *testing.T) {
 func TestLastOwnerGuard_DB(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("ensure root group: %v", err)
 	}

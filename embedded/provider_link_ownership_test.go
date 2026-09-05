@@ -12,7 +12,7 @@ import (
 )
 
 // mkBareUser inserts a username-only user and returns its id, with cleanup.
-func mkBareUser(t *testing.T, ctx context.Context, svc *Service, tag string) string {
+func mkBareUser(t *testing.T, ctx context.Context, svc *Client, tag string) string {
 	t.Helper()
 	uname := fmt.Sprintf("link-%s-%d", tag, time.Now().UnixNano())
 	var id string
@@ -25,7 +25,7 @@ func mkBareUser(t *testing.T, ctx context.Context, svc *Service, tag string) str
 
 // providerOwner returns the (user_id, email_at_provider, provider_slug) of the
 // user_providers row for (issuer, subject).
-func (s *Service) providerOwner(t *testing.T, ctx context.Context, issuer, subject string) (userID, email, slug string) {
+func (s *Client) providerOwner(t *testing.T, ctx context.Context, issuer, subject string) (userID, email, slug string) {
 	t.Helper()
 	var em, sl *string
 	if err := s.pg.QueryRow(ctx,
@@ -48,7 +48,7 @@ func (s *Service) providerOwner(t *testing.T, ctx context.Context, issuer, subje
 func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "a")
 	b := mkBareUser(t, ctx, svc, "b")
@@ -80,7 +80,7 @@ func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
 func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "idem")
 	issuer := "https://google.example"
@@ -109,7 +109,7 @@ func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "switch")
 	issuer := "https://discord.example"
@@ -134,7 +134,7 @@ func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
 func TestConcurrentProviderLinksDoNotReplaceEachOther(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	user := mkBareUser(t, ctx, svc, "concurrent")
 	issuer := "https://issuer.example"
 	start := make(chan struct{})

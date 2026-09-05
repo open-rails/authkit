@@ -124,7 +124,7 @@ func newApplicationsHTTPClient(allowPrivate bool, r netguard.Resolver) *http.Cli
 // canonical form keeps scheme+port so distinct rigs stay distinct roots; that
 // is the #257-style dev carve-out, and 127.0.0.1 obviously cannot
 // domain-prove anything in prod.
-func (s *Service) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
+func (s *Client) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
 		return "", "", "", fmt.Errorf("%w: domain is required", ErrApplicationDomainInvalid)
@@ -163,7 +163,7 @@ func (s *Service) resolveApplicationDomain(domain string) (canonical, host, fetc
 // fetchApplicationDocument GETs the well-known application.json. The fetch is
 // the domain-control proof, so its transport is deliberately strict: bounded
 // body, no redirects, SSRF-guarded dials outside dev.
-func (s *Service) fetchApplicationDocument(ctx context.Context, fetchURL string) (*ApplicationDocument, error) {
+func (s *Client) fetchApplicationDocument(ctx context.Context, fetchURL string) (*ApplicationDocument, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrApplicationDocumentFetchFailed, err)
@@ -209,7 +209,7 @@ type normalizedApplication struct {
 // exactly one trust source, and public https URLs. The slug is a FREE CLAIM
 // (defaulting to the hostname) — availability is checked at claim time, not
 // here.
-func (s *Service) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
+func (s *Client) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
 	isDev := s.cfg.Applications.AllowPrivateNetworkJWKS
 	slug := strings.ToLower(strings.TrimSpace(doc.Slug))
 	if slug == "" {
@@ -276,7 +276,7 @@ func isUniqueViolation(err error, constraint string) bool {
 
 // applicationsEnabled validates the self-registration configuration and
 // returns the org persona definition.
-func (s *Service) applicationsEnabled() (PersonaDef, error) {
+func (s *Client) applicationsEnabled() (PersonaDef, error) {
 	if !s.cfg.Applications.SelfRegistration {
 		return PersonaDef{}, ErrApplicationRegistrationDisabled
 	}
@@ -297,7 +297,7 @@ func (s *Service) applicationsEnabled() (PersonaDef, error) {
 // boot-time self-heal AND the rotation-from-root path: the old keypair may be
 // gone entirely, the fresh domain proof adopts whatever the document declares
 // now.
-func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error) {
+func (s *Client) RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -436,7 +436,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	case err != nil:
 		return nil, err
 	}
-	// Service-owned org: the application principal owns its own group. Zero
+	// Client-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
 	if err := st.AssignRole(ctx, gid, authkit.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
 		return nil, err
@@ -492,7 +492,7 @@ func applicationJWSAlgAllowed(alg string) bool {
 // applicationSigningKeys resolves the CURRENTLY-trusted verification keys for
 // an application: the stored static key list, or a fresh fetch of its
 // registered jwks_uri.
-func (s *Service) applicationSigningKeys(ctx context.Context, app *RemoteApplication, kid string) ([]crypto.PublicKey, error) {
+func (s *Client) applicationSigningKeys(ctx context.Context, app *RemoteApplication, kid string) ([]crypto.PublicKey, error) {
 	var out []crypto.PublicKey
 	switch app.Mode {
 	case RemoteAppModeStatic:
@@ -545,7 +545,7 @@ func (s *Service) applicationSigningKeys(ctx context.Context, app *RemoteApplica
 // currently-trusted keys and returns its validated payload. Checks: JOSE typ,
 // algorithm allowlist, kid presence, signature, op/slug binding, audience
 // binding to this platform's issuer, and the iat anti-replay window.
-func (s *Service) verifyApplicationJWS(ctx context.Context, app *RemoteApplication, compact, wantOp string) (*applicationSignedRequest, error) {
+func (s *Client) verifyApplicationJWS(ctx context.Context, app *RemoteApplication, compact, wantOp string) (*applicationSignedRequest, error) {
 	header, payload, err := documents.DecodeCompact(compact)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrApplicationSignatureInvalid, err)
@@ -612,7 +612,7 @@ func (s *Service) verifyApplicationJWS(ctx context.Context, app *RemoteApplicati
 // CURRENTLY-trusted key replaces the application's jwks_uri/public_keys. This
 // is the CONVENIENCE path — the trust root (domain re-registration / owning
 // user) always remains able to rotate, including when every old key is gone.
-func (s *Service) RotateApplicationSigned(ctx context.Context, slug, compactJWS string) (*RemoteApplication, error) {
+func (s *Client) RotateApplicationSigned(ctx context.Context, slug, compactJWS string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -663,7 +663,7 @@ func (s *Service) RotateApplicationSigned(ctx context.Context, slug, compactJWS 
 // domain's application.json proves control of it. uuid, slug, and the
 // service-owned org are all stable — the slug is a claimed handle, not the
 // domain.
-func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS string) (*RegisteredApplication, error) {
+func (s *Client) RepointApplicationSigned(ctx context.Context, slug, compactJWS string) (*RegisteredApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -753,7 +753,7 @@ func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS
 // SetApplicationTier sets an application's capability tier. Approval is an
 // ADMIN act on the host — self-registration can never reach `approved` on its
 // own.
-func (s *Service) SetApplicationTier(ctx context.Context, slug, tier string) (*RemoteApplication, error) {
+func (s *Client) SetApplicationTier(ctx context.Context, slug, tier string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}

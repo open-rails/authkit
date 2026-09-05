@@ -16,7 +16,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 )
 
-func (s *Service) authorizeAccountAuthority(ctx context.Context, actorUserID, targetUserID string) error {
+func (s *Client) authorizeAccountAuthority(ctx context.Context, actorUserID, targetUserID string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	targetUserID = strings.TrimSpace(targetUserID)
 	if actorUserID == "" || targetUserID == "" {
@@ -52,7 +52,7 @@ func (s *Service) authorizeAccountAuthority(ctx context.Context, actorUserID, ta
 }
 
 // SoftDeleteUserAs is the actor-aware SoftDeleteUser.
-func (s *Service) SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
+func (s *Client) SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
 	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (s *Service) SoftDeleteUserAs(ctx context.Context, actorUserID, userID stri
 }
 
 // HardDeleteUserAs is the actor-aware HardDeleteUser.
-func (s *Service) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
+func (s *Client) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
 	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (s *Service) HardDeleteUserAs(ctx context.Context, actorUserID, userID stri
 }
 
 // AdminRevokeUserSessionsAs is the actor-aware AdminRevokeUserSessions.
-func (s *Service) AdminRevokeUserSessionsAs(ctx context.Context, actorUserID, userID string) error {
+func (s *Client) AdminRevokeUserSessionsAs(ctx context.Context, actorUserID, userID string) error {
 	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
 		return err
 	}

@@ -19,7 +19,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-func newAppTestService(t *testing.T, allowPrivateNetwork bool) *Service {
+func newAppTestService(t *testing.T, allowPrivateNetwork bool) *Client {
 	t.Helper()
 	svc, err := newFromConfig(Config{
 		Keys: KeysConfig{VerifyOnly: true},

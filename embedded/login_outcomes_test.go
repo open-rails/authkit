@@ -99,7 +99,7 @@ func (f *flowSMSSender) code(phone string) string {
 }
 
 type flowHarness struct {
-	svc   *Service
+	svc   *Client
 	pool  *pgxpool.Pool
 	email *flowEmailSender
 	sms   *flowSMSSender
@@ -120,7 +120,7 @@ func newFlowHarness(t *testing.T, mutate func(*Config)) *flowHarness {
 		mutate(&cfg)
 	}
 	h := &flowHarness{pool: pool, email: &flowEmailSender{}, sms: &flowSMSSender{}}
-	h.svc = mustNewService(t, cfg, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"flow-test": signer.PublicKey()}},
+	h.svc = mustNewWithKeys(t, cfg, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"flow-test": signer.PublicKey()}},
 		WithPostgres(pool), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(h.email), WithSMSSender(h.sms))
 	return h
 }
@@ -327,7 +327,7 @@ func TestRegisterOutcomes_DB(t *testing.T) {
 		_, err := closed.svc.Register(ctx, RegisterInput{Identifier: "closed-" + suffix + "@example.com", Username: "closed" + suffix, Password: pass})
 		require.ErrorIs(t, err, ErrRegistrationDisabled)
 
-		noSender := mustNewService(t, Config{
+		noSender := mustNewWithKeys(t, Config{
 			Token:        TokenConfig{Issuer: "https://test"},
 			Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, NativeUserMode: RegistrationModeOpen, AllowMissingSenders: true},
 			Ephemeral:    EphemeralConfig{AllowMemory: true},

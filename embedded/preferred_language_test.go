@@ -39,7 +39,7 @@ func TestNormalizePreferredLanguage(t *testing.T) {
 func TestSetGetPreferredLanguage(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	username := "pl" + strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username) })

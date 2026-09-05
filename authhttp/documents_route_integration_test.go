@@ -56,7 +56,7 @@ func newDocumentsTestStack(t *testing.T, cfg embedded.Config, payload string) (*
 func registerDocumentReader(t *testing.T, core *embedded.Client, slug, issuer string) string {
 	t.Helper()
 	ctx := context.Background()
-	coreSvc := embedded.Unwrap(core)
+	coreSvc := core
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	rootGID, err := coreSvc.EnsureRootGroup(ctx)
 	require.NoError(t, err)

@@ -8,7 +8,7 @@ import (
 
 // GenesisClient is the explicitly-dangerous bootstrap/migration seam (#241): its
 // mutators run with NO actor check and NO no-escalation enforcement — the
-// opposite of the actor-checked `*As` methods on the main Client facade
+// opposite of the actor-checked `*As` methods on the Client itself
 // (AssignRoleBySlugAs / AssignGroupRoleAs / RemoveGroupSubjectAs). One mistaken
 // call here can hand out root:*.
 //
@@ -26,12 +26,12 @@ import (
 // (e.g. provisioning the first owner of a fresh install) — never from a runtime
 // request handler, where the corresponding `*As` method belongs.
 type GenesisClient struct {
-	impl *Service
+	impl *Client
 }
 
 // Genesis returns the unchecked bootstrap/migration sub-client. See GenesisClient.
 func (s *Client) Genesis() GenesisClient {
-	return GenesisClient{impl: s.impl}
+	return GenesisClient{impl: s}
 }
 
 // AssignRoleBySlug grants userID the named root-persona role with NO actor check

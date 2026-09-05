@@ -30,7 +30,7 @@ func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
 func TestApplyBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("seed-once-%d", time.Now().UnixNano())
 	const seeded = "bootstrap-password-1"

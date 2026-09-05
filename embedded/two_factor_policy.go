@@ -17,11 +17,11 @@ import (
 var Err2FAMethodUnavailable = errors.New("2fa_method_unavailable")
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
-func (s *Service) TwoFactorEnabled() bool {
+func (s *Client) TwoFactorEnabled() bool {
 	return normalizeTwoFactorMode(s.cfg.TwoFactor.Mode) != TwoFactorDisabled
 }
 
-func (s *Service) twoFactorMethodConfigured(m TwoFactorMethod) bool {
+func (s *Client) twoFactorMethodConfigured(m TwoFactorMethod) bool {
 	if !s.TwoFactorEnabled() {
 		return false
 	}
@@ -39,7 +39,7 @@ func (s *Service) twoFactorMethodConfigured(m TwoFactorMethod) bool {
 
 // TwoFactorMethodAvailable reports whether a second-factor method can be
 // enrolled/used right now: enabled by policy AND its delivery dependency present.
-func (s *Service) TwoFactorMethodAvailable(method string) bool {
+func (s *Client) TwoFactorMethodAvailable(method string) bool {
 	m := TwoFactorMethod(strings.ToLower(strings.TrimSpace(method)))
 	if !s.twoFactorMethodConfigured(m) {
 		return false
@@ -59,7 +59,7 @@ func (s *Service) TwoFactorMethodAvailable(method string) bool {
 // TwoFactorAllowedMethods is the set of currently-usable methods, in stable order.
 // Empty when 2FA is disabled or no method's dependency is satisfied — what status
 // and enrollment-required responses report to clients.
-func (s *Service) TwoFactorAllowedMethods() []string {
+func (s *Client) TwoFactorAllowedMethods() []string {
 	out := []string{}
 	for _, m := range []TwoFactorMethod{TwoFactorEmail, TwoFactorSMS, TwoFactorTOTP} {
 		if s.TwoFactorMethodAvailable(string(m)) {

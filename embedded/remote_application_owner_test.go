@@ -17,7 +17,7 @@ import (
 func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	gid, err := svc.EnsureRootGroup(ctx)
@@ -64,7 +64,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 func TestRemoteApplicationMembershipRejectsUnknownRole(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	gid, err := svc.EnsureRootGroup(ctx)

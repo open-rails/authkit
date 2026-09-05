@@ -13,7 +13,7 @@ import (
 // not through raw SQL in the transport: HasProviderLink is exact on
 // (issuer, slug) and ProviderSlugs is distinct.
 func TestProviderLinkQueries(t *testing.T) {
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(testdb.Pool(t)))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(testdb.Pool(t)))
 	ctx := context.Background()
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
 	u, err := svc.CreateUser(ctx, "links"+suffix+"@example.com", "links"+suffix)

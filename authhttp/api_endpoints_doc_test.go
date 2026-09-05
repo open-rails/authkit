@@ -60,7 +60,7 @@ func docService(t *testing.T) *Service {
 			Creation:     authkit.InstanceCreationDef{Enabled: true},
 		}},
 	}
-	core, err := embedded.NewService(cfg, ks, depsOf())
+	core, err := embedded.NewWithKeys(cfg, ks, depsOf())
 	require.NoError(t, err)
 	s := serviceFromCore(t, core)
 	providers, err := providerRegistry(cfg.Identity.Providers)

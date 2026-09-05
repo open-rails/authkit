@@ -30,11 +30,11 @@ func WithAccountRegistrationInviteToken(ctx context.Context, token string) conte
 	return contextWithAccountRegistrationInviteToken(ctx, token)
 }
 
-func (s *Service) RegistrationAllowedForEmailWithInvite(ctx context.Context, email, token string) (bool, error) {
+func (s *Client) RegistrationAllowedForEmailWithInvite(ctx context.Context, email, token string) (bool, error) {
 	return s.registrationAllowedForEmail(contextWithAccountRegistrationInviteToken(ctx, token), email)
 }
 
-func (s *Service) ConsumeAccountRegistrationInvite(ctx context.Context, email, userID, token string) error {
+func (s *Client) ConsumeAccountRegistrationInvite(ctx context.Context, email, userID, token string) error {
 	return s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, token), email, userID)
 }
 
@@ -55,17 +55,17 @@ type AccountRegistrationInvite = authkit.AccountRegistrationInvite
 type CreateAccountRegistrationInviteRequest = authkit.CreateAccountRegistrationInviteRequest
 type AccountRegistrationInviteCreated = authkit.AccountRegistrationInviteCreated
 
-func (s *Service) accountRegistrationInviteURL(code string) string {
+func (s *Client) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
 	q.Set("account_invite_token", code)
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-func (s *Service) CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error) {
+func (s *Client) CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error) {
 	return s.createAccountRegistrationInvite(ctx, req, true)
 }
 
-func (s *Service) createAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (AccountRegistrationInviteCreated, error) {
+func (s *Client) createAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (AccountRegistrationInviteCreated, error) {
 	if err := s.requirePG(); err != nil {
 		return AccountRegistrationInviteCreated{}, err
 	}
@@ -157,7 +157,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	return created, nil
 }
 
-func (s *Service) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
+func (s *Client) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
 	if s.email == nil {
 		return
 	}
@@ -172,7 +172,7 @@ func (s *Service) sendAccountRegistrationInviteEmail(ctx context.Context, email,
 	}
 }
 
-func (s *Service) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
+func (s *Client) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
 	// #147 FINAL: the stranger invite is UNBOUND — the single-use code is the
 	// credential, not the address it was delivered to. We check only that a valid,
 	// unconsumed, unexpired code is presented; `email` (the registrant's chosen
@@ -194,7 +194,7 @@ func (s *Service) hasValidAccountRegistrationInvite(ctx context.Context, email s
 	return exists, err
 }
 
-func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, userID string) error {
+func (s *Client) consumeAccountRegistrationInvite(ctx context.Context, email, userID string) error {
 	_ = email // #147 FINAL: unbound — consumed by code, not by address.
 	userID = strings.TrimSpace(userID)
 	if userID == "" {

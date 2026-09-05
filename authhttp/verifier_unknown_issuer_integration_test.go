@@ -66,7 +66,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
 	srv, err := newServer(client)
 	require.NoError(t, err)
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 

@@ -33,7 +33,7 @@ type totpEnrollmentData struct {
 }
 
 // StartTOTPEnrollment creates a short-lived pending authenticator-app secret.
-func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
+func (s *Client) StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return "", "", Err2FAMethodUnavailable
 	}
@@ -79,7 +79,7 @@ type TOTPEnrollment struct {
 
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
 // the user, returning fresh backup codes.
-func (s *Service) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string, error) {
+func (s *Client) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string, error) {
 	userID, code, makeDefault, mode := in.UserID, in.Code, in.MakeDefault, in.Mode
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return nil, Err2FAMethodUnavailable
@@ -174,7 +174,7 @@ func totpCode(secret string, step int64) (string, error) {
 // stay decryptable by their prefix — with zero rotation machinery now.
 const totpKeyVersion byte = 1
 
-func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
+func (s *Client) encryptTOTPSecret(secret string) ([]byte, error) {
 	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
 	if err != nil {
 		return nil, fmt.Errorf("totp secret encryption key not configured")
@@ -193,7 +193,7 @@ func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
 	return gcm.Seal(append(out, nonce...), nonce, []byte(secret), out), nil
 }
 
-func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
+func (s *Client) decryptTOTPSecret(data []byte) (string, error) {
 	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
 	if err != nil {
 		return "", fmt.Errorf("totp secret encryption key not configured")
@@ -221,7 +221,7 @@ func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
 }
 
 // SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
-func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
+func (s *Client) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
 	hash := sha256Hex(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
@@ -245,7 +245,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 }
 
 // VerifyPhone2FASetupCode checks the code for 2FA phone setup.
-func (s *Service) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
+func (s *Client) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
 	hash := sha256Hex(code)
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, hash)

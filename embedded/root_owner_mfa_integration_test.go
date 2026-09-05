@@ -25,7 +25,7 @@ func TestRootOwnerRequiresMFA_AssignmentBlockedThenAllowed_DB(t *testing.T) {
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
 
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestRootOwnerRequiresMFA_ExplicitOverrideAllowsUnenrolledAssignment_DB(t *t
 	if err != nil {
 		t.Fatalf("NewGroupSchema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
@@ -83,7 +83,7 @@ func TestRootOwnerRequiresMFA_InertWhenTwoFactorDisabled_DB(t *testing.T) {
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
 
-	svc := mustNewService(t, Config{
+	svc := mustNewWithKeys(t, Config{
 		Token:     TokenConfig{Issuer: "https://test"},
 		TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled},
 	}, Keyset{}, WithPostgres(pool))
@@ -113,7 +113,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
 
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
 	}
 
 	// Enrolled + assigned while 2FA is enabled (Mode defaults to Optional).
-	enabled := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	enabled := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	enabled.groupSchema = gs
 	if err := enabled.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -202,10 +202,10 @@ func TestDisable2FAStripsMFARoles_IndependentOfTwoFactorMode_DB(t *testing.T) {
 		t.Fatalf("assign member: %v", err)
 	}
 
-	// The host later flips TwoFactor.Mode to Disabled (a fresh Service sharing
+	// The host later flips TwoFactor.Mode to Disabled (a fresh Client sharing
 	// the same DB state models a config-only redeploy). The user then disables
 	// their own 2FA: the strip still fires — it is not gated by app Mode.
-	disabled := mustNewService(t, Config{
+	disabled := mustNewWithKeys(t, Config{
 		Token:     TokenConfig{Issuer: "https://test"},
 		TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled},
 	}, Keyset{}, WithPostgres(pool))

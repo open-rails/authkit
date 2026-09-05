@@ -13,7 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Deps are the runtime dependencies a Service is built with. Config carries
+// Deps are the runtime dependencies a Client is built with. Config carries
 // data and policy; everything that reaches outside the process is here.
 type Deps struct {
 	// Postgres is the durable store. Required by every host-facing constructor.
@@ -58,7 +58,7 @@ func (d Deps) validate() error {
 	return nil
 }
 
-func (s *Service) applyDeps(d Deps) {
+func (s *Client) applyDeps(d Deps) {
 	s.pg = d.Postgres
 	if d.Postgres != nil {
 		s.q = db.New(db.ForSchema(d.Postgres, s.dbSchema()))

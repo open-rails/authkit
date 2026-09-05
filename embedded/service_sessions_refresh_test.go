@@ -10,17 +10,17 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// keyedServiceWithPG builds a Service with generated signing keys AND a Postgres
+// keyedServiceWithPG builds a Client with generated signing keys AND a Postgres
 // pool, so ExchangeRefreshToken (which mints an access token after rotating) works
 // end to end.
-func keyedServiceWithPG(t *testing.T) *Service {
+func keyedServiceWithPG(t *testing.T) *Client {
 	return keyedServiceWithPGGrace(t, 0)
 }
 
 // keyedServiceWithPGGrace is keyedServiceWithPG with an explicit rotation grace
 // window (ak#274): 0 takes the 30s default, negative makes rotation strictly
 // single-use.
-func keyedServiceWithPGGrace(t *testing.T, grace time.Duration) *Service {
+func keyedServiceWithPGGrace(t *testing.T, grace time.Duration) *Client {
 	t.Helper()
 	pool := testdb.Pool(t)
 	ks := testKeySource(t)
@@ -39,7 +39,7 @@ func keyedServiceWithPGGrace(t *testing.T, grace time.Duration) *Service {
 	return svc
 }
 
-func mkRefreshTestUser(t *testing.T, ctx context.Context, svc *Service, tag string) string {
+func mkRefreshTestUser(t *testing.T, ctx context.Context, svc *Client, tag string) string {
 	t.Helper()
 	uname := fmt.Sprintf("refresh-%s-%d", tag, time.Now().UnixNano())
 	var id string

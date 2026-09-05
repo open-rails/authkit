@@ -12,7 +12,7 @@ import (
 
 // seedBackupUser creates a user with 2FA enabled and the given plaintext backup
 // codes (stored hashed, as the service does), returning the user id.
-func seedBackupUser(t *testing.T, ctx context.Context, svc *Service, codes ...string) string {
+func seedBackupUser(t *testing.T, ctx context.Context, svc *Client, codes ...string) string {
 	t.Helper()
 	uname := fmt.Sprintf("backup-%d", time.Now().UnixNano())
 	var id string
@@ -35,7 +35,7 @@ func seedBackupUser(t *testing.T, ctx context.Context, svc *Service, codes ...st
 func TestVerifyBackupCode_SingleUse(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "code-aaa", "code-bbb")
 
 	ok, err := svc.VerifyBackupCode(ctx, uid, "code-aaa")
@@ -61,7 +61,7 @@ func TestVerifyBackupCode_SingleUse(t *testing.T) {
 func TestVerifyBackupCode_ConcurrentSingleWinner(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "race-code")
 
 	const n = 2

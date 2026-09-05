@@ -99,7 +99,7 @@ func TestValidAPIKeyPrefix(t *testing.T) {
 }
 
 func TestAPIKeyPrefixAndTTLConfigured(t *testing.T) {
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}, APIKeys: APIKeysConfig{Prefix: "or", MaxTTL: time.Hour}}, Keyset{})
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, APIKeys: APIKeysConfig{Prefix: "or", MaxTTL: time.Hour}}, Keyset{})
 	cfg := svc.Config()
 	if cfg.APIKeys.Prefix != "or" {
 		t.Fatalf("prefix not normalized: %+v", cfg.APIKeys)

@@ -51,15 +51,15 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 	return nil
 }
 
-func newHardeningService(t *testing.T) (*Service, *hardeningEmailSender) {
+func newHardeningService(t *testing.T) (*Client, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
 		WithPostgres(testdb.Pool(t)), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender))
 	return svc, sender
 }
 
-func newHardeningUser(t *testing.T, ctx context.Context, svc *Service, tag string) (*User, string) {
+func newHardeningUser(t *testing.T, ctx context.Context, svc *Client, tag string) (*User, string) {
 	t.Helper()
 	username := fmt.Sprintf("hard-%s-%d", tag, time.Now().UnixNano())
 	email := username + "@example.test"

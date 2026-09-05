@@ -71,7 +71,7 @@ func normalizeAdminUserListOptions(o AdminUserListOptions) AdminUserListOptions 
 // list and count (no ORDER BY / pagination). When an Entitlement filter is set it
 // resolves the subject set via the provider HERE, so list and count agree and the
 // provider is hit once per call.
-func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOptions) (from string, where []string, args []any, err error) {
+func (s *Client) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOptions) (from string, where []string, args []any, err error) {
 	from = "profiles.users u"
 	args = []any{}
 	argIdx := 1
@@ -151,7 +151,7 @@ func adminUserOrderBy(o AdminUserListOptions) string {
 // adminUserCount runs the directory COUNT for a from/where/args triple produced by
 // adminUserDirectoryQuery. Shared by AdminCountUsers and AdminListUsers so the
 // count SQL has one definition and both agree on the predicate set.
-func (s *Service) adminUserCount(ctx context.Context, from string, where []string, args []any) (int64, error) {
+func (s *Client) adminUserCount(ctx context.Context, from string, where []string, args []any) (int64, error) {
 	q := db.RewriteSQL("SELECT COUNT(DISTINCT u.id) FROM "+from+" WHERE "+strings.Join(where, " AND "), s.dbSchema())
 	var total int64
 	if err := s.pg.QueryRow(ctx, q, args...).Scan(&total); err != nil {
@@ -164,7 +164,7 @@ func (s *Service) adminUserCount(ctx context.Context, from string, where []strin
 // role/status filter + search + sort + offset pagination, with optional
 // provider-backed entitlement filtering. Each row is enriched with role slugs
 // and (via the entitlements provider) entitlement names.
-func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
+func (s *Client) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
 	opts = normalizeAdminUserListOptions(opts)
 	if s.pg == nil {
 		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: opts.PageSize, Offset: 0}, nil
@@ -230,7 +230,7 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 // enrichEntitlements fills Entitlements for a page of users in ONE provider
 // call (the provider is batch-native, #221). Provider failures log and degrade
 // to no entitlements.
-func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
+func (s *Client) enrichEntitlements(ctx context.Context, users []AdminUser) {
 	if s.entitlements == nil || len(users) == 0 {
 		return
 	}
@@ -248,7 +248,7 @@ func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
 	}
 }
 
-func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
+func (s *Client) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
 	u, err := s.getUserByID(ctx, id)
 	if err != nil || u == nil {
 		return nil, err
@@ -270,7 +270,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 // and group_user_roles included, cascades on the row delete). A host table that
 // references profiles.users(id) without ON DELETE CASCADE aborts the whole
 // delete with ErrUserReferenced, so a user is never left half-deleted (#304).
-func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
+func (s *Client) AdminDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}

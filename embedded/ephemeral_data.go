@@ -66,14 +66,14 @@ type passkeyCeremonyData struct {
 
 // consumeLink atomically resolves and burns a link-token pointer, returning the
 // record key it pointed at.
-func (s *Service) consumeLink(ctx context.Context, linkKey string) (string, bool) {
+func (s *Client) consumeLink(ctx context.Context, linkKey string) (string, bool) {
 	key, ok, err := s.ephemConsumeString(ctx, linkKey)
 	return key, err == nil && ok && key != ""
 }
 
 // DeletePendingRegistrationByEmail removes a pending email registration for the
 // given email, if one exists. No-op when none exists.
-func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
+func (s *Client) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
 	if !s.useEphemeralStore() {
 		return nil
 	}
@@ -83,7 +83,7 @@ func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email st
 
 // DeletePendingPhoneRegistrationByPhone removes a pending phone registration for
 // the given phone, if one exists. No-op when none exists.
-func (s *Service) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error {
+func (s *Client) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error {
 	if !s.useEphemeralStore() {
 		return nil
 	}
@@ -105,7 +105,7 @@ func phoneVerificationKey(purpose, phone string) string {
 
 // storePhoneVerification issues one verification record per (purpose, phone),
 // superseding any outstanding one. linkHash may be empty for code-only purposes.
-func (s *Service) storePhoneVerification(ctx context.Context, purpose, phone, userID, codeHash, linkHash string, ttl time.Duration) error {
+func (s *Client) storePhoneVerification(ctx context.Context, purpose, phone, userID, codeHash, linkHash string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
 	}
@@ -123,7 +123,7 @@ func (s *Service) storePhoneVerification(ctx context.Context, purpose, phone, us
 	return nil
 }
 
-func (s *Service) deletePhoneVerification(ctx context.Context, key string) {
+func (s *Client) deletePhoneVerification(ctx context.Context, key string) {
 	var data phoneVerificationData
 	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPhoneVerifyLink+data.LinkHash)
@@ -134,7 +134,7 @@ func (s *Service) deletePhoneVerification(ctx context.Context, key string) {
 // consumePhoneVerification checks a typed code against the record issued for
 // (purpose, phone). A wrong code leaves the record intact; the per-phone attempt
 // cap bounds guessing.
-func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, codeHash string) (string, error) {
+func (s *Client) consumePhoneVerification(ctx context.Context, purpose, phone, codeHash string) (string, error) {
 	key := phoneVerificationKey(purpose, phone)
 	var data phoneVerificationData
 	ok, err := s.ephemGetJSON(ctx, key, &data)
@@ -151,7 +151,7 @@ func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, 
 // consumePhoneVerificationByLink redeems the 256-bit link token: the pointer is
 // consumed atomically (single-use), then the record it names must still carry
 // that link hash. Returns (userID, phone).
-func (s *Service) consumePhoneVerificationByLink(ctx context.Context, purpose, linkHash string) (string, string, error) {
+func (s *Client) consumePhoneVerificationByLink(ctx context.Context, purpose, linkHash string) (string, string, error) {
 	key, ok := s.consumeLink(ctx, keyPhoneVerifyLink+linkHash)
 	if !ok {
 		return "", "", jwt.ErrTokenUnverifiable
@@ -170,7 +170,7 @@ func (s *Service) consumePhoneVerificationByLink(ctx context.Context, purpose, l
 
 // storeEmailVerification issues one verification record per user, superseding
 // any outstanding one.
-func (s *Service) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
+func (s *Client) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
 	}
@@ -183,7 +183,7 @@ func (s *Service) storeEmailVerification(ctx context.Context, userID string, ema
 	return s.ephemSetString(ctx, keyEmailVerifyLink+linkHash, key, ttl)
 }
 
-func (s *Service) deleteEmailVerification(ctx context.Context, userID string) {
+func (s *Client) deleteEmailVerification(ctx context.Context, userID string) {
 	key := keyEmailVerify + userID
 	var data emailVerifyData
 	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
@@ -195,7 +195,7 @@ func (s *Service) deleteEmailVerification(ctx context.Context, userID string) {
 // consumeEmailVerificationCode checks a typed code against the user's outstanding
 // record; the record must have been issued for the supplied address. A wrong
 // code leaves the record intact; the per-email attempt cap bounds guessing.
-func (s *Service) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
+func (s *Client) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
 	var data emailVerifyData
 	ok, err := s.ephemGetJSON(ctx, keyEmailVerify+userID, &data)
 	if err != nil {
@@ -213,7 +213,7 @@ func (s *Service) consumeEmailVerificationCode(ctx context.Context, userID, emai
 
 // consumeEmailVerificationByLink redeems the 256-bit link token (single-use
 // pointer consume, then the record must still carry that link hash).
-func (s *Service) consumeEmailVerificationByLink(ctx context.Context, linkHash string) (*emailVerifyToken, error) {
+func (s *Client) consumeEmailVerificationByLink(ctx context.Context, linkHash string) (*emailVerifyToken, error) {
 	key, ok := s.consumeLink(ctx, keyEmailVerifyLink+linkHash)
 	if !ok {
 		return nil, jwt.ErrTokenUnverifiable
@@ -235,7 +235,7 @@ func (s *Service) consumeEmailVerificationByLink(ctx context.Context, linkHash s
 // invalidates every outstanding code/pending-registration for that address so the
 // short numeric code cannot be brute-forced within its TTL (AK security audit F1).
 // No-op without an ephemeral store.
-func (s *Service) RecordFailedEmailVerifyCode(ctx context.Context, email string) {
+func (s *Client) RecordFailedEmailVerifyCode(ctx context.Context, email string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -252,7 +252,7 @@ func (s *Service) RecordFailedEmailVerifyCode(ctx context.Context, email string)
 // reports whether the cap is reached, clearing the counter so a re-issued code
 // starts fresh. A store error counts as reached (fail closed): a guess that
 // cannot be counted must not keep the code alive.
-func (s *Service) recordFailedAttempt(ctx context.Context, key string, ttl time.Duration, max int64) bool {
+func (s *Client) recordFailedAttempt(ctx context.Context, key string, ttl time.Duration, max int64) bool {
 	n, err := s.ephemIncr(ctx, key, ttl)
 	if err != nil || n >= max {
 		_ = s.ephemDel(ctx, key)
@@ -263,7 +263,7 @@ func (s *Service) recordFailedAttempt(ctx context.Context, key string, ttl time.
 
 // ClearEmailVerifyCodeAttempts resets the per-email failed-attempt counter after a
 // successful confirmation.
-func (s *Service) ClearEmailVerifyCodeAttempts(ctx context.Context, email string) {
+func (s *Client) ClearEmailVerifyCodeAttempts(ctx context.Context, email string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -276,7 +276,7 @@ func (s *Service) ClearEmailVerifyCodeAttempts(ctx context.Context, email string
 
 // invalidateEmailVerifyCodes deletes the outstanding pending registration and
 // existing-user verification record for the address once the attempt cap is hit.
-func (s *Service) invalidateEmailVerifyCodes(ctx context.Context, email string) {
+func (s *Client) invalidateEmailVerifyCodes(ctx context.Context, email string) {
 	email = NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return
@@ -292,7 +292,7 @@ func (s *Service) invalidateEmailVerifyCodes(ctx context.Context, email string) 
 // RecordFailedPhoneVerifyCode is the phone twin of RecordFailedEmailVerifyCode:
 // after maxPhoneVerifyCodeAttempts wrong guesses the outstanding code(s) for the
 // number are invalidated. No-op without an ephemeral store.
-func (s *Service) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) {
+func (s *Client) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -307,7 +307,7 @@ func (s *Service) RecordFailedPhoneVerifyCode(ctx context.Context, phone string)
 
 // ClearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a
 // successful confirmation.
-func (s *Service) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
+func (s *Client) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -321,7 +321,7 @@ func (s *Service) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string
 // invalidatePhoneVerifyCodes deletes the outstanding codes for a number when the
 // attempt cap is hit: the pending phone registration and the existing-user
 // "verify_phone" record (the two unauthenticated confirm paths).
-func (s *Service) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
+func (s *Client) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
 	phone = NormalizePhone(strings.TrimSpace(phone))
 	if phone == "" {
 		return
@@ -330,12 +330,12 @@ func (s *Service) invalidatePhoneVerifyCodes(ctx context.Context, phone string) 
 	s.deletePhoneVerification(ctx, phoneVerificationKey("verify_phone", phone))
 }
 
-func (s *Service) storePasswordReset(ctx context.Context, tokenHash, userID string, ttl time.Duration) error {
+func (s *Client) storePasswordReset(ctx context.Context, tokenHash, userID string, ttl time.Duration) error {
 	data := passwordResetData{UserID: userID}
 	return s.ephemSetJSON(ctx, keyPasswordReset+tokenHash, data, ttl)
 }
 
-func (s *Service) consumePasswordReset(ctx context.Context, tokenHash string) (string, error) {
+func (s *Client) consumePasswordReset(ctx context.Context, tokenHash string) (string, error) {
 	var data passwordResetData
 	// Single-use: the token hash IS the key, so presenting it consumes it. Consume
 	// atomically (same class as AK2-PK-001) so a reset token can't be redeemed
@@ -350,12 +350,12 @@ func (s *Service) consumePasswordReset(ctx context.Context, tokenHash string) (s
 	return data.UserID, nil
 }
 
-func (s *Service) storeMFACode(ctx context.Context, userID, codeHash, method, destination string, ttl time.Duration) error {
+func (s *Client) storeMFACode(ctx context.Context, userID, codeHash, method, destination string, ttl time.Duration) error {
 	data := twoFactorData{CodeHash: codeHash, Method: method, Destination: destination}
 	return s.ephemSetJSON(ctx, keyTwoFactor+userID, data, ttl)
 }
 
-func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (bool, error) {
+func (s *Client) consumeMFACode(ctx context.Context, userID, codeHash string) (bool, error) {
 	var data twoFactorData
 	// Atomic single-use consume (#199 F2/plan015): get+del as ONE op so the same
 	// code cannot authenticate two concurrent requests racing a Get-then-Del. Same
@@ -372,12 +372,12 @@ func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (
 	return true, nil
 }
 
-func (s *Service) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string, ttl time.Duration) error {
+func (s *Client) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string, ttl time.Duration) error {
 	data := twoFactorData{CodeHash: codeHash, Method: method, Destination: destination}
 	return s.ephemSetJSON(ctx, keyTwoFactorStepUp+userID+":"+sessionID, data, ttl)
 }
 
-func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
+func (s *Client) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
 	var data twoFactorData
 	key := keyTwoFactorStepUp + userID + ":" + sessionID
 	// Atomic single-use consume (#199 F2/plan015) — see consumeMFACode.
@@ -394,23 +394,23 @@ func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, c
 	return true, nil
 }
 
-func (s *Service) storeMFAChallenge(ctx context.Context, userID, challengeHash string, ttl time.Duration) error {
+func (s *Client) storeMFAChallenge(ctx context.Context, userID, challengeHash string, ttl time.Duration) error {
 	return s.ephemSetString(ctx, keyTwoFactorChallenge+userID, challengeHash, ttl)
 }
 
-func (s *Service) getMFAChallenge(ctx context.Context, userID string) (string, bool, error) {
+func (s *Client) getMFAChallenge(ctx context.Context, userID string) (string, bool, error) {
 	return s.ephemGetString(ctx, keyTwoFactorChallenge+userID)
 }
 
-func (s *Service) deleteMFAChallenge(ctx context.Context, userID string) error {
+func (s *Client) deleteMFAChallenge(ctx context.Context, userID string) error {
 	return s.ephemDel(ctx, keyTwoFactorChallenge+userID)
 }
 
-func (s *Service) storePasskeyCeremony(ctx context.Context, challenge string, data passkeyCeremonyData, ttl time.Duration) error {
+func (s *Client) storePasskeyCeremony(ctx context.Context, challenge string, data passkeyCeremonyData, ttl time.Duration) error {
 	return s.ephemSetJSON(ctx, keyPasskeyCeremony+challenge, data, ttl)
 }
 
-func (s *Service) consumePasskeyCeremony(ctx context.Context, challenge string) (passkeyCeremonyData, error) {
+func (s *Client) consumePasskeyCeremony(ctx context.Context, challenge string) (passkeyCeremonyData, error) {
 	var data passkeyCeremonyData
 	// AK2-PK-001: the WebAuthn challenge is single-use — consume it ATOMICALLY so
 	// two concurrent finish requests presenting the same challenge cannot both

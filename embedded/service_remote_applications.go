@@ -71,7 +71,7 @@ type TrustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
-func (s *Service) trustSourcePolicy() TrustSourcePolicy {
+func (s *Client) trustSourcePolicy() TrustSourcePolicy {
 	return TrustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
@@ -216,7 +216,7 @@ func remoteAppFromRow(row remoteAppRow) *RemoteApplication {
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
 // issuer. An existing issuer can only be updated by its controlling group.
-func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
+func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
-func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
+func (s *Client) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -312,7 +312,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 }
 
 // GetRemoteApplicationBySlug returns a remote_application by slug.
-func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
+func (s *Client) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 
 // ListRemoteApplications returns every registered remote_application,
 // enabled or not (the admin read).
-func (s *Service) ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
+func (s *Client) ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -349,7 +349,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context) ([]RemoteApplicati
 
 // ListEnabledRemoteApplications returns only the enabled remote_applications:
 // the verification-facing snapshot a Verifier trusts issuers from.
-func (s *Service) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
+func (s *Client) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -369,7 +369,7 @@ func (s *Service) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteAp
 // instanceSlug) (#111). It resolves the group via the store, then filters
 // remote_applications by permission_group_id so a per-persona management caller
 // sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
+func (s *Client) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -412,7 +412,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, group auth
 }
 
 // DeleteRemoteApplication removes a remote_application by OIDC issuer URL.
-func (s *Service) DeleteRemoteApplication(ctx context.Context, issuer string) error {
+func (s *Client) DeleteRemoteApplication(ctx context.Context, issuer string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

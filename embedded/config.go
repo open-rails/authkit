@@ -9,7 +9,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Config is the host-provided configuration for an AuthKit Service. Fields are
+// Config is the host-provided configuration for an AuthKit Client. Fields are
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, Redis, senders) are Deps.
 type Config struct {
@@ -62,7 +62,7 @@ type Config struct {
 	// which remote-application reader slugs may fetch published documents from
 	// GET|HEAD /.well-known/authkit/documents/{digest}. Publication is never
 	// public — an empty list with a mounted documents surface refuses at
-	// construction (authhttp.NewServer), fail-closed like the publisher itself.
+	// construction (authhttp.New), fail-closed like the publisher itself.
 	Documents DocumentsConfig
 
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
@@ -75,7 +75,7 @@ type Config struct {
 	Schema string
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
-	// Empty defaults to mainnet. Solana Name Service (SNS)
+	// Empty defaults to mainnet. Solana Name Client (SNS)
 	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
 	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
 	SolanaNetwork string
@@ -289,7 +289,7 @@ type KeysConfig struct {
 	// instead of silently minting dev keys (#231). This flag is deliberately
 	// NOT derived from Environment.
 	AllowEphemeralDevKeys bool
-	// VerifyOnly constructs the Service with NO active signer (#87): token
+	// VerifyOnly constructs the Client with NO active signer (#87): token
 	// MINTING returns ErrMissingSigner, while VERIFICATION and all RBAC reads
 	// work fully and the JWKS endpoint serves an empty key set. When true, key
 	// resolution is SKIPPED. Ignored when Source is non-nil. Use it for a

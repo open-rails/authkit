@@ -31,7 +31,7 @@ type ProfileInput struct {
 // UserProfile builds the caller's profile. Errors: the user row is missing
 // (FlowError "load_user"), or a store failure (FlowError "load_password" /
 // "load_2fa").
-func (s *Service) UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error) {
+func (s *Client) UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error) {
 	u, err := s.AdminGetUser(ctx, in.UserID)
 	if err != nil || u == nil {
 		return authkit.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))

@@ -24,7 +24,7 @@ const sessionEventsPruneBatchSize = 5000
 
 // ListSessionEvents returns a user's recent session events, most recent first
 // (capped at listSessionEventsLimit). No eventTypes means all event types.
-func (s *Service) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {
+func (s *Client) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (s *Service) ListSessionEvents(ctx context.Context, userID string, eventTyp
 
 // logSessionEvent is the single best-effort sink. No Postgres (verify-only
 // construction) means no history; an insert failure is loud but non-fatal.
-func (s *Service) logSessionEvent(ctx context.Context, e AuthSessionEvent) {
+func (s *Client) logSessionEvent(ctx context.Context, e AuthSessionEvent) {
 	if s.pg == nil {
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Service) logSessionEvent(ctx context.Context, e AuthSessionEvent) {
 }
 
 // LogSessionCreated records a session creation event (best-effort).
-func (s *Service) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
+func (s *Client) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
 	m := strings.TrimSpace(method)
 	var mPtr *string
 	if m != "" {
@@ -107,7 +107,7 @@ func (s *Service) LogSessionCreated(ctx context.Context, userID string, method s
 	})
 }
 
-func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
+func (s *Client) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
 	s.logSessionEvent(ctx, AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -119,7 +119,7 @@ func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionI
 }
 
 // LogPasswordChanged records a password change event for a user (best-effort).
-func (s *Service) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
+func (s *Client) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -132,7 +132,7 @@ func (s *Service) LogPasswordChanged(ctx context.Context, userID string, session
 }
 
 // LogPasswordRecovery records a password recovery event for a user (best-effort).
-func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
+func (s *Client) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -146,7 +146,7 @@ func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method
 }
 
 // LogSessionFailed records a failed session event for a user (best-effort).
-func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
+func (s *Client) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -163,7 +163,7 @@ func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID
 // batches walking the occurred_at index until a short batch, so one sweep never
 // runs an unbounded statement. Negative retention keeps events forever.
 // Invoked from CleanupExpiredAuthState (host-scheduled, daily-ish cadence).
-func (s *Service) pruneSessionEvents(ctx context.Context) error {
+func (s *Client) pruneSessionEvents(ctx context.Context) error {
 	if s.cfg.SessionEventRetention < 0 {
 		return nil
 	}
@@ -171,7 +171,7 @@ func (s *Service) pruneSessionEvents(ctx context.Context) error {
 	return s.pruneSessionEventsBatched(ctx, cutoff, sessionEventsPruneBatchSize)
 }
 
-func (s *Service) pruneSessionEventsBatched(ctx context.Context, cutoff time.Time, batchSize int64) error {
+func (s *Client) pruneSessionEventsBatched(ctx context.Context, cutoff time.Time, batchSize int64) error {
 	for {
 		n, err := s.q.SessionEventsPruneBatch(ctx, db.SessionEventsPruneBatchParams{Cutoff: cutoff, BatchSize: batchSize})
 		if err != nil {

@@ -212,7 +212,7 @@ func ValidatePassword(value string) error {
 // The returned slug is the lowercased username; excludeGroupID is retained in
 // the signature for dependent adapters but is always empty under the
 // permission-group model.
-func (s *Service) validateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeGroupID string, err error) {
+func (s *Client) validateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeGroupID string, err error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", "", err
 	}
@@ -230,7 +230,7 @@ func (s *Service) validateUsernameForUser(ctx context.Context, username, userID 
 	return slug, "", nil
 }
 
-func (s *Service) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
+func (s *Client) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
 	slug, _, err := s.validateUsernameForUser(ctx, username, "")
 	return slug, err
 }

@@ -17,7 +17,7 @@ import (
 func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
 	if err != nil {
 		t.Fatalf("schema: %v", err)
@@ -67,7 +67,7 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 func TestAdminListUsers_MarksRemovedRootRoles(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
 	if err != nil {
 		t.Fatalf("schema: %v", err)

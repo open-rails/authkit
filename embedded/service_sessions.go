@@ -51,14 +51,14 @@ func (f SessionFreshness) AssuranceClaims() (authTime int64, amr []string, acr s
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
-func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *Client) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	return s.IssueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
 }
 
 // IssueRefreshSessionWithAuthMethods creates a refresh session and records the
 // authentication methods that established it. Callers minting a session after
 // MFA should pass e.g. []string{"pwd", "otp", "mfa"}.
-func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *Client) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
@@ -78,7 +78,7 @@ func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 // IssueRefreshSessionWithAuthMethods (#227) so the authenticated login / 2FA-verify
 // paths (IssueAuthenticatedSession) can create the session and mint its access token
 // from a SINGLE user load instead of re-reading + re-gating for each step.
-func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *Client) insertRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
@@ -152,7 +152,7 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 }
 
 // ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
-func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+func (s *Client) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
 	}
@@ -235,7 +235,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 // Re-delivery never rotates again: every holder of one predecessor converges on
 // the same successor. Older consumed hashes identify the family but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
-func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
+func (s *Client) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
 	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
@@ -264,7 +264,7 @@ func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken 
 // check — the unsealed value hashes to the row's CURRENT token hash. That last one
 // makes the whole thing self-verifying: a seal that does not open to the live
 // successor is not accepted on the strength of the timestamp alone.
-func (s *Service) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
+func (s *Client) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
 	window := s.cfg.Token.RefreshRotationGrace
 	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
 		return "", false
@@ -295,7 +295,7 @@ func (s *Service) graceSuccessorFor(presented string, prev db.SessionByHistorica
 // the sessions) or on a transient DB error, where it would have wrongly revoked
 // everything. ensureUserAccess still rejects banned/deleted/reserved users with
 // ErrUserBanned at exactly this point.
-func (s *Service) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
+func (s *Client) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil || u == nil {
 		return "", time.Time{}, errOrUnauthorized(err)
@@ -375,7 +375,7 @@ func graceKeystream(predecessor string, n int) []byte {
 // The banned/deleted/reserved gate and the MFA gate behave exactly as they do for the
 // separate calls (same ErrUserBanned / ErrTwoFAEnrollmentRequired at the same point).
 // Returns the session id so the caller can emit its own session-created audit log.
-func (s *Service) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (sessionID, refreshToken, accessToken string, accessExpiresAt time.Time, refreshExpiresAt *time.Time, err error) {
+func (s *Client) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (sessionID, refreshToken, accessToken string, accessExpiresAt time.Time, refreshExpiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
 	}
@@ -416,7 +416,7 @@ func (s *Service) IssueAuthenticatedSession(ctx context.Context, userID, userAge
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
 // ListUserSessions lists active sessions for a user and issuer.
-func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
+func (s *Client) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -442,7 +442,7 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	return out, nil
 }
 
-func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
+func (s *Client) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
 	if s.pg == nil {
 		return SessionFreshness{}, errors.New("postgres not configured")
 	}
@@ -472,13 +472,13 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 	}, nil
 }
 
-func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
+func (s *Client) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
 	return s.MarkSessionAuthenticatedWithMethods(ctx, userID, sessionID, []string{"pwd"})
 }
 
 // MarkSessionAuthenticatedWithMethods refreshes the session's sensitive-action
 // auth window and records how the user re-proved identity.
-func (s *Service) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
+func (s *Client) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
 	if s.pg == nil {
 		return errors.New("postgres not configured")
 	}
@@ -523,7 +523,7 @@ func normalizeAuthMethods(methods []string) []string {
 }
 
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
-func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
+func (s *Client) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -543,7 +543,7 @@ func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 	return nil
 }
 
-func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
+func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -578,7 +578,7 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 // evict + the subsequent insert observe a consistent view and the active count can
 // never exceed the cap. Returns the evicted session ids for the caller to audit after
 // commit (so a logging failure can't roll back the eviction).
-func (s *Service) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
+func (s *Client) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
 	if s.cfg.Token.SessionMaxPerUser <= 0 {
 		return nil, nil
 	}
@@ -601,7 +601,7 @@ func (s *Service) enforceSessionLimitTx(ctx context.Context, q *db.Queries, user
 	return ids, nil
 }
 
-func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
+func (s *Client) revokeFamily(ctx context.Context, familyID string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -622,7 +622,7 @@ func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
 // from a reused refresh token), so a silently-swallowed failure would leave the
 // attacker's stolen-but-rotated tokens valid. The reuse attempt itself is always
 // rejected by the caller; this only ensures the rest of the family dies too.
-func (s *Service) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
+func (s *Client) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
 	if err := s.revokeFamily(ctx, familyID); err == nil {
 		return
 	} else {
@@ -633,7 +633,7 @@ func (s *Service) revokeFamilyEnsured(ctx context.Context, familyID, userID stri
 	}
 }
 
-func (s *Service) hashRefresh(token string) []byte {
+func (s *Client) hashRefresh(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	out := make([]byte, len(sum))
 	copy(out, sum[:])
@@ -656,6 +656,6 @@ func ipText(ip net.IP) *string {
 	return &v
 }
 
-func (s *Service) AdminRevokeUserSessions(ctx context.Context, userID string) error {
+func (s *Client) AdminRevokeUserSessions(ctx context.Context, userID string) error {
 	return s.RevokeAllSessions(ctx, userID, nil)
 }

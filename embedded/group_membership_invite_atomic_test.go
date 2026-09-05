@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-func inviteTestService(t *testing.T, requiresMFA bool) (*Service, *testdb.Postgres, context.Context) {
+func inviteTestService(t *testing.T, requiresMFA bool) (*Client, *testdb.Postgres, context.Context) {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
@@ -21,7 +21,7 @@ func inviteTestService(t *testing.T, requiresMFA bool) (*Service, *testdb.Postgr
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)

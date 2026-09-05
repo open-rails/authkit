@@ -14,7 +14,7 @@ import (
 func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	userID := mkBareUser(t, ctx, svc, "change-requires-unlink")
 	_, _, currentWallet := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))

@@ -13,16 +13,16 @@ import (
 // invalidate the code after a few wrong guesses so it can't be brute-forced within
 // its TTL.
 
-func newEmailVerifyTestService(t *testing.T) *Service {
+func newEmailVerifyTestService(t *testing.T) *Client {
 	t.Helper()
-	return mustNewService(t,
+	return mustNewWithKeys(t,
 		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}},
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
 	)
 }
 
-func pendingEmailRegistrationExists(svc *Service, email string) bool {
+func pendingEmailRegistrationExists(svc *Client, email string) bool {
 	_, ok := svc.findPendingChangeByTarget(context.Background(), KindRegisterEmail, email)
 	return ok
 }

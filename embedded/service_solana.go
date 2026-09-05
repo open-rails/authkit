@@ -55,20 +55,20 @@ func solanaChainIDForConfig(cfg Config) string {
 	return "mainnet"
 }
 
-func (s *Service) solanaChainID() string {
+func (s *Client) solanaChainID() string {
 	if s == nil {
 		return solanaChainIDForConfig(Config{})
 	}
 	return solanaChainIDForConfig(s.cfg)
 }
 
-func (s *Service) solanaIssuer() string {
+func (s *Client) solanaIssuer() string {
 	return "solana:" + s.solanaChainID()
 }
 
 // GenerateSIWSChallenge creates a new SIWS challenge for the given address.
 // The challenge is stored in the cache and must be verified within 15 minutes.
-func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error) {
+func (s *Client) GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error) {
 	// Validate the address format
 	if err := siws.ValidateAddress(address); err != nil {
 		return siws.SignInInput{}, fmt.Errorf("invalid solana address: %w", err)
@@ -106,7 +106,7 @@ func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.Challeng
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
 // Returns access token, expiry, refresh token, user ID, and whether a new user was created.
-func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
+func (s *Client) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("postgres not configured")
 	}
@@ -204,7 +204,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 }
 
 // LinkSolanaWallet links a Solana wallet to an existing user account.
-func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error {
+func (s *Client) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -258,7 +258,7 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 // replacing an address already linked for the same issuer. The database's
 // unique (user_id, issuer) constraint makes the rule atomic across concurrent
 // requests; changing wallets requires an explicit unlink first.
-func (s *Service) linkVerifiedSolanaWallet(ctx context.Context, userID, address string) error {
+func (s *Client) linkVerifiedSolanaWallet(ctx context.Context, userID, address string) error {
 	providerID, err := newUUIDV7String()
 	if err != nil {
 		return err
@@ -290,7 +290,7 @@ func (s *Service) linkVerifiedSolanaWallet(ctx context.Context, userID, address 
 }
 
 // GetSolanaAddress retrieves the Solana wallet address linked to a user, if any.
-func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, error) {
+func (s *Client) GetSolanaAddress(ctx context.Context, userID string) (string, error) {
 	if s.pg == nil {
 		return "", nil
 	}
@@ -400,7 +400,7 @@ func validateSolanaPublicKey(account siws.AccountInfo) error {
 
 // deriveSolanaUsername creates a username from a Solana address.
 // Format: u_XXXX (first 4 chars of address)
-func (s *Service) deriveSolanaUsername(address string) string {
+func (s *Client) deriveSolanaUsername(address string) string {
 	if len(address) < 4 {
 		return "u_" + address
 	}
@@ -408,7 +408,7 @@ func (s *Service) deriveSolanaUsername(address string) string {
 }
 
 // ensureUniqueUsername appends a random suffix if username is taken.
-func (s *Service) ensureUniqueUsername(ctx context.Context, username string) string {
+func (s *Client) ensureUniqueUsername(ctx context.Context, username string) string {
 	original := username
 	for i := 0; i < 10; i++ {
 		exists, err := s.usernameExists(ctx, username)
@@ -422,7 +422,7 @@ func (s *Service) ensureUniqueUsername(ctx context.Context, username string) str
 	return "u_" + randAlphanumeric(8)
 }
 
-func (s *Service) usernameExists(ctx context.Context, username string) (bool, error) {
+func (s *Client) usernameExists(ctx context.Context, username string) (bool, error) {
 	if s.pg == nil {
 		return false, nil
 	}

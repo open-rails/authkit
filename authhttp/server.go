@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/open-rails/authkit/verify"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
@@ -56,7 +57,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 	if err := probeMigrations(client); err != nil {
 		return nil, err
 	}
-	coreSvc := embedded.Unwrap(client)
+	coreSvc := client
 	cfg := coreSvc.Config()
 
 	s := &Service{

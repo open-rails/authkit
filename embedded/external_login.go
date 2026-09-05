@@ -69,7 +69,7 @@ var (
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
 // ErrUserCreationFailed. Session errors: ErrUserBanned, or a FlowError wrapping
 // ErrSessionIssueFailed.
-func (s *Service) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (ExternalLoginOutcome, error) {
+func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (ExternalLoginOutcome, error) {
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)
 	if err != nil {
 		return ExternalLoginOutcome{}, err
@@ -96,7 +96,7 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, in ExternalLoginInp
 // ResolveExternalIdentity maps a verified provider identity to a local user
 // without issuing a session: the explicit link target, the already-linked
 // account, or a newly registered one (created reports the last case).
-func (s *Service) ResolveExternalIdentity(ctx context.Context, in ExternalLoginInput) (userID string, created bool, err error) {
+func (s *Client) ResolveExternalIdentity(ctx context.Context, in ExternalLoginInput) (userID string, created bool, err error) {
 	id := in.Identity
 	issuer, provider := id.Issuer, id.Provider
 	var emailPtr *string

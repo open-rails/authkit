@@ -15,7 +15,7 @@ import (
 func TestGCDeadSessionsBatches(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	user, err := svc.CreateUser(ctx, "gc@example.com", "gc-user")
 	if err != nil {
 		t.Fatal(err)

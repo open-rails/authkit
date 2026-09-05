@@ -46,7 +46,7 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 	s, err := newServer(client)
 	require.NoError(t, err)
 
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
@@ -90,7 +90,7 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	s, err := newServer(client, WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err)
 
-	core := embedded.Unwrap(client)
+	core := client
 	gid, err := core.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 

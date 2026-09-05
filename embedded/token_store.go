@@ -15,7 +15,7 @@ import (
 
 // setPasswordSet removed; presence of password is inferred from profiles.user_passwords
 
-func (s *Service) getPasswordHash(ctx context.Context, userID string) (hash, algo string, params []byte, err error) {
+func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo string, params []byte, err error) {
 	if s.pg == nil {
 		return "", "", nil, nil
 	}
@@ -23,7 +23,7 @@ func (s *Service) getPasswordHash(ctx context.Context, userID string) (hash, alg
 	return row.PasswordHash, row.HashAlgo, row.HashParams, err
 }
 
-func (s *Service) upsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
+func (s *Client) upsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func (s *Service) upsertPasswordHash(ctx context.Context, userID, hash, algo str
 }
 
 // UpsertPasswordHash stores a precomputed password hash for a user.
-func (s *Service) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
+func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
 	return s.upsertPasswordHash(ctx, userID, hash, algo, params)
 }
 
@@ -41,7 +41,7 @@ type emailVerifyToken struct {
 	Email  *string
 }
 
-func (s *Service) useResetToken(ctx context.Context, tokenHash string) (struct{ UserID string }, error) {
+func (s *Client) useResetToken(ctx context.Context, tokenHash string) (struct{ UserID string }, error) {
 	if s.useEphemeralStore() {
 		userID, err := s.consumePasswordReset(ctx, tokenHash)
 		return struct{ UserID string }{UserID: userID}, err
@@ -49,7 +49,7 @@ func (s *Service) useResetToken(ctx context.Context, tokenHash string) (struct{ 
 	return struct{ UserID string }{}, jwt.ErrTokenUnverifiable
 }
 
-func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+func (s *Client) createResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
 	if s.useEphemeralStore() {
 		ttl := time.Until(expiresAt)
 		if ttl <= 0 {

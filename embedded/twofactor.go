@@ -56,15 +56,15 @@ const (
 
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
-func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+func (s *Client) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
 	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false, mode)
 }
 
-func (s *Service) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+func (s *Client) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
 	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true, mode)
 }
 
-func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
+func (s *Client) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -152,7 +152,7 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 
 // Disable2FAWithRemovedRoles disables account MFA and removes active user role
 // assignments whose catalog role requires MFA.
-func (s *Service) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error) {
+func (s *Client) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -180,7 +180,7 @@ func (s *Service) Disable2FAWithRemovedRoles(ctx context.Context, userID string)
 	return removed, tx.Commit(ctx)
 }
 
-func (s *Service) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error) {
+func (s *Client) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -235,7 +235,7 @@ func (s *Service) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, 
 	return removed, tx.Commit(ctx)
 }
 
-func (s *Service) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
+func (s *Client) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -276,7 +276,7 @@ func (s *Service) SetDefault2FAFactor(ctx context.Context, userID, factorID stri
 }
 
 // Get2FASettings retrieves a user's 2FA settings
-func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
+func (s *Client) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -310,7 +310,7 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 	return settings, nil
 }
 
-func (s *Service) List2FAFactors(ctx context.Context, userID string) ([]TwoFactorFactor, error) {
+func (s *Client) List2FAFactors(ctx context.Context, userID string) ([]TwoFactorFactor, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -325,7 +325,7 @@ func (s *Service) List2FAFactors(ctx context.Context, userID string) ([]TwoFacto
 	return out, nil
 }
 
-func (s *Service) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
+func (s *Client) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
 	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return "", "", TwoFactorFactor{}, err
@@ -334,7 +334,7 @@ func (s *Service) Require2FAForLoginFactor(ctx context.Context, userID, factorID
 	return destination, factor.Method, factor, err
 }
 
-func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor TwoFactorFactor) (string, error) {
+func (s *Client) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor TwoFactorFactor) (string, error) {
 	if !factor.Enabled {
 		return "", fmt.Errorf("2FA not enabled")
 	}
@@ -408,7 +408,7 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 	return destination, nil
 }
 
-func (s *Service) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
+func (s *Client) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
 	}
@@ -420,7 +420,7 @@ func (s *Service) Require2FAForStepUpMethod(ctx context.Context, userID, session
 	return destination, factor.Method, factor, err
 }
 
-func (s *Service) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
+func (s *Client) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
@@ -434,7 +434,7 @@ func (s *Service) Verify2FAStepUpMethodCode(ctx context.Context, userID, session
 // verifyStepUpForFactor is the shared step-up verify tail once the factor is
 // resolved (by id or by method): TOTP verifies inline, everything else consumes
 // the session-scoped code from the ephemeral store.
-func (s *Service) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor TwoFactorFactor) (bool, error) {
+func (s *Client) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor TwoFactorFactor) (bool, error) {
 	if factor.Method == "totp" {
 		return s.verifyTOTPFactorCode(ctx, factor, code)
 	}
@@ -445,7 +445,7 @@ func (s *Service) verifyStepUpForFactor(ctx context.Context, userID, sessionID, 
 }
 
 // Create2FAChallenge creates a short-lived challenge to prove password verification before 2FA.
-func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string, error) {
+func (s *Client) Create2FAChallenge(ctx context.Context, userID string) (string, error) {
 	if !s.useEphemeralStore() {
 		return "", fmt.Errorf("ephemeral store not configured")
 	}
@@ -458,7 +458,7 @@ func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string
 }
 
 // Verify2FAChallenge verifies the challenge created during the password step.
-func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge string) (bool, error) {
+func (s *Client) Verify2FAChallenge(ctx context.Context, userID, challenge string) (bool, error) {
 	if strings.TrimSpace(challenge) == "" {
 		return false, nil
 	}
@@ -473,7 +473,7 @@ func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge stri
 }
 
 // Clear2FAChallenge removes the stored challenge after successful 2FA verification.
-func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
+func (s *Client) Clear2FAChallenge(ctx context.Context, userID string) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -482,11 +482,11 @@ func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
 
 // Verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
-func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
+func (s *Client) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
 	return s.Verify2FAFactorCode(ctx, userID, "", code)
 }
 
-func (s *Service) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
+func (s *Client) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
 	factor, err := s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return false, err
@@ -503,7 +503,7 @@ func (s *Service) Verify2FAFactorCode(ctx context.Context, userID, factorID, cod
 	return false, fmt.Errorf("ephemeral store not configured")
 }
 
-func (s *Service) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
+func (s *Client) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
 	secret, err := s.decryptTOTPSecret(factor.TOTPSecret)
 	if err != nil {
 		return false, err
@@ -521,7 +521,7 @@ func (s *Service) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFact
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.
 // On success, removes the used backup code from the user's backup codes.
-func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
+func (s *Client) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
 	}
@@ -542,7 +542,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).
 // Returns the plaintext codes (caller must show these to user ONCE).
-func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
+func (s *Client) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -561,7 +561,7 @@ func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]s
 	return plaintextCodes, nil
 }
 
-func (s *Service) twoFactorFactor(ctx context.Context, userID, factorID string) (TwoFactorFactor, error) {
+func (s *Client) twoFactorFactor(ctx context.Context, userID, factorID string) (TwoFactorFactor, error) {
 	if s.pg == nil {
 		return TwoFactorFactor{}, fmt.Errorf("postgres not configured")
 	}
@@ -592,7 +592,7 @@ func (s *Service) twoFactorFactor(ctx context.Context, userID, factorID string) 
 	return factors[0], nil
 }
 
-func (s *Service) twoFactorFactorByMethod(ctx context.Context, userID, method string) (TwoFactorFactor, error) {
+func (s *Client) twoFactorFactorByMethod(ctx context.Context, userID, method string) (TwoFactorFactor, error) {
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method == "" {
 		return s.twoFactorFactor(ctx, userID, "")

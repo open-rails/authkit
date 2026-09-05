@@ -49,6 +49,6 @@ func depsOf(opts ...Option) Deps {
 
 // newFromConfig is NewFromConfig with the pool positional and Deps composed
 // from options, the shape most tests read best.
-func newFromConfig(cfg Config, pool *pgxpool.Pool, opts ...Option) (*Service, error) {
-	return NewFromConfig(cfg, depsOf(append([]Option{WithPostgres(pool)}, opts...)...))
+func newFromConfig(cfg Config, pool *pgxpool.Pool, opts ...Option) (*Client, error) {
+	return New(cfg, depsOf(append([]Option{WithPostgres(pool)}, opts...)...))
 }

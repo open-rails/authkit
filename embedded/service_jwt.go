@@ -36,7 +36,7 @@ type ServiceJWTMintOptions = authkit.ServiceJWTMintOptions
 // MintServiceJWT creates a short-lived signed service JWT from AuthKit's active
 // signing key. It defaults to a 15-minute lifetime and stamps
 // `token_use=service`; it does not grant host permissions by itself.
-func (s *Service) MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions) (string, ServiceJWTClaims, error) {
+func (s *Client) MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions) (string, ServiceJWTClaims, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ServiceJWTClaims{}, ErrMissingSigner

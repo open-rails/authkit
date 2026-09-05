@@ -42,9 +42,9 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 type RemoteApplicationAccessParams = authkit.RemoteApplicationAccessParams
 
 // MintRemoteApplicationAccessToken signs a remote application access token using the
-// Service's internal signer. When p.Issuer is empty it defaults to the Service's
+// Client's internal signer. When p.Issuer is empty it defaults to the Client's
 // configured Issuer.
-func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
+func (s *Client) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner

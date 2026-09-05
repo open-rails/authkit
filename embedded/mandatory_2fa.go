@@ -54,7 +54,7 @@ const (
 	TwoFactorTOTP  = authkit.TwoFactorTOTP
 )
 
-func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
+func (s *Client) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
 	return s.MFAStatusWith(settings, err)
 }
@@ -65,7 +65,7 @@ func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, erro
 // through MFAStatus, the step-up methods, and the step-up 2FA options — does not
 // recompute the read. Behaviour matches MFAStatus exactly: a "no 2FA row" lookup
 // (pgx.ErrNoRows) is the empty/disabled status, any other error propagates.
-func (s *Service) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (MFAStatus, error) {
+func (s *Client) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (MFAStatus, error) {
 	if errors.Is(settingsErr, pgx.ErrNoRows) {
 		return MFAStatus{}, nil
 	}
@@ -79,7 +79,7 @@ func (s *Service) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) 
 	}, nil
 }
 
-func (s *Service) requireSessionMFAState(ctx context.Context, userID string, authMethods []string) error {
+func (s *Client) requireSessionMFAState(ctx context.Context, userID string, authMethods []string) error {
 	// #148: when 2FA is Disabled, the whole flow is off — neither forced
 	// enrollment nor an enrolled user's challenge applies. (Guards against
 	// stranding a user who enrolled while Optional after the host flips to
@@ -97,7 +97,7 @@ func (s *Service) requireSessionMFAState(ctx context.Context, userID string, aut
 // recompute it. Behaviour matches requireSessionMFAState exactly: statusErr is only
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
-func (s *Service) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
+func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
@@ -141,7 +141,7 @@ func (s *Service) requireSessionMFAStateWith(ctx context.Context, userID string,
 // per-group custom role's stored requires_mfa flag, looked up in gid. gid may
 // be empty when the role is known to be a catalog role at the call site (the
 // custom-role branch is then simply skipped, reporting false).
-func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, role authkit.Role) (bool, error) {
+func (s *Client) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, role authkit.Role) (bool, error) {
 	persona = authkit.Persona(strings.TrimSpace(string(persona)))
 	role = authkit.Role(strings.TrimSpace(string(role)))
 	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
@@ -160,7 +160,7 @@ func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, pe
 // RoleDef.RequiresMFA or a custom role with requires_mfa (#247). Used only by
 // requireSessionMFAStateWith (login/refresh session establishment) — never
 // per-request middleware — since it hits the database.
-func (s *Service) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+func (s *Client) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, a.role
 		   FROM profiles.group_user_roles a
@@ -202,7 +202,7 @@ func (s *Service) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userI
 	return false, nil
 }
 
-func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, subject authkit.Subject, role authkit.Role) error {
+func (s *Client) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, subject authkit.Subject, role authkit.Role) error {
 	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
 	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
 	// its root owner. Mirrors requireSessionMFAState's gate.
@@ -256,7 +256,7 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 // without MFA enrolled is inconsistent independent of whether the app is
 // currently enforcing it, and application-mode toggles must never themselves
 // mutate role/2FA state (only gate checks).
-func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
+func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
 		   FROM profiles.group_user_roles a

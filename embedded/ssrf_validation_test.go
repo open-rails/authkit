@@ -153,7 +153,7 @@ func TestUpsertRemoteApplication_DevLoopbackJWKS(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	dev := mustNewService(t, Config{Applications: ApplicationsConfig{AllowPrivateNetworkJWKS: true}, Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	dev := mustNewWithKeys(t, Config{Applications: ApplicationsConfig{AllowPrivateNetworkJWKS: true}, Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid := createTestGroup(t, ctx, dev, pool, "")
 	slug := fmt.Sprintf("dev-fed-%d", time.Now().UnixNano())
 	ra, err := dev.UpsertRemoteApplication(ctx, RemoteApplication{
@@ -171,7 +171,7 @@ func TestUpsertRemoteApplication_DevLoopbackJWKS(t *testing.T) {
 	})
 
 	for _, env := range []string{"default"} {
-		svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+		svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 		_, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 			Slug: slug + "-x", PermissionGroupID: gid,
 			Issuer: "http://127.0.0.1:31551", JWKSURI: "http://127.0.0.1:31551/jwks", Enabled: true,

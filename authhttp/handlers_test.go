@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestCoreService(t *testing.T) *embedded.Service {
+func newTestCoreService(t *testing.T) *embedded.Client {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
@@ -77,14 +77,14 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 }
 
 // newCore is embedded.NewService for tests: a rejected config fails the test.
-func newCore(t *testing.T, cfg embedded.Config, ks embedded.Keyset, opts ...coreOpt) *embedded.Service {
+func newCore(t *testing.T, cfg embedded.Config, ks embedded.Keyset, opts ...coreOpt) *embedded.Client {
 	t.Helper()
-	svc, err := embedded.NewService(cfg, ks, depsOf(opts...))
+	svc, err := embedded.NewWithKeys(cfg, ks, depsOf(opts...))
 	require.NoError(t, err)
 	return svc
 }
 
-func serviceFromCore(t *testing.T, coreSvc *embedded.Service) *Service {
+func serviceFromCore(t *testing.T, coreSvc *embedded.Client) *Service {
 	t.Helper()
 	cfg := coreSvc.Config()
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))

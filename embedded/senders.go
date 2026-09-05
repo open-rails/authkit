@@ -86,10 +86,10 @@ type SMSHealthChecker interface {
 }
 
 // HasEmailSender returns true if an email sender is configured.
-func (s *Service) HasEmailSender() bool { return s.email != nil }
+func (s *Client) HasEmailSender() bool { return s.email != nil }
 
 // HasSMSSender returns true if an SMS sender is configured.
-func (s *Service) HasSMSSender() bool { return s.sms != nil }
+func (s *Client) HasSMSSender() bool { return s.sms != nil }
 
 // smsHealth is the SMS deliverability verdict CheckSMSHealth records. Until a
 // check has run, SMS counts as available whenever a sender is configured; once
@@ -112,7 +112,7 @@ func (h *smsHealth) available() bool { return !h.checked.Load() || h.healthy.Loa
 // (nil = healthy) so callers can log it. When no sender is configured or the
 // sender cannot self-check, it records healthy (delivery readiness is then
 // governed solely by sender presence, as before).
-func (s *Service) CheckSMSHealth(ctx context.Context) error {
+func (s *Client) CheckSMSHealth(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
@@ -127,11 +127,11 @@ func (s *Service) CheckSMSHealth(ctx context.Context) error {
 }
 
 // SMSHealthy reports the last CheckSMSHealth verdict; true until a check has run.
-func (s *Service) SMSHealthy() bool { return s != nil && s.smsHealth.available() }
+func (s *Client) SMSHealthy() bool { return s != nil && s.smsHealth.available() }
 
 // SMSAvailable reports whether phone-based flows should be offered: a sender is
 // configured and (if a health check has run) it was found able to deliver.
-func (s *Service) SMSAvailable() bool {
+func (s *Client) SMSAvailable() bool {
 	return s.HasSMSSender() && s.SMSHealthy()
 }
 
@@ -151,7 +151,7 @@ func smsDeliveryError(err error) error {
 
 // ValidateVerificationConfiguration ensures registration verification policy
 // can be satisfied by currently configured delivery senders.
-func (s *Service) ValidateVerificationConfiguration() error {
+func (s *Client) ValidateVerificationConfiguration() error {
 	if s == nil {
 		return nil
 	}
@@ -173,7 +173,7 @@ func (s *Service) ValidateVerificationConfiguration() error {
 // verificationSendTimeout is the per-send deadline for in-line email/SMS
 // provider calls. Configurable via Registration.VerificationSendTimeout; defaults to
 // 15s when unset.
-func (s *Service) verificationSendTimeout() time.Duration {
+func (s *Client) verificationSendTimeout() time.Duration {
 	if s != nil && s.cfg.Registration.VerificationSendTimeout > 0 {
 		return s.cfg.Registration.VerificationSendTimeout
 	}
@@ -185,7 +185,7 @@ func (s *Service) verificationSendTimeout() time.Duration {
 // request that triggered it (e.g. registration verification). It is loop-safe:
 // the deadline is cancelled as soon as the send returns, not at the end of the
 // calling function.
-func (s *Service) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
+func (s *Client) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, s.verificationSendTimeout())
 	defer cancel()
 	return send(ctx)

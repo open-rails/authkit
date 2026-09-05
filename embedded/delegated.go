@@ -29,11 +29,11 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 type DelegatedAccessParams = authkit.DelegatedAccessParams
 
 // MintDelegatedAccessToken signs a canonical delegated access token using the
-// Service's internal signer. The host passes claims/params only and NEVER
-// touches the private key. When p.Issuer is empty it defaults to the Service's
+// Client's internal signer. The host passes claims/params only and NEVER
+// touches the private key. When p.Issuer is empty it defaults to the Client's
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
 // claim contract.
-func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
+func (s *Client) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner
@@ -52,7 +52,7 @@ func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAcces
 // `permissions`. A top-level `roles` claim is never minted; delegated-subject
 // role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
 //
-// Hosts embedding core.Service should prefer (*Service).MintDelegatedAccessToken
+// Hosts embedding core.Service should prefer (*Client).MintDelegatedAccessToken
 // so they never construct their own signer or read the PEM.
 func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p DelegatedAccessParams) (string, error) {
 	if signer == nil {

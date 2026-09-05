@@ -31,7 +31,7 @@ const (
 	RegistrationModeClosed     = authkit.RegistrationModeClosed
 )
 
-func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
+func (s *Client) CreatePendingRegistrationWithLanguage(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
 	allowed, err := s.registrationAllowedForEmail(ctx, email)
 	if err != nil {
 		return "", err
@@ -137,17 +137,17 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 // exact address (the record is keyed by it), so a guessed code can never confirm
 // another signup; the HTTP layer caps attempts per-identifier. For the 256-bit
 // emailed link token use ConfirmPendingRegistrationByToken instead.
-func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code string) (userID string, err error) {
+func (s *Client) ConfirmPendingRegistration(ctx context.Context, email, code string) (userID string, err error) {
 	return s.confirmPendingRegistrationCode(ctx, KindRegisterEmail, email, code)
 }
 
 // ConfirmPendingRegistrationByToken finalizes a pending email registration from
 // the 256-bit emailed link token, whose entropy is the security boundary.
-func (s *Service) ConfirmPendingRegistrationByToken(ctx context.Context, token string) (userID string, err error) {
+func (s *Client) ConfirmPendingRegistrationByToken(ctx context.Context, token string) (userID string, err error) {
 	return s.confirmPendingRegistrationLink(ctx, KindRegisterEmail, token)
 }
 
-func (s *Service) confirmPendingRegistrationCode(ctx context.Context, kind PendingChangeKind, target, code string) (string, error) {
+func (s *Client) confirmPendingRegistrationCode(ctx context.Context, kind PendingChangeKind, target, code string) (string, error) {
 	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
@@ -161,7 +161,7 @@ func (s *Service) confirmPendingRegistrationCode(ctx context.Context, kind Pendi
 	return s.consumePendingChangeCode(ctx, rec, code, nil)
 }
 
-func (s *Service) confirmPendingRegistrationLink(ctx context.Context, kind PendingChangeKind, token string) (string, error) {
+func (s *Client) confirmPendingRegistrationLink(ctx context.Context, kind PendingChangeKind, token string) (string, error) {
 	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
@@ -170,7 +170,7 @@ func (s *Service) confirmPendingRegistrationLink(ctx context.Context, kind Pendi
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
 // Returns (emailTaken, usernameTaken, error)
-func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
+func (s *Client) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
 	var emailTaken, usernameTaken bool
 	email = NormalizeEmail(email)
 	username = strings.TrimSpace(username)
@@ -199,7 +199,7 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 
 // --- Phone Registration (for phone+password signups) ---
 
-func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
+func (s *Client) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
 	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
@@ -284,19 +284,19 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 
 // ConfirmPendingPhoneRegistration finalizes a pending phone registration from the
 // short typed code, honored only against the record issued for this phone.
-func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
+func (s *Client) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
 	return s.confirmPendingRegistrationCode(ctx, KindRegisterPhone, phone, code)
 }
 
 // ConfirmPendingPhoneRegistrationByToken finalizes a pending phone registration
 // from the 256-bit link token.
-func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
+func (s *Client) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
 	return s.confirmPendingRegistrationLink(ctx, KindRegisterPhone, token)
 }
 
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
 // Returns (phoneTaken, usernameTaken, error)
-func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
+func (s *Client) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
 	var phoneTaken, usernameTaken bool
 	phone = NormalizePhone(phone)
 	username = strings.TrimSpace(username)
@@ -325,11 +325,11 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 	return phoneTaken, usernameTaken, nil
 }
 
-func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
+func (s *Client) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
 	return s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 }
 
-func (s *Service) createEmailRegistrationUser(ctx context.Context, email, username, passwordHash string, emailVerified bool) (string, error) {
+func (s *Client) createEmailRegistrationUser(ctx context.Context, email, username, passwordHash string, emailVerified bool) (string, error) {
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}
@@ -371,7 +371,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	return userID, nil
 }
 
-func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
+func (s *Client) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}

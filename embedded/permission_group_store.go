@@ -3,7 +3,7 @@ package embedded
 // DB-backed engine for the permission-group model (#111): the store loads a
 // target group's parent chain + the subject's assignments and feeds the tested
 // pure decision core (GroupSchema.Can). Hand-written over db.DBTX (pool or tx)
-// so it composes with the Service's schema-rewriting wrapper exactly like the
+// so it composes with the Client's schema-rewriting wrapper exactly like the
 // generated queries; tables are referenced under the historical "profiles."
 // schema (rewritten at execution time for custom-schema hosts, authkit #69).
 

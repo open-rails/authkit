@@ -98,7 +98,7 @@ func (rec pendingChange) key() string {
 // storePendingChange writes a pending change under its identity key plus the
 // link pointer and (register kinds) the username index. Any prior record on the
 // same identity or username is cleared first so a re-request supersedes it.
-func (s *Service) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
+func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -132,7 +132,7 @@ func (s *Service) storePendingChange(ctx context.Context, rec pendingChange, ttl
 	return nil
 }
 
-func (s *Service) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
+func (s *Client) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
 	var rec pendingChange
 	ok, err := s.ephemGetJSON(ctx, key, &rec)
 	return rec, ok, err
@@ -143,12 +143,12 @@ func (s *Service) loadPendingChange(ctx context.Context, key string) (pendingCha
 // findPendingChangeByTarget is the lookup-only form: a store failure reads as
 // "not found". Confirm paths use pendingChangeByTarget so a backend failure is
 // never counted as a bad guess (ak#324).
-func (s *Service) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
+func (s *Client) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
 	rec, ok, _ := s.pendingChangeByTarget(ctx, kind, target)
 	return rec, ok
 }
 
-func (s *Service) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
+func (s *Client) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
 	target = normalizePendingTarget(kind, target)
 	if !kind.isRegister() || target == "" {
 		return pendingChange{}, false, nil
@@ -163,12 +163,12 @@ func (s *Service) pendingChangeByTarget(ctx context.Context, kind PendingChangeK
 	return rec, true, nil
 }
 
-func (s *Service) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
+func (s *Client) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
 	rec, ok, _ := s.pendingChangeByUser(ctx, kind, userID)
 	return rec, ok
 }
 
-func (s *Service) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
+func (s *Client) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false, nil
 	}
@@ -184,7 +184,7 @@ func (s *Service) pendingChangeByUser(ctx context.Context, kind PendingChangeKin
 
 // pendingChangeUsernameTaken reports whether a register-kind pending change is
 // holding the given username (used by availability/conflict checks).
-func (s *Service) pendingChangeUsernameTaken(ctx context.Context, username string) bool {
+func (s *Client) pendingChangeUsernameTaken(ctx context.Context, username string) bool {
 	if !s.useEphemeralStore() {
 		return false
 	}
@@ -198,12 +198,12 @@ func (s *Service) pendingChangeUsernameTaken(ctx context.Context, username strin
 
 // pendingChangeTargetTaken reports whether a register-kind pending change is
 // holding the given email/phone target.
-func (s *Service) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
+func (s *Client) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
 	_, ok := s.findPendingChangeByTarget(ctx, kind, target)
 	return ok
 }
 
-func (s *Service) deletePendingChange(ctx context.Context, key string) {
+func (s *Client) deletePendingChange(ctx context.Context, key string) {
 	if rec, ok, _ := s.loadPendingChange(ctx, key); ok {
 		if rec.LinkHash != "" {
 			_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
@@ -215,14 +215,14 @@ func (s *Service) deletePendingChange(ctx context.Context, key string) {
 	_ = s.ephemDel(ctx, key)
 }
 
-func (s *Service) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
+func (s *Client) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
 	if !s.useEphemeralStore() || !kind.isRegister() {
 		return
 	}
 	s.deletePendingChange(ctx, pendingChangeKey(kind, normalizePendingTarget(kind, target)))
 }
 
-func (s *Service) deletePendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) {
+func (s *Client) deletePendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) {
 	if !s.useEphemeralStore() || kind.isRegister() {
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Service) deletePendingChangeByUser(ctx context.Context, kind PendingCha
 
 // finalizePendingChange dispatches to the per-kind finalizer that completes the
 // deferred change and returns the affected user's ID.
-func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *Client) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
 	case KindRegisterEmail:
 		return s.finalizeRegisterEmail(ctx, rec)
@@ -250,7 +250,7 @@ func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange, 
 // typed code matches. A wrong code leaves the record intact; the per-identifier
 // attempt caps bound guessing. keepSessionID is the confirming session a
 // contact change must not revoke (nil for registrations and link confirms).
-func (s *Service) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
+func (s *Client) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
 	if !SecretEqual(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -265,7 +265,7 @@ func (s *Service) consumePendingChangeCode(ctx context.Context, rec pendingChang
 // consumePendingChangeByLink redeems the 256-bit link token: the pointer is
 // consumed atomically (single-use), then the record it names must be of the
 // expected kind and still carry that link hash.
-func (s *Service) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
+func (s *Client) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
 	key, ok := s.consumeLink(ctx, pendingChangeLinkKey(expectKind, linkHash))
 	if !ok {
 		return "", jwt.ErrTokenUnverifiable

@@ -13,14 +13,14 @@ import (
 // Provider links: linking and unlinking external identity providers and
 // writing provider usernames.
 
-func (s *Service) SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error {
+func (s *Client) SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error {
 	return s.setProviderUsername(ctx, userID, provider, subject, username)
 }
 
 // UserProfileLinks returns the user's linked provider slugs (non-null) and username
 // aliases — the two extra lists GET /me needs beyond AdminGetUser. Keeps raw
 // db.Queries out of the HTTP layer, which previously built its own db handle inline.
-func (s *Service) UserProfileLinks(ctx context.Context, userID string) (providerSlugs []string, aliases []string, err error) {
+func (s *Client) UserProfileLinks(ctx context.Context, userID string) (providerSlugs []string, aliases []string, err error) {
 	if s.pg == nil {
 		return nil, nil, nil
 	}
@@ -37,7 +37,7 @@ func (s *Service) UserProfileLinks(ctx context.Context, userID string) (provider
 
 // HasProviderLink reports whether userID holds a link to subject-issuer under
 // providerSlug — the step-up gate's "is this the user's own provider" check.
-func (s *Service) HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error) {
+func (s *Client) HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error) {
 	if s.pg == nil {
 		return false, nil
 	}
@@ -50,7 +50,7 @@ func (s *Service) HasProviderLink(ctx context.Context, userID, issuer, providerS
 }
 
 // ProviderSlugs returns the distinct provider slugs linked to userID.
-func (s *Service) ProviderSlugs(ctx context.Context, userID string) ([]string, error) {
+func (s *Client) ProviderSlugs(ctx context.Context, userID string) ([]string, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -63,7 +63,7 @@ func (s *Service) ProviderSlugs(ctx context.Context, userID string) ([]string, e
 // delete run in one transaction, and UserProviderCountForUpdate locks the user's
 // provider rows so two concurrent unlinks of different providers cannot both pass
 // the "not last" check and leave the user with zero login methods.
-func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error) {
+func (s *Client) UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error) {
 	if s.pg == nil {
 		return false, nil
 	}
@@ -117,11 +117,11 @@ func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider
 }
 
 // Issuer-based provider link helpers (preferred)
-func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error) {
+func (s *Client) GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error) {
 	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
 }
 
-func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
+func (s *Client) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
 	// Both unique constraints arbitrate ownership atomically. A new subject
 	// cannot replace the user's existing identity for this issuer.
 	if s.pg == nil {
@@ -158,7 +158,7 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	return nil
 }
 
-func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
+func (s *Client) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
 	if s.pg == nil {
 		return "", nil, nil
 	}
@@ -170,7 +170,7 @@ func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, s
 }
 
 // setProviderUsername stores a provider-specific username into profile jsonb as {"username": <value>}.
-func (s *Service) setProviderUsername(ctx context.Context, userID, issuer, subject, username string) error {
+func (s *Client) setProviderUsername(ctx context.Context, userID, issuer, subject, username string) error {
 	if s.pg == nil {
 		return nil
 	}

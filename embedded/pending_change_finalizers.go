@@ -14,7 +14,7 @@ import (
 // "first to verify wins" (email/username may have been taken since the pending
 // record was created), creates the verified user, and applies the preferred
 // language. Mirrors the historical ConfirmPendingRegistration body.
-func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (string, error) {
+func (s *Client) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (string, error) {
 	email := rec.Target
 	username := rec.Username
 
@@ -41,7 +41,7 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 // finalizeRegisterPhone completes a phone+password signup. Mirrors the historical
 // ConfirmPendingPhoneRegistration body (no permission-group provisioning, matching
 // prior behavior).
-func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
+func (s *Client) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
 	phone := rec.Target
 	username := rec.Username
 
@@ -59,7 +59,7 @@ func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) 
 
 // finalizeChangeEmail applies a verified email change to an existing user,
 // revokes every other session and tells the previous address.
-func (s *Service) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *Client) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
 		return "", errOrUnauthorized(err)
@@ -93,7 +93,7 @@ func (s *Service) finalizeChangeEmail(ctx context.Context, rec pendingChange, ke
 }
 
 // finalizeChangePhone is finalizeChangeEmail for the phone channel.
-func (s *Service) finalizeChangePhone(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *Client) finalizeChangePhone(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
 		return "", errOrUnauthorized(err)
@@ -124,7 +124,7 @@ func (s *Service) finalizeChangePhone(ctx context.Context, rec pendingChange, ke
 // applyContactChange commits a recovery-identifier change and the revocation of
 // every other session in ONE transaction (as finishPasswordReset does, #199): a
 // hijacked contact must never go live while the sessions that hijacked it survive.
-func (s *Service) applyContactChange(ctx context.Context, userID string, keepSessionID *string, apply func(*db.Queries) error) error {
+func (s *Client) applyContactChange(ctx context.Context, userID string, keepSessionID *string, apply func(*db.Queries) error) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -156,7 +156,7 @@ func (s *Service) applyContactChange(ctx context.Context, userID string, keepSes
 // notifyContactChanged tells the previous address it was replaced. Best-effort:
 // the change is already committed, so a delivery failure is logged (without the
 // address) rather than reported as a failed confirmation.
-func (s *Service) notifyContactChanged(ctx context.Context, userID string, send func(context.Context) error) {
+func (s *Client) notifyContactChanged(ctx context.Context, userID string, send func(context.Context) error) {
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 	if err := s.withSendTimeout(sendCtx, send); err != nil {
 		stdlog.Printf("[authkit/security] contact-change notice to the previous address failed for user %s: %v", userID, err)

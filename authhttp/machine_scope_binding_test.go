@@ -24,7 +24,7 @@ import (
 
 // newScopeBindingCore builds a DB-backed core service with a multi-instance
 // `repo` persona under root, so keys can be minted on distinct instances.
-func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *embedded.Service {
+func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *embedded.Client {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "scope-bind-kid")
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func newScopeBindingCore(t *testing.T, pool *pgxpool.Pool) *embedded.Service {
 	return coreSvc
 }
 
-func createRepoGroup(t *testing.T, ctx context.Context, coreSvc *embedded.Service, pool *pgxpool.Pool, slug string) string {
+func createRepoGroup(t *testing.T, ctx context.Context, coreSvc *embedded.Client, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
 	gid, err := coreSvc.CreatePermissionGroup(ctx, embedded.CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: slug})
 	require.NoError(t, err)

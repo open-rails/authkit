@@ -40,7 +40,7 @@ func (e *DeviceKeySecondFactorRequired) Error() string {
 	return "device key enrollment requires a second factor"
 }
 
-func (s *Service) deviceKeysEnabled() error {
+func (s *Client) deviceKeysEnabled() error {
 	if s == nil || !s.cfg.DeviceKeys.Enabled {
 		return ErrDeviceKeysDisabled
 	}
@@ -116,7 +116,7 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 }
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
-func (s *Service) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error) {
+func (s *Client) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return DeviceKeyChallenge{}, err
 	}
@@ -171,7 +171,7 @@ func (s *Service) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey
 // refresh session. An existing account with a usable second factor must also
 // present it (secondFactor: a factor code or backup code) — email possession
 // alone never enrolls a standing credential on an MFA-protected account (#293).
-func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error) {
+func (s *Client) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
@@ -247,7 +247,7 @@ func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, c
 
 // verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
 // SMS/email code sent on the first finish attempt) or a backup code.
-func (s *Service) verifyDeviceKeySecondFactor(ctx context.Context, userID, code string) bool {
+func (s *Client) verifyDeviceKeySecondFactor(ctx context.Context, userID, code string) bool {
 	if ok, err := s.Verify2FACode(ctx, userID, code); err == nil && ok {
 		return true
 	}
@@ -257,7 +257,7 @@ func (s *Service) verifyDeviceKeySecondFactor(ctx context.Context, userID, code 
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
-func (s *Service) notifyDeviceKeyEnrolled(ctx context.Context, u *User, key DeviceKey) {
+func (s *Client) notifyDeviceKeyEnrolled(ctx context.Context, u *User, key DeviceKey) {
 	if s.email == nil || u.Email == nil {
 		return
 	}
@@ -275,7 +275,7 @@ func (s *Service) notifyDeviceKeyEnrolled(ctx context.Context, u *User, key Devi
 
 // enrollDeviceKey inserts the key (created=true) or returns the identical key
 // already enrolled on the same account (created=false).
-func (s *Service) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (DeviceKey, string, bool, error) {
+func (s *Client) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return DeviceKey{}, "", false, err
@@ -358,7 +358,7 @@ VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`
 }
 
 // RecordFailedDeviceKeyEnrollment bounds online guessing without consuming a valid ceremony on one typo.
-func (s *Service) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string) {
+func (s *Client) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string) {
 	enrollmentID = strings.TrimSpace(enrollmentID)
 	if enrollmentID == "" || !s.useEphemeralStore() {
 		return
@@ -369,7 +369,7 @@ func (s *Service) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmen
 }
 
 // BeginDeviceKeyLogin returns an indistinguishable challenge for active, revoked, and unknown ids.
-func (s *Service) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error) {
+func (s *Client) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return DeviceKeyChallenge{}, err
 	}
@@ -402,7 +402,7 @@ FROM profiles.user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
 }
 
 // FinishDeviceKeyLogin atomically consumes a challenge and issues only a short access token.
-func (s *Service) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error) {
+func (s *Client) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
@@ -446,7 +446,7 @@ RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID
 
 // ListDeviceKeys returns the user's machine credentials after proving that the
 // device which minted the caller's token is still active.
-func (s *Service) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error) {
+func (s *Client) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error) {
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var active bool
 	if err := q.QueryRow(ctx, `SELECT EXISTS (
@@ -476,7 +476,7 @@ func (s *Service) ListDeviceKeys(ctx context.Context, userID, currentID string) 
 // token's own key is checked live in the same transaction first, so a revoked
 // machine cannot use the remainder of its access-token lifetime to revoke a
 // replacement machine.
-func (s *Service) RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error {
+func (s *Client) RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -509,7 +509,7 @@ func (s *Service) RevokeDeviceKey(ctx context.Context, userID, currentID, target
 }
 
 // revokeAllDeviceKeys revokes every live key of userID on q (ban / soft delete).
-func (s *Service) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) error {
+func (s *Client) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) error {
 	_, err := db.ForSchema(q, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
 		WHERE user_id=$1 AND revoked_at IS NULL`, userID)
 	return err
@@ -517,7 +517,7 @@ func (s *Service) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID str
 
 // RevokeOtherDeviceKeys atomically revokes every key except the live key that
 // minted the caller's email-proven token.
-func (s *Service) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error {
+func (s *Client) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
