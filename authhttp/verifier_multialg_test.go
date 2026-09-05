@@ -46,7 +46,7 @@ func TestVerifierAcceptsES256RemoteApplicationIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v.VerifyClaims(token); err != nil {
+	if _, err := v.VerifyClaims(context.Background(), token); err != nil {
 		t.Fatalf("verify ES256: %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestVerifierAcceptsEdDSARemoteApplicationIssuer(t *testing.T) {
 	}
 
 	token := issuer.CreateToken("actor-2", "a@b.com")
-	if _, err := v.VerifyClaims(token); err != nil {
+	if _, err := v.VerifyClaims(context.Background(), token); err != nil {
 		t.Fatalf("verify EdDSA: %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestVerifierRejectsHS256(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v.VerifyClaims(control); err != nil {
+	if _, err := v.VerifyClaims(context.Background(), control); err != nil {
 		t.Fatalf("RS256 control token must verify: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestVerifierRejectsHS256(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := v.VerifyClaims(signed); err == nil {
+		if _, err := v.VerifyClaims(context.Background(), signed); err == nil {
 			t.Fatalf("HS256 with %s must be rejected", name)
 		}
 	}
@@ -121,7 +121,7 @@ func TestVerifierRejectsHS256(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v.VerifyClaims(unsigned); err == nil {
+	if _, err := v.VerifyClaims(context.Background(), unsigned); err == nil {
 		t.Fatal("expected rejection for none alg")
 	}
 }

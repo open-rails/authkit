@@ -38,7 +38,7 @@ func TestResolveKeySourceResolvesFile(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "file-kid-1")
 
-	ks, err := ResolveKeySource(dir, false)
+	ks, err := ResolveKeySource(dir, false, nil)
 	if err != nil {
 		t.Fatalf("resolve from path: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestNewStaticKeySourceFromPEM(t *testing.T) {
 
 func TestResolveKeySourceFailsClosedWithoutOptIn(t *testing.T) {
 	// Empty dir, no ephemeral opt-in => hard error, never auto-generate (#231).
-	_, err := ResolveKeySource(filepath.Join(t.TempDir(), "empty"), false)
+	_, err := ResolveKeySource(filepath.Join(t.TempDir(), "empty"), false, nil)
 	if err == nil {
 		t.Fatal("expected hard-fail with no key and no ephemeral opt-in, got nil error")
 	}
@@ -94,7 +94,7 @@ func TestResolveKeySourceFailsClosedWithoutOptIn(t *testing.T) {
 
 func TestResolveKeySourcePersistsDevKeysUnderExplicitPath(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "keys")
-	first, err := ResolveKeySource(dir, true)
+	first, err := ResolveKeySource(dir, true, nil)
 	if err != nil {
 		t.Fatalf("explicit ephemeral opt-in should generate dev keys: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestResolveKeySourcePersistsDevKeysUnderExplicitPath(t *testing.T) {
 	if fi.Mode().Perm() != 0600 {
 		t.Fatalf("keys.json mode = %o, want 0600", fi.Mode().Perm())
 	}
-	second, err := ResolveKeySource(dir, true)
+	second, err := ResolveKeySource(dir, true, nil)
 	if err != nil {
 		t.Fatalf("second resolve: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestResolveKeySourceDevKeysStayInMemoryWithoutPath(t *testing.T) {
 	}
 	cwd := t.TempDir()
 	t.Chdir(cwd)
-	ks, err := ResolveKeySource("", true)
+	ks, err := ResolveKeySource("", true, nil)
 	if err != nil {
 		t.Fatalf("ephemeral opt-in without a path should generate in memory: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestResolveKeySourceDevKeysStayInMemoryWithoutPath(t *testing.T) {
 func TestSignerSignVerifyRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "rt-kid")
-	ks, err := ResolveKeySource(dir, false)
+	ks, err := ResolveKeySource(dir, false, nil)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

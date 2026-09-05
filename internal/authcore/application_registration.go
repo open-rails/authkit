@@ -38,6 +38,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -93,54 +94,23 @@ func truncateDisplayName(name string) string {
 	return name
 }
 
-// applicationsHTTPClient returns the outbound client for application.json and
-// JWKS fetches: injected override, else timeout-bounded, redirect-refusing,
-// and SSRF-guarded outside dev-like environments.
-func (s *Service) applicationsHTTPClient() *http.Client {
-	if s.appHTTPClient != nil {
-		return s.appHTTPClient
+// newApplicationsHTTPClient builds the outbound client for application.json
+// and JWKS fetches: timeout-bounded, redirect-refusing, and (outside dev)
+// dialing only public addresses after resolving the host itself. r overrides
+// the resolver (tests); nil uses the system resolver.
+func newApplicationsHTTPClient(allowPrivate bool, r netguard.Resolver) *http.Client {
+	if r == nil {
+		r = net.DefaultResolver
 	}
-	c := &http.Client{
-		Timeout: 15 * time.Second,
-		// Redirects are refused outright: a redirect out of the proven domain
-		// would decouple the fetch from the domain-control proof (and is a
-		// classic SSRF pivot).
+	return &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: netguard.TransportWith(r, allowPrivate),
+		// A redirect out of the proven domain would decouple the fetch from the
+		// domain-control proof (and is a classic SSRF pivot).
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return fmt.Errorf("%w: redirects are not followed", ErrApplicationDocumentFetchFailed)
 		},
 	}
-	if !s.isDevEnvironment() {
-		c.Transport = &http.Transport{DialContext: guardedDialContext}
-	}
-	return c
-}
-
-// lookupIPAddr is the resolver behind guardedDialContext; tests pin it to a
-// fixed answer to drive the private-IP rejection without real DNS.
-var lookupIPAddr = net.DefaultResolver.LookupIPAddr
-
-// guardedDialContext resolves the target host, rejects any private/reserved
-// IP, then dials the first public IP directly (no second DNS lookup — closes
-// the DNS-rebinding window). Mirrors the verify package's JWKS SSRF guard.
-func guardedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, fmt.Errorf("application fetch: bad address %q: %v", addr, err)
-	}
-	ips, err := lookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, fmt.Errorf("application fetch: resolve %q: %v", host, err)
-	}
-	for _, ip := range ips {
-		if isCorePrivateIP(ip.IP) {
-			return nil, fmt.Errorf("application fetch: host %q resolves to private/reserved IP %s", host, ip.IP)
-		}
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("application fetch: host %q resolved to no addresses", host)
-	}
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
 // resolveApplicationDomain normalizes the registration `domain` input into
@@ -183,7 +153,7 @@ func (s *Service) resolveApplicationDomain(domain string) (canonical, host, fetc
 		if net.ParseIP(host) != nil {
 			return "", "", "", fmt.Errorf("%w: IP literals cannot domain-prove", ErrApplicationDomainInvalid)
 		}
-		if isInternalHostname(host) || !strings.Contains(host, ".") {
+		if netguard.IsInternalHostname(host) || !strings.Contains(host, ".") {
 			return "", "", "", fmt.Errorf("%w: %q is not a public DNS name", ErrApplicationDomainInvalid, host)
 		}
 	}
@@ -199,7 +169,7 @@ func (s *Service) fetchApplicationDocument(ctx context.Context, fetchURL string)
 		return nil, fmt.Errorf("%w: %v", ErrApplicationDocumentFetchFailed, err)
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := s.applicationsHTTPClient().Do(req)
+	resp, err := s.appHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrApplicationDocumentFetchFailed, err)
 	}
@@ -541,7 +511,7 @@ func (s *Service) applicationSigningKeys(ctx context.Context, app *RemoteApplica
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrApplicationSignatureInvalid, err)
 		}
-		resp, err := s.applicationsHTTPClient().Do(req)
+		resp, err := s.appHTTPClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("%w: jwks fetch: %v", ErrApplicationSignatureInvalid, err)
 		}

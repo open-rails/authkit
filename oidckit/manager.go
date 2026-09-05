@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 )
 
@@ -36,21 +38,32 @@ type rpCacheEntry struct {
 
 // Manager builds provider RPs and helps construct auth URLs with PKCE.
 type Manager struct {
-	providers map[string]RPClient
-	cacheTTL  time.Duration
+	providers  map[string]RPClient
+	cacheTTL   time.Duration
+	httpClient *http.Client
 
 	mu      sync.RWMutex
 	rpCache map[string]rpCacheEntry
 }
 
-// NewManager initializes the RP clients lazily on first use.
-func NewManager(cfgs map[string]RPClient) *Manager {
+// NewManager initializes the RP clients lazily on first use. client is the
+// outbound HTTP client for discovery, JWKS and token calls; nil uses a
+// timeout-bounded default (IdP endpoints are operator configuration, so
+// private addresses stay reachable for local development).
+func NewManager(cfgs map[string]RPClient, client *http.Client) *Manager {
+	if client == nil {
+		client = netguard.Client(netguard.DefaultTimeout, true)
+	}
 	return &Manager{
-		providers: cfgs,
-		cacheTTL:  DefaultRPCacheTTL,
-		rpCache:   make(map[string]rpCacheEntry),
+		providers:  cfgs,
+		cacheTTL:   DefaultRPCacheTTL,
+		httpClient: client,
+		rpCache:    make(map[string]rpCacheEntry),
 	}
 }
+
+// HTTPClient returns the outbound client the manager's relying parties use.
+func (m *Manager) HTTPClient() *http.Client { return m.httpClient }
 
 // Provider returns the configured RPClient for a provider slug (if present).
 func (m *Manager) Provider(name string) (RPClient, bool) {
@@ -140,7 +153,7 @@ func (m *Manager) buildRP(ctx context.Context, pc RPClient, redirectURI string) 
 		secret,
 		redirectURI,
 		pc.Scopes,
-		rp.WithHTTPClient(OutboundHTTPClient()),
+		rp.WithHTTPClient(m.httpClient),
 	)
 }
 

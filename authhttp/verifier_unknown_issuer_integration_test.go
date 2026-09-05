@@ -95,12 +95,12 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 	}
 
 	iss1, signer1 := register("lazy-first")
-	_, err = srv.Verifier().Verify(mint(signer1, iss1))
+	_, err = srv.Verifier().Verify(context.Background(), mint(signer1, iss1))
 	require.NoError(t, err, "first use registers the issuer from a fresh snapshot")
 
 	iss2, signer2 := register("lazy-second")
 	require.Eventually(t, func() bool {
-		_, err := srv.Verifier().Verify(mint(signer2, iss2))
+		_, err := srv.Verifier().Verify(context.Background(), mint(signer2, iss2))
 		return err == nil
 	}, 10*time.Second, 200*time.Millisecond, "an application registered after the snapshot is visible within one TTL")
 

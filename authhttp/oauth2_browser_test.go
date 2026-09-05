@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)
-	return &Service{svc: coreSvc, verifier: ver}
+	return &Service{svc: coreSvc, verifier: ver, outboundHTTP: netguard.Client(netguard.DefaultTimeout, true)}
 }
 
 func TestExchangeOAuthCodeSendsGitHubPKCEVerifier(t *testing.T) {

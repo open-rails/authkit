@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,7 @@ func (s StaticKeySource) PublicKeys() map[string]crypto.PublicKey { return clone
 type FileKeySource struct {
 	path     string // directory containing keys.json
 	interval time.Duration
+	log      *slog.Logger
 	cur      atomic.Pointer[StaticKeySource]
 
 	mu      sync.Mutex // serializes Reload and guards lastMod
@@ -68,19 +70,22 @@ type FileKeySource struct {
 // short interval in a test asserting rotation is observed within a bound, or a
 // host that wants to trade the default's stat() cost for faster/slower
 // pickup. The caller owns the returned source's lifecycle (Close stops its
-// poller goroutine).
-func NewFileKeySource(path string, interval time.Duration) (*FileKeySource, error) {
+// poller goroutine). Reload outcomes are reported on log (nil: slog.Default).
+func NewFileKeySource(path string, interval time.Duration, log *slog.Logger) (*FileKeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
 	}
 	if interval <= 0 {
 		interval = DefaultKeyReloadInterval
 	}
+	if log == nil {
+		log = slog.Default()
+	}
 	static, err := loadStaticFromFile(path)
 	if err != nil {
 		return nil, err
 	}
-	r := &FileKeySource{path: path, interval: interval, done: make(chan struct{})}
+	r := &FileKeySource{path: path, interval: interval, log: log, done: make(chan struct{})}
 	r.cur.Store(static)
 	if mod, modErr := r.keyFileModTime(); modErr == nil {
 		r.lastMod = mod
@@ -145,7 +150,7 @@ func (r *FileKeySource) pollLoop() {
 				prevKID = prev.ActiveSigner().KID()
 			}
 			if err := r.Reload(); err != nil {
-				logf("Warning: keys.json reload failed, keeping current signing keys: %v", err)
+				r.log.Warn("authkit: keys.json reload failed, keeping current signing keys", "path", r.keyFilePath(), "err", err)
 				continue
 			}
 			r.mu.Lock()
@@ -156,11 +161,7 @@ func (r *FileKeySource) pollLoop() {
 			// holding this KeySource. It makes no claim about which service/
 			// process consumes it — that is the caller's responsibility (#238).
 			newKID := r.cur.Load().ActiveSigner().KID()
-			if newKID != prevKID {
-				logf("authkit: reloaded signing keys from %s (active kid %s -> %s)", r.keyFilePath(), prevKID, newKID)
-			} else {
-				logf("authkit: reloaded signing keys from %s (active kid unchanged: %s; public key set may have changed)", r.keyFilePath(), newKID)
-			}
+			r.log.Info("authkit: reloaded signing keys", "path", r.keyFilePath(), "previous_kid", prevKID, "active_kid", newKID)
 		}
 	}
 }
@@ -190,7 +191,7 @@ func loadStaticFromFile(path string) (*StaticKeySource, error) {
 // newDevKeySource generates an in-memory RSA dev signing key. With a non-empty
 // dir the keypair is also written to <dir>/keys.json (0600) and served through
 // a FileKeySource so later boots reuse it; without one nothing touches disk.
-func newDevKeySource(dir string) (KeySource, error) {
+func newDevKeySource(dir string, log *slog.Logger) (KeySource, error) {
 	kid := fmt.Sprintf("dev-%d", time.Now().Unix())
 	signer, err := NewRSASigner(2048, kid)
 	if err != nil {
@@ -202,7 +203,7 @@ func newDevKeySource(dir string) (KeySource, error) {
 	if err := writeDevKeysJSON(dir, kid, signer); err != nil {
 		return nil, fmt.Errorf("persist dev keys under %s: %w", dir, err)
 	}
-	return NewFileKeySource(dir, DefaultKeyReloadInterval)
+	return NewFileKeySource(dir, DefaultKeyReloadInterval, log)
 }
 
 func writeDevKeysJSON(dir, kid string, signer *RSASigner) error {
@@ -225,8 +226,8 @@ func writeDevKeysJSON(dir, kid string, signer *RSASigner) error {
 // verification-only public keys (kid -> public-key PEM, e.g. retired keys kept
 // in the JWKS during rotation). It performs no I/O and reads no environment
 // variables — callers (binaries, hosts) own where the material comes from
-// (#231). Unparseable extra public keys are skipped with a warning, matching
-// the keys.json loader.
+// (#231). An unparseable public key is an error: a verifier that silently
+// drops a rotation key would reject every token it signed.
 func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[string]string) (StaticKeySource, error) {
 	activeKeyID = strings.TrimSpace(activeKeyID)
 	activePrivateKeyPEM = strings.TrimSpace(activePrivateKeyPEM)
@@ -246,8 +247,7 @@ func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKe
 	for kid, pemStr := range publicKeysPEM {
 		pub, err := ParsePublicKeyFromPEM(pemStr)
 		if err != nil {
-			logf("Warning: failed to parse public key %s: %v", kid, err)
-			continue
+			return StaticKeySource{}, fmt.Errorf("public key %q: %w", kid, err)
 		}
 		publicKeys[kid] = pub
 	}
@@ -270,7 +270,9 @@ func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKe
 //
 // Callers that hold key material in memory should build a source directly
 // (NewStaticKeySourceFromPEM / StaticKeySource) instead.
-func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error) {
+//
+// Reload outcomes of the file source are reported on log (nil: slog.Default).
+func ResolveKeySource(path string, allowEphemeralDevKeys bool, log *slog.Logger) (KeySource, error) {
 	path = strings.TrimSpace(path)
 	dir := path
 	if dir == "" {
@@ -278,7 +280,7 @@ func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error
 	}
 
 	if _, statErr := os.Stat(filepath.Join(dir, "keys.json")); statErr == nil {
-		rks, err := NewFileKeySource(dir, DefaultKeyReloadInterval)
+		rks, err := NewFileKeySource(dir, DefaultKeyReloadInterval, log)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keys from %s: %w", dir, err)
 		}
@@ -289,7 +291,7 @@ func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error
 		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", dir)
 	}
 
-	keySource, err := newDevKeySource(path)
+	keySource, err := newDevKeySource(path, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate development keys: %w", err)
 	}

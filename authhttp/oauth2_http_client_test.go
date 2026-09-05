@@ -11,20 +11,17 @@ import (
 	"testing"
 )
 
-func TestOAuth2UserInfoFetchUsesDefaultOutboundClient(t *testing.T) {
-	orig := defaultOutboundHTTPClient
-	t.Cleanup(func() { defaultOutboundHTTPClient = orig })
-
-	var usedClient *http.Client
-	defaultOutboundHTTPClient = &http.Client{
+func TestOAuth2UserInfoFetchUsesServiceOutboundClient(t *testing.T) {
+	s := newTestService(t)
+	var used bool
+	s.outboundHTTP = &http.Client{
 		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			usedClient = defaultOutboundHTTPClient
+			used = true
 			return http.DefaultTransport.RoundTrip(r)
 		}),
 		Timeout: 5 * time.Second,
 	}
 
-	s := newTestService(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "1"})
 	}))
@@ -45,7 +42,7 @@ func TestOAuth2UserInfoFetchUsesDefaultOutboundClient(t *testing.T) {
 		oauth2TokenResp{AccessToken: "tok", TokenType: "Bearer"},
 	)
 	require.NoError(t, err)
-	require.Equal(t, defaultOutboundHTTPClient, usedClient)
+	require.True(t, used)
 }
 
 // AK security audit F4: only a primary AND verified address is selected from the

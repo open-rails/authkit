@@ -71,7 +71,7 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	_, err = s.Verifier().Verify(tok)
+	_, err = s.Verifier().Verify(context.Background(), tok)
 	require.NoError(t, err, "dev verifier must fetch JWKS from 127.0.0.1 and verify")
 }
 
@@ -117,6 +117,6 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 		Issuer: srv.URL, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	_, err = s.Verifier().Verify(tok)
+	_, err = s.Verifier().Verify(context.Background(), tok)
 	require.Error(t, err, "prod verifier must not fetch JWKS from 127.0.0.1")
 }

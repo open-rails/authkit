@@ -18,6 +18,7 @@ package verify
 // verify-failure retry path).
 
 import (
+	"context"
 	"crypto"
 	"fmt"
 	"net/http"
@@ -65,7 +66,7 @@ func TestPermanentIssuerKeys_NeverExpireNeverFetch(t *testing.T) {
 	tok := mintStatelessAccess(t, signer, iss, aud, "user-123")
 
 	// 1) Verifies immediately, no fetch.
-	if _, err := v.VerifyClaims(tok); err != nil {
+	if _, err := v.VerifyClaims(context.Background(), tok); err != nil {
 		t.Fatalf("verify immediately after AddIssuer: %v", err)
 	}
 	if n := transport.calls.Load(); n != 0 {
@@ -88,7 +89,7 @@ func TestPermanentIssuerKeys_NeverExpireNeverFetch(t *testing.T) {
 	c.staleUntil = longAgo
 	v.mu.Unlock()
 
-	if _, err := v.VerifyClaims(tok); err != nil {
+	if _, err := v.VerifyClaims(context.Background(), tok); err != nil {
 		t.Fatalf("verify after simulated 25h/49h expiry: %v", err)
 	}
 	if n := transport.calls.Load(); n != 0 {
@@ -102,7 +103,7 @@ func TestPermanentIssuerKeys_NeverExpireNeverFetch(t *testing.T) {
 		t.Fatalf("other signer: %v", err)
 	}
 	unknownKidTok := mintStatelessAccess(t, otherSigner, iss, aud, "user-123")
-	if _, err := v.VerifyClaims(unknownKidTok); err == nil {
+	if _, err := v.VerifyClaims(context.Background(), unknownKidTok); err == nil {
 		t.Fatal("expected verification to fail for an unregistered kid")
 	}
 	if n := transport.calls.Load(); n != 0 {
@@ -118,7 +119,7 @@ func TestPermanentIssuerKeys_NeverExpireNeverFetch(t *testing.T) {
 		t.Fatalf("wrong-key signer: %v", err)
 	}
 	badSigTok := mintStatelessAccess(t, wrongKeySameKID, iss, aud, "user-123")
-	if _, err := v.VerifyClaims(badSigTok); err == nil {
+	if _, err := v.VerifyClaims(context.Background(), badSigTok); err == nil {
 		t.Fatal("expected verification to fail for a mismatched-key signature")
 	}
 	if n := transport.calls.Load(); n != 0 {

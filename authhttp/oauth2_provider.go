@@ -43,7 +43,7 @@ func (s *Service) oidcProvider(provider string) (authprovider.Provider, bool) {
 
 func (s *Service) fetchOAuthUserInfo(r *http.Request, cfg authprovider.Provider, token oauth2TokenResp) (oauth2UserInfo, error) {
 	var root any
-	if err := oauth2GetJSON(r, cfg.UserInfoURL, token, cfg.UserInfoAccept, &root); err != nil {
+	if err := s.oauth2GetJSON(r, cfg.UserInfoURL, token, cfg.UserInfoAccept, &root); err != nil {
 		return oauth2UserInfo{}, err
 	}
 	if cfg.IdentityMapper == nil {
@@ -55,7 +55,7 @@ func (s *Service) fetchOAuthUserInfo(r *http.Request, cfg authprovider.Provider,
 	}
 	if strings.TrimSpace(identity.Email) == "" && strings.TrimSpace(cfg.EmailFallbackURL) != "" {
 		var fallbackRoot any
-		if err := oauth2GetJSON(r, cfg.EmailFallbackURL, token, cfg.EmailFallbackAccept, &fallbackRoot); err == nil {
+		if err := s.oauth2GetJSON(r, cfg.EmailFallbackURL, token, cfg.EmailFallbackAccept, &fallbackRoot); err == nil {
 			email, verified := selectPrimaryVerifiedEmail(fallbackRoot)
 			identity.Email = email
 			identity.EmailVerified = verified
@@ -94,13 +94,13 @@ func selectPrimaryVerifiedEmail(root any) (string, bool) {
 	return "", false
 }
 
-func oauth2GetJSON(r *http.Request, url string, token oauth2TokenResp, accept string, out any) error {
+func (s *Service) oauth2GetJSON(r *http.Request, url string, token oauth2TokenResp, accept string, out any) error {
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
 	if strings.TrimSpace(accept) != "" {
 		req.Header.Set("Accept", accept)
 	}
 	req.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
-	resp, err := defaultOutboundHTTPClient.Do(req)
+	resp, err := s.outboundHTTP.Do(req)
 	if err != nil {
 		return err
 	}

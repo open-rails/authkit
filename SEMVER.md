@@ -326,7 +326,7 @@ type Claims (see §6.4); ClaimsFromContext, GetClaims, SetClaims
 Middleware: Required, Optional, RequiredServiceJWT, RequireACR, RequireAMR, RequireMFA,
   RequireFreshAuth, RequireEntitlement, RequireAnyEntitlement, RequireDelegatedOrigin,
   RemoteApplicationCORS, Sensitive
-Helpers: SensitiveClaims, SensitiveOptions, NewSSRFGuardedClient, SetRequestContextHook
+Helpers: SensitiveClaims, SensitiveOptions, NewSSRFGuardedClient, DefaultOutboundTimeout
 Principals: DelegatedPrincipal, ServiceJWTPrincipal (+FromContext), Enricher,
   RemoteApplicationSource, IssuerKey, IssuerOptions
 Service-JWT verify: ServiceJWTVerifyOption (WithServiceJWTMaxLifetime,
@@ -354,12 +354,12 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 - **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PayloadSigner`/`PublicKeySigner`
   interfaces; `SignPayloadWithType`, `ErrPayloadSignerRequired`;
   `RSASigner`/`NewRSASigner`, `Ed25519Signer`/`NewEd25519Signer`; `KeySource` +
-  `StaticKeySource`, `NewStaticKeySourceFromPEM`, `ResolveKeySource(path, allowEphemeralDevKeys)`
+  `StaticKeySource`, `NewStaticKeySourceFromPEM`, `FileKeySource`/`NewFileKeySource(path, interval, *slog.Logger)`, `ResolveKeySource(path, allowEphemeralDevKeys, *slog.Logger)`
   (#208: the reloadable/generated key-source machinery is unexported — reachable only through
   `ResolveKeySource`; the former `KeyRing`/`EnvKeySource`/`FileKeySource`/`NewAutoKeySource`
   are gone); `JWK`, `JWKS`, `ServeJWKS`, conversion funcs; token-type consts
   (`AccessTokenType="access+jwt"`, …); `DefaultAuthKeysPath="/vault/auth"`;
-  `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `SetLogger`, `ErrUnsupportedJWK`.
+  `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `ErrUnsupportedJWK`.
   **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
 - **`authprovider`**: `Provider` (OAuth2 providers extract identity via the
   `IdentityMapper func(any) (Identity, error)` field; OIDC providers read standard

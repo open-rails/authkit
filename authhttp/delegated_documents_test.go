@@ -45,7 +45,7 @@ func TestDelegatedDocumentsFederatedContract(t *testing.T) {
 			t.Fatal("documents claim was nested under attributes")
 		}
 	}
-	claims, principal, err := newDelegatedVerifier(t, signer, issuer, []string{"resource-b"}).VerifyDelegatedAccess(token)
+	claims, principal, err := newDelegatedVerifier(t, signer, issuer, []string{"resource-b"}).VerifyDelegatedAccess(context.Background(), token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestDelegatedDocumentsFederatedContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyClaims, err := newDelegatedVerifier(t, signer, issuer, []string{"resource-b"}).Verify(legacyToken)
+	legacyClaims, err := newDelegatedVerifier(t, signer, issuer, []string{"resource-b"}).Verify(context.Background(), legacyToken)
 	if err != nil || legacyClaims.Documents != nil {
 		t.Fatalf("token without documents = %v, %v", legacyClaims.Documents, err)
 	}
@@ -110,7 +110,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 		"iss": issuer, "aud": []string{"resource-b"}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
 		"delegated_sub": "external-user", "documents": map[string]string{"example.entitlements/v1": "not-a-digest"},
 	}, map[string]any{"typ": DelegatedAccessTokenType})
-	if _, err := verifier.Verify(malformed); !errors.Is(err, documents.ErrInvalidReference) {
+	if _, err := verifier.Verify(context.Background(), malformed); !errors.Is(err, documents.ErrInvalidReference) {
 		t.Fatalf("malformed verification = %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifier.Verify(duplicate); !errors.Is(err, documents.ErrDuplicateReference) {
+	if _, err := verifier.Verify(context.Background(), duplicate); !errors.Is(err, documents.ErrDuplicateReference) {
 		t.Fatalf("duplicate verification = %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 		"iss": issuer, "aud": []string{"resource-b"}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
 		"delegated_sub": "external-user", "documents": tooMany,
 	}, map[string]any{"typ": DelegatedAccessTokenType})
-	if _, err := verifier.Verify(oversized); !errors.Is(err, documents.ErrTooManyReferences) {
+	if _, err := verifier.Verify(context.Background(), oversized); !errors.Is(err, documents.ErrTooManyReferences) {
 		t.Fatalf("oversized verification = %v", err)
 	}
 
@@ -147,7 +147,7 @@ func TestDelegatedDocumentsRejectMalformedDuplicateAndOversizedClaims(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	claims, err := verifier.Verify(token)
+	claims, err := verifier.Verify(context.Background(), token)
 	if err != nil || claims.Documents != nil {
 		t.Fatalf("policy_digest compatibility alias appeared: %v, %v", claims.Documents, err)
 	}
@@ -199,7 +199,7 @@ func TestRemoteApplicationDocumentsClaimsRejectedBeforeEarlyReturn(t *testing.T)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := verifier.Verify(tt.token); !errors.Is(err, tt.want) {
+			if _, err := verifier.Verify(context.Background(), tt.token); !errors.Is(err, tt.want) {
 				t.Fatalf("Verify() error = %v, want %v", err, tt.want)
 			}
 		})
@@ -229,7 +229,7 @@ func TestDelegatedRawTokensRejectReservedDocumentsAttribute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := verifier.Verify(token); !errors.Is(err, documents.ErrReservedAttribute) {
+			if _, err := verifier.Verify(context.Background(), token); !errors.Is(err, documents.ErrReservedAttribute) {
 				t.Fatalf("Verify() error = %v, want %v", err, documents.ErrReservedAttribute)
 			}
 		})

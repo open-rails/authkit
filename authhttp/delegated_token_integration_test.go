@@ -311,9 +311,9 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Contains(t, body, "sender_proof_required", "plain HTTP with spoofed certificate header")
 
 	// Verification detached from its request fails closed.
-	_, err = ver.Verify(resp.Token)
+	_, err = ver.Verify(context.Background(), resp.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	_, _, err = ver.VerifyDelegatedAccess(resp.Token)
+	_, _, err = ver.VerifyDelegatedAccess(context.Background(), resp.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
 
 	// Wrong audience and wrong issuer fail closed even with the right leaf.
