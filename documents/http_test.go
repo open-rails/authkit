@@ -32,7 +32,7 @@ type blockingRemoteSource struct {
 
 // The verifier's on-miss path consults the enabled-issuer snapshot
 // (ListRemoteApplications, ak#297); both store calls stall until released.
-func (s *blockingRemoteSource) ListRemoteApplications(ctx context.Context, _ bool) ([]authkit.RemoteApplication, error) {
+func (s *blockingRemoteSource) ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error) {
 	return nil, s.stall(ctx)
 }
 

@@ -1,6 +1,10 @@
 package authcore
 
-import "testing"
+import (
+	"testing"
+
+	authkit "github.com/open-rails/authkit"
+)
 
 func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 	// merchant: members + api-keys, NO custom-roles, NO remote-apps, NO invites.
@@ -19,7 +23,7 @@ func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 		t.Fatalf("BuildSchema: %v", err)
 	}
 
-	has := func(persona, method, path string) bool {
+	has := func(persona authkit.Persona, method, path string) bool {
 		for _, r := range s.GeneratedRoutes() {
 			if r.Persona == persona && r.Method == method && r.Path == path {
 				return true
@@ -94,7 +98,7 @@ func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, r := range s.GeneratedRoutes() {
-		got[r.Method+" "+r.Path] = r.Perm
+		got[r.Method+" "+r.Path] = string(r.Perm)
 	}
 	for k, perm := range want {
 		if got[k] != perm {
@@ -103,10 +107,10 @@ func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
 	}
 	// Every generated gate is a valid concrete 3-segment perm in the persona namespace.
 	for _, r := range s.GeneratedRoutes() {
-		if err := ValidatePermission(r.Perm); err != nil {
+		if err := ValidatePermission(string(r.Perm)); err != nil {
 			t.Errorf("gate %q is not a valid 3-segment perm: %v", r.Perm, err)
 		}
-		if PermissionPersona(r.Perm) != r.Persona {
+		if authkit.Perm(r.Perm).Persona() != r.Persona {
 			t.Errorf("gate %q is not in persona %q", r.Perm, r.Persona)
 		}
 	}

@@ -253,7 +253,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = srv.svc.EnableTOTP2FA(ctx, userID, testTOTPCode(t, secret, time.Now().Unix()/30), true, authcore.AllowAdditionalFactors)
+	_, err = srv.svc.EnableTOTP2FA(ctx, authcore.TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authcore.AllowAdditionalFactors})
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)

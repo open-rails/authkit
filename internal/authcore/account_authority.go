@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 func (s *Service) authorizeAccountAuthority(ctx context.Context, actorUserID, targetUserID string) error {
@@ -32,14 +34,14 @@ func (s *Service) authorizeAccountAuthority(ctx context.Context, actorUserID, ta
 		return err
 	}
 	sch := s.groupSchemaOrDefault()
-	targetGrants, err := st.GrantsOnGroup(ctx, sch, targetUserID, SubjectKindUser, gid)
+	targetGrants, err := st.GrantsOnGroup(ctx, sch, authkit.UserSubject(targetUserID), gid)
 	if err != nil {
 		return err
 	}
 	if len(targetGrants) == 0 {
 		return nil
 	}
-	actorGrants, err := st.GrantsOnGroup(ctx, sch, actorUserID, SubjectKindUser, gid)
+	actorGrants, err := st.GrantsOnGroup(ctx, sch, authkit.UserSubject(actorUserID), gid)
 	if err != nil {
 		return err
 	}

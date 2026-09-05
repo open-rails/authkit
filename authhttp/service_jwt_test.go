@@ -238,7 +238,7 @@ type disabledRemoteApplicationIssuerSource struct {
 	issuer authkit.RemoteApplication
 }
 
-func (s disabledRemoteApplicationIssuerSource) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
+func (s disabledRemoteApplicationIssuerSource) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
 	return nil, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -41,19 +42,19 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	}
 
 	userID := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, "admin"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(userID), "admin"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign MFA-required role without MFA = %v", err)
 	}
 	if _, err := svc.Enable2FA(ctx, userID, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, "admin"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(userID), "admin"); err != nil {
 		t.Fatalf("assign admin after MFA: %v", err)
 	}
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, "org", "acme", userID, SubjectKindUser, "member"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(userID), "member"); err != nil {
 		t.Fatalf("assign member: %v", err)
 	}
 
@@ -64,10 +65,10 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	if len(removed) != 1 || removed[0].Role != "admin" {
 		t.Fatalf("removed = %+v, want only admin", removed)
 	}
-	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, RootPersona, "", PermRootResourcesRead); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(userID), authkit.RootGroup(), PermRootResourcesRead); ok {
 		t.Fatalf("admin role should be removed after disabling MFA")
 	}
-	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, "org", "acme", "org:repo:read"); !ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(userID), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); !ok {
 		t.Fatalf("ordinary org persona role should remain after disabling MFA")
 	}
 }
@@ -110,16 +111,16 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 	// AssignGroupRole enforces the same MFA-on-assignment guard the old invite
 	// accept did (requireMFAForRoleAssignment): an MFA-required role cannot be
 	// granted to a user without enabled MFA.
-	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(invitee), "member"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign MFA-required role without MFA = %v", err)
 	}
 	if _, err := svc.Enable2FA(ctx, invitee, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(invitee), "member"); err != nil {
 		t.Fatalf("assign after MFA: %v", err)
 	}
-	if ok, err := svc.Can(ctx, invitee, SubjectKindUser, "org", "acme", "org:repo:read"); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(invitee), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); err != nil || !ok {
 		t.Fatalf("invitee should hold org:repo:read after accept; got %v,%v", ok, err)
 	}
 }

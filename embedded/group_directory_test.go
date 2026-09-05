@@ -18,7 +18,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	const schema = "directory_custom"
 	_, err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: schema}).Migrate(ctx)
 	require.NoError(t, err)
-	client, err := embedded.New(embedded.Config{Ephemeral: embedded.EphemeralConfig{AllowMemory: true}, Schema: schema, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}, RBAC: []embedded.PersonaDef{{Name: "merchant", Parent: embedded.RootPersona}}}, embedded.Deps{Postgres: pg.Pool})
+	client, err := embedded.New(embedded.Config{Ephemeral: embedded.EphemeralConfig{AllowMemory: true}, Schema: schema, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}, RBAC: []embedded.PersonaDef{{Name: "merchant", Parent: authkit.RootPersona}}}, embedded.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	_, err = client.EnsureRootGroup(ctx)
@@ -33,7 +33,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	directory, err := embedded.NewGroupDirectory(pg.Pool, schema)
 	require.NoError(t, err)
 	for _, name := range []string{"original", "renamed"} {
-		group, err := directory.GroupInstanceForSlug(ctx, "merchant", name)
+		group, err := directory.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: name})
 		require.NoError(t, err)
 		require.Equal(t, id, group.ID)
 		require.Equal(t, "renamed", group.InstanceSlug)
@@ -41,7 +41,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	direct, err := directory.GroupInstanceByID(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, id, direct.ID)
-	_, err = directory.GroupInstanceForSlug(ctx, "merchant", "missing")
+	_, err = directory.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: "missing"})
 	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
 	for _, name := range []string{"name-a", "name-b"} {
 		_, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: name})
@@ -71,7 +71,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	require.Error(t, err)
 	_, err = pg.Pool.Exec(ctx, "UPDATE "+pgx.Identifier{schema, "name_claims"}.Sanitize()+" SET expires_at=now()-interval '1 second' WHERE name='original' AND owner_id=$1::uuid", id)
 	require.NoError(t, err)
-	_, err = directory.GroupInstanceForSlug(ctx, "merchant", "original")
+	_, err = directory.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: "original"})
 	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
 	defaults, err := embedded.NewGroupDirectory(pg.Pool, "")
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	// Read-only construction cannot create a missing schema as a side effect.
 	empty, err := embedded.NewGroupDirectory(pg.Pool, "directory_missing")
 	require.NoError(t, err)
-	_, err = empty.GroupInstanceForSlug(ctx, "merchant", "missing")
+	_, err = empty.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: "missing"})
 	require.Error(t, err)
 	var exists bool
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='directory_missing')`).Scan(&exists))

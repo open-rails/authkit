@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
@@ -105,7 +106,7 @@ func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
 func TestPermissionGroupDiscoveryRoutesAreConfigAware(t *testing.T) {
 	s := newTestServiceWithRBAC(t,
 		embedded.PersonaDef{
-			Name: "org", Parent: embedded.RootPersona,
+			Name: "org", Parent: authkit.RootPersona,
 		},
 	)
 	requireRoute(t, s.APIRoutes(RouteAccount), http.MethodGet, "/me/groups")

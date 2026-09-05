@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -49,15 +50,15 @@ func TestPermissionGroups_ParentDeleteCascadesSubtree(t *testing.T) {
 		t.Fatalf("SeedContainment: %v", err)
 	}
 
-	rootID, err := st.CreateGroup(ctx, "root", "", "")
+	rootID, err := st.CreateGroup(ctx, authkit.RootGroup(), "")
 	if err != nil {
 		t.Fatalf("create root: %v", err)
 	}
-	orgID, err := st.CreateGroup(ctx, "org", rootID, "acme")
+	orgID, err := st.CreateGroup(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, rootID)
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
-	repoID, err := st.CreateGroup(ctx, "repo", orgID, "r1")
+	repoID, err := st.CreateGroup(ctx, authkit.GroupRef{Persona: "repo", Instance: "r1"}, orgID)
 	if err != nil {
 		t.Fatalf("create repo: %v", err)
 	}

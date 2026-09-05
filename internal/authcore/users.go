@@ -321,9 +321,14 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
 }
 
-// SetEmailVerified sets a user's email-verified flag.
-func (s *Service) SetEmailVerified(ctx context.Context, id string, v bool) error {
-	return s.setEmailVerified(ctx, id, v)
+// MarkEmailVerified records that the user's email address is verified.
+func (s *Service) MarkEmailVerified(ctx context.Context, id string) error {
+	return s.setEmailVerified(ctx, id, true)
+}
+
+// ClearEmailVerified marks the user's email address unverified again.
+func (s *Service) ClearEmailVerified(ctx context.Context, id string) error {
+	return s.setEmailVerified(ctx, id, false)
 }
 
 func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) error {

@@ -36,7 +36,7 @@ type Deps struct {
 	ApplicationAdmission func(ctx context.Context, domain string) error
 	// InstanceAdmission is consulted before any generated persona-instance
 	// creation (#263) with the normalized slug; a non-nil error refuses.
-	InstanceAdmission func(ctx context.Context, persona, instanceSlug, subject string) error
+	InstanceAdmission func(ctx context.Context, group authkit.GroupRef, subject string) error
 	// NameAdmission is the host's side-effect-free namespace policy for
 	// creation and rename.
 	NameAdmission func(context.Context, authkit.NameAdmissionRequest) error

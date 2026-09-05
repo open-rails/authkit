@@ -41,7 +41,7 @@ func TestNamingHTTPPolicyAndCompositeSettings(t *testing.T) {
 	srv, client, setTime := namingHTTPServer(t, authkit.NamingConfig{})
 	owner, token := newInstanceTestUser(t, srv, "namingowner")
 	require.Equal(t, http.StatusCreated, postOrg(srv, token, `{"slug":"original","display_name":"Before"}`).Code)
-	original, err := client.GroupInstanceForSlug(context.Background(), "org", "original")
+	original, err := client.GroupInstanceForSlug(context.Background(), authkit.GroupRef{Persona: "org", Instance: "original"})
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodPatch, "/org/original", `{"slug":"renamed","display_name":"After"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -58,7 +58,7 @@ func TestNamingHTTPPolicyAndCompositeSettings(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodPatch, "/org/original", `{"slug":"blocked","display_name":"Must roll back"}`, token)
 	require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "next_rename_at")
-	current, err := client.GroupInstanceForSlug(context.Background(), "org", "renamed")
+	current, err := client.GroupInstanceForSlug(context.Background(), authkit.GroupRef{Persona: "org", Instance: "renamed"})
 	require.NoError(t, err)
 	require.Equal(t, "After", current.DisplayName)
 	// No-op rename through an alias still allows an atomic display-only change.
@@ -91,7 +91,7 @@ func TestNamingHTTPDisabledAndHostAdmission(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	var creationCosts atomic.Int64
 	var admissions []authkit.NameAdmissionRequest
-	next, _, _ := namingHTTPServer(t, authkit.NamingConfig{}, withInstanceAdmission(func(context.Context, string, string, string) error { creationCosts.Add(1); return nil }), withNameAdmission(func(_ context.Context, r authkit.NameAdmissionRequest) error {
+	next, _, _ := namingHTTPServer(t, authkit.NamingConfig{}, withInstanceAdmission(func(context.Context, authkit.GroupRef, string) error { creationCosts.Add(1); return nil }), withNameAdmission(func(_ context.Context, r authkit.NameAdmissionRequest) error {
 		admissions = append(admissions, r)
 		if r.RequestedName == "blocked" {
 			return errors.New("host-owned name")
@@ -119,7 +119,7 @@ func TestNamingHTTPRequestsKeepAuthorizedGroupAfterReuse(t *testing.T) {
 	first, firstToken := newInstanceTestUser(t, srv, "firstowner")
 	_, secondToken := newInstanceTestUser(t, srv, "secondowner")
 	require.Equal(t, http.StatusCreated, postOrg(srv, firstToken, `{"slug":"reusable"}`).Code)
-	original, err := client.GroupInstanceForSlug(context.Background(), "org", "reusable")
+	original, err := client.GroupInstanceForSlug(context.Background(), authkit.GroupRef{Persona: "org", Instance: "reusable"})
 	require.NoError(t, err)
 	// This is the context captured by generatedGroupHandler before authorization.
 	captured := authcore.WithResolvedGroup(context.Background(), original, "reusable")
@@ -144,15 +144,15 @@ func TestNamingHTTPRequestsKeepAuthorizedGroupAfterReuse(t *testing.T) {
 	}
 	w := request(http.MethodPost, "/org/reusable/api-keys", `{"name":"captured-key","role":"member"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	keys, err := srv.svc.ListAPIKeys(context.Background(), "org", "moved")
+	keys, err := srv.svc.ListAPIKeys(context.Background(), authkit.GroupRef{Persona: "org", Instance: "moved"})
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
 	require.Equal(t, "captured-key", keys[0].Name)
-	keys, err = srv.svc.ListAPIKeys(context.Background(), "org", "reusable")
+	keys, err = srv.svc.ListAPIKeys(context.Background(), authkit.GroupRef{Persona: "org", Instance: "reusable"})
 	require.NoError(t, err)
 	require.Empty(t, keys)
 	// A deleted captured identity refuses rather than falling back to the claimant.
-	require.NoError(t, client.DeletePermissionGroup(context.Background(), "org", "moved", authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
+	require.NoError(t, client.DeletePermissionGroup(context.Background(), authkit.GroupRef{Persona: "org", Instance: "moved"}, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
 	w = request(http.MethodGet, "/org/reusable/members", "")
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 }

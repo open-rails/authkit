@@ -324,14 +324,14 @@ func (c Claims) PermissionGroupAllows(scope PermissionScope) bool {
 	}
 	return c.PermissionGroupID != "" && scope.GroupID != "" && c.PermissionGroupID == scope.GroupID &&
 		c.PermissionGroupAuthorityIssuer != "" && c.PermissionGroupAuthorityIssuer == scope.AuthorityIssuer &&
-		c.PermissionGroupPersona != "" && c.PermissionGroupPersona == scope.Persona
+		c.PermissionGroupPersona != "" && authkit.Persona(c.PermissionGroupPersona) == scope.Persona
 }
 
 // HasPermission reports whether the claims carry a permission token covering
 // the requested concrete permission.
-func (c Claims) HasPermission(perm string) bool {
+func (c Claims) HasPermission(perm authkit.Perm) bool {
 	for _, p := range c.Permissions {
-		if authkit.PermMatches(p, perm) {
+		if perm.Matches(authkit.Perm(p)) {
 			return true
 		}
 	}

@@ -71,28 +71,28 @@ func (s *Client) AdminSetPassword(ctx context.Context, userID, new string) error
 // <persona>:members:manage capability + no-escalation (perms(role) ⊆ perms(actor))
 // in embedded. Runtime/admin endpoints MUST use these; the unchecked bootstrap/
 // migration equivalents live on the explicitly-dangerous Client.Genesis() (#241).
-func (s *Client) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
-	return s.impl.AssignRolesBySlugAs(ctx, actorUserID, userIDs, slug)
+func (s *Client) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
+	return s.impl.AssignRolesBySlugAs(ctx, actorUserID, userIDs, role)
 }
 
-func (s *Client) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
-	return s.impl.RemoveRolesBySlugAs(ctx, actorUserID, userIDs, slug)
+func (s *Client) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
+	return s.impl.RemoveRolesBySlugAs(ctx, actorUserID, userIDs, role)
 }
 
-func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
-	return s.impl.AssignGroupRoleAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind, role)
+func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	return s.impl.AssignGroupRoleAs(ctx, actorUserID, group, subject, role)
 }
 
-func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
-	return s.impl.UnassignGroupRoleAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind, role)
+func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	return s.impl.UnassignGroupRoleAs(ctx, actorUserID, group, subject, role)
 }
 
 // RemoveGroupSubjectAs is the actor-aware whole-subject revoke (#136): it enforces
 // no-escalation across every role the subject holds before stripping them. HTTP
 // member-removal MUST use this; the unchecked equivalent is Client.Genesis()
 // .RemoveGroupSubject (#241).
-func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
-	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
+func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject) error {
+	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, group, subject)
 }
 
 // AssignRemoteApplicationRoleAs grants a remote application (by slug, scoped
@@ -100,8 +100,8 @@ func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona,
 // <persona>:credentials:manage plus every permission the role confers
 // (no-escalation, #136/#308). The unchecked equivalent is
 // Client.Genesis().AssignRemoteApplicationRole.
-func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, appSlug, role string) error {
-	return s.impl.AssignRemoteApplicationRoleAs(ctx, actorUserID, persona, instanceSlug, appSlug, role)
+func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error {
+	return s.impl.AssignRemoteApplicationRoleAs(ctx, actorUserID, group, appSlug, role)
 }
 
 // RoleSlugsByUsers returns each user's live root-group role slugs in one call
@@ -118,13 +118,13 @@ func (s *Client) CreateGroupInviteLink(ctx context.Context, req authkit.CreateGr
 }
 
 // ListGroupInviteLinks lists a group's invite links (never returns the code).
-func (s *Client) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]authkit.GroupInviteLink, error) {
-	return s.impl.ListGroupInviteLinks(ctx, persona, instanceSlug)
+func (s *Client) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRef) ([]authkit.GroupInviteLink, error) {
+	return s.impl.ListGroupInviteLinks(ctx, group)
 }
 
 // RevokeGroupInviteLink revokes a group's invite link by id.
-func (s *Client) RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error {
-	return s.impl.RevokeGroupInviteLink(ctx, persona, instanceSlug, linkID)
+func (s *Client) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupRef, linkID string) error {
+	return s.impl.RevokeGroupInviteLink(ctx, group, linkID)
 }
 
 // ExternalInvitesEnabled reports whether invite-link minting is permitted by the
@@ -137,16 +137,16 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 	return s.impl.BanUser(ctx, userID, reason, until, bannedBy)
 }
 
-func (s *Client) Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error) {
-	return s.impl.Can(ctx, subjectID, subjectKind, persona, instanceSlug, perm)
+func (s *Client) Can(ctx context.Context, subject authkit.Subject, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
+	return s.impl.Can(ctx, subject, group, perm)
 }
 
 // ListEffectivePermissions returns the subject's effective grant PATTERNS in the
 // group addressed by (persona, instanceSlug) — the introspection primitive behind
 // a "what can I do here" endpoint (#421). Globs (e.g. `root:*`) are returned
 // verbatim; an unknown group yields an empty set (fail-closed on real errors).
-func (s *Client) ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error) {
-	return s.impl.ListEffectivePermissions(ctx, subjectID, subjectKind, persona, instanceSlug)
+func (s *Client) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]string, error) {
+	return s.impl.ListEffectivePermissions(ctx, subject, group)
 }
 
 func (s *Client) CheckSMSHealth(ctx context.Context) error {
@@ -239,32 +239,36 @@ func (s *Client) LinkProviderByIssuer(ctx context.Context, userID, issuer, provi
 	return s.impl.LinkProviderByIssuer(ctx, userID, issuer, providerSlug, subject, email)
 }
 
-func (s *Client) ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]authkit.APIKey, error) {
-	return s.impl.ListAPIKeys(ctx, persona, instanceSlug)
+func (s *Client) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]authkit.APIKey, error) {
+	return s.impl.ListAPIKeys(ctx, group)
 }
 
 func (s *Client) ListEntitlements(ctx context.Context, userID string) []string {
 	return s.impl.ListEntitlements(ctx, userID)
 }
 
-func (s *Client) ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]authkit.GroupMember, error) {
-	return s.impl.ListGroupMembers(ctx, persona, instanceSlug)
+func (s *Client) ListGroupMembers(ctx context.Context, group authkit.GroupRef) ([]authkit.GroupMember, error) {
+	return s.impl.ListGroupMembers(ctx, group)
 }
 
-func (s *Client) ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]authkit.SubjectGroupMembership, error) {
-	return s.impl.ListSubjectGroups(ctx, subjectID, subjectKind)
+func (s *Client) ListSubjectGroups(ctx context.Context, subject authkit.Subject) ([]authkit.SubjectGroupMembership, error) {
+	return s.impl.ListSubjectGroups(ctx, subject)
 }
 
-func (s *Client) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error) {
-	return s.impl.ListRemoteApplications(ctx, activeOnly)
+func (s *Client) ListRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error) {
+	return s.impl.ListRemoteApplications(ctx)
+}
+
+func (s *Client) ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error) {
+	return s.impl.ListEnabledRemoteApplications(ctx)
 }
 
 func (s *Client) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
 	return s.impl.ListUsersDeletedBefore(ctx, cutoff, limit)
 }
 
-func (s *Client) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts authkit.APIKeyMintOptions) (authkit.APIKey, string, error) {
-	return s.impl.MintAPIKeyWithOptions(ctx, persona, instanceSlug, opts)
+func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupRef, opts authkit.APIKeyMintOptions) (authkit.APIKey, string, error) {
+	return s.impl.MintAPIKeyWithOptions(ctx, group, opts)
 }
 
 func (s *Client) MintRemoteApplicationAccessToken(ctx context.Context, p authkit.RemoteApplicationAccessParams) (string, error) {
@@ -310,12 +314,12 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	return s.impl.ResolveAPIKeyDetailed(ctx, keyID, secret)
 }
 
-func (s *Client) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
-	return s.impl.ResolveGroupIDForSlug(ctx, persona, instanceSlug)
+func (s *Client) ResolveGroupIDForSlug(ctx context.Context, group authkit.GroupRef) (string, error) {
+	return s.impl.ResolveGroupIDForSlug(ctx, group)
 }
 
-func (s *Client) GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (authkit.GroupInstance, error) {
-	return s.impl.GroupInstanceForSlug(ctx, persona, instanceSlug)
+func (s *Client) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {
+	return s.impl.GroupInstanceForSlug(ctx, group)
 }
 
 func (s *Client) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error) {
@@ -326,8 +330,8 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
-func (s *Client) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
-	return s.impl.RevokeAPIKey(ctx, persona, instanceSlug, tokenID)
+func (s *Client) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, tokenID string) (bool, error) {
+	return s.impl.RevokeAPIKey(ctx, group, tokenID)
 }
 
 func (s *Client) SMSAvailable() bool {
@@ -342,8 +346,12 @@ func (s *Client) SeedPermissionGroupContainment(ctx context.Context) error {
 	return s.impl.SeedPermissionGroupContainment(ctx)
 }
 
-func (s *Client) SetEmailVerified(ctx context.Context, id string, v bool) error {
-	return s.impl.SetEmailVerified(ctx, id, v)
+func (s *Client) MarkEmailVerified(ctx context.Context, id string) error {
+	return s.impl.MarkEmailVerified(ctx, id)
+}
+
+func (s *Client) ClearEmailVerified(ctx context.Context, id string) error {
+	return s.impl.ClearEmailVerified(ctx, id)
 }
 
 func (s *Client) SetEntitlementsProvider(p EntitlementsProvider) {
@@ -378,8 +386,8 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in authkit.RemoteA
 	return s.impl.UpsertRemoteApplication(ctx, in)
 }
 
-func (s *Client) UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
-	return s.impl.UpsertRoleBySlug(ctx, name, slug, description)
+func (s *Client) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+	return s.impl.UpsertRoleBySlug(ctx, name, role, description)
 }
 
 func (s *Client) ValidateVerificationConfiguration() error {
@@ -417,8 +425,8 @@ func (s *Client) SetApplicationTier(ctx context.Context, slug, tier string) (*au
 
 // SetPermissionGroupDisplayName updates a group's free-form, non-unique
 // display name (#264 naming doctrine). Authorization is the caller's job.
-func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, persona, instanceSlug, displayName string) error {
-	return s.impl.SetPermissionGroupDisplayName(ctx, persona, instanceSlug, displayName)
+func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, group authkit.GroupRef, displayName string) error {
+	return s.impl.SetPermissionGroupDisplayName(ctx, group, displayName)
 }
 
 // UpdateGroupInstanceAs changes settings atomically after authorizing the captured UUID.
@@ -430,8 +438,8 @@ func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 // TOMBSTONED to the group uuid forever (fail-safe); opts.ReleaseSlug frees it
 // instead — safe ONLY for names nothing ever referenced, and that judgment is
 // the host's. authkit never deletes a group on its own.
-func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlug string, opts authkit.DeletePermissionGroupOptions) error {
-	return s.impl.DeletePermissionGroup(ctx, persona, instanceSlug, opts)
+func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupRef, opts authkit.DeletePermissionGroupOptions) error {
+	return s.impl.DeletePermissionGroup(ctx, group, opts)
 }
 
 // NamingPolicy returns the normalized deployment-wide user/group naming policy.
@@ -442,8 +450,8 @@ func (s *Client) ResolveUsername(ctx context.Context, name string) (authkit.Name
 }
 
 // CanOnGroup checks live authority on an already resolved immutable group.
-func (s *Client) CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error) {
-	return s.impl.CanOnGroup(ctx, subjectID, subjectKind, groupID, perm)
+func (s *Client) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
+	return s.impl.CanOnGroup(ctx, subject, groupID, perm)
 }
 
 func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit.GroupInstance, error) {

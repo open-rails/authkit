@@ -79,7 +79,7 @@ type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string
 	Permissions       []string
-	Persona           string
+	Persona           Persona
 	InstanceSlug      string
 }
 
@@ -168,7 +168,7 @@ type ApplicationDocument struct {
 // principal owns).
 type RegisteredApplication struct {
 	Application     RemoteApplication
-	OrgPersona      string
+	OrgPersona      Persona
 	OrgInstanceSlug string
 	// Created is false for an idempotent re-registration (the boot-time
 	// self-heal / rotation-from-root path).

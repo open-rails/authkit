@@ -1,13 +1,17 @@
 package authcore
 
-import "testing"
+import (
+	"testing"
+
+	authkit "github.com/open-rails/authkit"
+)
 
 func TestIntrinsicRootPermissionsAreValid3Segment(t *testing.T) {
 	for _, p := range IntrinsicRootPermissions() {
 		if err := ValidatePermission(p); err != nil {
 			t.Errorf("intrinsic root perm %q invalid: %v", p, err)
 		}
-		if PermissionPersona(p) != RootPersona {
+		if authkit.Perm(p).Persona() != RootPersona {
 			t.Errorf("intrinsic root perm %q is not in the root: namespace", p)
 		}
 	}

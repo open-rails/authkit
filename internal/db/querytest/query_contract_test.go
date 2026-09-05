@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -187,21 +188,21 @@ func TestQueryContracts(t *testing.T) {
 		schema := testGroupSchema(t)
 		store := authcore.NewPermissionGroupStore(pg.Pool)
 		requireNoError(t, store.SeedContainment(ctx, schema))
-		rootID, err := store.CreateGroup(ctx, "root", "", "")
+		rootID, err := store.CreateGroup(ctx, authkit.RootGroup(), "")
 		requireNoError(t, err)
-		orgID, err := store.CreateGroup(ctx, "org", rootID, "contract-org")
+		orgID, err := store.CreateGroup(ctx, authkit.GroupRef{Persona: "org", Instance: "contract-org"}, rootID)
 		requireNoError(t, err)
-		repoID, err := store.CreateGroup(ctx, "repo", orgID, "contract-repo")
+		repoID, err := store.CreateGroup(ctx, authkit.GroupRef{Persona: "repo", Instance: "contract-repo"}, orgID)
 		requireNoError(t, err)
 
 		userID := createUser(t, ctx, q, 30, "group-user")
-		requireNoError(t, store.AssignRole(ctx, orgID, userID, authcore.SubjectKindUser, authcore.OwnerRoleName))
-		assignments, err := store.WalkAssignments(ctx, repoID, userID, authcore.SubjectKindUser)
+		requireNoError(t, store.AssignRole(ctx, orgID, authkit.UserSubject(userID), authcore.OwnerRoleName))
+		assignments, err := store.WalkAssignments(ctx, repoID, authkit.UserSubject(userID))
 		requireNoError(t, err)
 		if len(assignments) != 1 || assignments[0].Persona != "org" || assignments[0].Role != authcore.OwnerRoleName {
 			t.Fatalf("WalkAssignments = %+v", assignments)
 		}
-		can, err := store.CanOnGroup(ctx, schema, userID, authcore.SubjectKindUser, repoID, "org:repo:read")
+		can, err := store.CanOnGroup(ctx, schema, authkit.UserSubject(userID), repoID, "org:repo:read")
 		requireNoError(t, err)
 		if !can {
 			t.Fatal("expected org owner to read repo")

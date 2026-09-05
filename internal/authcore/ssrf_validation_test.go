@@ -94,7 +94,7 @@ func TestValidateJWKSURI_RejectedInternalHostnames(t *testing.T) {
 }
 
 func TestNormalizeRemoteAppTrustSource_RejectsPrivateJWKSURI(t *testing.T) {
-	_, err := NormalizeRemoteAppTrustSource("http://169.254.169.254/jwks", "jwks", nil, false)
+	_, err := NormalizeRemoteAppTrustSource("http://169.254.169.254/jwks", "jwks", nil, TrustSourcePolicy{})
 	if err == nil {
 		t.Fatal("NormalizeRemoteAppTrustSource: expected error for private jwks_uri, got nil")
 	}
@@ -135,13 +135,13 @@ func TestValidateJWKSURI_DevStillRejectsNonHTTP(t *testing.T) {
 // #257: the jwks/public_keys XOR rule holds regardless of environment.
 func TestNormalizeRemoteAppTrustSource_DevKeepsXORRule(t *testing.T) {
 	keys := []RemoteAppKey{{KID: "k1", PublicKeyPEM: "irrelevant"}}
-	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "jwks", keys, true); err == nil {
+	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "jwks", keys, TrustSourcePolicy{AllowPrivateNetworkJWKS: true}); err == nil {
 		t.Fatal("dev: jwks_uri + public_keys must stay mutually exclusive")
 	}
-	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "", nil, true); err != nil {
+	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "", nil, TrustSourcePolicy{AllowPrivateNetworkJWKS: true}); err != nil {
 		t.Fatalf("dev: loopback http jwks_uri should be accepted: %v", err)
 	}
-	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "", nil, false); err == nil {
+	if _, err := NormalizeRemoteAppTrustSource("http://127.0.0.1/jwks", "", nil, TrustSourcePolicy{}); err == nil {
 		t.Fatal("non-dev: loopback http jwks_uri must stay rejected")
 	}
 }

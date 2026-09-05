@@ -32,7 +32,7 @@ func withSolanaSNSResolver(r embedded.SolanaSNSResolver) coreOpt {
 func withDelegatedAuthorization(a embedded.DelegationAuthorizer) coreOpt {
 	return func(d *embedded.Deps) { d.DelegatedAuthorization = a }
 }
-func withInstanceAdmission(pred func(ctx context.Context, persona, instanceSlug, subject string) error) coreOpt {
+func withInstanceAdmission(pred func(ctx context.Context, group authkit.GroupRef, subject string) error) coreOpt {
 	return func(d *embedded.Deps) { d.InstanceAdmission = pred }
 }
 func withNameAdmission(check func(context.Context, authkit.NameAdmissionRequest) error) coreOpt {

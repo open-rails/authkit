@@ -174,7 +174,7 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 				result.PasswordsKept++
 			}
 		}
-		slug := strings.ToLower(strings.TrimSpace(user.RootRole))
+		slug := normalizeRootRoleSlug(authkit.Role(user.RootRole))
 		if slug == "" {
 			continue
 		}
@@ -257,7 +257,7 @@ func (s *Service) releaseBootstrapApply(ctx context.Context, name string) error 
 // rootGroupHasOwner reports whether the singleton root group currently has any
 // owner. Used to make manifest owner-seeding seed-if-absent (#136).
 func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
-	members, err := s.ListGroupMembers(ctx, RootPersona, "")
+	members, err := s.ListGroupMembers(ctx, authkit.RootGroup())
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
 			return false, nil
@@ -281,14 +281,14 @@ func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
 // way via assignRoleBySlugGenesis. The manifest is the deploy-time trust root
 // and the ONE seam that bypasses these runtime rules — GenesisClient does NOT
 // bypass the MFA gate.
-func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string, rootHasOwner bool) error {
-	if strings.EqualFold(slug, OwnerRoleName) {
+func (s *Service) seedBootstrapRootRole(ctx context.Context, userID string, role authkit.Role, rootHasOwner bool) error {
+	if role == OwnerRoleName {
 		if rootHasOwner {
 			return nil // break-glass: owners already exist; don't fight runtime
 		}
-		return s.AssignGroupRoleGenesis(ctx, RootPersona, "", userID, SubjectKindUser, OwnerRoleName)
+		return s.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(userID), OwnerRoleName)
 	}
-	return s.assignRoleBySlugGenesis(ctx, userID, slug)
+	return s.assignRoleBySlugGenesis(ctx, userID, role)
 }
 
 func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS bool) error {
@@ -307,7 +307,7 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
 			return ErrInvalidBootstrapManifest
 		}
-		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, allowInsecureJWKS); err != nil {
+		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, TrustSourcePolicy{AllowPrivateNetworkJWKS: allowInsecureJWKS}); err != nil {
 			return err
 		}
 	}
@@ -315,7 +315,7 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 }
 
 func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app BootstrapManifestRemoteApplication) error {
-	gid, err := s.ResolveGroupIDForSlug(ctx, RootPersona, "")
+	gid, err := s.ResolveGroupIDForSlug(ctx, authkit.RootGroup())
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app Boots
 	if err != nil {
 		return err
 	}
-	role := strings.TrimSpace(app.RootRole)
+	role := normalizeRootRoleSlug(authkit.Role(app.RootRole))
 	if role == "" {
 		return nil
 	}

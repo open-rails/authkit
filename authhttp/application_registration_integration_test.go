@@ -135,7 +135,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, true, body["created"])
 
 	// Service-owned org: the application principal owns its own group.
-	can, err := core.Can(ctx, appID, embedded.SubjectKindRemoteApp, "org", slug, authcore.PermSettingsManage("org"))
+	can, err := core.Can(ctx, authkit.RemoteAppSubject(appID), authkit.GroupRef{Persona: "org", Instance: slug}, authcore.PermSettingsManage("org"))
 	require.NoError(t, err)
 	require.True(t, can, "the application principal must own its service-owned org")
 
@@ -200,7 +200,7 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	require.NoError(t, err)
 
 	// Forwarding: the old slug resolves to the SAME group.
-	got, err := core.ResolveGroupIDForSlug(ctx, "org", oldSlug)
+	got, err := core.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: oldSlug})
 	require.NoError(t, err)
 	require.Equal(t, gid, got)
 
@@ -211,13 +211,13 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	// The owning group may reclaim its own tombstone (rename back).
 	_, err = core.UpdateGroupInstanceAs(ctx, owner.ID, gid, authkit.GroupInstanceUpdate{Slug: &oldSlug})
 	require.NoError(t, err)
-	got, err = core.ResolveGroupIDForSlug(ctx, "org", oldSlug)
+	got, err = core.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: oldSlug})
 	require.NoError(t, err)
 	require.Equal(t, gid, got)
 
 	// Delete-time naming rule (#264 ruling 5, final): DEFAULT delete tombstones
 	// the slug to the group uuid forever — no one can re-claim it...
-	require.NoError(t, core.DeletePermissionGroup(ctx, "org", oldSlug, authkit.DeletePermissionGroupOptions{}))
+	require.NoError(t, core.DeletePermissionGroup(ctx, authkit.GroupRef{Persona: "org", Instance: oldSlug}, authkit.DeletePermissionGroupOptions{}))
 	_, err = core.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: oldSlug})
 	require.ErrorIs(t, err, authkit.ErrGroupSlugTaken, "a deleted group's slug must stay reserved by default")
 	// ...and its pre-existing tombstones (newSlug) stay reserved too.
@@ -229,7 +229,7 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	relSlug := "released-" + suffix
 	_, err = core.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: relSlug})
 	require.NoError(t, err)
-	require.NoError(t, core.DeletePermissionGroup(ctx, "org", relSlug, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
+	require.NoError(t, core.DeletePermissionGroup(ctx, authkit.GroupRef{Persona: "org", Instance: relSlug}, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
 	gid2, err := core.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: relSlug})
 	require.NoError(t, err, "an explicitly released slug must be claimable again")
 	require.NotEqual(t, gid, gid2)
@@ -248,9 +248,9 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE slug = $1`, appSlug)
 	})
-	group, err := core.GroupInstanceForSlug(ctx, "org", appSlug)
+	group, err := core.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: appSlug})
 	require.NoError(t, err)
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", appSlug, owner.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: appSlug}, authkit.UserSubject(owner.ID), authkit.OwnerRole))
 	stolen := "stolen-" + suffix
 	_, err = core.UpdateGroupInstanceAs(ctx, owner.ID, group.ID, authkit.GroupInstanceUpdate{Slug: &stolen})
 	require.ErrorIs(t, err, authkit.ErrGroupSlugApplicationManaged)

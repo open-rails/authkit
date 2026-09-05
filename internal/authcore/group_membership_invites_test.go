@@ -3,6 +3,8 @@ package authcore
 import (
 	"errors"
 	"testing"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 // #147 known-user consent invite: an owner invites an EXISTING user; the invitee
@@ -12,13 +14,13 @@ func TestGroupMembershipInvite_AcceptGrantsRole(t *testing.T) {
 	owner := acmeOwner(t, svc, ctx, pool)
 	target := insertBareUser(t, pool)
 
-	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, "org", "acme", target, "member")
+	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, target, "member")
 	if err != nil {
 		t.Fatalf("CreateGroupMembershipInvite: %v", err)
 	}
 
 	// Not a member until accepted.
-	if ok, _ := svc.Can(ctx, target, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(target), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); ok {
 		t.Fatal("target must not hold the role before accepting")
 	}
 	// The invite shows up in the target's pending list.
@@ -44,14 +46,14 @@ func TestGroupMembershipInvite_DeclineDoesNotGrant(t *testing.T) {
 	owner := acmeOwner(t, svc, ctx, pool)
 	target := insertBareUser(t, pool)
 
-	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, "org", "acme", target, "member")
+	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, target, "member")
 	if err != nil {
 		t.Fatalf("CreateGroupMembershipInvite: %v", err)
 	}
 	if err := svc.DeclineGroupMembershipInvite(ctx, target, inv.ID); err != nil {
 		t.Fatalf("DeclineGroupMembershipInvite: %v", err)
 	}
-	if ok, _ := svc.Can(ctx, target, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
+	if ok, _ := svc.Can(ctx, authkit.UserSubject(target), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); ok {
 		t.Fatal("declined invite must not grant the role")
 	}
 	if pending, _ := svc.ListPendingGroupMembershipInvites(ctx, target); len(pending) != 0 {
@@ -65,7 +67,7 @@ func TestGroupMembershipInvite_RequiresAuthority(t *testing.T) {
 	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
 	stranger := insertBareUser(t, pool)
 	target := insertBareUser(t, pool)
-	if _, err := svc.CreateGroupMembershipInvite(ctx, stranger, "org", "acme", target, "member"); err == nil {
+	if _, err := svc.CreateGroupMembershipInvite(ctx, stranger, authkit.GroupRef{Persona: "org", Instance: "acme"}, target, "member"); err == nil {
 		t.Fatal("a non-authorized actor must not be able to invite")
 	}
 }

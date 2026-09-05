@@ -11,7 +11,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,10 +37,10 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "http://x/merchant/m-invite/members", strings.NewReader(string(addBody)))
 	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: owner}))
 	w := httptest.NewRecorder()
-	s.groupMemberAdd(w, r, "merchant", "m-invite")
+	s.groupMemberAdd(w, r, authkit.GroupRef{Persona: "merchant", Instance: "m-invite"})
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 
-	if ok, _ := s.svc.Can(ctx, target, embedded.SubjectKindUser, "merchant", "m-invite", "merchant:catalog:read"); ok {
+	if ok, _ := s.svc.Can(ctx, authkit.UserSubject(target), authkit.GroupRef{Persona: "merchant", Instance: "m-invite"}, "merchant:catalog:read"); ok {
 		t.Fatal("target must not hold the role before accepting")
 	}
 
@@ -70,7 +69,7 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 	s.handleMeGroupInviteAccept(w, r)
 	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
-	ok, err := s.svc.Can(ctx, target, embedded.SubjectKindUser, "merchant", "m-invite", "merchant:catalog:read")
+	ok, err := s.svc.Can(ctx, authkit.UserSubject(target), authkit.GroupRef{Persona: "merchant", Instance: "m-invite"}, "merchant:catalog:read")
 	require.NoError(t, err)
 	require.True(t, ok, "target should hold the role after accepting")
 }

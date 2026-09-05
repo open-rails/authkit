@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -70,7 +71,7 @@ func insertUserWithEmail(t *testing.T, pool *pgxpool.Pool, email string, verifie
 func acmeOwner(t *testing.T, svc *Service, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()
 	id := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, "org", "acme", id, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(id), OwnerRoleName); err != nil {
 		t.Fatalf("seed acme owner: %v", err)
 	}
 	return id
@@ -78,7 +79,7 @@ func acmeOwner(t *testing.T, svc *Service, ctx context.Context, pool *pgxpool.Po
 
 func mustHoldMember(t *testing.T, svc *Service, ctx context.Context, userID string) {
 	t.Helper()
-	ok, err := svc.Can(ctx, userID, SubjectKindUser, "org", "acme", "org:repo:read")
+	ok, err := svc.Can(ctx, authkit.UserSubject(userID), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read")
 	if err != nil || !ok {
 		t.Fatalf("user should hold org:repo:read after redeem; got ok=%v err=%v", ok, err)
 	}
@@ -158,7 +159,7 @@ func TestInviteLink_ExpiryRevokeSpent(t *testing.T) {
 
 	// Revoked.
 	revoked, _ := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: inviter})
-	if err := svc.RevokeGroupInviteLink(ctx, "org", "acme", revoked.ID); err != nil {
+	if err := svc.RevokeGroupInviteLink(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, revoked.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	if _, err := svc.RedeemGroupInviteLink(ctx, revoked.Code, insertBareUser(t, pool)); !errors.Is(err, ErrInviteLinkRevoked) {
@@ -215,7 +216,7 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 		Name: "org", Parent: RootPersona,
 		Roles: []RoleDef{
 			{Name: "member", Permissions: []string{"org:repo:read"}},
-			{Name: "member-manager", Permissions: []string{PermMembersManage("org"), "org:repo:read"}},
+			{Name: "member-manager", Permissions: []string{string(PermMembersManage("org")), "org:repo:read"}},
 		},
 	})
 	if err != nil {
@@ -234,18 +235,18 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	}
 
 	owner := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, "org", "acme", owner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(owner), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 	memberMgr := insertBareUser(t, pool)
-	if err := svc.AssignGroupRole(ctx, "org", "acme", memberMgr, SubjectKindUser, "member-manager"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(memberMgr), "member-manager"); err != nil {
 		t.Fatalf("seed member-manager: %v", err)
 	}
 	nobody := insertBareUser(t, pool)
 
 	mint := func(inviter, role string) error {
 		_, err := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{
-			Persona: "org", InstanceSlug: "acme", Role: role, InvitedBy: inviter,
+			Persona: "org", InstanceSlug: "acme", Role: authkit.Role(role), InvitedBy: inviter,
 		})
 		return err
 	}

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -53,7 +54,7 @@ func TestGroupMembershipInvite_MFARefusalKeepsInvitePending(t *testing.T) {
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: owner}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
-	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, "org", "acme", invitee, "member")
+	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, invitee, "member")
 	if err != nil {
 		t.Fatalf("CreateGroupMembershipInvite: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestGroupMembershipInvite_MFARefusalKeepsInvitePending(t *testing.T) {
 	if accepted, roles := inviteState(t, ctx, pg, inv.ID, invitee); !accepted || roles != 1 {
 		t.Fatalf("after accept accepted=%v roles=%d", accepted, roles)
 	}
-	if ok, err := svc.Can(ctx, invitee, SubjectKindUser, "org", "acme", "org:repo:read"); err != nil || !ok {
+	if ok, err := svc.Can(ctx, authkit.UserSubject(invitee), authkit.GroupRef{Persona: "org", Instance: "acme"}, "org:repo:read"); err != nil || !ok {
 		t.Fatalf("invitee should hold org:repo:read; got %v,%v", ok, err)
 	}
 }
@@ -91,7 +92,7 @@ func TestGroupMembershipInvite_ConcurrentAcceptsConsumeOnce(t *testing.T) {
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: owner}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
-	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, "org", "acme", invitee, "member")
+	inv, err := svc.CreateGroupMembershipInvite(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, invitee, "member")
 	if err != nil {
 		t.Fatalf("CreateGroupMembershipInvite: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -37,10 +38,10 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 	}
 	withOwner, withViewer, noRole := mk("owner"), mk("viewer"), mk("norole")
 
-	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", withOwner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(withOwner), OwnerRoleName); err != nil {
 		t.Fatalf("assign owner: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", withViewer, SubjectKindUser, "viewer"); err != nil {
+	if err := svc.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(withViewer), "viewer"); err != nil {
 		t.Fatalf("assign viewer: %v", err)
 	}
 	_ = noRole // intentionally left without a root role

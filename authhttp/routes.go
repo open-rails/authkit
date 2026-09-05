@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -62,7 +63,7 @@ type RouteSpec struct {
 	// Auth is the tier the handler wrapper enforces before the handler runs;
 	// Permission names the root/group permission for AuthPermission (#328).
 	Auth       RouteAuthTier
-	Permission string
+	Permission authkit.Perm
 	// Bucket is the per-IP rate-limit bucket APIRoutes applies in front of the
 	// handler ("" = none). Per-identifier and branch-specific buckets stay in
 	// the handler.
@@ -87,8 +88,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// permission through the granular permission system (svc.Can for users,
 	// the verified ceiling for machine principals — see requirePermission).
 	// There is no bespoke "admin" auth tier; these are plain root-group perms.
-	rootPermission := func(perm string, h http.HandlerFunc) http.Handler {
-		return required(s.requirePermission(embedded.RootPersona, "", perm, h))
+	rootPermission := func(perm authkit.Perm, h http.HandlerFunc) http.Handler {
+		return required(s.requirePermission(authkit.RootGroup(), perm, h))
 	}
 	optional := verify.Optional(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }

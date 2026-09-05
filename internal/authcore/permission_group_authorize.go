@@ -2,29 +2,26 @@ package authcore
 
 // Authorization decision core for the permission-group model (#111): the
 // additive walk-up UNION + namespace-anchored coverage. These are PURE functions
-// over an already-resolved assignment set — the engine (later milestone) loads a
-// target group's parent chain + the subject's assignments from the database and
-// feeds them here. Keeping the decision pure makes it exhaustively unit-testable
-// without a database and keeps the authz-critical matching in one place.
+// over an already-resolved assignment set — the engine loads a target group's
+// parent chain + the subject's assignments from the database and feeds them
+// here, which keeps the authz-critical matching in one place.
 
 import authkit "github.com/open-rails/authkit"
 
 // GroupAssignment is a subject's SINGLE role assignment within ONE
 // permission-group (#247: one role per subject per group is a hard rule — no
-// per-group role unions), tagged with that group's persona. The engine produces
-// a slice of these by walking a target group's parent chain (resolving the
-// subject's role at each level, when it holds one); the slice order is
+// per-group role unions), tagged with that group's persona. The slice order is
 // irrelevant — the union ACROSS groups is additive and order-independent.
 type GroupAssignment struct {
-	Persona           string // the declared persona of the group this assignment lives in
+	Persona           authkit.Persona
 	PermissionGroupID string // opaque group id; used ONLY to scope custom-role lookups
-	Role              string // the single role name the subject holds in this group
+	Role              authkit.Role
 }
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
 // (nil, false) if no such custom role exists. Consulted only for personas whose
 // CustomRoles is set; pass nil when the deployment defines no custom roles.
-type CustomRoleResolver func(groupID, role string) ([]string, bool)
+type CustomRoleResolver func(groupID string, role authkit.Role) ([]string, bool)
 
 // ResolveGrants computes the additive, de-duplicated UNION of grant tokens a
 // subject holds across the given assignments. For each (persona, role): a
@@ -72,21 +69,20 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 // matches). Additive walk-up union; the caller constructs the exact perm to
 // check (e.g. for a resource of persona RT acted on from an ancestor of persona LT,
 // the perm is `LT:RT:<action>` — the two-persona rule, decision #5).
-func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolver, perm string) bool {
+func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolver, perm authkit.Perm) bool {
 	return anyGrantCovers(s.ResolveGrants(assignments, custom), perm)
 }
 
-// anyGrantCovers reports whether any grant token covers perm.
-func anyGrantCovers(grants []string, perm string) bool {
+func anyGrantCovers(grants []string, perm authkit.Perm) bool {
 	for _, g := range grants {
-		if authkit.PermMatches(g, perm) {
+		if perm.Matches(authkit.Perm(g)) {
 			return true
 		}
 	}
 	return false
 }
 
-func roleByName(roles []RoleDef, name string) (RoleDef, bool) {
+func roleByName(roles []RoleDef, name authkit.Role) (RoleDef, bool) {
 	for _, r := range roles {
 		if r.Name == name {
 			return r, true

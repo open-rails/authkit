@@ -305,8 +305,8 @@ func (s *Service) resolveProviderUser(r *http.Request, p authprovider.Provider, 
 		return "", false, fmt.Errorf("%w: %w", errProviderLinkFailed, err)
 	}
 	if accountEmail != "" {
-		if err := s.svc.SetEmailVerified(ctx, u.ID, true); err != nil {
-			stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
+		if err := s.svc.MarkEmailVerified(ctx, u.ID); err != nil {
+			stdlog.Printf("[authkit/security] warning: MarkEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
 		}
 	}
 	if err := s.svc.ConsumeAccountRegistrationInvite(ctx, accountEmail, u.ID, sd.AccountInviteToken); err != nil {

@@ -32,7 +32,7 @@ func TestAssignRoleBySlug_AllowsOwnerGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list roles: %v", err)
 	}
-	if !containsString(roles, OwnerRoleName) {
+	if !containsString(roles, string(OwnerRoleName)) {
 		t.Fatalf("roles=%v, want %q", roles, OwnerRoleName)
 	}
 }

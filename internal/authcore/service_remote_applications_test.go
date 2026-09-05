@@ -83,7 +83,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 
 	// List enabledOnly should exclude the now-disabled principal.
-	enabled, err := svc.ListRemoteApplications(ctx, true)
+	enabled, err := svc.ListEnabledRemoteApplications(ctx)
 	if err != nil {
 		t.Fatalf("list enabled: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mode, err := NormalizeRemoteAppTrustSource(tc.jwksURI, tc.mode, tc.keys, false)
+			mode, err := NormalizeRemoteAppTrustSource(tc.jwksURI, tc.mode, tc.keys, TrustSourcePolicy{})
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got mode %q", mode)

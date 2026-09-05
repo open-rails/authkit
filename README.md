@@ -191,7 +191,7 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	// Host route middleware definitions, in the same order as the examples below.
 	optionalAuth := authkitgin.Use(verify.Optional(srv.Verifier()))
 	requireAuth := authkitgin.Use(verify.Required(srv.Verifier()))
-	root, err := client.GroupInstanceForSlug(ctx, authkit.RootPersona, "")
+	root, err := client.GroupInstanceForSlug(ctx, authkit.RootGroup())
 	if err != nil { return nil, nil, nil, err }
 	rootScope := func(*http.Request) verify.PermissionScope {
 		return verify.PermissionScope{GroupID: root.ID, AuthorityIssuer: cfg.Token.Issuer, Persona: root.Persona}
@@ -508,7 +508,7 @@ func mountAdvancedAuthExamples(
 	}
 
 	rootScope := func(r *http.Request) verify.PermissionScope {
-		group, err := client.GroupInstanceForSlug(r.Context(), authkit.RootPersona, "")
+		group, err := client.GroupInstanceForSlug(r.Context(), authkit.RootGroup())
 		if err != nil { return verify.PermissionScope{} }
 		return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: authorityIssuer, Persona: group.Persona}
 	}

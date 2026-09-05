@@ -24,5 +24,5 @@ type InstanceCreationDef struct {
 	ReservedSlugs []string
 	// ReservedEscalationRole is the root-group role that may create reserved
 	// slugs. Empty = reserved slugs are not creatable through this route at all.
-	ReservedEscalationRole string
+	ReservedEscalationRole Role
 }

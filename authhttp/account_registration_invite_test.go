@@ -6,7 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +16,7 @@ func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email s
 	require.NoError(t, err)
 	inviter, err := srv.svc.CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", inviter.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+	require.NoError(t, srv.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(inviter.ID), authkit.OwnerRole))
 	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,

@@ -17,7 +17,7 @@ type APIKey struct {
 	ID          string
 	KeyID       string
 	Name        string
-	Role        string
+	Role        Role
 	Permissions []string
 	CreatedBy   string
 	CreatedAt   time.Time
@@ -28,7 +28,7 @@ type APIKey struct {
 
 type APIKeyMintOptions struct {
 	Name      string
-	Role      string
+	Role      Role
 	CreatedBy string
 	ExpiresAt *time.Time
 }
@@ -173,7 +173,7 @@ type DelegatedAccessParams struct {
 type GroupInviteLink struct {
 	ID                string
 	PermissionGroupID string
-	Role              string
+	Role              Role
 	InvitedBy         string
 	// RedeemedAt is non-nil once the single-use link has been redeemed (#235;
 	// replaces the former Uses 0/1 counter).
@@ -185,9 +185,9 @@ type GroupInviteLink struct {
 }
 
 type CreateGroupInviteLinkRequest struct {
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
-	Role         string
+	Role         Role
 	ExpiresIn    time.Duration
 	InvitedBy    string
 }
@@ -199,9 +199,9 @@ type GroupInviteLinkCreated struct {
 }
 
 type RedeemGroupInviteLinkResult struct {
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
-	Role         string
+	Role         Role
 }
 
 type AccountRegistrationInvite struct {
@@ -214,9 +214,9 @@ type AccountRegistrationInvite struct {
 	ConsumedBy *string
 	// Persona/InstanceSlug/Role describe an OPTIONAL group role the code also grants
 	// on consume (#147 register+join). Empty for a plain registration invite.
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
-	Role         string
+	Role         Role
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -230,9 +230,9 @@ type CreateAccountRegistrationInviteRequest struct {
 	// (#147). The minting actor must hold that group's members:manage (no-escalation);
 	// a role-carrying invite does NOT require general root:users:invite. Leave empty
 	// for a plain registration invite (root:users:invite gated).
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
-	Role         string
+	Role         Role
 }
 
 type AccountRegistrationInviteCreated struct {
@@ -242,9 +242,9 @@ type AccountRegistrationInviteCreated struct {
 	Email     string
 	ExpiresAt time.Time
 	// Persona/InstanceSlug/Role echo the optional group grant carried by the code.
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
-	Role         string
+	Role         Role
 }
 
 type ImportUserStatus string
@@ -323,15 +323,15 @@ type PasswordlessConfirmResult struct {
 }
 
 type CreatePermissionGroupRequest struct {
-	Persona            string
+	Persona            Persona
 	InstanceSlug       string
-	ParentPersona      string
+	ParentPersona      Persona
 	ParentInstanceSlug string
 	OwnerSubjectID     string
 	// OwnerSubjectKind selects the owner principal kind: "user" (default) or
 	// "remote_application" (#264 service-owned orgs — an application principal
 	// owning its own permission group).
-	OwnerSubjectKind string
+	OwnerSubjectKind SubjectKind
 	// DisplayName is free-form, non-unique group metadata (#264 naming
 	// doctrine: vanity naming lives here, never on the slug).
 	DisplayName string
@@ -350,10 +350,19 @@ type DeletePermissionGroupOptions struct {
 	ReleaseSlug bool
 }
 
+// CustomRoleDef defines (or redefines) a per-group custom role: its grant
+// patterns, all in the group's persona namespace, and whether holding it
+// requires an enrolled second factor (mirrors RoleDef.RequiresMFA, #247).
+type CustomRoleDef struct {
+	Role        Role
+	Permissions []string
+	RequiresMFA bool
+}
+
 type GroupMember struct {
 	SubjectID   string
-	SubjectKind string
-	Role        string
+	SubjectKind SubjectKind
+	Role        Role
 }
 
 type SubjectGroupMembership struct {
@@ -361,10 +370,10 @@ type SubjectGroupMembership struct {
 	// address — every route stays slug-addressed — and it is reported only for
 	// the caller's OWN memberships.
 	GroupID      string
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
 	DisplayName  string
-	Role         string
+	Role         Role
 }
 
 // GroupInstance is one persona instance's own identity (#269): the addressing
@@ -374,7 +383,7 @@ type SubjectGroupMembership struct {
 // how a caller who already has authority over an instance LEARNS its id.
 type GroupInstance struct {
 	ID           string
-	Persona      string
+	Persona      Persona
 	InstanceSlug string
 	DisplayName  string
 }
@@ -472,7 +481,7 @@ type AdminUserListOptions struct {
 	Page        int
 	PageSize    int
 	Search      string          // ILIKE over username/email/phone_number
-	Role        string          // root_role slug (e.g. "admin"); empty = no role filter
+	Role        Role            // root_role slug (e.g. "admin"); empty = no role filter
 	Status      AdminUserStatus // empty = non-deleted (historical default)
 	Sort        AdminUserSort   // empty = created_at
 	Desc        bool            // true = descending

@@ -26,7 +26,7 @@ func credTestConfig() embedded.Config {
 		Keys:  testKeys(),
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{{
-			Name: "merchant", Parent: embedded.RootPersona,
+			Name: "merchant", Parent: authkit.RootPersona,
 			Capabilities: embedded.PersonaCapabilities{APIKeys: true, RemoteApplications: true},
 			Roles: []embedded.RoleDef{
 				{Name: "member", Permissions: []string{"merchant:catalog:read"}},
@@ -228,7 +228,7 @@ func TestGroupAPIKeyMintRejectsRoleEscalation_HTTP(t *testing.T) {
 	require.NoError(t, err)
 	var weakActor string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&weakActor))
-	require.NoError(t, s.svc.AssignGroupRole(ctx, "merchant", "m-role-denied", weakActor, embedded.SubjectKindUser, "credential-manager"))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-role-denied"}, authkit.UserSubject(weakActor), "credential-manager"))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, weakActor)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-role-denied'`)

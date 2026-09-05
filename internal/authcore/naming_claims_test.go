@@ -47,7 +47,7 @@ func TestNamingUserAndGroupBoundaries(t *testing.T) {
 				if kind == "user" {
 					return svc.UpdateUsername(ctx, id, to)
 				}
-				resolved, err := svc.ResolveGroupSlug(ctx, "merchant", from)
+				resolved, err := svc.ResolveGroupSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: from})
 				if err != nil {
 					return err
 				}
@@ -58,7 +58,7 @@ func TestNamingUserAndGroupBoundaries(t *testing.T) {
 				if kind == "user" {
 					return svc.ResolveUsername(ctx, name)
 				}
-				return svc.ResolveGroupSlug(ctx, "merchant", name)
+				return svc.ResolveGroupSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: name})
 			}
 			start := svc.namingNow()
 			require.NoError(t, rename("original", "second"))
@@ -218,18 +218,18 @@ func TestNamingGroupConcurrentRenamesAndRelease(t *testing.T) {
 	current, err := svc.groupStore().GroupInstanceByID(ctx, gid)
 	require.NoError(t, err)
 	for _, name := range []string{"original", "first", "second"} {
-		resolution, err := svc.ResolveGroupSlug(ctx, "merchant", name)
+		resolution, err := svc.ResolveGroupSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: name})
 		require.NoError(t, err)
 		require.Equal(t, gid, resolution.ID)
 	}
-	require.NoError(t, svc.DeletePermissionGroup(ctx, "merchant", current.InstanceSlug, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
+	require.NoError(t, svc.DeletePermissionGroup(ctx, authkit.GroupRef{Persona: "merchant", Instance: current.InstanceSlug}, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
 	replacement, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: current.InstanceSlug})
 	require.NoError(t, err)
 	require.NotEqual(t, gid, replacement)
 	_, err = svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "original"})
 	require.ErrorIs(t, err, authkit.ErrGroupSlugTaken)
 	// Dead identities do not forward, but earlier reservations are still honored.
-	_, err = svc.ResolveGroupSlug(ctx, "merchant", "original")
+	_, err = svc.ResolveGroupSlug(ctx, authkit.GroupRef{Persona: "merchant", Instance: "original"})
 	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
 	setTime(originalTime.Add(90 * 24 * time.Hour))
 	_, err = svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "original"})
@@ -293,19 +293,19 @@ func TestNamingRequestBindingDoesNotOverrideOtherTargets(t *testing.T) {
 	inst, err := svc.GroupInstanceByID(ctx, first)
 	require.NoError(t, err)
 	bound := WithResolvedGroup(ctx, inst, "first")
-	got, err := svc.ResolveGroupIDForSlug(bound, "merchant", "second")
+	got, err := svc.ResolveGroupIDForSlug(bound, authkit.GroupRef{Persona: "merchant", Instance: "second"})
 	require.NoError(t, err)
 	require.Equal(t, second, got)
 	root, err := svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	got, err = svc.ResolveGroupIDForSlug(bound, RootPersona, "first")
+	got, err = svc.ResolveGroupIDForSlug(bound, authkit.GroupRef{Persona: RootPersona, Instance: "first"})
 	require.NoError(t, err)
 	require.Equal(t, root, got)
 	require.NoError(t, svc.DeleteGroupInstanceByID(ctx, first, authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
 	replacement, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "first"})
 	require.NoError(t, err)
 	require.NotEqual(t, first, replacement)
-	_, err = svc.ResolveGroupIDForSlug(bound, "merchant", "first")
+	_, err = svc.ResolveGroupIDForSlug(bound, authkit.GroupRef{Persona: "merchant", Instance: "first"})
 	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
 	// Raw lifecycle deletion releases canonical names but retains earlier aliases;
 	// an explicit default delete has its separate permanent-canonical policy.

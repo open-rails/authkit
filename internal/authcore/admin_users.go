@@ -89,12 +89,11 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		where = append(where, "u.deleted_at IS NULL")
 	}
 
-	if slug := strings.TrimSpace(o.Role); slug != "" {
+	if slug := normalizeRootRoleSlug(o.Role); slug != "" {
 		// root_role filters on a user's role in the singleton root group. Use
 		// WHERE EXISTS (not a JOIN) so the result is one row per user — no
 		// duplication, so no SELECT DISTINCT is needed and the (col, id) sort can
 		// use an index.
-		slug = normalizeRootRoleSlug(slug)
 		where = append(where, "EXISTS (SELECT 1 FROM profiles.group_user_roles gur"+
 			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id"+
 			" WHERE gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $"+fmt.Sprint(argIdx)+

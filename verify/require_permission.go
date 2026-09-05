@@ -2,14 +2,15 @@ package verify
 
 import (
 	"context"
-	"github.com/open-rails/authkit"
 	"net/http"
+
+	"github.com/open-rails/authkit"
 )
 
 // PermissionChecker checks live authority on an already resolved immutable group.
 // Hosts resolve a name once at their request boundary and reuse its GroupID.
 type PermissionChecker interface {
-	CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error)
+	CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error)
 }
 
 // PermissionScope is a trusted request resolution. GroupID and AuthorityIssuer
@@ -17,21 +18,15 @@ type PermissionChecker interface {
 type PermissionScope struct {
 	GroupID         string
 	AuthorityIssuer string
-	Persona         string
+	Persona         authkit.Persona
 	Instance        string
 }
-
-// subjectKindUser is the subject-kind discriminator for an authenticated human
-// user. Mirrors embedded.SubjectKindUser (a stable stored value); verify cannot
-// import embedded, and the gate only reaches Can for human users (machine
-// principals are handled by the token-carried branch below), so it is fixed here.
-const subjectKindUser = "user"
 
 // Allow checks machine permission ceilings against the exact UUID and authority
 // issuer. Unbound delegated permissions retain their explicit issuer-trust
 // contract. Human permissions always come from live assignments on GroupID.
 // A missing or mismatched machine binding never falls back to human authority.
-func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
+func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm, scope PermissionScope) (bool, error) {
 	if cl.BoundToPermissionGroup() {
 		return cl.HasPermission(perm) && cl.PermissionGroupAllows(scope), nil
 	}
@@ -41,13 +36,13 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm strin
 	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
 		return false, nil
 	}
-	return checker.CanOnGroup(ctx, cl.UserID, subjectKindUser, scope.GroupID, perm)
+	return checker.CanOnGroup(ctx, authkit.UserSubject(cl.UserID), scope.GroupID, perm)
 }
 
 // RequirePermission authorizes the resolved group once and places that exact
 // scope in the request context for the downstream handler. Missing resolution or
 // any permission-check error denies. Unbound delegated authority is scope-free.
-func RequirePermission(checker PermissionChecker, perm string, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
+func RequirePermission(checker PermissionChecker, perm authkit.Perm, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())

@@ -56,7 +56,7 @@ func docService(t *testing.T) *Service {
 		Delegated:     embedded.DelegatedConfig{Audiences: []string{"app"}},
 		RBAC: []embedded.PersonaDef{{
 			Name:         "org",
-			Parent:       embedded.RootPersona,
+			Parent:       authkit.RootPersona,
 			Capabilities: authkit.PersonaCapabilities{APIKeys: true, RemoteApplications: true, CustomRoles: true},
 			Creation:     authkit.InstanceCreationDef{Enabled: true},
 		}},
@@ -77,7 +77,7 @@ type routeDocRow struct {
 func routeDocAuth(r RouteSpec) string {
 	switch r.Auth {
 	case AuthPermission:
-		return "`" + r.Permission + "`"
+		return string("`" + r.Permission + "`")
 	case AuthSigned:
 		return "signed request (domain proof)"
 	case "":

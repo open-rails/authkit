@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -229,7 +230,7 @@ func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
 	if err := svc.CheckUserPassword(ctx, user.ID, "bootstrap-password-1"); err != nil {
 		t.Fatalf("seeded password check: %v", err)
 	}
-	if roles := svc.listRoleSlugsByUser(ctx, user.ID); !containsString(roles, OwnerRoleName) {
+	if roles := svc.listRoleSlugsByUser(ctx, user.ID); !containsString(roles, string(OwnerRoleName)) {
 		t.Fatalf("root roles=%v, want %q", roles, OwnerRoleName)
 	}
 
@@ -260,7 +261,7 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 		Issuer:   issuer,
 		JWKSURI:  issuer + "/.well-known/jwks.json",
 		Enabled:  &enabled,
-		RootRole: OwnerRoleName,
+		RootRole: string(OwnerRoleName),
 	}}}
 
 	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
@@ -281,15 +282,15 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote application roles: %v", err)
 	}
-	if !containsString(roles, OwnerRoleName) {
+	if !containsString(roles, string(OwnerRoleName)) {
 		t.Fatalf("remote application roles=%v, want %q", roles, OwnerRoleName)
 	}
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, got.ID)
 	if err != nil {
 		t.Fatalf("remote application authority: %v", err)
 	}
-	if !containsString(authority.Permissions, OwnerGrant(RootPersona)) {
-		t.Fatalf("remote application authority=%v, want %q", authority.Permissions, OwnerGrant(RootPersona))
+	if !containsString(authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant())) {
+		t.Fatalf("remote application authority=%v, want %q", authority.Permissions, authkit.Persona(RootPersona).OwnerGrant())
 	}
 }
 
@@ -309,7 +310,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create existing owner: %v", err)
 	}
-	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(existing.ID), OwnerRoleName); err != nil {
 		t.Fatalf("seed existing owner: %v", err)
 	}
 
@@ -318,7 +319,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 		Username:      recoveryUsername,
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		RootRole:      OwnerRoleName,
+		RootRole:      string(OwnerRoleName),
 	}}}
 
 	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
@@ -330,11 +331,11 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	}
 	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
 		t.Fatalf("list recovery roles: %v", err)
-	} else if containsString(rolesByUser[recovery.ID], OwnerRoleName) {
+	} else if containsString(rolesByUser[recovery.ID], string(OwnerRoleName)) {
 		t.Fatalf("bootstrap should not assign owner while another owner exists; roles=%v", rolesByUser[recovery.ID])
 	}
 
-	if err := svc.UnassignGroupRole(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(existing.ID), OwnerRoleName); err != nil {
 		t.Fatalf("remove existing owner: %v", err)
 	}
 	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
@@ -342,7 +343,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	}
 	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
 		t.Fatalf("list recovery roles after reseed: %v", err)
-	} else if !containsString(rolesByUser[recovery.ID], OwnerRoleName) {
+	} else if !containsString(rolesByUser[recovery.ID], string(OwnerRoleName)) {
 		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", rolesByUser[recovery.ID])
 	}
 }

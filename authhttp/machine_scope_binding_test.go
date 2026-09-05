@@ -96,9 +96,9 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, u.ID)
 	})
-	require.NoError(t, coreSvc.AssignGroupRole(ctx, "repo", alpha, u.ID, authcore.SubjectKindUser, authcore.OwnerRoleName))
+	require.NoError(t, coreSvc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "repo", Instance: alpha}, authkit.UserSubject(u.ID), authcore.OwnerRoleName))
 
-	_, token, err := coreSvc.MintAPIKeyWithOptions(ctx, "repo", alpha, authkit.APIKeyMintOptions{Name: "ci-key", Role: "deployer", CreatedBy: u.ID})
+	_, token, err := coreSvc.MintAPIKeyWithOptions(ctx, authkit.GroupRef{Persona: "repo", Instance: alpha}, authkit.APIKeyMintOptions{Name: "ci-key", Role: "deployer", CreatedBy: u.ID})
 	require.NoError(t, err)
 
 	// The resolved key carries its owning group instance.
@@ -106,7 +106,7 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	require.True(t, ok)
 	resolved, err := coreSvc.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	require.NoError(t, err)
-	require.Equal(t, "repo", resolved.Persona)
+	require.Equal(t, authkit.Persona("repo"), resolved.Persona)
 	require.Equal(t, alpha, resolved.InstanceSlug)
 	require.Contains(t, resolved.Permissions, "repo:models:deploy")
 
@@ -117,7 +117,7 @@ func TestAPIKeyGroupBinding_EndToEnd(t *testing.T) {
 	}
 	scopeOf := func(inst string) func(*http.Request) verify.PermissionScope {
 		return func(*http.Request) verify.PermissionScope {
-			group, err := coreSvc.GroupInstanceForSlug(ctx, "repo", inst)
+			group, err := coreSvc.GroupInstanceForSlug(ctx, authkit.GroupRef{Persona: "repo", Instance: inst})
 			require.NoError(t, err)
 			return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: coreSvc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		}
@@ -254,16 +254,16 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 func TestIntrinsicRequirePermission_GroupBoundMachinePrincipal(t *testing.T) {
 	pool := testdb.Pool(t)
 	core := newScopeBindingCore(t, pool)
-	root, err := core.ResolveGroupIDForSlug(context.Background(), embedded.RootPersona, "")
+	root, err := core.ResolveGroupIDForSlug(context.Background(), authkit.RootGroup())
 	require.NoError(t, err)
 	s := &Service{svc: core}
-	h := s.requirePermission(embedded.RootPersona, "", "root:users:list",
+	h := s.requirePermission(authkit.RootGroup(), "root:users:list",
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	rootBound := &verify.Claims{
 		TokenType:                      verify.APIKeyPrincipalType,
 		Permissions:                    []string{"root:users:list"},
-		PermissionGroupPersona:         embedded.RootPersona,
+		PermissionGroupPersona:         string(authkit.RootPersona),
 		PermissionGroupID:              root,
 		PermissionGroupAuthorityIssuer: core.Config().Token.Issuer,
 	}

@@ -19,7 +19,7 @@ func TestRemoteApplicationRoleGrant_FacadeIsActorChecked(t *testing.T) {
 	ctx := context.Background()
 	owner, ownerToken := newInstanceTestUser(t, srv, "facadeowner")
 	require.Equal(t, http.StatusCreated, postOrg(srv, ownerToken, `{"slug":"facaderoles"}`).Code)
-	gid, err := client.ResolveGroupIDForSlug(ctx, "org", "facaderoles")
+	gid, err := client.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: "facaderoles"})
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
 		Slug: "fapp" + uniqueSuffix(), PermissionGroupID: gid, Issuer: "https://fapp.example.com/" + uniqueSuffix(),
@@ -28,30 +28,30 @@ func TestRemoteApplicationRoleGrant_FacadeIsActorChecked(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = embedded.Unwrap(client).DeleteRemoteApplication(ctx, app.Issuer) })
 	holds := func() bool {
-		can, err := client.Can(ctx, app.ID, embedded.SubjectKindRemoteApp, "org", "facaderoles", "org:catalog:read")
+		can, err := client.Can(ctx, authkit.RemoteAppSubject(app.ID), authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, "org:catalog:read")
 		require.NoError(t, err)
 		return can
 	}
 
 	// credentials:manage without the role's own permissions: escalation refused.
 	bounded, _ := newInstanceTestUser(t, srv, "facadebounded")
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "facaderoles", bounded, embedded.SubjectKindUser, "credential-manager"))
-	err = client.AssignRemoteApplicationRoleAs(ctx, bounded, "org", "facaderoles", app.Slug, "member")
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, authkit.UserSubject(bounded), "credential-manager"))
+	err = client.AssignRemoteApplicationRoleAs(ctx, bounded, authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, app.Slug, "member")
 	require.ErrorIs(t, err, authkit.ErrRoleAssignmentEscalation)
 	require.False(t, holds())
 
 	// No credentials:manage at all, and no actor: refused.
 	member, _ := newInstanceTestUser(t, srv, "facademember")
-	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "facaderoles", member, embedded.SubjectKindUser, "member"))
-	require.Error(t, client.AssignRemoteApplicationRoleAs(ctx, member, "org", "facaderoles", app.Slug, "member"))
-	require.Error(t, client.AssignRemoteApplicationRoleAs(ctx, "", "org", "facaderoles", app.Slug, "member"))
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, authkit.UserSubject(member), "member"))
+	require.Error(t, client.AssignRemoteApplicationRoleAs(ctx, member, authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, app.Slug, "member"))
+	require.Error(t, client.AssignRemoteApplicationRoleAs(ctx, "", authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, app.Slug, "member"))
 	require.False(t, holds())
 
 	// The owner (holds org:*) grants; genesis grants with no actor at all.
-	require.NoError(t, client.AssignRemoteApplicationRoleAs(ctx, owner, "org", "facaderoles", app.Slug, "member"))
+	require.NoError(t, client.AssignRemoteApplicationRoleAs(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, app.Slug, "member"))
 	require.True(t, holds())
 	require.NoError(t, client.Genesis().AssignRemoteApplicationRole(ctx, app.ID, "credential-manager"))
-	can, err := client.Can(ctx, app.ID, embedded.SubjectKindRemoteApp, "org", "facaderoles", "org:credentials:manage")
+	can, err := client.Can(ctx, authkit.RemoteAppSubject(app.ID), authkit.GroupRef{Persona: "org", Instance: "facaderoles"}, "org:credentials:manage")
 	require.NoError(t, err)
 	require.True(t, can)
 }

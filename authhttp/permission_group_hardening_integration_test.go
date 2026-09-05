@@ -31,7 +31,7 @@ func hardeningTestConfig() embedded.Config {
 		Keys:  testKeys(),
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{{
-			Name: "merchant", Parent: embedded.RootPersona,
+			Name: "merchant", Parent: authkit.RootPersona,
 			Capabilities: embedded.PersonaCapabilities{CustomRoles: true},
 			Catalog:      []string{"merchant:billing:read", "merchant:billing:write", "merchant:catalog:read", "merchant:roles:manage"},
 			Roles: []embedded.RoleDef{
@@ -60,15 +60,15 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 }
 
 func defineRoleGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: persona, Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
+	return embedded.GeneratedRoute{Persona: authkit.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
 }
 
 func deleteRoleGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: persona, Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
+	return embedded.GeneratedRoute{Persona: authkit.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
 }
 
 func memberRoleAssignGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: persona, Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
+	return embedded.GeneratedRoute{Persona: authkit.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
 }
 
 // TestCustomRoleRedefineRejectsEscalation_HTTP is the #247 SECURITY fix: a
@@ -90,7 +90,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, boundedAdmin) })
 	// Genesis-style unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
-	require.NoError(t, s.svc.AssignGroupRole(ctx, "merchant", "m-escalate", boundedAdmin, embedded.SubjectKindUser, "roles-admin"))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(boundedAdmin), "roles-admin"))
 
 	// Owner defines "auditor" (billing:read only) — this establishes a role
 	// someone else (in principle) could hold.
@@ -109,15 +109,15 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	var subject string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, subject) })
-	require.NoError(t, s.svc.AssignGroupRole(ctx, "merchant", "m-escalate", subject, embedded.SubjectKindUser, "auditor"))
-	perms, err := s.svc.ListEffectivePermissions(ctx, subject, embedded.SubjectKindUser, "merchant", "m-escalate")
+	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(subject), "auditor"))
+	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
 	w = s.drive(t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	perms, err = s.svc.ListEffectivePermissions(ctx, subject, embedded.SubjectKindUser, "merchant", "m-escalate")
+	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"merchant:billing:read", "merchant:billing:write"}, perms)
 
@@ -131,7 +131,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// Owner CAN delete it.
 	dw = s.driveSub(t, delGR, delRepl, owner)
 	require.Equal(t, http.StatusOK, dw.Code, dw.Body.String())
-	perms, err = s.svc.ListEffectivePermissions(ctx, subject, embedded.SubjectKindUser, "merchant", "m-escalate")
+	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
 	require.Empty(t, perms, "after delete, the auditor grant must be gone")
 }
@@ -188,20 +188,20 @@ func TestSingleRolePerGroupReplacesNotUnions_HTTP(t *testing.T) {
 	repl1 := strings.NewReplacer(":instance_slug", "m-single-role", ":user", subject, ":role", "roles-admin")
 	require.Equal(t, http.StatusOK, s.driveSub(t, assignGR, repl1, owner).Code)
 
-	perms, err := s.svc.ListEffectivePermissions(ctx, subject, embedded.SubjectKindUser, "merchant", "m-single-role")
+	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"merchant:roles:manage"}, perms)
 
 	// Assign a SECOND role in the SAME group: replaces, never unions.
-	require.NoError(t, s.svc.DefineGroupCustomRole(ctx, owner, "merchant", "m-single-role", "auditor", []string{"merchant:billing:read"}, false))
+	require.NoError(t, s.svc.DefineGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"}, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"merchant:billing:read"}}))
 	repl2 := strings.NewReplacer(":instance_slug", "m-single-role", ":user", subject, ":role", "auditor")
 	require.Equal(t, http.StatusOK, s.driveSub(t, assignGR, repl2, owner).Code)
 
-	perms, err = s.svc.ListEffectivePermissions(ctx, subject, embedded.SubjectKindUser, "merchant", "m-single-role")
+	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"merchant:billing:read"}, perms, "second role must REPLACE the first, never union")
 
-	members, err := s.svc.ListGroupMembers(ctx, "merchant", "m-single-role")
+	members, err := s.svc.ListGroupMembers(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
 	require.NoError(t, err)
 	roleCount := 0
 	for _, m := range members {
@@ -232,7 +232,7 @@ func TestInviteLinkExpiryClampedTo30Days_HTTP(t *testing.T) {
 	w := s.drive(t, mintGR, "m-invite-ttl", owner, body)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 
-	links, err := s.svc.ListGroupInviteLinks(ctx, "merchant", "m-invite-ttl")
+	links, err := s.svc.ListGroupInviteLinks(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-invite-ttl"})
 	require.NoError(t, err)
 	require.Len(t, links, 1)
 	require.NotNil(t, links[0].ExpiresAt)
