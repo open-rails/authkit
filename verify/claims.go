@@ -3,7 +3,6 @@ package verify
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -392,5 +391,5 @@ func GetClaims(ctx context.Context) (Claims, error) {
 	if cl, ok := ClaimsFromContext(ctx); ok {
 		return cl, nil
 	}
-	return Claims{}, errors.New("unauthenticated")
+	return Claims{}, authkit.E(authkit.CodeUnauthenticated)
 }

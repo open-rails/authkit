@@ -2,20 +2,22 @@ package verify
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 )
 
-// authError carries the HTTP status + reason a verification failure would have
-// written, so VerifyRequest can return it and both Required (which writes it) and
-// out-of-band callers (which inspect err != nil) share one pipeline.
-type authError struct {
-	status int
-	reason string
+// unauthorizedError is the 401 an out-of-band verification failure becomes:
+// an *authkit.Error keeps its own code and status; anything else is
+// invalid_token. VerifyRequest returns it and both Required (which writes it)
+// and out-of-band callers (which inspect err != nil) share one pipeline.
+func unauthorizedError(err error) error {
+	if e := authkit.AsError(err); e != nil {
+		return err
+	}
+	return authkit.E(authkit.CodeInvalidToken, authkit.WithCause(err))
 }
-
-func (e *authError) Error() string { return e.reason }
 
 // VerifyRequest runs the full Required authentication pipeline — bearer parse,
 // API-key resolution, JWT verify, 2FA gate, and (for delegated principals) the
@@ -35,7 +37,7 @@ func (e *authError) Error() string { return e.reason }
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := bearerToken(r.Header.Get("Authorization"))
 	if tokenStr == "" {
-		return Claims{}, &authError{http.StatusUnauthorized, "missing_token"}
+		return Claims{}, authkit.E(authkit.CodeMissingToken, authkit.WithStatus(http.StatusUnauthorized))
 	}
 
 	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is
@@ -43,17 +45,17 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// live secret resolution; it does not flow into the stateless JWT path below.
 	if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
 		if serr != nil {
-			return Claims{}, &authError{http.StatusUnauthorized, serr.Error()}
+			return Claims{}, unauthorizedError(serr)
 		}
 		return scl, nil
 	}
 
 	cl, err := v.verify(r.Context(), tokenStr, peerCertificateSHA256(r))
 	if err != nil {
-		return Claims{}, &authError{http.StatusUnauthorized, err.Error()}
+		return Claims{}, unauthorizedError(err)
 	}
 	if cl.TwoFAEnrollment && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, &authError{http.StatusForbidden, "forbidden"}
+		return Claims{}, authkit.E(authkit.CodeForbidden, authkit.WithStatus(http.StatusForbidden))
 	}
 	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
 	// native user whose token shows they are not yet enrolled (mfa_enrolled absent)
@@ -62,14 +64,14 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
 	// principals can't enroll TOTP and bypass (note d).
 	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, &authError{http.StatusForbidden, "2fa_enrollment_required"}
+		return Claims{}, authkit.E(authkit.CodeTwoFAEnrollmentRequired, authkit.WithStatus(http.StatusForbidden))
 	}
 	if v.enrich != nil && cl.isDelegated() {
 		// Fail-closed issuer gate (#78): resolve remote_application by the
 		// VALIDATED issuer, reject unknown/disabled. READ-ONLY.
 		ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
 		if err != nil || ra == nil || !ra.Enabled {
-			return Claims{}, &authError{http.StatusUnauthorized, "invalid_token"}
+			return Claims{}, authkit.E(authkit.CodeInvalidToken, authkit.WithStatus(http.StatusUnauthorized))
 		}
 	}
 
@@ -94,12 +96,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := v.VerifyRequest(r)
 			if err != nil {
-				var ae *authError
-				if errors.As(err, &ae) && ae.status == http.StatusForbidden {
-					forbidden(w, ae.reason)
-				} else {
-					unauthorized(w, err.Error())
-				}
+				authkit.WriteError(w, unauthorizedError(err))
 				return
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))

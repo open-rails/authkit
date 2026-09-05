@@ -22,7 +22,7 @@ func NormalizePreferredLanguage(language string) (string, error) {
 		return "", nil
 	}
 	if !preferredLanguageRe.MatchString(language) {
-		return "", fmt.Errorf("invalid_preferred_language")
+		return "", authkit.E(authkit.CodeInvalidPreferredLanguage)
 	}
 	return language, nil
 }

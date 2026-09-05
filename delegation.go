@@ -4,13 +4,12 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"time"
 )
 
 // ErrDelegationRefused is returned (or wrapped) by a DelegationAuthorizer to
 // refuse a mint as a policy decision; any other error is an authorizer outage.
-var ErrDelegationRefused = errors.New("delegation_refused")
+var ErrDelegationRefused = E(CodeDelegationRefused)
 
 // DelegationRequest is what POST /delegated/token asks the host to authorize
 // (ak#277). Audiences and TTL are already clamped; the certificate is parsed

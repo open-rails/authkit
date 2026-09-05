@@ -26,7 +26,7 @@ const MaxDelegatedRoles = 64
 
 // errPermissionNotGranted rejects a token whose `permissions` claim names a
 // permission outside the issuer remote application's stored grant.
-var errPermissionNotGranted = errors.New("permission_not_granted")
+var errPermissionNotGranted = authkit.E(authkit.CodePermissionNotGranted)
 
 // Verifier validates JWTs from one or more issuers.
 //
@@ -231,11 +231,11 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
-		return Claims{}, true, errors.New("invalid_token")
+		return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
 	}
 	keyID, secret, ok := authkit.ParseAPIKey(v.tokenPrefix, token)
 	if !ok {
-		return Claims{}, true, errors.New("invalid_token")
+		return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
 	}
 	resolved, rerr := v.enrich.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if rerr != nil {
@@ -248,7 +248,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 			return Claims{}, true, authkit.ErrInvalidAccessToken
 		default:
 			// Never leak DB/internal errors through the auth response.
-			return Claims{}, true, errors.New("invalid_token")
+			return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
 		}
 	}
 	return Claims{
@@ -266,7 +266,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
-		return nil, errors.New("bad_issuer")
+		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
 	var src RemoteApplicationSource
 	if v.fedSource != nil {
@@ -275,12 +275,12 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authk
 		src = v.enrich
 	}
 	if src == nil {
-		return nil, errors.New("invalid_token")
+		return nil, authkit.E(authkit.CodeInvalidToken)
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
 	if err != nil || ra == nil || !ra.Enabled {
-		return nil, errors.New("bad_issuer")
+		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
 	return ra, nil
 }
@@ -334,11 +334,11 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	// The remote application's STORED permission ceiling (its assigned authority)
 	// is resolved by the core layer through the permission-group assignment path.
 	if v.enrich == nil {
-		return Claims{}, errors.New("invalid_token")
+		return Claims{}, authkit.E(authkit.CodeInvalidToken)
 	}
 	authority, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
-		return Claims{}, errors.New("invalid_token")
+		return Claims{}, authkit.E(authkit.CodeInvalidToken)
 	}
 
 	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
@@ -901,7 +901,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
 	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
 	if hasSub && hasDelegatedSub {
-		return Claims{}, errors.New("conflicting_subject")
+		return Claims{}, authkit.E(authkit.CodeConflictingSubject)
 	}
 
 	// Remote application access token (#76): a remote_application acting AS
@@ -913,7 +913,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 	// DOWN-SCOPE the stored authority (#76 amendment), never widen it.
 	if isRemoteAppTyp {
 		if hasSub || hasDelegatedSub {
-			return Claims{}, errors.New("remote_application_access_has_subject")
+			return Claims{}, authkit.E(authkit.CodeRemoteApplicationAccessHasSubject)
 		}
 		var claimedPerms []string
 		if _, ok := mapClaims["permissions"]; ok {
@@ -929,32 +929,32 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 	// local account may be implied. Reject it explicitly so a misconfigured
 	// issuer can't slip a local subject into a API key.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
-		return Claims{}, errors.New("access_token_has_sub")
+		return Claims{}, authkit.E(authkit.CodeAccessTokenHasSub)
 	}
 
 	switch {
 	case hasDelegatedSub && !isDelegatedAccessTyp:
-		return Claims{}, errors.New("delegated_access_wrong_typ")
+		return Claims{}, authkit.E(authkit.CodeDelegatedAccessWrongTyp)
 	case hasSub && !isAccessTyp:
-		return Claims{}, errors.New("access_token_wrong_typ")
+		return Claims{}, authkit.E(authkit.CodeAccessTokenWrongTyp)
 	case tokenTyp == "":
-		return Claims{}, errors.New("missing_token_typ")
+		return Claims{}, authkit.E(authkit.CodeMissingTokenTyp)
 	case !isAccessTyp && !isDelegatedAccessTyp:
-		return Claims{}, errors.New("unsupported_token_typ")
+		return Claims{}, authkit.E(authkit.CodeUnsupportedTokenTyp)
 	case isDelegatedAccessTyp && !hasDelegatedSub:
-		return Claims{}, errors.New("missing_delegated_sub")
+		return Claims{}, authkit.E(authkit.CodeMissingDelegatedSub)
 	case isAccessTyp && !hasSub:
-		return Claims{}, errors.New("missing_sub")
+		return Claims{}, authkit.E(authkit.CodeMissingSub)
 	}
 
 	if isDelegatedAccessTyp {
 		// A delegated access token carries tier/roles under `attributes`, never as
 		// top-level claims; reject the top-level forms as token hygiene.
 		if strClaim(mapClaims, "user_tier") != "" {
-			return Claims{}, errors.New("delegated_access_has_user_tier")
+			return Claims{}, authkit.E(authkit.CodeDelegatedAccessHasUserTier)
 		}
 		if len(strSliceClaim(mapClaims, "roles")) > 0 {
-			return Claims{}, errors.New("delegated_access_has_roles")
+			return Claims{}, authkit.E(authkit.CodeDelegatedAccessHasRoles)
 		}
 	}
 	cl := v.extractClaims(mapClaims)
@@ -978,7 +978,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 			if aerr != nil {
 				// Never swallow an authority-resolution failure into "allow": a
 				// backend outage must fail closed, not grant the claimed perms.
-				return Claims{}, errors.New("invalid_token")
+				return Claims{}, authkit.E(authkit.CodeInvalidToken)
 			}
 			perms, perr := permissionsWithinAuthority(cl.Permissions, authority.Permissions)
 			if perr != nil {
@@ -1013,7 +1013,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, p
 	}
 	dp, ok := cl.DelegatedAccess()
 	if !ok {
-		return Claims{}, DelegatedPrincipal{}, errors.New("not_delegated_access_token")
+		return Claims{}, DelegatedPrincipal{}, authkit.E(authkit.CodeNotDelegatedAccessToken)
 	}
 	if v.permValidator != nil {
 		if err := v.permValidator(cl.Permissions); err != nil {
@@ -1035,7 +1035,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, p
 func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return nil, "", errors.New("missing_token")
+		return nil, "", authkit.E(authkit.CodeMissingToken)
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
@@ -1055,37 +1055,37 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
 		if err != nil || tok == nil || !tok.Valid {
-			return nil, "", errors.New("invalid_token")
+			return nil, "", authkit.E(authkit.CodeInvalidToken)
 		}
 	}
 
 	iss, _ := mapClaims["iss"].(string)
 	match := v.matchIssuer(iss)
 	if match == nil {
-		return nil, "", errors.New("bad_issuer")
+		return nil, "", authkit.E(authkit.CodeBadIssuer)
 	}
 
 	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
-		return nil, "", errors.New("bad_audience")
+		return nil, "", authkit.E(authkit.CodeBadAudience)
 	}
 
 	skew := v.skew
 	now := time.Now()
 	expUnix, ok := toUnix(mapClaims["exp"])
 	if !ok {
-		return nil, "", errors.New("missing_exp")
+		return nil, "", authkit.E(authkit.CodeMissingExp)
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return nil, "", errors.New("token_expired")
+		return nil, "", authkit.E(authkit.CodeAccessTokenExpired)
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
 		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-			return nil, "", errors.New("token_not_yet_valid")
+			return nil, "", authkit.E(authkit.CodeTokenNotYetValid)
 		}
 	}
 	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
 		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
-			return nil, "", errors.New("token_not_yet_valid")
+			return nil, "", authkit.E(authkit.CodeTokenNotYetValid)
 		}
 	}
 
@@ -1260,7 +1260,7 @@ func rawStringAttribute(attrs map[string]json.RawMessage, key string) string {
 
 func (v *Verifier) keyForToken(ctx context.Context, token *jwt.Token) (any, error) {
 	if token == nil {
-		return nil, errors.New("nil_token")
+		return nil, authkit.E(authkit.CodeNilToken)
 	}
 
 	alg, _ := token.Header["alg"].(string)
@@ -1314,7 +1314,7 @@ func (v *Verifier) algAllowed(alg string) bool {
 func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string) (crypto.PublicKey, error) {
 	iss := ie.issuer
 	if iss == "" {
-		return nil, errors.New("bad_issuer")
+		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
 
 	// permanent issuers have no JWKS URI: their keys were supplied directly
@@ -1372,7 +1372,7 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 			}
 			v.mu.Unlock()
 		}
-		return nil, errors.New("unknown_kid")
+		return nil, authkit.E(authkit.CodeUnknownKID)
 	}
 	defer v.mu.Unlock()
 	if len(c.pubByKID) == 1 {
@@ -1380,7 +1380,7 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 			return pk, nil
 		}
 	}
-	return nil, errors.New("missing_kid")
+	return nil, authkit.E(authkit.CodeMissingKID)
 }
 
 // refetchForUnknownKID forces a single bounded JWKS refetch for a known issuer

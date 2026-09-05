@@ -1,8 +1,9 @@
 package embedded
 
 import (
-	"errors"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 // Two-factor policy gating (#148). Mode/Methods from TwoFactorConfig decide which
@@ -14,7 +15,7 @@ import (
 
 // Err2FAMethodUnavailable is returned by 2FA enroll/challenge operations when the
 // method is disabled by policy or its delivery dependency is missing.
-var Err2FAMethodUnavailable = errors.New("2fa_method_unavailable")
+var Err2FAMethodUnavailable = authkit.ErrTwoFAMethodUnavailable
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
 func (s *Client) TwoFactorEnabled() bool {

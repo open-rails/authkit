@@ -89,7 +89,7 @@ func (p NamingPolicy) CheckRename(lastRenamedAt *time.Time, now time.Time) error
 	if lastRenamedAt != nil {
 		next := lastRenamedAt.Add(p.RenameInterval)
 		if now.Before(next) {
-			return &RenameCooldownError{NextRenameAt: next}
+			return E(CodeRenameRateLimited, WithMeta("next_rename_at", next))
 		}
 	}
 	return nil
@@ -105,13 +105,6 @@ func (p NamingPolicy) FormerNameExpiresAt(now time.Time) *time.Time {
 	deadline := now.Add(p.FormerNameRetention)
 	return &deadline
 }
-
-type RenameCooldownError struct {
-	NextRenameAt time.Time `json:"next_rename_at"`
-}
-
-func (e *RenameCooldownError) Error() string { return ErrRenameRateLimited.Error() }
-func (e *RenameCooldownError) Unwrap() error { return ErrRenameRateLimited }
 
 // NameResolution always addresses one immutable owner. An alias points directly
 // to that owner; CanonicalName reflects its current spelling, never an alias chain.

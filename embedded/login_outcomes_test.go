@@ -7,7 +7,6 @@ package embedded
 import (
 	"context"
 	"crypto"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -202,9 +201,7 @@ func TestPasswordLoginOutcomes_DB(t *testing.T) {
 		_, err = h.svc.PasswordLogin(ctx, PasswordLoginInput{Identifier: email, Password: pass})
 		require.ErrorIs(t, err, ErrEmailVerificationSendFailed)
 		require.ErrorIs(t, err, authkit.ErrEmailDeliveryFailed, "the delivery sentinel stays visible")
-		var fe *FlowError
-		require.ErrorAs(t, err, &fe)
-		require.Equal(t, "send_email_verification", fe.Stage)
+		require.ErrorContains(t, err, "send_email_verification: ")
 	})
 
 	t.Run("pending email registration recovers into verification required", func(t *testing.T) {
@@ -318,7 +315,7 @@ func TestRegisterOutcomes_DB(t *testing.T) {
 		_, err := h.svc.Register(ctx, RegisterInput{Identifier: "fresh-" + suffix + "@example.com", Username: "fresh" + suffix, Password: "short"})
 		require.NotEmpty(t, ValidationErrorCode(err), "a weak password is a validation code")
 		_, err = h.svc.Register(ctx, RegisterInput{Identifier: "fresh-" + suffix + "@example.com", Username: *u.Username, Password: pass})
-		require.Equal(t, "owner_slug_taken", ValidationErrorCode(err), "a taken username fails the claim check first")
+		require.ErrorIs(t, err, authkit.ErrOwnerSlugTaken, "a taken username fails the claim check first")
 	})
 
 	t.Run("closed registration and a missing sender", func(t *testing.T) {
@@ -502,8 +499,5 @@ func TestUserProfileProjection_DB(t *testing.T) {
 	require.Equal(t, authkit.ActionUpdateUsername, profile.Availability[0].Action)
 
 	_, err = h.svc.UserProfile(ctx, ProfileInput{UserID: "00000000-0000-7000-8000-000000000000"})
-	var fe *FlowError
-	require.ErrorAs(t, err, &fe)
-	require.Equal(t, "load_user", fe.Stage)
-	require.False(t, errors.Is(err, nil))
+	require.ErrorContains(t, err, "load_user: ")
 }

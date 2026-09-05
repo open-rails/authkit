@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"encoding/json"
-	"errors"
 )
 
 // OpResult is the per-item outcome of a batch mutation (#219/#222): batch
@@ -10,9 +9,9 @@ import (
 // expressible — a bare single error on a bulk write would hide which item
 // failed. Err == nil means the item succeeded.
 //
-// As JSON, Err marshals as its sentinel wire code (#197), so errors.Is against
-// authkit sentinels survives the round-trip; a non-sentinel error degrades to
-// an opaque code string.
+// As JSON, Err marshals as its wire code (#197), so errors.Is against authkit
+// sentinels survives the round-trip; a non-Error (or a 500) degrades to
+// internal_error.
 type OpResult struct {
 	ID  string
 	Err error
@@ -26,10 +25,10 @@ type opResultWire struct {
 func (r OpResult) MarshalJSON() ([]byte, error) {
 	w := opResultWire{ID: r.ID}
 	if r.Err != nil {
-		if code := CodeForError(r.Err); code != "" {
-			w.Error = code
+		if e := AsError(r.Err); e != nil && e.Status != 500 {
+			w.Error = string(e.Code)
 		} else {
-			w.Error = "internal_error"
+			w.Error = string(CodeInternalError)
 		}
 	}
 	return json.Marshal(w)
@@ -43,11 +42,7 @@ func (r *OpResult) UnmarshalJSON(b []byte) error {
 	r.ID = w.ID
 	r.Err = nil
 	if w.Error != "" {
-		if sentinel := ErrorForCode(w.Error); sentinel != nil {
-			r.Err = sentinel
-		} else {
-			r.Err = errors.New(w.Error)
-		}
+		r.Err = E(Code(w.Error))
 	}
 	return nil
 }

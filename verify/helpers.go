@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -29,24 +28,12 @@ const (
 	RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 )
 
-// writeErr writes the canonical Stripe-style error envelope
-// ({"error":{type,code,message}}) via the shared authkit builder, so responses
-// are byte-identical whether a route is mounted through authhttp or the verify
-// package directly.
-func writeErr(w http.ResponseWriter, status int, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(authkit.NewErrorEnvelope(status, code, nil, nil))
+// forbidden writes a 403 with the given code through the one authkit writer,
+// so responses are byte-identical whether a route is mounted through authhttp
+// or the verify package directly.
+func forbidden(w http.ResponseWriter, code authkit.Code) {
+	authkit.WriteError(w, authkit.E(code, authkit.WithStatus(http.StatusForbidden)))
 }
-
-func writeErrData(w http.ResponseWriter, status int, code string, data map[string]any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(authkit.NewErrorEnvelope(status, code, nil, data))
-}
-
-func unauthorized(w http.ResponseWriter, code string) { writeErr(w, http.StatusUnauthorized, code) }
-func forbidden(w http.ResponseWriter, code string)    { writeErr(w, http.StatusForbidden, code) }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>" header.
 func bearerToken(authorization string) string {

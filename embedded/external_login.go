@@ -67,7 +67,7 @@ var (
 // CompleteExternalLogin resolves the identity to a user and signs it in.
 // Resolution errors: ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
-// ErrUserCreationFailed. Session errors: ErrUserBanned, or a FlowError wrapping
+// ErrUserCreationFailed. Session errors: ErrUserBanned, or a stage-prefixed
 // ErrSessionIssueFailed.
 func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (ExternalLoginOutcome, error) {
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)

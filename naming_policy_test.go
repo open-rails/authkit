@@ -65,8 +65,8 @@ func TestNamingPolicyExactBoundaries(t *testing.T) {
 	for _, offset := range []time.Duration{-time.Nanosecond, 0, time.Nanosecond} {
 		err := p.CheckRename(&last, last.Add(72*time.Hour+offset))
 		if offset < 0 {
-			var cooldown *RenameCooldownError
-			if !errors.Is(err, ErrRenameRateLimited) || !errors.As(err, &cooldown) || !cooldown.NextRenameAt.Equal(last.Add(72*time.Hour)) {
+			next, _ := AsError(err).Meta["next_rename_at"].(time.Time)
+			if !errors.Is(err, ErrRenameRateLimited) || !next.Equal(last.Add(72*time.Hour)) {
 				t.Fatalf("bad cooldown: %v", err)
 			}
 		} else if err != nil {

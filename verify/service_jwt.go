@@ -2,7 +2,6 @@ package verify
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -62,25 +61,25 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 	}
 	iatUnix, ok := toUnix(mc["iat"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, errors.New("missing_iat")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingIAT)
 	}
 	nbfUnix, ok := toUnix(mc["nbf"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, errors.New("missing_nbf")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingNBF)
 	}
 	expUnix, ok := toUnix(mc["exp"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, errors.New("missing_exp")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingExp)
 	}
 	iat := time.Unix(iatUnix, 0).UTC()
 	nbf := time.Unix(nbfUnix, 0).UTC()
 	exp := time.Unix(expUnix, 0).UTC()
 	if exp.Sub(iat) > maxLifetime {
-		return authkit.ServiceJWTClaims{}, errors.New("service_jwt_lifetime_exceeded")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeServiceJWTLifetimeExceeded)
 	}
 	audiences := audSlice(mc["aud"])
 	if len(audiences) == 0 {
-		return authkit.ServiceJWTClaims{}, errors.New("missing_audience")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingAudience)
 	}
 	permissions, err := stringArrayClaim(mc, "permissions")
 	if err != nil {
@@ -92,7 +91,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
-		return authkit.ServiceJWTClaims{}, errors.New("bad_issuer")
+		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeBadIssuer)
 	}
 	claims := authkit.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
@@ -165,7 +164,7 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		for _, value := range values {
 			s, ok := value.(string)
 			if !ok {
-				return nil, errors.New("malformed_permissions")
+				return nil, authkit.E(authkit.CodeMalformedPermissions)
 			}
 			if strings.TrimSpace(s) != "" {
 				out = append(out, strings.TrimSpace(s))
@@ -181,6 +180,6 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		}
 		return out, nil
 	default:
-		return nil, errors.New("malformed_permissions")
+		return nil, authkit.E(authkit.CodeMalformedPermissions)
 	}
 }

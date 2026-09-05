@@ -18,7 +18,7 @@ type LivenessSource interface {
 }
 
 // ErrLivenessUnconfigured is returned by VerifyRequestLive when no
-// LivenessSource is wired. It is NOT an authError: a missing source is a host
+// LivenessSource is wired. It is NOT a wire error: a missing source is a host
 // wiring mistake, not a bad credential, and conflating the two would let a
 // deployment that cannot check liveness look like one where every user is
 // banned. RequiredLive refuses at construction so this can only be reached by
@@ -103,9 +103,9 @@ func (v *Verifier) VerifyRequestLive(r *http.Request) (Claims, error) {
 	case errors.Is(err, ErrLivenessUnconfigured):
 		return Claims{}, err
 	case err != nil:
-		return Claims{}, &authError{http.StatusUnauthorized, "liveness_unavailable"}
+		return Claims{}, authkit.E(authkit.CodeLivenessUnavailable, authkit.WithStatus(http.StatusUnauthorized))
 	case !live:
-		return Claims{}, &authError{http.StatusUnauthorized, "account_disabled"}
+		return Claims{}, authkit.E(authkit.CodeAccountDisabled, authkit.WithStatus(http.StatusUnauthorized))
 	}
 	// Machine and delegated principals carry no UserID and no user row; there is
 	// nothing fresh to write onto their claims.
@@ -180,12 +180,7 @@ func RequiredLive(v *Verifier) (func(http.Handler) http.Handler, error) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := v.VerifyRequestLive(r)
 			if err != nil {
-				var ae *authError
-				if errors.As(err, &ae) && ae.status == http.StatusForbidden {
-					forbidden(w, ae.reason)
-				} else {
-					unauthorized(w, err.Error())
-				}
+				authkit.WriteError(w, unauthorizedError(err))
 				return
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))

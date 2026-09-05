@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -18,13 +18,13 @@ var (
 	// ErrSenderProofRequired rejects a certificate-bound token presented
 	// without its certificate: no TLS peer, a different leaf, or a token-only
 	// verification detached from its request.
-	ErrSenderProofRequired = errors.New("sender_proof_required")
+	ErrSenderProofRequired = authkit.E(authkit.CodeSenderProofRequired)
 	// ErrInvalidConfirmation rejects a `cnf` claim that is not exactly
 	// {"x5t#S256": <unpadded base64url sha256>}.
-	ErrInvalidConfirmation = errors.New("invalid_confirmation")
+	ErrInvalidConfirmation = authkit.E(authkit.CodeInvalidConfirmation)
 	// ErrConfirmationWrongTokenType rejects `cnf` on any token type AuthKit does
 	// not bind — accepting an unenforced binding would be a silent downgrade.
-	ErrConfirmationWrongTokenType = errors.New("confirmation_wrong_token_type")
+	ErrConfirmationWrongTokenType = authkit.E(authkit.CodeConfirmationWrongTokenType)
 )
 
 // confirmationClaim parses the strict `cnf` claim into the bound thumbprint.

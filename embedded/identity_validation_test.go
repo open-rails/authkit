@@ -1,17 +1,21 @@
 package embedded
 
-import "testing"
+import (
+	"testing"
+
+	authkit "github.com/open-rails/authkit"
+)
 
 func TestValidateUsernameCanonicalPolicy(t *testing.T) {
 	tests := []struct {
 		username string
-		wantCode string
+		wantCode authkit.Code
 	}{
-		{username: "abc", wantCode: ErrCodeUsernameTooShort},
-		{username: "1abcd", wantCode: ErrCodeUsernameMustStartWithLetter},
-		{username: "abcd-ef", wantCode: ErrCodeUsernameInvalidCharacters},
-		{username: "user@example", wantCode: ErrCodeUsernameCannotContainAt},
-		{username: "+user", wantCode: ErrCodeUsernameMustStartWithLetter},
+		{username: "abc", wantCode: authkit.CodeUsernameTooShort},
+		{username: "1abcd", wantCode: authkit.CodeUsernameMustStartWithLetter},
+		{username: "abcd-ef", wantCode: authkit.CodeUsernameInvalidCharacters},
+		{username: "user@example", wantCode: authkit.CodeUsernameCannotContainAt},
+		{username: "+user", wantCode: authkit.CodeUsernameMustStartWithLetter},
 		{username: "valid_user1", wantCode: ""},
 	}
 
@@ -36,7 +40,7 @@ func TestValidateEmailCanonicalPolicy(t *testing.T) {
 		t.Fatalf("NormalizeEmail()=%q", got)
 	}
 	for _, email := range []string{"", "no-at", "a@", "@example.com", "a@example", "a@.example.com"} {
-		if got := ValidationErrorCode(ValidateEmail(email)); got != ErrCodeInvalidEmail {
+		if got := ValidationErrorCode(ValidateEmail(email)); got != authkit.CodeInvalidEmail {
 			t.Fatalf("ValidateEmail(%q) code=%q", email, got)
 		}
 	}
@@ -50,7 +54,7 @@ func TestValidatePhoneCanonicalPolicy(t *testing.T) {
 		t.Fatalf("NormalizePhone()=%q", got)
 	}
 	for _, phone := range []string{"", "15551234567", "+05551234567", "+1abc", "+1234567890123456"} {
-		if got := ValidationErrorCode(ValidatePhone(phone)); got != ErrCodeInvalidPhoneNumber {
+		if got := ValidationErrorCode(ValidatePhone(phone)); got != authkit.CodeInvalidPhoneNumber {
 			t.Fatalf("ValidatePhone(%q) code=%q", phone, got)
 		}
 	}
@@ -60,7 +64,7 @@ func TestValidatePhoneCanonicalPolicy(t *testing.T) {
 }
 
 func TestValidatePasswordCanonicalPolicy(t *testing.T) {
-	if got := ValidationErrorCode(ValidatePassword("short")); got != ErrCodePasswordTooShort {
+	if got := ValidationErrorCode(ValidatePassword("short")); got != authkit.CodePasswordTooShort {
 		t.Fatalf("ValidatePassword(short) code=%q", got)
 	}
 	if err := ValidatePassword("long-enough"); err != nil {

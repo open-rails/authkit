@@ -171,7 +171,7 @@ func TestBinaryEnvNamesAreAuthkitPrefixed(t *testing.T) {
 
 var ephemeralDevKeysAllowlist = map[string]string{
 	"embedded/constructor_keys_test.go": "tests the dev-key generator itself",
-	"jwtkit/": "owns the generator",
+	"jwtkit/":                           "owns the generator",
 }
 
 // Tests build their signing keys explicitly (jwtkit.StaticKeySource): the dev

@@ -1,104 +1,85 @@
 package authkit
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/open-rails/authkit/documents"
 )
 
-func TestErrorForCode(t *testing.T) {
-	// Every sentinel round-trips through its wire code.
-	for code, want := range errorsByCode {
-		if got := ErrorForCode(code); !errors.Is(got, want) {
-			t.Errorf("ErrorForCode(%q) = %v, want %v", code, got, want)
+// One error model (ak#290): identity is the code, the status is the
+// catalog's, wrapping keeps both, and every catalogued code has a message.
+func TestErrorModel(t *testing.T) {
+	if !errors.Is(fmt.Errorf("wrap: %w", ErrUserBanned), ErrUserBanned) {
+		t.Fatal("a wrapped sentinel must keep errors.Is identity")
+	}
+	if !errors.Is(E(CodeUserBanned, WithCause(errors.New("row"))), ErrUserBanned) {
+		t.Fatal("a fresh E(code) is the same identity as the sentinel")
+	}
+	if errors.Is(ErrUserBanned, ErrUserNotFound) {
+		t.Fatal("different codes are different identities")
+	}
+	if ErrUserBanned.Error() != "user_banned" || ErrUserBanned.Status != http.StatusUnauthorized {
+		t.Fatalf("sentinel = %q/%d", ErrUserBanned.Error(), ErrUserBanned.Status)
+	}
+	if e := AsError(fmt.Errorf("x: %w", ErrGroupNotFound)); e == nil || e.Code != CodeGroupNotFound || e.Code != "permission_group_not_found" {
+		t.Fatalf("AsError through a wrap = %+v", e)
+	}
+	if AsError(errors.New("opaque")) != nil {
+		t.Fatal("a plain error is not an *Error")
+	}
+	re := Recode(E(CodeInvalidEmail, WithMeta("k", 1)), CodeInvalidRequest, WithStatus(http.StatusBadRequest))
+	if re.Code != CodeInvalidRequest || re.Param != "email" || re.Meta["k"] != 1 || !errors.Is(re, ErrInvalidRequest) {
+		t.Fatalf("Recode lost fields: %+v", re)
+	}
+	if e := E(CodeInvalidEmail); e.Param != "" || e.Status != http.StatusBadRequest {
+		t.Fatalf("catalog status/param for a validation code = %d/%q", e.Status, e.Param)
+	}
+	if _, _, ok := DescribeCode("no_such_code"); ok {
+		t.Fatal("unknown codes are not catalogued")
+	}
+	if e := E("no_such_code"); e.Status != http.StatusInternalServerError {
+		t.Fatal("an uncatalogued code is a 500")
+	}
+	for _, c := range Codes() {
+		status, message, ok := DescribeCode(c)
+		if !ok || status < 400 || status > 599 || message == "" {
+			t.Errorf("catalog entry %q = %d/%q", c, status, message)
 		}
 	}
-	// Uniqueness: no two sentinels collapsed onto one code.
-	if len(errorsByCode) != len(errorSentinels) {
-		t.Fatalf("registry has %d codes; a duplicate code (or a new sentinel) shifts this — see errors.go", len(errorsByCode))
-	}
-	// Unknown / empty codes resolve to nil so callers can fall back.
-	if ErrorForCode("") != nil || ErrorForCode("no_such_code") != nil {
-		t.Error("ErrorForCode should return nil for unknown codes")
-	}
-	// The named wart is now a clean snake_case wire code.
-	if ErrGroupNotFound.Error() != "permission_group_not_found" {
-		t.Errorf("ErrGroupNotFound code = %q, want permission_group_not_found", ErrGroupNotFound.Error())
+	if !errors.Is(documents.ErrNotFound, documents.ErrNotFound) || documents.ErrNotFound.Status != http.StatusNotFound {
+		t.Fatal("documents codes live on the same model")
 	}
 }
 
-// TestCodeForError covers the #197 fix: exposed Client methods return WRAPPED
-// sentinels, so keying off err.Error() (as the server used to) misses them. Chain-
-// aware CodeForError must still resolve the sentinel's wire code — otherwise the
-// server emits a 500 and the remote client loses errors.Is identity across the wire.
-func TestCodeForError(t *testing.T) {
-	// The shape an exposed method actually returns, e.g.
-	// fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, cause). err.Error() is no longer
-	// the bare wire code, so ErrorForCode(err.Error()) would return "".
-	wrapped := fmt.Errorf("%w: smtp: connection refused", ErrEmailDeliveryFailed)
-
-	// Sanity: the naive lookup the server used to do is now a miss — this is the bug.
-	if ErrorForCode(wrapped.Error()) != nil {
-		t.Fatalf("precondition: wrapped err.Error() %q should not be a bare registry key", wrapped.Error())
+// The wire envelope: type from status, message from the catalog, param and
+// metadata only when present, and every 500 — or any non-Error — as
+// internal_error.
+func TestErrorEnvelope(t *testing.T) {
+	status, env := ErrorEnvelopeFor(ErrInvalidAccessToken)
+	b, _ := json.Marshal(env)
+	if want := `{"error":{"type":"authentication_error","code":"invalid_token","message":"The authentication token is invalid."}}`; status != 401 || string(b) != want {
+		t.Fatalf("envelope = %d %s", status, b)
 	}
-
-	// CodeForError resolves the wrapped sentinel to the right wire code.
-	code := CodeForError(wrapped)
-	if want := ErrEmailDeliveryFailed.Error(); code != want {
-		t.Fatalf("CodeForError(wrapped) = %q, want %q", code, want)
+	status, env = ErrorEnvelopeFor(E(CodeInvalidEmail, WithMeta("retry_after_seconds", 5)))
+	if status != 400 || env.Error.Param == nil || *env.Error.Param != "email" || env.Error.Metadata["retry_after_seconds"] != 5 || env.Error.Type != ErrorTypeInvalidRequest {
+		t.Fatalf("validation envelope = %d %+v", status, env)
 	}
-
-	// Round-trip: the emitted code re-derives the sentinel on the remote side, and
-	// errors.Is identity survives the hop — the whole point of the wire contract.
-	if got := ErrorForCode(code); !errors.Is(got, ErrEmailDeliveryFailed) {
-		t.Errorf("ErrorForCode(%q) = %v, does not round-trip to ErrEmailDeliveryFailed", code, got)
+	for _, err := range []error{errors.New("opaque"), nil, E(CodeTokenIssueFailed), fmt.Errorf("%w: cause", ErrSessionIssueFailed)} {
+		status, env := ErrorEnvelopeFor(err)
+		if status != 500 || env.Error.Code != "internal_error" || env.Error.Type != ErrorTypeAPI {
+			t.Errorf("%v -> %d %s", err, status, env.Error.Code)
+		}
 	}
-	if !errors.Is(wrapped, ErrEmailDeliveryFailed) {
-		t.Error("wrapped error lost errors.Is(ErrEmailDeliveryFailed) identity")
+	if status, env := ErrorEnvelopeFor(fmt.Errorf("%w: smtp", ErrEmailDeliveryFailed)); status != 502 || env.Error.Code != "email_delivery_failed" {
+		t.Fatalf("a 502 keeps its code: %d %s", status, env.Error.Code)
 	}
-
-	// HTTPStatus (#213) is the one mapper the management transport uses: a
-	// resolvable (wrapped) sentinel keeps its code AND gets its transcribed status.
-	if status, gotCode := HTTPStatus(wrapped); status != http.StatusBadGateway || gotCode != code {
-		t.Errorf("HTTPStatus(wrapped delivery failure) = (%d, %q), want (502, %q)", status, gotCode, code)
-	}
-
-	// Nil and non-sentinel errors resolve to "" so the server falls back to 500.
-	if CodeForError(nil) != "" {
-		t.Error("CodeForError(nil) should be empty")
-	}
-	if CodeForError(errors.New("some opaque failure")) != "" {
-		t.Error("CodeForError(non-sentinel) should be empty")
-	}
-}
-
-// #213: HTTPStatus transcribes the handler-derived status table; unmapped
-// sentinels default to 422; non-sentinels are 500/internal_error.
-func TestHTTPStatus(t *testing.T) {
-	cases := []struct {
-		err    error
-		status int
-		code   string
-	}{
-		{ErrUserBanned, http.StatusUnauthorized, "user_banned"},
-		{ErrRegistrationDisabled, http.StatusForbidden, "registration_disabled"},
-		{ErrUserNotFound, http.StatusNotFound, "user_not_found"},
-		{ErrEmailAlreadyVerified, http.StatusConflict, "email_already_verified"},
-		{ErrWalletChangeRequiresUnlink, http.StatusConflict, "wallet_change_requires_unlink"},
-		{ErrVerificationLinkExpired, http.StatusGone, "verification_link_expired"},
-		{ErrRenameRateLimited, http.StatusTooManyRequests, "rename_rate_limited"},
-		{ErrEmailInUse, http.StatusBadRequest, "email_in_use"},
-		{ErrEmailSenderUnavailable, http.StatusServiceUnavailable, "email_sender_unavailable"},
-		{ErrMissingSigner, http.StatusUnprocessableEntity, "missing_signer"}, // unmapped ⇒ 422
-		{fmt.Errorf("wrap: %w", ErrUserBanned), http.StatusUnauthorized, "user_banned"},
-		{errors.New("opaque"), http.StatusInternalServerError, "internal_error"},
-		{nil, http.StatusInternalServerError, "internal_error"},
-	}
-	for _, c := range cases {
-		status, code := HTTPStatus(c.err)
-		if status != c.status || code != c.code {
-			t.Errorf("HTTPStatus(%v) = (%d, %q), want (%d, %q)", c.err, status, code, c.status, c.code)
+	for st, want := range map[int]string{400: ErrorTypeInvalidRequest, 404: ErrorTypeInvalidRequest, 409: ErrorTypeInvalidRequest, 401: ErrorTypeAuthentication, 403: ErrorTypeAuthorization, 429: ErrorTypeRateLimit, 500: ErrorTypeAPI, 503: ErrorTypeAPI} {
+		if got := ErrorTypeForStatus(st); got != want {
+			t.Errorf("ErrorTypeForStatus(%d) = %q, want %q", st, got, want)
 		}
 	}
 }
