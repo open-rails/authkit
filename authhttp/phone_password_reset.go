@@ -77,14 +77,12 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	userID, ok := s.confirmPasswordReset(w, r, token, newPass)
-	if !ok {
+	if _, ok := s.confirmPasswordReset(w, r, token, newPass); !ok {
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
-		"user_id": userID,
 		"message": "Password reset successfully. You can now log in with your new password.",
 	})
 }

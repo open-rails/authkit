@@ -75,9 +75,12 @@ func registerDocumentReader(t *testing.T, core *embedded.Client, slug, issuer st
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = coreSvc.DeleteRemoteApplication(context.Background(), issuer) })
 
+	// A remote application addresses its token to THIS platform (ak#324: the
+	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
 	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{
-		Issuer: issuer,
-		TTL:    time.Minute,
+		Issuer:    issuer,
+		Audiences: []string{"test-app"},
+		TTL:       time.Minute,
 	})
 	require.NoError(t, err)
 	return token

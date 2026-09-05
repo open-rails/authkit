@@ -61,6 +61,10 @@ type Verifier struct {
 	// see SetMFAEnrollmentExemptPaths (#243). Nil/empty exempts nothing
 	// (fail-closed default for a verify-only Verifier that never calls it).
 	mfaEnrollmentExemptPaths map[string]bool
+	// mfaEnrollmentExemptRoutes are the ANCHORED exempt paths (mount prefix +
+	// route path) MountHandler registers; once present they are matched exactly
+	// and the suffix set above is not consulted (ak#324).
+	mfaEnrollmentExemptRoutes map[string]bool
 
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*authkit.Service) but
@@ -147,6 +151,15 @@ type VerifierOption func(*Verifier)
 
 // WithSkew sets the clock skew tolerance for exp/nbf/iat checks.
 // Default: 60s.
+// WithRemoteApplicationAudiences sets the audiences a lazily-loaded remote
+// application issuer is registered with on the keyForToken miss path when the
+// host never calls LoadRemoteApplications (which overrides it). NewServer passes
+// Config.Token.ExpectedAudiences so both load paths enforce the same audience
+// (ak#324).
+func WithRemoteApplicationAudiences(audiences ...string) VerifierOption {
+	return func(v *Verifier) { v.fedAudiences = append([]string(nil), audiences...) }
+}
+
 func WithSkew(d time.Duration) VerifierOption {
 	return func(v *Verifier) { v.skew = d }
 }

@@ -40,8 +40,11 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		if s.rateLimited(w, r, RLUserPhoneChangeRequest) {
+			return
+		}
 		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
-		if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !ok {
+		if !ok {
 			return
 		}
 		if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, phone); err != nil {
@@ -109,36 +112,39 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// A backend failure on any path is a 500 and is never counted as a guess.
 	userID, err := s.svc.ConfirmPendingPhoneRegistration(r.Context(), phone, code)
 	if err == nil && userID != "" {
 		s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
-		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
+		s.issueVerificationTokens(w, r, userID, "phone_verification")
 		return
 	}
-
+	if s.confirmBackendFailed(w, r, "phone_verify_confirm", "confirm_pending_phone_registration", err) {
+		return
+	}
 	userID, err = s.svc.ConfirmPhoneVerificationUserID(r.Context(), phone, code)
 	if err == nil && userID != "" {
 		s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
-		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
+		s.issueVerificationTokens(w, r, userID, "phone_verification")
 		return
 	}
-
+	if s.confirmBackendFailed(w, r, "phone_verify_confirm", "confirm_phone_verification", err) {
+		return
+	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code, keepSession(claims)); err == nil {
+		err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code, keepSession(claims))
+		if err == nil {
 			s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})
 			return
 		}
+		if s.confirmBackendFailed(w, r, "phone_verify_confirm", "confirm_phone_change", err) {
+			return
+		}
 	}
 
-	// All confirm paths failed: count the bad guess and (after the cap) invalidate
-	// the outstanding code for this number — mirrors email_verify.go.
+	// Every path failed on the code itself: count the bad guess and (after the
+	// cap) invalidate the outstanding code for this number.
 	s.svc.RecordFailedPhoneVerifyCode(r.Context(), phone)
 	badRequest(w, ErrInvalidOrExpiredCode)
 }

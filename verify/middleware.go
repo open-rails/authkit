@@ -129,16 +129,42 @@ func (v *Verifier) SetMFAEnrollmentExemptPaths(paths []string) *Verifier {
 	return v
 }
 
+// AddMFAEnrollmentExemptRoutes registers ANCHORED exempt paths (mount prefix +
+// route path), matched exactly. authhttp.MountHandler calls it with the prefix
+// it mounted under; once any anchored route is registered the suffix match of
+// SetMFAEnrollmentExemptPaths is no longer consulted, so a host route that
+// merely ends in "/user/2fa" cannot be reached with an enrollment-only token
+// (ak#324). The suffix form remains for verify-only consumers that never mount.
+func (v *Verifier) AddMFAEnrollmentExemptRoutes(paths []string) *Verifier {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.mfaEnrollmentExemptRoutes == nil {
+		v.mfaEnrollmentExemptRoutes = map[string]bool{}
+	}
+	for _, p := range paths {
+		if p = strings.TrimRight(strings.TrimSpace(p), "/"); p != "" {
+			v.mfaEnrollmentExemptRoutes[p] = true
+		}
+	}
+	return v
+}
+
 // mfaEnrollmentExemptPath reports whether a path is one a forced-enrollment-gated
-// user must still reach. See SetMFAEnrollmentExemptPaths.
+// user must still reach. See SetMFAEnrollmentExemptPaths / AddMFAEnrollmentExemptRoutes.
 func (v *Verifier) mfaEnrollmentExemptPath(method, path string) bool {
 	if method != http.MethodGet && method != http.MethodPost && method != http.MethodDelete {
 		return false
 	}
+	path = strings.TrimRight(path, "/")
+	v.mu.RLock()
+	anchored, exact := len(v.mfaEnrollmentExemptRoutes) > 0, v.mfaEnrollmentExemptRoutes[path]
+	v.mu.RUnlock()
+	if anchored {
+		return exact
+	}
 	if len(v.mfaEnrollmentExemptPaths) == 0 {
 		return false
 	}
-	path = strings.TrimRight(path, "/")
 	for suffix := range v.mfaEnrollmentExemptPaths {
 		if path == suffix || strings.HasSuffix(path, suffix) {
 			return true

@@ -151,7 +151,10 @@ func (s *Service) confirmPendingRegistrationCode(ctx context.Context, kind Pendi
 	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
-	rec, ok := s.findPendingChangeByTarget(ctx, kind, strings.TrimSpace(target))
+	rec, ok, err := s.pendingChangeByTarget(ctx, kind, strings.TrimSpace(target))
+	if err != nil {
+		return "", err
+	}
 	if !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}
