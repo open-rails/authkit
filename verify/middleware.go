@@ -77,7 +77,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// NOT re-enrich roles/email/discord and do NOT run a per-request ban/deleted
 	// gate here. Ban/deleted is enforced where NEW tokens are minted — login
 	// (ensureUserAccess) and refresh (ExchangeRefreshToken → ensureUserAccessByID
-	// + IsUserAllowed, revoking all sessions on disable) — so a banned/deleted
+	// revoking all sessions on disable) — so a banned/deleted
 	// user cannot obtain a new access token and their existing one expires within
 	// one access-TTL window (≤15min by default). That residual window is the
 	// accepted #90 trade-off (internal/authcore/service.go:348-352: trust the

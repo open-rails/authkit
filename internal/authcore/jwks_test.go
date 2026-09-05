@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -35,17 +34,13 @@ func TestJWKSIncludesECAndEd25519Keys(t *testing.T) {
 	}
 }
 
-func TestKeyfuncResolvesEd25519ActiveSigner(t *testing.T) {
+func TestPublicKeysByKIDResolvesEd25519ActiveSigner(t *testing.T) {
 	edSigner, _ := jwtkit.NewEd25519Signer("ed-active")
 	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}}, Keyset{
 		Active:     edSigner,
 		PublicKeys: map[string]crypto.PublicKey{"ed-active": edSigner.PublicKey()},
 	})
-	pub, err := svc.Keyfunc()(&jwt.Token{Header: map[string]any{"kid": "ed-active"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := pub.(ed25519.PublicKey); !ok {
+	if pub, ok := svc.PublicKeysByKID()["ed-active"].(ed25519.PublicKey); !ok {
 		t.Fatalf("got %T", pub)
 	}
 }

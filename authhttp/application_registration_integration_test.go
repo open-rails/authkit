@@ -224,27 +224,6 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.NotEqual(t, appID, body["application"].(map[string]any)["id"], "a re-registered old domain is a fresh identity")
 
-	// ---- host sweeper disables a stale registration; re-proof re-enables ----
-	// (#264 ruling 5, simplified: re-verification cadence is HOST policy — the
-	// host reads RootVerifiedAt and calls SetApplicationEnabled.)
-	ra, err = core.SetApplicationEnabled(ctx, slug, false)
-	require.NoError(t, err)
-	require.False(t, ra.Enabled)
-
-	// A disabled app's keys are no longer trusted for signed requests.
-	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": signAppJWS(t, keyC, map[string]any{
-		"op": "rotate", "slug": slug, "aud": cfg.Token.Issuer, "iat": time.Now().Unix(),
-		"public_keys": []map[string]string{{"kid": "key-c", "public_key_pem": staticKey(t, keyC).PublicKeyPEM}},
-	})})
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-
-	// Recovery is the trust root: re-register (fresh domain proof).
-	rec, _ = postJSON(t, h, "/api/v1/applications/register", map[string]any{"domain": docSrv2.srv.URL})
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	ra, err = core.GetRemoteApplicationBySlug(ctx, slug)
-	require.NoError(t, err)
-	require.True(t, ra.Enabled, "re-proving the root re-enables the application")
-
 	// ---- approval is an admin act ----
 	ra2, err := core.SetApplicationTier(ctx, slug, "approved")
 	require.NoError(t, err)

@@ -63,10 +63,6 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"account_registration_invite_expired":   true,
 		"account_registration_invite_not_found": true,
 		"account_registration_invite_revoked":   true,
-		"custom_jwt_reserved_claim":             true, // MintCustomJWT is Go-API only
-		"custom_jwt_reserved_type":              true,
-		"custom_jwt_empty_claims":               true,
-		"custom_jwt_too_many_claims":            true,
 		"external_invites_disabled":             true, // group routes emit forbidden
 		"permission_group_not_found":            true, // group routes emit not_found
 		"insufficient_role_authority":           true, // group routes emit forbidden

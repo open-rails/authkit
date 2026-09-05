@@ -801,24 +801,3 @@ func (s *Service) SetApplicationTier(ctx context.Context, slug, tier string) (*R
 	}
 	return remoteAppFromRow(remoteAppRow(row)), nil
 }
-
-// SetApplicationEnabled enables or disables an application registration.
-// This is the primitive HOST sweepers act with (#264 ruling 5, simplified:
-// re-verification cadence and dormancy schedules are host policy — authkit
-// ships no clocks). A disabled application cannot authenticate or use the
-// signed rotate/repoint paths; a fresh domain proof (re-registration)
-// re-enables it.
-func (s *Service) SetApplicationEnabled(ctx context.Context, slug string, enabled bool) (*RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	row, err := s.q.RemoteApplicationSetEnabled(ctx, db.RemoteApplicationSetEnabledParams{Enabled: enabled, Slug: slug})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrRemoteApplicationNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
-}

@@ -119,12 +119,12 @@ func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
 	ua, err := svc.getUserByID(ctx, uidA)
 	require.NoError(t, err)
 	require.Equal(t, userA, *ua.Username)
-	require.True(t, svc.VerifyUserPassword(ctx, uidA, passA))
-	require.False(t, svc.VerifyUserPassword(ctx, uidA, passB))
+	require.True(t, svc.CheckUserPassword(ctx, uidA, passA) == nil)
+	require.False(t, svc.CheckUserPassword(ctx, uidA, passB) == nil)
 	ub, err := svc.getUserByID(ctx, uidB)
 	require.NoError(t, err)
 	require.Equal(t, userB, *ub.Username)
-	require.True(t, svc.VerifyUserPassword(ctx, uidB, passB))
+	require.True(t, svc.CheckUserPassword(ctx, uidB, passB) == nil)
 
 	// Confirmation consumed only the confirmed record; nothing is left behind.
 	_, ok = svc.findPendingChangeByTarget(ctx, KindRegisterEmail, emailA)

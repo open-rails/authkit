@@ -56,8 +56,8 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	if err := svc.CheckUserPassword(ctx, u.ID, "anything"); !errors.Is(err, ErrPasswordResetRequired) {
 		t.Fatalf("CheckUserPassword err = %v, want ErrPasswordResetRequired", err)
 	}
-	if svc.VerifyUserPassword(ctx, u.ID, "anything") {
-		t.Fatalf("VerifyUserPassword must never succeed for a reset-required hash")
+	if svc.CheckUserPassword(ctx, u.ID, "anything") == nil {
+		t.Fatalf("CheckUserPassword must never succeed for a reset-required hash")
 	}
 	// ChangePassword verifies the old password, which the user cannot know.
 	if err := svc.ChangePassword(ctx, u.ID, "anything", "brand-new-password-1", nil); !errors.Is(err, ErrPasswordResetRequired) {

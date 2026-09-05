@@ -107,20 +107,6 @@ func (s *Service) effectiveGroupRolePermissions(ctx context.Context, groupID, pe
 	return []string{}, nil
 }
 
-// MintAPIKey inserts a new API key for the permission-group addressed by
-// (persona, instanceSlug), bound to role, and returns its metadata plus the
-// full plaintext token (shown ONCE). The role must be valid for the group's
-// persona; no-escalation is enforced by the HTTP handler / host hook. expiresAt is
-// optional (nil = no expiry) and is capped to APIKeyMaxTTL when set.
-func (s *Service) MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
-	return s.MintAPIKeyWithOptions(ctx, persona, instanceSlug, APIKeyMintOptions{
-		Name:      name,
-		Role:      role,
-		CreatedBy: createdBy,
-		ExpiresAt: expiresAt,
-	})
-}
-
 // MintAPIKeyWithOptions inserts a new API key. The key references exactly ONE
 // role (opts.Role) valid for the owning group's persona; its effective
 // permissions are resolved from the role at use time.

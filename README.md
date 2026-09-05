@@ -601,30 +601,6 @@ func mountAdvancedAuthExamples(
 		c.JSON(http.StatusOK, app)
 	})
 
-	// Platform route: mint a delegated token for another AuthKit-protected API.
-	router.POST("/api/v1/platform/delegated-token", requireAuth, func(c *gin.Context) {
-		var req struct {
-			Subject string `json:"subject"`
-			Tier    string `json:"tier"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-			return
-		}
-		token, err := client.MintDelegatedAccessToken(c.Request.Context(), authkit.DelegatedAccessParams{
-			Audiences:        []string{"tensorhub"},
-			DelegatedSubject: req.Subject,
-			Permissions:      []string{"repo:models:deploy"},
-			Attributes:       map[string]any{"tier": req.Tier},
-			TTL:              15 * time.Minute,
-		})
-		if err != nil {
-			c.JSON(http.StatusBadRequest, map[string]any{"error": "delegated_token_failed"})
-			return
-		}
-		c.JSON(http.StatusOK, map[string]any{"access_token": token})
-	})
-
 	// Resource route: resolve AuthKit's raw principal into the app's caller model.
 	router.POST("/api/v1/resources/invoke", requireAuth, func(c *gin.Context) {
 		principal, _ := authkitgin.Principal(c)
@@ -738,8 +714,8 @@ different leaf, a spoofed `X-Client-Cert`-style header, or token-only
 `Verify`/`VerifyDelegatedAccess` fail with `sender_proof_required`. Configure
 the resource listener with `tls.Config{ClientAuth: tls.RequestClientCert}` (or
 stricter); a deployment that terminates TLS elsewhere cannot use bound tokens.
-Tokens minted in-process via `MintDelegatedAccessToken` without
-`ConfirmationCertificateSHA256` remain unbound bearers.
+Delegated tokens minted without `ConfirmationCertificateSHA256` remain unbound
+bearers.
 
 ### Application self-registration (#264)
 
@@ -790,8 +766,7 @@ not trusted — recovery is always the trust root.
 
 **Tiers.** `registered` buys existence only: authenticate + serve/fetch
 documents. `approved` is an admin act (`SetApplicationTier`). Re-verification
-cadence and dormancy are HOST policy: sweepers read `RootVerifiedAt` and call
-`SetApplicationEnabled`; authkit ships no clocks or background jobs.
+cadence and dormancy are HOST policy; authkit ships no clocks or background jobs.
 
 **Naming doctrine.** uuidv7 is the only join key; slugs are meaningful unique
 handles claimed like usernames (GitHub model); `display_name` is free-form non-unique metadata on

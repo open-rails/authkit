@@ -157,9 +157,8 @@ type DocumentReader struct {
 }
 
 // NOTE (#264 ruling 5, simplified): re-verification cadence and dormancy
-// scheduling are HOST policy — host sweepers read RootVerifiedAt and call
-// SetApplicationEnabled / DeletePermissionGroup; authkit ships no TTL
-// machinery or background jobs of its own.
+// scheduling are HOST policy — authkit ships no TTL machinery or background
+// jobs of its own.
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
