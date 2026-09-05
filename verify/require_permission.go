@@ -2,23 +2,23 @@ package verify
 
 import (
 	"context"
+	"github.com/open-rails/authkit"
 	"net/http"
 )
 
-// PermissionChecker evaluates whether a subject holds a permission within a
-// permission-group instance — the server-side authorization primitive. The
-// embedded engine (`embedded.Client` / the root `authkit.Client`, which expose
-// `Can`) satisfy this directly; verify declares the port so it never imports the
-// engine (verify is jwt-only).
+// PermissionChecker checks live authority on an already resolved immutable group.
+// Hosts resolve a name once at their request boundary and reuse its GroupID.
 type PermissionChecker interface {
-	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
+	CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error)
 }
 
-// PermissionScope is the permission-group instance a request's authority is
-// evaluated against. For a singleton persona (e.g. `root`) Instance is "".
+// PermissionScope is a trusted request resolution. GroupID and AuthorityIssuer
+// identify ownership; Persona and Instance describe its canonical public name.
 type PermissionScope struct {
-	Persona  string
-	Instance string
+	GroupID         string
+	AuthorityIssuer string
+	Persona         string
+	Instance        string
 }
 
 // subjectKindUser is the subject-kind discriminator for an authenticated human
@@ -27,41 +27,26 @@ type PermissionScope struct {
 // principals are handled by the token-carried branch below), so it is fixed here.
 const subjectKindUser = "user"
 
-// Allow reports whether cl holds perm — the programmatic authorization predicate
-// behind RequirePermission, for non-HTTP gates (e.g. a host's billing-admin check).
-// Two authority paths, matching how authkit carries it:
-//   - API-key / delegated-access principals carry their permission strings ON the
-//     token; those are checked directly (no group lookup). A GROUP-BOUND machine
-//     principal (#248: API keys, remote-application tokens) is additionally
-//     required to match `scope` EXACTLY — its authority is valid only on the
-//     group instance it was minted on. Unbound tokens (delegated, by contract)
-//     are unrestricted here.
-//   - Human users carry only identity; their authority is resolved against the
-//     registered permission-group schema via the checker's Can in `scope`.
-//
-// Fail-closed: a token without the perm, a bound principal in a mismatched
-// scope, a nil checker, or an empty UserID yields false; a Can error is
-// returned (the caller must deny on a non-nil error).
+// Allow checks machine permission ceilings against the exact UUID and authority
+// issuer. Unbound delegated permissions retain their explicit issuer-trust
+// contract. Human permissions always come from live assignments on GroupID.
+// A missing or mismatched machine binding never falls back to human authority.
 func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
-	if cl.HasPermission(perm) && cl.PermissionGroupAllows(scope.Persona, scope.Instance) {
+	if cl.BoundToPermissionGroup() {
+		return cl.HasPermission(perm) && cl.PermissionGroupAllows(scope), nil
+	}
+	if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) {
 		return true, nil
 	}
-	if checker == nil || cl.UserID == "" {
+	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
 		return false, nil
 	}
-	return checker.Can(ctx, cl.UserID, subjectKindUser, scope.Persona, scope.Instance, perm)
+	return checker.CanOnGroup(ctx, cl.UserID, subjectKindUser, scope.GroupID, perm)
 }
 
-// RequirePermission gates a handler on `perm`, evaluated server-side via the
-// PermissionChecker in the scope `resolve` derives from the request — so one gate
-// serves a singleton persona (`root`) AND resource-scoped personas
-// (`/v1/merchants/{id}/...` → {Persona: "merchant", Instance: id}). It must run
-// after Required so the verified Claims are in context. The authority decision is
-// Allow; this is the HTTP wrapper.
-//
-// Fail-closed: missing claims, no resolver, an unknown group, a Can error, or
-// a group-bound machine principal (#248) whose request scope cannot be resolved
-// or does not match its owning group instance all deny (403).
+// RequirePermission authorizes the resolved group once and places that exact
+// scope in the request context for the downstream handler. Missing resolution or
+// any permission-check error denies. Unbound delegated authority is scope-free.
 func RequirePermission(checker PermissionChecker, perm string, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +59,7 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 			// unbound principals (delegated access — issuer trust + permissions).
 			// A group-bound machine principal (#248) needs the resolved scope to
 			// check its instance binding, so it falls through to Allow.
-			if cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
+			if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -82,12 +67,29 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 				forbidden(w, "forbidden")
 				return
 			}
-			ok, err := Allow(r.Context(), checker, cl, perm, resolve(r))
+			scope := resolve(r)
+			ok, err := Allow(r.Context(), checker, cl, perm, scope)
 			if err != nil || !ok {
 				forbidden(w, "forbidden")
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))
 		})
 	}
+}
+
+// PermissionScopeFromContext returns the exact group authorized by middleware,
+// so a domain handler does not resolve the mutable path a second time.
+func PermissionScopeFromContext(ctx context.Context) (PermissionScope, bool) {
+	scope, ok := ctx.Value(permissionScopeKey{}).(PermissionScope)
+	return scope, ok
+}
+
+type permissionScopeKey struct{}
+
+// WithPermissionScope carries an already authorized scope into a trusted host
+// adapter's handler. Call only after Allow/AllowLive succeeds; this does not
+// authorize anything itself.
+func WithPermissionScope(ctx context.Context, scope PermissionScope) context.Context {
+	return context.WithValue(ctx, permissionScopeKey{}, scope)
 }

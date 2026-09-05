@@ -65,14 +65,24 @@ func (s *Service) requirePermission(persona, instanceSlug, perm string, next htt
 			unauthorized(w, ErrNotAuthenticated)
 			return
 		}
+		group, err := s.svc.GroupInstanceForSlug(r.Context(), persona, instanceSlug)
+		if errors.Is(err, authkit.ErrGroupNotFound) {
+			forbidden(w, ErrForbidden)
+			return
+		}
+		if err != nil {
+			serverErr(w, ErrDatabaseError)
+			return
+		}
+		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		switch {
 		case claims.PrincipalKind() != authkit.PrincipalKindUser:
-			if claims.HasPermission(perm) && claims.PermissionGroupAllows(persona, instanceSlug) {
+			if claims.HasPermission(perm) && claims.PermissionGroupAllows(scope) {
 				next.ServeHTTP(w, r)
 				return
 			}
 		case strings.TrimSpace(claims.UserID) != "":
-			allowed, err := s.svc.Can(r.Context(), claims.UserID, embedded.SubjectKindUser, persona, instanceSlug, perm)
+			allowed, err := s.svc.CanOnGroup(r.Context(), claims.UserID, embedded.SubjectKindUser, group.ID, perm)
 			if err != nil {
 				serverErr(w, ErrDatabaseError)
 				return

@@ -284,8 +284,10 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		Permissions: resolved.Permissions,
 		TokenType:   APIKeyPrincipalType,
 		// Bind the key's authority to the group instance it was minted on (#248).
-		PermissionGroupPersona:  resolved.Persona,
-		PermissionGroupInstance: resolved.InstanceSlug,
+		PermissionGroupID:              resolved.PermissionGroupID,
+		PermissionGroupAuthorityIssuer: resolved.AuthorityIssuer,
+		PermissionGroupPersona:         resolved.Persona,
+		PermissionGroupInstance:        resolved.InstanceSlug,
 	}, true, nil
 }
 
@@ -389,8 +391,10 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 		RemoteApplicationTrustRoot: ra.TrustRoot,
 		// Bind the stored authority to its owning group instance (#248),
 		// resolved server-side alongside the permission ceiling.
-		PermissionGroupPersona:  authority.Persona,
-		PermissionGroupInstance: authority.InstanceSlug,
+		PermissionGroupID:              authority.PermissionGroupID,
+		PermissionGroupAuthorityIssuer: authority.AuthorityIssuer,
+		PermissionGroupPersona:         authority.Persona,
+		PermissionGroupInstance:        authority.InstanceSlug,
 	}, nil
 }
 

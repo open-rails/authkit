@@ -121,6 +121,8 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	if err != nil {
 		return authkit.RemoteApplicationAuthority{}, err
 	}
+	out.PermissionGroupID = gid
+	out.AuthorityIssuer = s.cfg.Token.Issuer
 	st := s.groupStore()
 	asg, err := st.WalkAssignments(ctx, gid, appID, SubjectKindRemoteApp)
 	if err != nil {
