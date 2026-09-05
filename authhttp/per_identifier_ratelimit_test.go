@@ -35,7 +35,7 @@ func newPerIdentifierTestService(t *testing.T) *Service {
 // even though each per-IP budget is untouched.
 func TestPerIdentifierRateLimit_2FAVerify(t *testing.T) {
 	svc := newPerIdentifierTestService(t)
-	h := svc.APIHandler()
+	h := svc.apiHandler()
 
 	body := `{"user_id":"victim-user","code":"123456","challenge":"bogus"}`
 	limit := DefaultRateLimits()[RL2FAVerify].Limit
@@ -71,7 +71,7 @@ func TestPerIdentifierRateLimit_2FAVerify(t *testing.T) {
 // phone verification code keyed by phone number.
 func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 	svc := newPerIdentifierTestService(t)
-	h := svc.APIHandler()
+	h := svc.apiHandler()
 
 	body := `{"phone_number":"+15555550123","code":"123456"}`
 	limit := DefaultRateLimits()[RLPhoneVerifyConfirm].Limit
@@ -95,7 +95,7 @@ func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 
 func TestPerIdentifierRateLimit_DeviceKeyEnrollmentCode(t *testing.T) {
 	svc := newPerIdentifierTestService(t)
-	h := svc.APIHandler()
+	h := svc.apiHandler()
 	enrollmentID := strings.Repeat("A", 43)
 	body := `{"enrollment_id":"` + enrollmentID + `","code":"123456","signature":"` + strings.Repeat("A", 86) + `"}`
 	limit := DefaultRateLimits()[RLDeviceKeyEnrollFinish].Limit

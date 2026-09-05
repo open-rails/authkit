@@ -219,7 +219,7 @@ func serveAuthJSON(srv *Service, method, path, body, token string) *httptest.Res
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+token)
-	srv.APIHandler().ServeHTTP(w, r)
+	srv.apiHandler().ServeHTTP(w, r)
 	return w
 }
 

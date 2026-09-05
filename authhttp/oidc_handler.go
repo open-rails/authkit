@@ -1,27 +1,10 @@
 package authhttp
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/open-rails/authkit/oidckit"
 )
-
-// OIDCHandler returns a handler that serves browser redirect flows:
-// - GET /oidc/{provider}/login
-// - GET|POST /oidc/{provider}/callback
-// - GET|POST /oidc/{provider}/step-up/callback
-func (s *Service) OIDCHandler() http.Handler {
-	if s == nil || s.svc == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })
-	}
-
-	mux := http.NewServeMux()
-	for _, route := range s.OIDCBrowserRoutes() {
-		mux.Handle(route.Method+" "+joinRoutePath("/oidc", route.Path), route.Handler)
-	}
-	return mux
-}
 
 type oidcConfig struct {
 	Manager    *oidckit.Manager

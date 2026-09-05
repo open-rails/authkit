@@ -65,7 +65,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 	custom.PKCE = true
 	srv.authProvidersByName = map[string]authprovider.Provider{"custom": custom, "other": other.Provider("other")}
 	srv.resetOIDCManagerForTest()
-	h := srv.OIDCHandler()
+	h := srv.oidcHandler()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
 	})

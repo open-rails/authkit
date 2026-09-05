@@ -29,47 +29,10 @@ func mountProbe(t *testing.T, h http.Handler, method, path string, header map[st
 	return rec
 }
 
-// TestMountPrefixNormalizationAndBoundary ports the openrails #769 table test:
-// trailing slashes on MountPrefix must not corrupt dispatch, prefix matching
-// must respect a "/" boundary (not just a byte prefix), paths outside the
-// mount must 404 cleanly, and a missing leading slash is a boot error —
-// prefix-handling bugs are auth-bypass shaped.
-func TestMountPrefixNormalizationAndBoundary(t *testing.T) {
-	svc := newMountTestService(t)
-
-	cases := []struct {
-		name        string
-		mountPrefix string
-		path        string
-		wantStatus  int
-	}{
-		{"trailing slash prefix serves identically to canonical", "/auth/", "/auth/api/v1/capabilities", http.StatusOK},
-		{"double trailing slash prefix also normalizes", "/auth//", "/auth/api/v1/capabilities", http.StatusOK},
-		{"canonical no-trailing-slash prefix unaffected", "/auth", "/auth/api/v1/capabilities", http.StatusOK},
-		{"jwks rides under the mount prefix", "/auth", "/auth/.well-known/jwks.json", http.StatusOK},
-		{"non-matching path 404s cleanly", "/auth", "/other/api/v1/capabilities", http.StatusNotFound},
-		{"prefix-boundary near-miss 404s", "/auth", "/authfoo/api/v1/capabilities", http.StatusNotFound},
-		{"bare prefix (no rest) 404s", "/auth", "/auth", http.StatusNotFound},
-		{"empty prefix unchanged", "", "/api/v1/capabilities", http.StatusOK},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h, err := MountHandler(svc, MountOptions{MountPrefix: tc.mountPrefix})
-			require.NoError(t, err)
-			require.Equal(t, tc.wantStatus, mountProbe(t, h, http.MethodGet, tc.path, nil).Code)
-		})
-	}
-
-	_, err := MountHandler(svc, MountOptions{MountPrefix: "auth"})
-	require.ErrorContains(t, err, `must start with "/"`)
-	_, err = MountHandler(svc, MountOptions{APIPrefix: "api"})
-	require.ErrorContains(t, err, `must start with "/"`)
-	_, err = MountHandler(svc, MountOptions{OIDCPath: "oidc"})
-	require.ErrorContains(t, err, `must start with "/"`)
-}
-
-// Anchors are host-tunable: "/" mounts the API at root (the old
-// RegisterAPI-at-root shape), a custom OIDCPath moves the browser flows.
+// Every remaining knob through the real handler: "/" mounts the API at root,
+// a trailing slash normalizes, a malformed anchor is a boot error, Groups
+// drops unselected routes, and Wrap decorates every RouteSpec-backed route
+// but not JWKS.
 func TestMountAnchors(t *testing.T) {
 	svc := newMountTestService(t)
 
@@ -78,41 +41,58 @@ func TestMountAnchors(t *testing.T) {
 	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/capabilities", nil).Code)
 	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/api/v1/capabilities", nil).Code)
 
+	h, err = MountHandler(svc, MountOptions{APIPrefix: "/auth/"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/auth/capabilities", nil).Code)
+	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, JWKSPath, nil).Code)
+
+	_, err = MountHandler(svc, MountOptions{APIPrefix: "api"})
+	require.ErrorContains(t, err, `must start with "/"`)
+
 	// Group selection: a Groups list without the group drops its routes.
 	h, err = MountHandler(svc, MountOptions{Groups: []RouteGroup{RouteAuth}})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/api/v1/capabilities", nil).Code)
 	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/api/v1/me", nil).Code)
+
+	h, err = MountHandler(svc, MountOptions{Wrap: func(spec RouteSpec, next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Wrapped", string(spec.Group))
+			next.ServeHTTP(w, r)
+		})
+	}})
+	require.NoError(t, err)
+	require.Equal(t, string(RouteAuth), mountProbe(t, h, http.MethodGet, "/api/v1/capabilities", nil).Header().Get("X-Wrapped"))
+	require.Empty(t, mountProbe(t, h, http.MethodGet, JWKSPath, nil).Header().Get("X-Wrapped"))
 }
 
-// The #243 invariant under a mount prefix: the verifier's MFA-enrollment
-// exempt paths are derived prefix-neutral at NewServer time and compared
-// POST-strip (suffix-matched), so forced-enrollment gating keeps working —
-// and keeps its exemptions — when the whole surface lives under MountPrefix.
-func TestMountMFAEnrollmentGateUnderPrefix(t *testing.T) {
+// The #243 invariant at a custom anchor: the verifier's MFA-enrollment exempt
+// paths are anchored at the mount's APIPrefix (ak#324), so forced-enrollment
+// gating keeps working — and keeps its exemptions — wherever the API lives.
+func TestMountMFAEnrollmentGateUnderAPIPrefix(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
 	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 	auth := map[string]string{"Authorization": "Bearer " + token}
 
-	h, err := MountHandler(svc, MountOptions{MountPrefix: "/authx"})
+	h, err := MountHandler(svc, MountOptions{APIPrefix: "/authx"})
 	require.NoError(t, err)
 
 	// Non-exempt route: the forced-enrollment gate blocks through the mount.
-	rec := mountProbe(t, h, http.MethodGet, "/authx/api/v1/me", auth)
+	rec := mountProbe(t, h, http.MethodGet, "/authx/me", auth)
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Contains(t, rec.Body.String(), "2fa_enrollment_required")
 
 	// Exempt route: the gate lets it through to the handler (which then fails
 	// on the absent DB — anything but the gate's 403/404 proves passage).
-	rec = mountProbe(t, h, http.MethodGet, "/authx/api/v1/user/2fa", auth)
+	rec = mountProbe(t, h, http.MethodGet, "/authx/user/2fa", auth)
 	require.NotEqual(t, http.StatusForbidden, rec.Code)
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 	require.NotEqual(t, http.StatusUnauthorized, rec.Code)
 
-	// Boundary near-miss stays outside the mount even with credentials.
-	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/authxx/api/v1/user/2fa", auth).Code)
+	// A near-miss anchor is outside the mount even with credentials.
+	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/authxx/user/2fa", auth).Code)
 }
 
 // Excluding a route from the mount must NOT alter the verifier's exempt-path
@@ -126,20 +106,19 @@ func TestMountExcludeDoesNotAlterExemptDerivation(t *testing.T) {
 	auth := map[string]string{"Authorization": "Bearer " + token}
 
 	h, err := MountHandler(svc, MountOptions{
-		MountPrefix:   "/authx",
 		ExcludeRoutes: []RouteRef{{Method: http.MethodGet, Path: "/user/2fa"}},
 	})
 	require.NoError(t, err)
 
 	// The excluded route itself is gone from the mount (405: its POST/DELETE
 	// siblings still occupy the path — spec-correct ServeMux behavior).
-	require.Equal(t, http.StatusMethodNotAllowed, mountProbe(t, h, http.MethodGet, "/authx/api/v1/user/2fa", auth).Code)
+	require.Equal(t, http.StatusMethodNotAllowed, mountProbe(t, h, http.MethodGet, "/api/v1/user/2fa", auth).Code)
 	// Its sibling exempt route (same path, different method) still passes the gate.
-	rec := mountProbe(t, h, http.MethodPost, "/authx/api/v1/user/2fa", auth)
+	rec := mountProbe(t, h, http.MethodPost, "/api/v1/user/2fa", auth)
 	require.NotEqual(t, http.StatusForbidden, rec.Code)
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 	// And non-exempt routes are still gated.
-	require.Equal(t, http.StatusForbidden, mountProbe(t, h, http.MethodGet, "/authx/api/v1/me", auth).Code)
+	require.Equal(t, http.StatusForbidden, mountProbe(t, h, http.MethodGet, "/api/v1/me", auth).Code)
 }
 
 // muxParamRe fills ServeMux "{param}" wildcards with a literal so a pattern
@@ -159,7 +138,7 @@ func TestMountRouteTableNeverDoublesThePrefix(t *testing.T) {
 	h, err := MountHandler(svc, MountOptions{APIPrefix: "/auth"})
 	require.NoError(t, err)
 	mux, ok := h.(*http.ServeMux)
-	require.True(t, ok, "MountHandler without MountPrefix returns the bare mux")
+	require.True(t, ok, "MountHandler without RefreshCookie returns the bare mux")
 
 	walk := func(specs []RouteSpec, anchor string) {
 		for _, spec := range specs {

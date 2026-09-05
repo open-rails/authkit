@@ -49,7 +49,7 @@ func TestAdminAccountAuthority_BoundedOperatorCannotTargetOwner(t *testing.T) {
 		if body != "" {
 			r.Header.Set("Content-Type", "application/json")
 		}
-		s.APIHandler().ServeHTTP(w, r)
+		s.apiHandler().ServeHTTP(w, r)
 		return w
 	}
 	ban := func(token, target string) *httptest.ResponseRecorder {

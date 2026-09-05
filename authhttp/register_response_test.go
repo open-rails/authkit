@@ -99,7 +99,7 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 
 func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{
@@ -125,7 +125,7 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 
 func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
 	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(failingVerificationEmailSender{}))
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{
@@ -149,7 +149,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
 	require.NoError(t, err)
 	sender.fail = true
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{
@@ -166,7 +166,7 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
 	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
 	require.NoError(t, err)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/email/verify/request", strings.NewReader(`{
@@ -186,7 +186,7 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 	// setter); the test is package authhttp, so set it directly.
 	langCfg := LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}
 	s.langCfg = &langCfg
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register?lang=es", strings.NewReader(`{
@@ -221,7 +221,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired},
 	}, newTestPool(t), embedded.WithEmailSender(testEmailSender{})))
 	require.NoError(t, err)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))

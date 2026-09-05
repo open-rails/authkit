@@ -69,7 +69,7 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 	cfg.Frontend.PasswordResetPath = "/reset"
 	srv, err := NewServer(newServerClient(t, cfg, newServerTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
-	h := srv.APIHandler()
+	h := srv.apiHandler()
 
 	for path, want := range map[string]string{
 		"/email/verify/confirm?token=sekrit&return_to=/next": "https://app.example/verify#channel=email&return_to=%2Fnext&status=ready&token=sekrit",

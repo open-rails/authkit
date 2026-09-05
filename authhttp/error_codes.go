@@ -80,9 +80,6 @@ const (
 	// ErrAuthenticationRequired is the authentication_required AuthKit HTTP wire error code.
 	ErrAuthenticationRequired ErrorCode = "authentication_required"
 
-	// ErrAuthkitNotInitialized is the authkit_not_initialized AuthKit HTTP wire error code.
-	ErrAuthkitNotInitialized ErrorCode = "authkit_not_initialized"
-
 	// ErrCannotRemoveLastOwner is the cannot_remove_last_owner AuthKit HTTP wire error code.
 	ErrCannotRemoveLastOwner ErrorCode = "cannot_remove_last_owner"
 
