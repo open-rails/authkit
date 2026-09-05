@@ -13,13 +13,10 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/oidckit"
 )
 
 const oidcStepUpClockSkew = 2 * time.Minute
-
-func ptr(s string) *string { return &s }
 
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
@@ -173,15 +170,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, provider string) bool {
-	pg := s.svc.Postgres()
-	if pg == nil {
-		return false
-	}
-	exists, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderLinkExists(r.Context(), db.UserProviderLinkExistsParams{
-		UserID:       strings.TrimSpace(userID),
-		Issuer:       strings.TrimSpace(issuer),
-		ProviderSlug: ptr(strings.TrimSpace(provider)),
-	})
+	exists, err := s.svc.HasProviderLink(r.Context(), userID, issuer, provider)
 	return err == nil && exists
 }
 
@@ -296,10 +285,7 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 		return nil, err
 	}
 	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
-	var providerSlugs []string
-	if pg := s.svc.Postgres(); pg != nil {
-		providerSlugs, _ = db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
-	}
+	providerSlugs, _ := s.svc.ProviderSlugs(r.Context(), userID)
 	return s.stepUpMethodsWith(hasPassword, settings, providerSlugs), nil
 }
 

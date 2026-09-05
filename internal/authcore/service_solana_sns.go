@@ -116,13 +116,26 @@ type solanaSNSProfile struct {
 
 // SNS resolution is AuthKit-owned and always-on with fixed timeout/cache — there is
 // no host toggle or override (the only prerequisite is a Postgres store to read/write).
-func (s *Service) solanaSNSCacheTTL() time.Duration {
-	// snsCacheTTLOverride is a test-only seam (see service_solana_sns_test.go) for
-	// forcing cache staleness deterministically; production always uses the constant.
-	if s != nil && s.snsCacheTTLOverride > 0 {
-		return s.snsCacheTTLOverride
+// solanaSNS holds the SNS-resolution state the resolver does not own: the
+// cache TTL, fixed in production and settable by tests to force staleness. The
+// injected resolver (Service.solanaSNSResolver) joins it when #314 moves
+// dependency injection onto the Deps struct.
+type solanaSNS struct {
+	cacheTTL time.Duration
+}
+
+func (c solanaSNS) ttl() time.Duration {
+	if c.cacheTTL > 0 {
+		return c.cacheTTL
 	}
 	return defaultSolanaSNSCacheTTL
+}
+
+func (s *Service) solanaSNSCacheTTL() time.Duration {
+	if s == nil {
+		return defaultSolanaSNSCacheTTL
+	}
+	return s.sns.ttl()
 }
 
 func normalizeSolanaSNSName(name string) (string, error) {

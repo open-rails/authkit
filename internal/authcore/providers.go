@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
@@ -32,6 +33,28 @@ func (s *Service) UserProfileLinks(ctx context.Context, userID string) (provider
 		return nil, nil, err
 	}
 	return providerSlugs, aliases, nil
+}
+
+// HasProviderLink reports whether userID holds a link to subject-issuer under
+// providerSlug — the step-up gate's "is this the user's own provider" check.
+func (s *Service) HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error) {
+	if s.pg == nil {
+		return false, nil
+	}
+	slug := strings.TrimSpace(providerSlug)
+	return s.q.UserProviderLinkExists(ctx, db.UserProviderLinkExistsParams{
+		UserID:       strings.TrimSpace(userID),
+		Issuer:       strings.TrimSpace(issuer),
+		ProviderSlug: &slug,
+	})
+}
+
+// ProviderSlugs returns the distinct provider slugs linked to userID.
+func (s *Service) ProviderSlugs(ctx context.Context, userID string) ([]string, error) {
+	if s.pg == nil {
+		return nil, nil
+	}
+	return s.q.UserProviderSlugsDistinct(ctx, strings.TrimSpace(userID))
 }
 
 // UnlinkProviderUnlessLast atomically removes the provider link only if the user
