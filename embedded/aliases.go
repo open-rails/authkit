@@ -36,7 +36,7 @@ type InstanceCreationDef = authcore.InstanceCreationDef
 type IdentityConfig = authcore.IdentityConfig
 type KeysConfig = authcore.KeysConfig
 type EphemeralConfig = authcore.EphemeralConfig
-type Option = authcore.Option
+type Deps = authcore.Deps
 type PasskeyConfig = authcore.PasskeyConfig
 type RegistrationConfig = authcore.RegistrationConfig
 type RegistrationMode = authcore.RegistrationMode
@@ -96,7 +96,6 @@ const TwoFactorRequired = authcore.TwoFactorRequired
 // #136 no-escalation role-assignment errors.
 var IntrinsicRootPermissions = authcore.IntrinsicRootPermissions
 var IntrinsicRootPersona = authcore.IntrinsicRootPersona
-var IsDevEnvironment = authcore.IsDevEnvironment
 var LoadBootstrapManifestFile = authcore.LoadBootstrapManifestFile
 var MintRemoteApplicationAccessToken = authcore.MintRemoteApplicationAccessToken
 var MintServiceJWT = authcore.MintServiceJWT
@@ -110,19 +109,7 @@ var ValidatePassword = authcore.ValidatePassword
 var ValidatePhone = authcore.ValidatePhone
 var ValidateUsername = authcore.ValidateUsername
 var ValidationErrorCode = authcore.ValidationErrorCode
-var WithApplicationAdmission = authcore.WithApplicationAdmission
-var WithInstanceAdmission = authcore.WithInstanceAdmission
-var WithApplicationsHTTPClient = authcore.WithApplicationsHTTPClient
-var WithDelegatedAuthorization = authcore.WithDelegatedAuthorization
-var WithEmailSender = authcore.WithEmailSender
-var WithClock = authcore.WithClock
-var WithSolanaSNSResolver = authcore.WithSolanaSNSResolver
-var WithEntitlements = authcore.WithEntitlements
-var WithPostgres = authcore.WithPostgres
-var WithSMSSender = authcore.WithSMSSender
 var WithSessionRevokeReason = authcore.WithSessionRevokeReason
-
-var WithNameAdmission = authcore.WithNameAdmission
 
 // WithResolvedGroup retains an already-authorized group UUID for one request's
 // original persona/reference. It grants no permission, rechecks liveness, and

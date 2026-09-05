@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -21,8 +20,8 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 		pool := testdb.Pool(t)
 		ctx := context.Background()
 		emailSender := &captureEmailSender{}
-		opts := append(store.engineOpts(), embedded.WithEmailSender(emailSender))
-		srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
+		opts := append(store.engineOpts(), withEmailSender(emailSender))
+		srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 		require.NoError(t, err)
 
 		newVerification := func(prefix string) (email, code string) {

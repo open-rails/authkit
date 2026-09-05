@@ -90,7 +90,7 @@ func TestServiceObservesKeyRotation(t *testing.T) {
 		},
 		Keys: KeysConfig{Source: src},
 	}
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}

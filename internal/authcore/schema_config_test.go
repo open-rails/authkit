@@ -29,7 +29,7 @@ func schemaTestConfig(schema string) Config {
 }
 
 func TestNewFromConfigSchemaDefaultsToProfiles(t *testing.T) {
-	svc, err := NewFromConfig(schemaTestConfig(""), nil)
+	svc, err := newFromConfig(schemaTestConfig(""), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestNewFromConfigSchemaDefaultsToProfiles(t *testing.T) {
 }
 
 func TestNewFromConfigSchemaConfigurable(t *testing.T) {
-	svc, err := NewFromConfig(schemaTestConfig("openrails_auth"), nil)
+	svc, err := newFromConfig(schemaTestConfig("openrails_auth"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,14 +50,14 @@ func TestNewFromConfigSchemaConfigurable(t *testing.T) {
 
 func TestNewFromConfigSchemaRejected(t *testing.T) {
 	for _, schema := range []string{"Profiles", "1abc", "a-b", "a b", `a"b`, "a;drop", "pro.files", strings.Repeat("a", 64)} {
-		if _, err := NewFromConfig(schemaTestConfig(schema), nil); err == nil {
+		if _, err := newFromConfig(schemaTestConfig(schema), nil); err == nil {
 			t.Errorf("NewFromConfig with Schema=%q should error", schema)
 		}
 	}
 }
 
 func TestNewServiceRejectsInvalidSchema(t *testing.T) {
-	if _, err := NewService(Config{Schema: "not;valid"}, Keyset{}); err == nil {
+	if _, err := NewService(Config{Schema: "not;valid"}, Keyset{}, Deps{}); err == nil {
 		t.Fatal("NewService with invalid Schema should error")
 	}
 }

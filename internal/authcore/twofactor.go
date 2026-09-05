@@ -388,7 +388,7 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 			}
 		} else {
 			// In production, require email to be configured for email 2FA
-			if !s.isDevEnvironment() {
+			if !s.cfg.Registration.AllowMissingSenders {
 				return "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
 			}
 		}
@@ -400,7 +400,7 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 			}
 		} else {
 			// In production, require SMS to be configured for SMS 2FA
-			if !s.isDevEnvironment() {
+			if !s.cfg.Registration.AllowMissingSenders {
 				return "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
 			}
 		}

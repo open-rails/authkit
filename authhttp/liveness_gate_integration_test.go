@@ -29,7 +29,7 @@ func newLivenessTestEngine(t *testing.T, pool *pgxpool.Pool, issuer string) (*au
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "liveness-kid")
 	require.NoError(t, err)
-	svc, err := authcore.NewFromConfig(authcore.Config{
+	svc, err := coreFromConfig(authcore.Config{
 		Token: authcore.TokenConfig{
 			Issuer:              issuer,
 			IssuedAudiences:     []string{"test-app"},

@@ -107,6 +107,7 @@ func newTestService(t *testing.T) *authhttp.Service {
 			AccessTokenDuration: time.Hour,
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
 		Identity: embedded.IdentityConfig{
 			Providers: []authprovider.Provider{
 				authprovider.Google("google-client", "google-secret"),
@@ -130,11 +131,11 @@ func newTestService(t *testing.T) *authhttp.Service {
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	client, err := embedded.New(cfg, pool)
+	client, err := embedded.New(cfg, embedded.Deps{Postgres: pool})
 	require.NoError(t, err)
 	// Rate limiting off: the parity test probes the whole route table twice
 	// (old stack + new mount) and must not trip order-dependent 429s.
-	svc, err := authhttp.NewServer(client, authhttp.WithoutRateLimiter())
+	svc, err := authhttp.New(client, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
 	require.NoError(t, err)
 	return svc
 }

@@ -19,11 +19,10 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-func newAppTestService(t *testing.T, env string) *Service {
+func newAppTestService(t *testing.T, allowPrivateNetwork bool) *Service {
 	t.Helper()
-	svc, err := NewFromConfig(Config{
-		Environment: env,
-		Keys:        KeysConfig{VerifyOnly: true},
+	svc, err := newFromConfig(Config{
+		Keys: KeysConfig{VerifyOnly: true},
 		Token: TokenConfig{
 			Issuer:            "https://hub.example.com",
 			IssuedAudiences:   []string{"hub"},
@@ -31,8 +30,9 @@ func newAppTestService(t *testing.T, env string) *Service {
 		},
 		RBAC: []PersonaDef{{Name: "org", Parent: RootPersona}},
 		Applications: ApplicationsConfig{
-			SelfRegistration: true,
-			OrgPersona:       "org",
+			SelfRegistration:        true,
+			OrgPersona:              "org",
+			AllowPrivateNetworkJWKS: allowPrivateNetwork,
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -40,8 +40,8 @@ func newAppTestService(t *testing.T, env string) *Service {
 }
 
 func TestResolveApplicationDomain(t *testing.T) {
-	dev := newAppTestService(t, "development")
-	prod := newAppTestService(t, "production")
+	dev := newAppTestService(t, true)
+	prod := newAppTestService(t, false)
 
 	t.Run("prod accepts bare public dns names only", func(t *testing.T) {
 		canonical, host, fetchURL, err := prod.resolveApplicationDomain("Cozy.Art")
@@ -73,8 +73,8 @@ func TestResolveApplicationDomain(t *testing.T) {
 }
 
 func TestValidateApplicationDocument(t *testing.T) {
-	dev := newAppTestService(t, "development")
-	prod := newAppTestService(t, "production")
+	dev := newAppTestService(t, true)
+	prod := newAppTestService(t, false)
 
 	base := func() *ApplicationDocument {
 		return &ApplicationDocument{
@@ -170,7 +170,7 @@ func signAppRequest(t *testing.T, signer *jwtkit.RSASigner, typ string, payload 
 }
 
 func TestVerifyApplicationJWS(t *testing.T) {
-	svc := newAppTestService(t, "development")
+	svc := newAppTestService(t, true)
 	ctx := context.Background()
 
 	signer, err := jwtkit.NewRSASigner(2048, "app-key-1")
@@ -247,7 +247,7 @@ func TestVerifyApplicationJWS(t *testing.T) {
 }
 
 func TestApplicationsConfigValidatedAtConstruction(t *testing.T) {
-	_, err := NewFromConfig(Config{
+	_, err := newFromConfig(Config{
 		Keys:  KeysConfig{VerifyOnly: true},
 		Token: TokenConfig{Issuer: "https://hub.example.com", IssuedAudiences: []string{"hub"}},
 		Applications: ApplicationsConfig{

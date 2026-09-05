@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +17,7 @@ func TestPhoneVerifyConfirm_BannedUserGets401(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	phone := uniquePhone()

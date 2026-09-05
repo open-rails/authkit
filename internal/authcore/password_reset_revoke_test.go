@@ -19,13 +19,14 @@ func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 	ks := testKeySource(t)
 	// WithEphemeralStore: the reset token lives in the ephemeral store; the memory
 	// default is installed by embedded.New, not by bare NewFromConfig, so supply it.
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
 			IssuedAudiences:   []string{"app"},
 			ExpectedAudiences: []string{"app"},
 		},
-		Keys: KeysConfig{Source: ks},
+		Keys:      KeysConfig{Source: ks},
+		Ephemeral: EphemeralConfig{AllowMemory: true},
 	}, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)

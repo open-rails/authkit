@@ -8,9 +8,10 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
-	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkittesting "github.com/open-rails/authkit/authtest"

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func namingHTTPServer(t *testing.T, policy authkit.NamingConfig, opts ...embedded.Option) (*Service, *embedded.Client, func(time.Time)) {
+func namingHTTPServer(t *testing.T, policy authkit.NamingConfig, opts ...coreOpt) (*Service, *embedded.Client, func(time.Time)) {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	cfg := instanceCreateTestConfig()
@@ -26,13 +26,13 @@ func namingHTTPServer(t *testing.T, policy authkit.NamingConfig, opts ...embedde
 	cfg.RBAC[1].Capabilities.APIKeys = true
 	var clock atomic.Int64
 	clock.Store(time.Now().UTC().Truncate(time.Microsecond).UnixMicro())
-	opts = append(opts, embedded.WithClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
-	client, err := embedded.New(cfg, pg.Pool, opts...)
+	opts = append(opts, withClock(func() time.Time { return time.UnixMicro(clock.Load()).UTC() }))
+	client, err := embedded.New(cfg, depsOf(append([]coreOpt{withPostgres(pg.Pool)}, opts...)...))
 	require.NoError(t, err)
 	require.NoError(t, client.SeedPermissionGroupContainment(context.Background()))
 	_, err = client.EnsureRootGroup(context.Background())
 	require.NoError(t, err)
-	srv, err := NewServer(client, WithoutRateLimiter())
+	srv, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, client, func(now time.Time) { clock.Store(now.UnixMicro()) }
 }
@@ -91,7 +91,7 @@ func TestNamingHTTPDisabledAndHostAdmission(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	var creationCosts atomic.Int64
 	var admissions []authkit.NameAdmissionRequest
-	next, _, _ := namingHTTPServer(t, authkit.NamingConfig{}, embedded.WithInstanceAdmission(func(context.Context, string, string, string) error { creationCosts.Add(1); return nil }), embedded.WithNameAdmission(func(_ context.Context, r authkit.NameAdmissionRequest) error {
+	next, _, _ := namingHTTPServer(t, authkit.NamingConfig{}, withInstanceAdmission(func(context.Context, string, string, string) error { creationCosts.Add(1); return nil }), withNameAdmission(func(_ context.Context, r authkit.NameAdmissionRequest) error {
 		admissions = append(admissions, r)
 		if r.RequestedName == "blocked" {
 			return errors.New("host-owned name")

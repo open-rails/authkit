@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +24,7 @@ func TestContactChannelRoutes_BothChannels(t *testing.T) {
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender), withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	// seed creates an unverified account for the identifier so the verify and

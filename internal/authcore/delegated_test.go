@@ -53,7 +53,7 @@ func TestConfigKeysPathResolvesFile(t *testing.T) {
 		},
 		Keys: KeysConfig{Path: dir}, // Source is nil => resolver uses this directory.
 	}
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestServiceMintServiceJWTRoundTrip(t *testing.T) {
 func mustServiceWithGeneratedKeys(t *testing.T) *Service {
 	t.Helper()
 	ks := testKeySource(t)
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
 			IssuedAudiences:   []string{"app"},

@@ -12,13 +12,11 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/siws"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/oidckit"
-	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -28,28 +26,20 @@ type Service struct {
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
-	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
-	closers             []func()                   // background work stopped by Close (#305)
-	memoryLimiterSweep  time.Duration              // withMemoryLimiterSweep (tests); 0 => one minute
-	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
+	closers             []func()      // background work stopped by Close (#305)
+	memoryLimiterSweep  time.Duration // Config.memoryLimiterSweep (tests); 0 => one minute
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool                             // WithClientIPFunc: host owns the strategy; proxy sets are not composed
-	directPeerIP        bool                             // WithDirectPeerIP: host asserts no proxy in front (ak#299)
+	clientIPExplicit    bool                             // Config.ClientIP: host owns the strategy; proxy sets are not composed
+	directPeerIP        bool                             // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
 	undeclaredProxyOnce sync.Once                        // one-shot tripwire: private peer carrying forwarded headers
-	trustedProxies      []netip.Prefix                   // WithTrustedProxies: X-Forwarded-For walk
-	cloudflareProxies   []netip.Prefix                   // WithCloudflareProxies: + CF-Connecting-IP fallback
-	trustedProxyErr     error                            // deferred proxy CIDR parse error, surfaced by NewServer
+	trustedProxies      []netip.Prefix                   // Config.TrustedProxies: X-Forwarded-For walk
+	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
 	memStateCache       oidckit.StateCache
 	memSIWSCache        siws.ChallengeCache
-	// engineOpts stashes embedded engine options passed via WithEngine — consumed
-	// ONLY by the one-step authhttp.New (#211); NewServer rejects them so the
-	// two-step path stays unambiguous. engineOptsAllowed is set internally by New.
-	engineOpts        []embedded.Option
-	engineOptsAllowed bool
-	langCfg           *LanguageConfig
-	// documentProviders are the published-document services wired via
-	// WithDocuments (#260): served by the RouteDocuments mount and stamped +
+	langCfg             *LanguageConfig
+	// documentProviders are the published-document services from
+	// Config.Documents (#260): served by the RouteDocuments mount and stamped +
 	// KID-reconciled by the delegated-token mint route (#261).
 	documentProviders []DocumentProvider
 }

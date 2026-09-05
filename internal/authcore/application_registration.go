@@ -129,7 +129,7 @@ func (s *Service) resolveApplicationDomain(domain string) (canonical, host, fetc
 	if domain == "" {
 		return "", "", "", fmt.Errorf("%w: domain is required", ErrApplicationDomainInvalid)
 	}
-	isDev := s.isDevEnvironment()
+	isDev := s.cfg.Applications.AllowPrivateNetworkJWKS
 	if strings.Contains(domain, "://") {
 		if !isDev {
 			return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name (no scheme)", ErrApplicationDomainInvalid)
@@ -210,7 +210,7 @@ type normalizedApplication struct {
 // (defaulting to the hostname) — availability is checked at claim time, not
 // here.
 func (s *Service) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
-	isDev := s.isDevEnvironment()
+	isDev := s.cfg.Applications.AllowPrivateNetworkJWKS
 	slug := strings.ToLower(strings.TrimSpace(doc.Slug))
 	if slug == "" {
 		slug = host
@@ -632,7 +632,7 @@ func (s *Service) RotateApplicationSigned(ctx context.Context, slug, compactJWS 
 	if err != nil {
 		return nil, err
 	}
-	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(req.JWKSURI), "", req.PublicKeys, s.isDevEnvironment())
+	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(req.JWKSURI), "", req.PublicKeys, s.cfg.Applications.AllowPrivateNetworkJWKS)
 	if err != nil {
 		return nil, err
 	}

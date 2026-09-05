@@ -3,13 +3,14 @@ package authhttp
 import (
 	"context"
 	"crypto"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"

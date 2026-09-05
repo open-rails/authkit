@@ -16,7 +16,7 @@ import (
 func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("oauth-return-to")

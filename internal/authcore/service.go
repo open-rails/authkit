@@ -117,13 +117,13 @@ type Service struct {
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer DelegationAuthorizer
 	solanaSNSResolver    SolanaSNSResolver
-	// now is the engine clock for TTL/grace decisions; WithClock overrides it.
+	// now is the engine clock for TTL/grace decisions; Deps.Clock overrides it.
 	now func() time.Time
 	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration
 	ephemeralStore      EphemeralStore
-	redisClient         *redis.Client // WithRedis; resolved into ephemeralStore by newService (#307)
+	redisClient         *redis.Client // Deps.Redis; resolved into ephemeralStore by newService (#307)
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.
@@ -133,7 +133,7 @@ type Service struct {
 
 	// appHTTPClient is the outbound client for application self-registration
 	// fetches (application.json, JWKS during signed rotation): the
-	// WithApplicationsHTTPClient override, else newApplicationsHTTPClient (#264).
+	// Deps.OutboundHTTP override, else newApplicationsHTTPClient (#264).
 	appHTTPClient *http.Client
 	// appAdmission is the optional host-injected admission predicate consulted
 	// before any registration fetch (#264 anti-squat doctrine: cost gates live

@@ -26,8 +26,9 @@ func TestPurgeCandidateSelectionBoundary(t *testing.T) {
 			IssuedAudiences:   []string{"test"},
 			ExpectedAudiences: []string{"test"},
 		},
-		Keys: embedded.KeysConfig{VerifyOnly: true}, // purge worker only queries; no signer needed
-	}, pool)
+		Keys:      embedded.KeysConfig{VerifyOnly: true}, // purge worker only queries; no signer needed
+		Ephemeral: embedded.EphemeralConfig{AllowMemory: true},
+	}, embedded.Deps{Postgres: pool})
 	if svcErr != nil {
 		t.Fatalf("new service: %v", svcErr)
 	}

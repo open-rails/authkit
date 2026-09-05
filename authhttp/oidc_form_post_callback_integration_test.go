@@ -24,7 +24,7 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Frontend.BaseURL = "https://auth.example"
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	idp := newFakeOIDCIdP(t, "idp-client")
@@ -122,19 +122,19 @@ func TestNewServerRefusesFormPostWithoutHTTPS(t *testing.T) {
 	// Explicit http BaseURL.
 	cfg := base()
 	cfg.Frontend.BaseURL = "http://auth.example"
-	_, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
+	_, err := newServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	// BaseURL defaulted from an http issuer.
 	cfg = base()
 	cfg.Token.Issuer = "http://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
+	_, err = newServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	cfg = base()
 	cfg.Frontend.BaseURL = "https://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
+	_, err = newServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 }

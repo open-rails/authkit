@@ -146,13 +146,14 @@ func TestNormalizeRemoteAppTrustSource_DevKeepsXORRule(t *testing.T) {
 	}
 }
 
-// #257 (DB): registration accepts a loopback http jwks_uri only in dev
-// environments; staging/production reject with the unchanged messages.
+// #257 (DB): registration accepts a loopback http jwks_uri only with
+// Applications.AllowPrivateNetworkJWKS; the default rejects with the unchanged
+// messages.
 func TestUpsertRemoteApplication_DevLoopbackJWKS(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	dev := mustNewService(t, Config{Environment: "dev", Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	dev := mustNewService(t, Config{Applications: ApplicationsConfig{AllowPrivateNetworkJWKS: true}, Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gid := createTestGroup(t, ctx, dev, pool, "")
 	slug := fmt.Sprintf("dev-fed-%d", time.Now().UnixNano())
 	ra, err := dev.UpsertRemoteApplication(ctx, RemoteApplication{
@@ -169,8 +170,8 @@ func TestUpsertRemoteApplication_DevLoopbackJWKS(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE id=$1::uuid`, ra.ID)
 	})
 
-	for _, env := range []string{"staging", "production"} {
-		svc := mustNewService(t, Config{Environment: env, Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	for _, env := range []string{"default"} {
+		svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 		_, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 			Slug: slug + "-x", PermissionGroupID: gid,
 			Issuer: "http://127.0.0.1:31551", JWKSURI: "http://127.0.0.1:31551/jwks", Enabled: true,

@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// #305: the per-process memory ephemeral store is refused outside a dev-like
-// Environment unless Ephemeral.AllowMemory opts in; Redis always passes.
-func TestNewRefusesMemoryEphemeralOutsideDev(t *testing.T) {
+// #305/#314: the per-process memory ephemeral store is refused unless
+// Ephemeral.AllowMemory opts in; Redis always passes.
+func TestNewRefusesMemoryEphemeralWithoutOptIn(t *testing.T) {
 	pool := testdb.UnlockedPool(t)
 	base := Config{
 		Keys:         testKeys(t),
@@ -17,28 +17,18 @@ func TestNewRefusesMemoryEphemeralOutsideDev(t *testing.T) {
 		Registration: RegistrationConfig{Verification: RegistrationVerificationNone},
 	}
 
-	dev := base
-	dev.Environment = "dev"
-	c, err := New(dev, pool)
+	_, err := New(base, Deps{Postgres: pool})
+	require.Error(t, err, "no Redis and no opt-in must refuse")
+	require.Contains(t, err.Error(), "Ephemeral.AllowMemory")
+
+	allowed := base
+	allowed.Ephemeral = EphemeralConfig{AllowMemory: true}
+	c, err := New(allowed, Deps{Postgres: pool})
 	require.NoError(t, err)
 	require.Equal(t, "memory", Unwrap(c).EphemeralBackend())
 
-	for _, env := range []string{"production", "staging"} {
-		prod := base
-		prod.Environment = env
-		_, err := New(prod, pool)
-		require.Error(t, err, "%s without Redis must refuse", env)
-		require.Contains(t, err.Error(), "Ephemeral.AllowMemory")
-
-		allowed := prod
-		allowed.Ephemeral = EphemeralConfig{AllowMemory: true}
-		c, err := New(allowed, pool)
-		require.NoError(t, err, "%s with Ephemeral.AllowMemory must construct", env)
-		require.Equal(t, "memory", Unwrap(c).EphemeralBackend())
-
-		rdb := testdb.ScratchRedis(t)
-		c, err = New(prod, pool, WithRedis(rdb))
-		require.NoError(t, err, "%s with Redis must construct", env)
-		require.Equal(t, "redis", Unwrap(c).EphemeralBackend())
-	}
+	rdb := testdb.ScratchRedis(t)
+	c, err = New(base, Deps{Postgres: pool, Redis: rdb})
+	require.NoError(t, err)
+	require.Equal(t, "redis", Unwrap(c).EphemeralBackend())
 }

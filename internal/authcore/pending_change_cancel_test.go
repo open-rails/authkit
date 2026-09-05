@@ -10,7 +10,7 @@ import (
 // #356: a pending (unverified) email registration must make that email report as
 // taken by the availability check — not only committed/verified users.
 func TestPendingRegistrationMakesEmailUnavailable(t *testing.T) {
-	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
+	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	email := "pending-avail@example.com"
@@ -35,7 +35,7 @@ func TestPendingRegistrationMakesEmailUnavailable(t *testing.T) {
 // #356: a pending (unverified) phone registration must make that phone report as
 // taken by the availability check.
 func TestPendingPhoneRegistrationMakesPhoneUnavailable(t *testing.T) {
-	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
+	svc := mustNewService(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	phone := "+14155550987"

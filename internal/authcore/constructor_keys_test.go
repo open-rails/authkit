@@ -1,8 +1,7 @@
 package authcore
 
 // #231/#232 construction-level tests: fail-closed key resolution (ephemeral
-// dev keys are an explicit opt-in, never inferred from env or Environment),
-// the single dev/prod classifier, and the <Keys.Path>/totp.key wiring.
+// dev keys are an explicit opt-in) and the <Keys.Path>/totp.key wiring.
 
 import (
 	"crypto/x509"
@@ -29,11 +28,8 @@ func minimalKeysTestConfig() Config {
 func TestNewFromConfigFailsClosedWithoutKeysOrOptIn(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: t.TempDir()} // no keys.json, no opt-in
-	// Even a "dev" Environment must NOT unlock key generation (#231): the
-	// classifier and the ephemeral-keys opt-in are deliberately independent.
-	cfg.Environment = "dev"
 
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatal("expected hard error with no keys and no AllowEphemeralDevKeys opt-in")
 	}
 }
@@ -44,7 +40,7 @@ func TestNewFromConfigEphemeralDevKeysOptIn(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true}
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("explicit opt-in should generate dev keys: %v", err)
 	}
@@ -74,28 +70,12 @@ func TestNewFromConfigLoadsKeysJSON(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: dir} // no opt-in needed: real keys exist
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("keys.json resolution: %v", err)
 	}
 	if _, ok := svc.PublicKeysByKID()["cfg-kid"]; !ok {
 		t.Fatalf("expected cfg-kid in keyset, have %v", svc.PublicKeysByKID())
-	}
-}
-
-func TestIsDevEnvironmentSingleClassifier(t *testing.T) {
-	dev := []string{"", "dev", "Development", "local", "TEST", "  dev  "}
-	for _, e := range dev {
-		if !IsDevEnvironment(e) {
-			t.Errorf("IsDevEnvironment(%q) = false, want true", e)
-		}
-	}
-	// Everything else — including staging and unknown values — is prod-like.
-	prodLike := []string{"prod", "production", "staging", "stage", "qa", "preprod", "banana"}
-	for _, e := range prodLike {
-		if IsDevEnvironment(e) {
-			t.Errorf("IsDevEnvironment(%q) = true, want false (fail-closed)", e)
-		}
 	}
 }
 
@@ -114,7 +94,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 	cfg := minimalKeysTestConfig()
 	cfg.Keys = KeysConfig{Path: dir, VerifyOnly: true} // no keys.json needed
 
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -131,7 +111,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 	// The explicit override still wins over the file.
 	override := make([]byte, 16)
 	cfg.TwoFactor.TOTPSecretKey = override
-	svc, err = NewFromConfig(cfg, nil)
+	svc, err = newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("construct with override: %v", err)
 	}
@@ -141,7 +121,7 @@ func TestNewFromConfigWiresTOTPFileKey(t *testing.T) {
 
 	// An invalid-length override is a hard construction error.
 	cfg.TwoFactor.TOTPSecretKey = make([]byte, 20)
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatal("20-byte TOTP override must fail construction")
 	}
 }

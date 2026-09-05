@@ -26,7 +26,7 @@ func baseTestConfig(t *testing.T) Config {
 
 func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	cfg := baseTestConfig(t)
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 	cfg := baseTestConfig(t)
 	cfg.Registration.NativeUserMode = RegistrationModeClosed
-	svc, err := NewFromConfig(cfg, nil)
+	svc, err := newFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 func TestPolicySwitches_RejectsLegacyBootstrapOnlyMode(t *testing.T) {
 	cfg := baseTestConfig(t)
 	cfg.Registration.NativeUserMode = RegistrationMode("bootstrap_only")
-	if _, err := NewFromConfig(cfg, nil); err == nil {
+	if _, err := newFromConfig(cfg, nil); err == nil {
 		t.Fatalf("legacy bootstrap_only mode should be rejected")
 	}
 }

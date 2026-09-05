@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -39,7 +38,6 @@ const (
 // test configs stay constructible through NewService.
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
-	cfg.Environment = strings.TrimSpace(cfg.Environment)
 	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
 
 	// #307: one Redis namespace per deployment, derived from the schema unless
@@ -165,7 +163,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 // The Keyset is fixed for the lifetime of the Service — there is no rotation
 // path here. Hosts that need hot-reloaded signing keys construct via
 // NewFromConfig / embedded.New with a live jwtkit.KeySource (#238).
-func NewService(cfg Config, keys Keyset, coreOpts ...Option) (*Service, error) {
+func NewService(cfg Config, keys Keyset, deps Deps) (*Service, error) {
+	if err := deps.validate(); err != nil {
+		return nil, err
+	}
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -177,14 +178,14 @@ func NewService(cfg Config, keys Keyset, coreOpts ...Option) (*Service, error) {
 		}
 	}
 	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
-	return newService(norm, src, gs, coreOpts...), nil
+	return newService(norm, src, gs, deps), nil
 }
 
 // newService assembles a Service from an already-normalized Config. keys is
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
 // the Service exists.
-func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ...Option) *Service {
+func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) *Service {
 	s := &Service{
 		cfg:               norm,
 		keys:              keys,
@@ -193,22 +194,21 @@ func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ..
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
 		now:               time.Now,
 	}
-	for _, o := range coreOpts {
-		if o != nil {
-			o(s)
-		}
-	}
+	s.applyDeps(deps)
 	if s.appHTTPClient == nil {
-		s.appHTTPClient = newApplicationsHTTPClient(s.isDevEnvironment(), nil)
+		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}
 	s.resolveEphemeralStore()
 	return s
 }
 
-// NewFromConfig creates a Service from the host Config + Stores.
+// NewFromConfig creates a Service from the host Config + Deps.
 // If Keys.Source is nil, keys are resolved from <Keys.Path>/keys.json — or,
 // ONLY with the explicit Keys.AllowEphemeralDevKeys opt-in, generated for dev.
-func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error) {
+func NewFromConfig(cfg Config, deps Deps) (*Service, error) {
+	if err := deps.validate(); err != nil {
+		return nil, err
+	}
 	// Handle nil Keys.Source — resolve from <Keys.Path>/keys.json (empty Path ⇒
 	// /vault/auth). No environment variables are consulted (#231): AuthKit is a
 	// library and the HOST owns the process env; binaries (cmd/authkit-server)
@@ -289,12 +289,11 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		}
 	}
 
-	// pg is positional but MAY be nil at the core layer (verify-only construction
-	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
-	// nil pg simply yields a Service with no querier. The mandatory-Postgres
-	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
-	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
-	svc := newService(norm, keySource, gs, coreOpts...)
+	// Deps.Postgres MAY be nil at the core layer (verify-only construction or
+	// config-only unit tests need no store): a nil pool yields a Service with
+	// no querier. The mandatory-Postgres contract (#106) is enforced at the
+	// host-facing authhttp constructor, not here.
+	svc := newService(norm, keySource, gs, deps)
 	if err := svc.checkEphemeralBackend(norm); err != nil {
 		return nil, err
 	}

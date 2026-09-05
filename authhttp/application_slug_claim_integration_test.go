@@ -27,9 +27,9 @@ func TestApplicationSelfRegistration_RefusesReservedSlug(t *testing.T) {
 		Name: "org", Parent: "root",
 		Creation: embedded.InstanceCreationDef{ReservedSlugs: []string{"cozy-art"}},
 	}}
-	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}
+	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org", AllowPrivateNetworkJWKS: true}
 	client := newServerClient(t, cfg, pool)
-	s, err := NewServer(client)
+	s, err := newServer(client)
 	require.NoError(t, err)
 	require.NoError(t, embedded.Unwrap(client).SeedPermissionGroupContainment(ctx))
 	h, err := MountHandler(s, MountOptions{})

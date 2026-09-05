@@ -255,10 +255,11 @@ func run() error {
 		defer func() { _ = rdb.Close() }()
 	}
 
-	// ONE dev/prod classifier (#231): AUTHKIT_ENV (default "dev" via envOr) maps
-	// through embedded.IsDevEnvironment — only dev/development/local/test are
-	// dev; everything else (incl. staging) is prod-like/fail-closed.
-	devMode := embedded.IsDevEnvironment(cfg.env)
+	// AUTHKIT_ENV (default "dev") is the binary's own switch: a dev-like value
+	// turns on every explicit dev opt-in below; the library itself carries no
+	// environment notion (#314). Only dev/development/local/test are dev;
+	// everything else (incl. staging) is prod-like/fail-closed.
+	devMode := isDevEnv(cfg.env)
 
 	// Bootstrap manifest, loaded up front (#266): the dev fixture section feeds
 	// engine options at construction; the seed sections are applied (apply-once)
@@ -296,10 +297,10 @@ func run() error {
 	}
 
 	coreCfg := embedded.Config{
-		Naming:      cfg.naming,
-		Environment: cfg.env,
-		Schema:      cfg.schema,
-		Ephemeral:   embedded.EphemeralConfig{AllowMemory: cfg.allowMemory},
+		Naming:       cfg.naming,
+		Schema:       cfg.schema,
+		Ephemeral:    embedded.EphemeralConfig{AllowMemory: cfg.allowMemory || (devMode && rdb == nil)},
+		Applications: embedded.ApplicationsConfig{AllowPrivateNetworkJWKS: devMode},
 		Token: embedded.TokenConfig{
 			Issuer:               cfg.issuer,
 			IssuedAudiences:      cfg.audiences,
@@ -313,6 +314,7 @@ func run() error {
 		Registration: embedded.RegistrationConfig{
 			Verification:            embedded.RegistrationVerificationPolicy(cfg.regVerify),
 			VerificationSendTimeout: cfg.verifySendTimeout,
+			AllowMissingSenders:     devMode,
 		},
 		APIKeys: embedded.APIKeysConfig{Prefix: cfg.apiKeyPrefix},
 		TwoFactor: embedded.TwoFactorConfig{
@@ -326,32 +328,18 @@ func run() error {
 		},
 	}
 
-	var engineOpts []embedded.Option
-	var httpOpts []authhttp.Option
-	if rdb != nil {
-		engineOpts = append(engineOpts, embedded.WithRedis(rdb))
-		httpOpts = append(httpOpts, authhttp.WithRedis(rdb))
-	}
-	if len(cfg.trustedProxies) > 0 {
-		httpOpts = append(httpOpts, authhttp.WithTrustedProxies(cfg.trustedProxies...))
-	}
-	if len(cfg.cloudflareProxies) > 0 {
-		httpOpts = append(httpOpts, authhttp.WithCloudflareProxies(cfg.cloudflareProxies...))
-	}
-	if cfg.directPeerIP {
-		httpOpts = append(httpOpts, authhttp.WithDirectPeerIP())
-	}
-	if len(cfg.languages) > 0 || cfg.defaultLanguage != "" {
-		httpOpts = append(httpOpts, authhttp.WithLanguageConfig(authhttp.LanguageConfig{
-			Supported: cfg.languages,
-			Default:   cfg.defaultLanguage,
-		}))
+	deps := embedded.Deps{Postgres: pg, Redis: rdb}
+	httpCfg := authhttp.Config{
+		TrustedProxies:    cfg.trustedProxies,
+		CloudflareProxies: cfg.cloudflareProxies,
+		DirectPeerIP:      cfg.directPeerIP || (devMode && len(cfg.trustedProxies) == 0 && len(cfg.cloudflareProxies) == 0),
+		Languages:         authhttp.LanguageConfig{Supported: cfg.languages, Default: cfg.defaultLanguage},
 	}
 	if devMode && manifest != nil && len(manifest.Dev.StaticEntitlements) > 0 {
-		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: manifest.Dev.StaticEntitlements}))
+		deps.Entitlements = staticDevEntitlements{names: manifest.Dev.StaticEntitlements}
 	}
 
-	client, err := embedded.New(coreCfg, pg, engineOpts...)
+	client, err := embedded.New(coreCfg, deps)
 	if err != nil {
 		return fmt.Errorf("build authkit engine: %w", err)
 	}
@@ -373,7 +361,7 @@ func run() error {
 		}
 	}
 
-	svc, err := authhttp.NewServer(client, httpOpts...)
+	svc, err := authhttp.New(client, httpCfg)
 	if err != nil {
 		return fmt.Errorf("build authkit http server: %w", err)
 	}
@@ -457,6 +445,15 @@ func runMigrations(ctx context.Context, dbURL string) error {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
+}
+
+// isDevEnv classifies AUTHKIT_ENV for this binary's dev opt-ins.
+func isDevEnv(env string) bool {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "", "dev", "development", "local", "test":
+		return true
+	}
+	return false
 }
 
 type staticDevEntitlements struct {

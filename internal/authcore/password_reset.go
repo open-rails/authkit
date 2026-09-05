@@ -44,7 +44,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	}
 
 	if s.email == nil {
-		if !s.isDevEnvironment() {
+		if !s.cfg.Registration.AllowMissingSenders {
 			return fmt.Errorf("email password reset unavailable: email sender not configured")
 		}
 		return nil
@@ -158,7 +158,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	}
 
 	if s.sms == nil {
-		if !s.isDevEnvironment() {
+		if !s.cfg.Registration.AllowMissingSenders {
 			return fmt.Errorf("SMS password reset unavailable: sms sender not configured")
 		}
 		return nil

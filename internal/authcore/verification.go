@@ -91,7 +91,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
-	} else if !s.isDevEnvironment() {
+	} else if !s.cfg.Registration.AllowMissingSenders {
 		return fmt.Errorf("email verification unavailable: email sender not configured")
 	}
 	return nil
@@ -231,7 +231,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		}
 	} else {
 		// In production, require SMS to be configured
-		if !s.isDevEnvironment() {
+		if !s.cfg.Registration.AllowMissingSenders {
 			return fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone verification requires SMS in production)")
 		}
 	}

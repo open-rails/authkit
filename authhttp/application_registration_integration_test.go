@@ -88,11 +88,11 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	cfg := newServerTestConfig() // Environment empty => dev-like (loopback allowed)
+	cfg := newServerTestConfig()
 	cfg.RBAC = []embedded.PersonaDef{{Name: "org", Parent: "root"}}
-	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}
+	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org", AllowPrivateNetworkJWKS: true}
 	client := newServerClient(t, cfg, pool)
-	s, err := NewServer(client)
+	s, err := newServer(client)
 	require.NoError(t, err)
 	core := embedded.Unwrap(client)
 	require.NoError(t, core.SeedPermissionGroupContainment(ctx))
@@ -176,7 +176,7 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	zero := time.Duration(0)
 	cfg.Naming = authkit.NamingConfig{RenameInterval: &zero}
 	cfg.RBAC = []embedded.PersonaDef{{Name: "org", Parent: "root"}}
-	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}
+	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org", AllowPrivateNetworkJWKS: true}
 	client := newServerClient(t, cfg, pool)
 	core := embedded.Unwrap(client)
 	require.NoError(t, core.SeedPermissionGroupContainment(ctx))

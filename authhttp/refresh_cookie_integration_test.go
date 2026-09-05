@@ -84,7 +84,7 @@ func bodyRefreshToken(t *testing.T, w *httptest.ResponseRecorder) string {
 // does not set MountOptions.RefreshCookie must see exactly today's behaviour.
 func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
 // login, a body-less refresh, rotation, and logout.
 func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 // a cookie is honored at all.
 func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	pool := testdb.Pool(t)
-	srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			pool := testdb.Pool(t)
-			srv, err := NewServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
+			srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
 			require.NoError(t, err)
 
 			email := uniqueEmail("cookieoidc" + tc.name)

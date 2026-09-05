@@ -78,7 +78,7 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err
 	}
-	if err := validateBootstrapManifest(manifest, s.isDevEnvironment()); err != nil {
+	if err := validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
 		return BootstrapManifestResult{}, err
 	}
 

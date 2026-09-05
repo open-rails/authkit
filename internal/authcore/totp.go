@@ -228,7 +228,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
 	// In production, require SMS to be configured
-	if !s.isDevEnvironment() {
+	if !s.cfg.Registration.AllowMissingSenders {
 		return fmt.Errorf("SMS sender not configured")
 	}
 	return nil

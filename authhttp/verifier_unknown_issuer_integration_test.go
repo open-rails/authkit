@@ -25,7 +25,7 @@ import (
 func TestVerifier_UnknownIssuerFlood_BoundedStoreLoad(t *testing.T) {
 	counter := newQueryCounter("RemoteApplicationsEnabled", "RemoteApplicationByIssuer")
 	pool := testdb.PoolWithTracer(t, counter)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "garbage-kid")
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestVerifier_NewRemoteApplicationLazyLoadsOnFirstUse(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	client := newServerClient(t, newServerTestConfig(), pool) // dev: loopback JWKS allowed
-	srv, err := NewServer(client)
+	srv, err := newServer(client)
 	require.NoError(t, err)
 	core := embedded.Unwrap(client)
 	gid, err := core.EnsureRootGroup(ctx)

@@ -61,7 +61,7 @@ func TestNewServerPrebuildsProviders(t *testing.T) {
 			},
 		},
 	}
-	s, err := NewServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
+	s, err := newServer(newServerClient(t, cfg, testdb.UnlockedPool(t)))
 	require.NoError(t, err)
 
 	github, ok := s.provider("GitHub")

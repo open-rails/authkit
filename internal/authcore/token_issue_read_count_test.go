@@ -55,7 +55,7 @@ func keyedServiceWithTracedPG(t *testing.T, tr pgx.QueryTracer) *Service {
 	t.Helper()
 	pool := testdb.PoolWithTracer(t, tr)
 	ks := testKeySource(t)
-	svc, err := NewFromConfig(Config{
+	svc, err := newFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
 			IssuedAudiences:   []string{"app"},

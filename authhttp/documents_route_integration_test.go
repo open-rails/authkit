@@ -44,7 +44,7 @@ func newDocumentsTestStack(t *testing.T, cfg embedded.Config, payload string) (*
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 	})
-	srv, err := NewServer(client, WithDocuments(docSvc))
+	srv, err := newServer(client, WithDocuments(docSvc))
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)
@@ -221,18 +221,18 @@ func TestNewServerRefusesDocumentsConfigMismatch(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 	})
-	_, err = NewServer(client, WithDocuments(docSvc))
+	_, err = newServer(client, WithDocuments(docSvc))
 	require.ErrorContains(t, err, "Readers")
 
 	// Readers without providers: dead config, refuse.
 	cfgReaders := newServerTestConfig()
 	cfgReaders.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub.example"}}}
-	_, err = NewServer(newServerClient(t, cfgReaders, pool))
+	_, err = newServer(newServerClient(t, cfgReaders, pool))
 	require.ErrorContains(t, err, "no document providers")
 
 	// Two providers for one document type: ambiguous stamping, refuse.
 	cfgDup := newServerTestConfig()
 	cfgDup.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub.example"}}}
-	_, err = NewServer(newServerClient(t, cfgDup, pool), WithDocuments(docSvc, docSvc))
+	_, err = newServer(newServerClient(t, cfgDup, pool), WithDocuments(docSvc, docSvc))
 	require.ErrorContains(t, err, "two providers")
 }

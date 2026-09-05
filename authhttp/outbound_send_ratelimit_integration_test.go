@@ -66,7 +66,7 @@ func TestOutboundSendRoutes_PerIdentifierCap(t *testing.T) {
 	cfg.Registration.Verification = embedded.RegistrationVerificationRequired
 	cfg.Registration.PasswordlessLogin = true
 	cfg.TwoFactor.Methods = []authkit.TwoFactorMethod{authkit.TwoFactorSMS}
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(&captureEmailSender{}), embedded.WithSMSSender(&captureSMSSender{})))
+	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(&captureEmailSender{}), withSMSSender(&captureSMSSender{})))
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("send-cap-user"), "sendcapuser"+uniqueSuffix()[8:])

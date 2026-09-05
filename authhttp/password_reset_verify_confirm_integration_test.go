@@ -184,8 +184,8 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	opts := append(store.engineOpts(), embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender))
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
+	opts := append(store.engineOpts(), withEmailSender(emailSender), withSMSSender(smsSender))
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	suffix := uniqueSuffix()
@@ -235,7 +235,7 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	suffix := uniqueSuffix()
@@ -294,7 +294,7 @@ func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender), withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	emailCode := uniqueEmail("verify-code")
@@ -341,7 +341,7 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender), withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	const pass = "Correct-password-12345"
@@ -392,7 +392,7 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(emailSender), withSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	const pass = "Correct-password-12345"

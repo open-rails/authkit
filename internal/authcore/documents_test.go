@@ -30,7 +30,7 @@ func TestServiceSignDocumentUsesConfiguredIssuerAndLiveKey(t *testing.T) {
 		pubs:   map[string]crypto.PublicKey{oldSigner.KID(): oldSigner.PublicKey()},
 	}
 	const issuer = "https://site-a.example"
-	service, err := NewFromConfig(Config{Token: TokenConfig{
+	service, err := newFromConfig(Config{Token: TokenConfig{
 		Issuer: issuer, IssuedAudiences: []string{"site-b"}, ExpectedAudiences: []string{"site-b"},
 	}, Keys: KeysConfig{Source: source}}, nil)
 	if err != nil {

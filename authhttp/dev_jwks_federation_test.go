@@ -41,9 +41,10 @@ func TestDevServer_LoopbackJWKSFederation(t *testing.T) {
 	require.NoError(t, err)
 	srv := newLoopbackJWKSServer(t, signer)
 
-	cfg := newServerTestConfig() // Environment empty => dev
+	cfg := newServerTestConfig()
+	cfg.Applications.AllowPrivateNetworkJWKS = true
 	client := newServerClient(t, cfg, pool)
-	s, err := NewServer(client)
+	s, err := newServer(client)
 	require.NoError(t, err)
 
 	core := embedded.Unwrap(client)
@@ -84,10 +85,10 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	srv := newLoopbackJWKSServer(t, signer)
 
 	cfg := newServerTestConfig()
-	cfg.Environment = "production"
+	cfg.Applications.AllowPrivateNetworkJWKS = false // the strict default under test
 	rdb := testdb.ScratchRedis(t)
-	client := newServerClient(t, cfg, pool, embedded.WithRedis(rdb))
-	s, err := NewServer(client, WithRedis(rdb), WithDirectPeerIP())
+	client := newServerClient(t, cfg, pool, withRedis(rdb))
+	s, err := newServer(client, WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err)
 
 	core := embedded.Unwrap(client)

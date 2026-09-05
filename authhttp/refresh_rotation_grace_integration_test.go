@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
 	// Wall-following: the rotation timestamp the window is measured against is
 	// written by Postgres, so a frozen clock would sit behind it forever.
 	clk := testclock.Wall()
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithClock(clk.Now)), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, withClock(clk.Now)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)

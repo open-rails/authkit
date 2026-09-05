@@ -78,7 +78,7 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("me-readcount")

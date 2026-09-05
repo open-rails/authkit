@@ -38,7 +38,7 @@ func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcor
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
-	coreSvc, err := authcore.NewFromConfig(authcore.Config{
+	coreSvc, err := coreFromConfig(authcore.Config{
 		Token: authcore.TokenConfig{
 			Issuer:              "https://example.com",
 			IssuedAudiences:     []string{"test-app"},

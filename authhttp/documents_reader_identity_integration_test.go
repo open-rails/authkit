@@ -93,7 +93,7 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 		t.Cleanup(func() {
 			_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 		})
-		srv, err := NewServer(client, WithDocuments(docSvc))
+		srv, err := newServer(client, WithDocuments(docSvc))
 		require.NoError(t, err)
 		h, err := MountHandler(srv, MountOptions{})
 		require.NoError(t, err)
@@ -121,6 +121,6 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 func TestNewServerRefusesAmbiguousDocumentReader(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{ID: "x", Issuer: "https://x.example"}}}
-	_, err := embedded.New(cfg, testdb.Pool(t))
+	_, err := embedded.New(cfg, embedded.Deps{Postgres: testdb.Pool(t)})
 	require.ErrorContains(t, err, "exactly one of ID, Domain, Issuer")
 }

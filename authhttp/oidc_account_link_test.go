@@ -66,7 +66,7 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
 		authcore.Keyset{},
-		embedded.WithPostgres(pool),
+		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 
@@ -99,7 +99,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
 		authcore.Keyset{},
-		embedded.WithPostgres(pool),
+		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 
@@ -135,7 +135,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	coreSvc := newCore(t,
 		embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}, Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen}},
 		authcore.Keyset{},
-		embedded.WithPostgres(pool),
+		withPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 

@@ -40,15 +40,21 @@ func newServerTestConfig() embedded.Config {
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
-		// Environment empty => dev => signing keys are auto-generated.
+		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
+		// The harness's IdPs and JWKS endpoints are loopback httptest servers.
+		Applications: embedded.ApplicationsConfig{AllowPrivateNetworkJWKS: true},
 	}
 }
 
 // newServerClient builds the embedded engine that a client-first NewServer wraps
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
-func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...embedded.Option) *embedded.Client {
+func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *embedded.Client {
 	t.Helper()
-	c, err := embedded.New(cfg, pool, engineOpts...)
+	deps := depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...)
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		cfg.Ephemeral.AllowMemory = true // the harness's memory store is deliberate
+	}
+	c, err := embedded.New(cfg, deps)
 	require.NoError(t, err)
 	return c
 }
@@ -56,12 +62,12 @@ func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engi
 // #106: Postgres is mandatory — NewServer rejects a nil client and a client built
 // without a Postgres pool (no DB needed; the check runs before any HTTP init).
 func TestNewServer_RequiresPostgres(t *testing.T) {
-	_, err := NewServer(nil)
+	_, err := newServer(nil)
 	require.Error(t, err, "NewServer must reject a nil client")
 
-	c, err := embedded.New(newServerTestConfig(), nil) // nil pg => no Postgres
+	c, err := embedded.New(newServerTestConfig(), embedded.Deps{}) // nil pg => no Postgres
 	require.NoError(t, err)
-	_, err = NewServer(c)
+	_, err = newServer(c)
 	require.Error(t, err, "NewServer must reject a client without Postgres")
 }
 
@@ -71,29 +77,29 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	pool := testdb.Pool(t)
 
 	// Option takes effect at construction.
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NotNil(t, srv.svc, "core engine wired")
 	require.Nil(t, srv.rl, "WithoutRateLimiter option must be applied at construction")
 
-	// Production without Redis fails at the ENGINE (#305): the memory ephemeral
+	// No Redis and no opt-in fails at the ENGINE (#305): the memory ephemeral
 	// store is refused before authhttp is ever reached.
 	prodCfg := newServerTestConfig()
-	prodCfg.Environment = "production"
-	_, err = embedded.New(prodCfg, pool)
-	require.Error(t, err, "production without a Redis store must fail engine construction")
+	prodCfg.Ephemeral = embedded.EphemeralConfig{}
+	_, err = embedded.New(prodCfg, embedded.Deps{Postgres: pool})
+	require.Error(t, err, "no Redis store and no opt-in must fail engine construction")
 	require.Contains(t, err.Error(), "Ephemeral.AllowMemory")
 
 	// The explicit single-instance opt-in permits memory at both layers.
 	memCfg := prodCfg
 	memCfg.Ephemeral = embedded.EphemeralConfig{AllowMemory: true}
-	memSrv, err := NewServer(newServerClient(t, memCfg, pool), WithDirectPeerIP())
-	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends outside dev")
+	memSrv, err := newServer(newServerClient(t, memCfg, pool), WithDirectPeerIP())
+	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends")
 	memSrv.Close()
 
-	// Production WITH Redis passes.
+	// Redis passes without the opt-in.
 	rdb := testdb.ScratchRedis(t)
-	_, err = NewServer(newServerClient(t, prodCfg, pool, embedded.WithRedis(rdb)), WithRedis(rdb), WithDirectPeerIP())
+	_, err = newServer(newServerClient(t, prodCfg, pool, withRedis(rdb)), WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 
@@ -109,14 +115,14 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 
 	// The call under test must return an error and must NOT panic; if it panicked
 	// the test binary would crash, so reaching require.Error already proves no panic.
-	srv, err := NewServer(client)
+	srv, err := newServer(client)
 	require.Error(t, err, "Required verification without a sender must fail construction")
 	require.Nil(t, srv)
 	require.Contains(t, err.Error(), "no email or SMS sender")
 
 	// Wiring a sender on the engine makes the same construction succeed.
-	withSender := newServerClient(t, cfg, testdb.UnlockedPool(t), embedded.WithEmailSender(testEmailSender{}))
-	srv, err = NewServer(withSender, WithoutRateLimiter())
+	withSender := newServerClient(t, cfg, testdb.UnlockedPool(t), withEmailSender(testEmailSender{}))
+	srv, err = newServer(withSender, WithoutRateLimiter())
 	require.NoError(t, err, "Required verification with a sender must construct cleanly")
 	require.NotNil(t, srv)
 }
@@ -129,20 +135,20 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
 
 	prodCfg := newServerTestConfig()
-	prodCfg.Environment = "production"
+	prodCfg.Ephemeral = embedded.EphemeralConfig{}
 
-	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
-	// (which previously only checked the HTTP side) must now pass via reuse.
-	client := newServerClient(t, prodCfg, testdb.UnlockedPool(t), embedded.WithRedis(rdb))
-	srv, err := NewServer(client, WithDirectPeerIP())
+	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Validation
+	// (which previously only checked the HTTP side) must pass via reuse.
+	client := newServerClient(t, prodCfg, testdb.UnlockedPool(t), withRedis(rdb))
+	srv, err := newServer(client, WithDirectPeerIP())
 	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")
 	require.NotNil(t, srv)
 	require.Same(t, rdb, srv.rd, "HTTP layer must reuse the engine's *redis.Client (no split-brain)")
 
 	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
 	other := testdb.ScratchRedis(t)
-	override, err := NewServer(
-		newServerClient(t, prodCfg, testdb.UnlockedPool(t), embedded.WithRedis(rdb)),
+	override, err := newServer(
+		newServerClient(t, prodCfg, testdb.UnlockedPool(t), withRedis(rdb)),
 		WithRedis(other), WithDirectPeerIP(),
 	)
 	require.NoError(t, err)
@@ -155,7 +161,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 // applies the overlay.
 func TestNewServer_RateLimitOverrides(t *testing.T) {
 	override := ratelimit.Limit{Limit: 3, Window: time.Minute}
-	srv, err := NewServer(
+	srv, err := newServer(
 		newServerClient(t, newServerTestConfig(), testdb.UnlockedPool(t)),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{RLPasswordLogin: override}),
 	)

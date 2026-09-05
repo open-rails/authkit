@@ -2,12 +2,13 @@ package authhttp
 
 import (
 	"context"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	authkit "github.com/open-rails/authkit"
 	authcore "github.com/open-rails/authkit/internal/authcore"

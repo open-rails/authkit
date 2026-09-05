@@ -150,12 +150,14 @@ accessors (`Postgres`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
 interface (§9), so code that genuinely needs them — and only that code — holds the concrete
 `*embedded.Client`.
 
-**Constructors & options** (`embedded`; `Config`/`Option` are aliases to the internal
-service types; the flat `Options`/`Keyset` aliases were removed in #237 — one config type):
+**Constructors** (`embedded`; `Config`/`Deps` are aliases to the internal service types —
+one config type, one dependency type, no functional options; #314):
 ```
-func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error)
-type Option ; WithRedis, WithEmailSender, WithEntitlements,
-  WithPostgres, WithSMSSender, WithSessionRevokeReason
+func New(cfg Config, deps Deps) (*Client, error)
+type Deps struct { Postgres; Redis; EphemeralStore; Email; SMS; Entitlements;
+  DelegatedAuthorization; ApplicationAdmission; InstanceAdmission; NameAdmission;
+  SolanaSNSResolver; OutboundHTTP; Clock }
+Context helpers: WithSessionRevokeReason, WithResolvedGroup
 (#245 BREAKING: WithClickHouse removed — session-event history is Postgres-backed
 and always on; see §7.1/§7.3.)
 ```
@@ -378,7 +380,7 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 - **`ratelimit`**: `Result`, `Reason*` consts, `Limit` (the single hoisted limit type, #188),
   `LookupLimit`, `Remaining`. The memory/redis limiter BACKENDS, the memory/redis ephemeral
   STORES, and the `siws` protocol package moved behind `internal/` (#202) — consumers only ever
-  reached them through `embedded.WithRedis`/`authhttp.WithRedis`/internal wiring, never by name.
+  reached them through `embedded.Deps.Redis`/`authhttp.Config.Redis`/internal wiring, never by name.
 - **`authkitgin`**: the gin-native `Required`/`Optional` middleware (#209), `Use`,
   `Fallback` (NoRoute-safe mount bridge), `Principal`, `UserClaims`, `RequirePermission`.
   (#250 BREAKING: the `Register*` route-registration surface and the `authkitchi`
@@ -400,15 +402,14 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 
 `authhttp` is the integration entry point. Covered:
 ```
-type Service; NewServer(client *embedded.Client, opts ...Option) (*Service, error)
-One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client, error)
-  builds engine + transport in one call; engine deps ride in via WithEngine(...embedded.Option)
-  (valid ONLY with New — NewServer errors on it so the two-step path can't silently drop them)
-  (the host builds the *embedded.Client via embedded.New(cfg, pg, …) and uses it directly
+type Service; New(client *embedded.Client, cfg Config) (*Service, error)
+  (the host builds the *embedded.Client via embedded.New(cfg, deps) and uses it directly
    as the authkit.Client surface — there is no svc.Core() accessor; the former
-   `Server = Service` alias was removed pre-1.0, #206)
-Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
-  WithCloudflareProxies, WithDirectPeerIP, WithClientIPFunc, WithLanguageConfig
+   `Server = Service` alias and the one-step New/WithEngine were removed pre-1.0, #206/#314)
+type Config struct { Redis; RateLimits; Limiter; DisableRateLimiting; TrustedProxies;
+  CloudflareProxies; DirectPeerIP; ClientIP; Languages LanguageConfig; Documents }
+  Config.Validate(): parseable proxy CIDRs, one rate-limit choice, and a REQUIRED
+  client-IP posture (TrustedProxies / CloudflareProxies / DirectPeerIP / ClientIP)
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
   MountHandler anchors the MFA-enrollment exempt routes at its APIPrefix and the verifier
   matches them exactly; the suffix match covers only verifiers that never mounted (ak#324).
@@ -745,7 +746,7 @@ When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
 2. **Dev-gen** — auto-generates an in-memory keypair (written to
    `<Keys.Path>/keys.json` only when `Keys.Path` is explicit), ONLY with the
    explicit `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
-   The opt-in is deliberately independent of `Environment`.
+   The opt-in is an explicit field, never inferred.
 
 Hosts with in-memory key material pass an explicit `Keys.Source`
 (`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The `cmd/authkit-server`
@@ -772,7 +773,9 @@ an optional field with a backward-compatible zero-value default is MINOR.
   frontends read `location.hash`, never the query (ak#324).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
   default `none`), `NativeUserMode` (`open` default; non-open disables public signup),
-  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false).
+  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false),
+  `AllowMissingSenders` (default false: a flow that needs an unwired email/SMS sender
+  is an error; true lets it proceed undelivered — dev rigs only).
   The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.
 - **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
   `ErrMissingSigner`, verification/JWKS still work), `AllowEphemeralDevKeys` (default
@@ -790,13 +793,15 @@ an optional field with a backward-compatible zero-value default is MINOR.
   must equal `RPID` or be a subdomain of it), `UserVerification` (`preferred` default |
   `required` | `discouraged`). Requires a valid `Frontend.BaseURL` origin to be usable.
 - **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
-- **Top-level**: `Environment` (single classifier `IsDevEnvironment`, #231: only
-  `dev`/`development`/`local`/`test`/empty are dev; everything else — incl. `staging` —
-  is prod-like/fail-closed), `Schema`, `SolanaNetwork`, `SessionEventRetention`
+- **Top-level**: `Schema`, `SolanaNetwork` (empty ⇒ mainnet), `SessionEventRetention`
   (session-event history retention, #245: 0 ⇒ default 365 days; negative ⇒ keep forever).
+  There is no `Environment` (#314): every formerly env-gated behaviour is an explicit
+  field with the safe default — `Keys.AllowEphemeralDevKeys`, `Ephemeral.AllowMemory`,
+  `Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`, and the
+  mandatory `authhttp` client-IP posture.
 
-The constructor-injected dependencies (`WithPostgres`/`WithRedis`/`WithEmailSender`/
-`WithSMSSender`/`WithEntitlements`/…) are covered as Plane A options.
+The constructor-injected dependencies (`embedded.Deps`: `Postgres`/`Redis`/`Email`/
+`SMS`/`Entitlements`/…) are covered as Plane A.
 
 ### 7.4 Fixed policy constants (covered)
 

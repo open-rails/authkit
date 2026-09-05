@@ -38,10 +38,10 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := NewServer(newServerClient(t, cfg, pool))
+	svc, err := newServer(newServerClient(t, cfg, pool))
 	require.NoError(t, err)
 
-	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}}, authcore.Keyset{}, embedded.WithPostgres(pool))
+	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}}, authcore.Keyset{}, withPostgres(pool))
 	const email = "legacy-reset-required-http@example.com"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")
