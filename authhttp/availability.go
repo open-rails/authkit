@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	ActionUpdateUsername       = "update_username"
-	ActionRequestPasswordReset = "request_password_reset"
-	ActionRequestVerification  = "request_verification"
+	ActionUpdateUsername       = authkit.ActionUpdateUsername
+	ActionRequestPasswordReset = authkit.ActionRequestPasswordReset
+	ActionRequestVerification  = authkit.ActionRequestVerification
 )
 
 type ActionAvailability = authkit.ActionAvailability

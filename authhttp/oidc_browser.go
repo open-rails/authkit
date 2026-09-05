@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,23 +11,10 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
 )
-
-// errProviderLinkFailed signals that the load-bearing provider-link write failed
-// during a callback. We fail the callback (rather than reporting success with
-// no persisted link) so the next login can't diverge into a duplicate account
-// or a link-required dead-end. See authkit #90 (AK-IMPL-2c).
-var errProviderLinkFailed = errors.New("provider_link_failed")
-
-// errAccountExistsLinkRequired signals that a provider identity is not yet
-// linked but its asserted email already belongs to a local account. We refuse
-// to silently link by email (the C-2 account-takeover vector); the user must
-// sign in and link the provider via the authenticated /oidc/link/start flow.
-var errAccountExistsLinkRequired = errors.New("account_exists_link_required")
 
 // flowStart is what a browser flow start records beyond the state machine's
 // own state/nonce/PKCE values.
@@ -199,162 +185,47 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	userID, created, err := s.resolveProviderUser(r, p, sd, identity)
+	out, err := s.svc.CompleteExternalLogin(r.Context(), authcore.ExternalLoginInput{
+		Identity: authcore.ExternalIdentity{
+			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
+			Email: identity.Email, EmailVerified: identity.EmailVerified,
+			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
+		},
+		LinkUserID: sd.LinkUserID, AccountInviteToken: sd.AccountInviteToken,
+		Event: "oidc_login", UserAgent: r.UserAgent(), IP: remoteIP(r),
+	})
 	if err != nil {
 		switch {
 		case errors.Is(err, authkit.ErrProviderAlreadyLinked):
 			s.failBrowserFlow(w, r, &sd, name, http.StatusConflict, ErrProviderAlreadyLinked)
 		case errors.Is(err, authkit.ErrProviderChangeRequiresUnlink):
 			s.failBrowserFlow(w, r, &sd, name, http.StatusConflict, ErrProviderChangeRequiresUnlink)
-		case errors.Is(err, errAccountExistsLinkRequired):
+		case errors.Is(err, authkit.ErrAccountExistsLinkRequired):
 			s.accountExistsLinkRequired(w, r, &sd, name)
 		case errors.Is(err, authkit.ErrRegistrationDisabled):
 			s.failBrowserFlow(w, r, &sd, name, http.StatusForbidden, ErrRegistrationDisabled)
-		case errors.Is(err, errProviderLinkFailed):
+		case errors.Is(err, authkit.ErrProviderLinkFailed):
 			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrProviderLinkFailed)
+		case errors.Is(err, authkit.ErrUserBanned):
+			s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, ErrUserBanned)
+		case errors.Is(err, authkit.ErrSessionIssueFailed):
+			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrSessionIssueFailed)
 		default:
 			s.failBrowserFlow(w, r, &sd, name, http.StatusInternalServerError, ErrUserCreationFailed)
 		}
 		return
 	}
-	s.finishBrowserLogin(w, r, userID, name, "oidc_login", created, sd)
-}
-
-// resolveProviderUser maps a verified provider identity to a local user: the
-// explicit link target, the already-linked account, or a newly registered one.
-func (s *Service) resolveProviderUser(r *http.Request, p authprovider.Provider, sd oidckit.StateData, identity authprovider.Identity) (string, bool, error) {
-	ctx := r.Context()
-	issuer, name := p.Issuer(), p.Name()
-	var emailPtr *string
-	if e := strings.TrimSpace(identity.Email); e != "" {
-		emailPtr = &e
-	}
-	setUsername := func(userID, note string) {
-		if strings.TrimSpace(identity.PreferredUsername) == "" {
-			return
-		}
-		if err := s.svc.SetProviderUsername(ctx, userID, issuer, identity.Subject, identity.PreferredUsername); err != nil {
-			stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); %s: %v", userID, issuer, note, err)
-		}
-	}
-
-	if sd.LinkUserID != "" {
-		if uid0, _, err := s.svc.GetProviderLinkByIssuer(ctx, issuer, identity.Subject); err == nil && uid0 != "" && uid0 != sd.LinkUserID {
-			return "", false, authkit.ErrProviderAlreadyLinked
-		}
-		// The provider link is the load-bearing write: if it fails we must NOT
-		// report success, or the next login won't find the link and will diverge
-		// (duplicate account / link-required dead-end).
-		if err := s.svc.LinkProviderByIssuer(ctx, sd.LinkUserID, issuer, name, identity.Subject, emailPtr); err != nil {
-			if errors.Is(err, authkit.ErrProviderAlreadyLinked) || errors.Is(err, authkit.ErrProviderChangeRequiresUnlink) {
-				return "", false, err
-			}
-			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing OIDC callback: %v", sd.LinkUserID, issuer, err)
-			return "", false, fmt.Errorf("%w: %w", errProviderLinkFailed, err)
-		}
-		setUsername(sd.LinkUserID, "link succeeded, username not updated")
-		return sd.LinkUserID, false, nil
-	}
-	if uid, _, err := s.svc.GetProviderLinkByIssuer(ctx, issuer, identity.Subject); err == nil && uid != "" {
-		setUsername(uid, "login succeeded, username not updated")
-		return uid, false, nil
-	}
-
-	// Trust the IdP's email only when it is explicitly verified; an absent or
-	// false claim binds no address (defense in depth, ak#284).
-	accountEmail := ""
-	if identity.EmailVerified {
-		accountEmail = strings.TrimSpace(identity.Email)
-	}
-	// SECURITY (C-2): never silently link a fresh provider identity to a
-	// pre-existing local account by matching its asserted email. An IdP that
-	// asserts (or lies about) a victim's email would otherwise take over the
-	// victim's account with no proof the caller controls it. If a local account
-	// already owns this email, refuse and require the user to sign in and link
-	// the provider via the authenticated /oidc/link/start flow.
-	if accountEmail != "" {
-		if u, err := s.svc.GetUserByEmail(ctx, accountEmail); err == nil && u != nil {
-			return "", false, errAccountExistsLinkRequired
-		}
-	}
-	// No existing account for this provider identity or email. Auto-creating a
-	// new account is a public registration path. InviteOnly requires an unbound
-	// account invite token carried from flow start.
-	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
-		allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(ctx, accountEmail, sd.AccountInviteToken)
-		if err != nil {
-			return "", false, err
-		}
-		if !allowed {
-			return "", false, authkit.ErrRegistrationDisabled
-		}
-	} else if s.publicRegistrationDisabled() {
-		return "", false, authkit.ErrRegistrationDisabled
-	}
-	username := s.svc.DeriveUsernameForOAuth(ctx, name, identity.PreferredUsername, accountEmail, identity.DisplayName)
-	u, err := s.svc.CreateUser(ctx, accountEmail, username)
-	if err != nil || u == nil {
-		return "", false, errors.New("user_creation_failed")
-	}
-	// Link is load-bearing (see branch above). On failure, fail the callback
-	// rather than leaving the just-created user unlinked and reporting success.
-	// NOTE: without a create+link transaction a failure here leaves an orphan
-	// user row (no provider link); logged CRITICAL for cleanup.
-	if err := s.svc.LinkProviderByIssuer(ctx, u.ID, issuer, name, identity.Subject, emailPtr); err != nil {
-		stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing OIDC callback — manual cleanup may be required: %v", u.ID, issuer, identity.Subject, err)
-		return "", false, fmt.Errorf("%w: %w", errProviderLinkFailed, err)
-	}
-	if accountEmail != "" {
-		if err := s.svc.MarkEmailVerified(ctx, u.ID); err != nil {
-			stdlog.Printf("[authkit/security] warning: MarkEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
-		}
-	}
-	if err := s.svc.ConsumeAccountRegistrationInvite(ctx, accountEmail, u.ID, sd.AccountInviteToken); err != nil {
-		return "", false, err
-	}
-	setUsername(u.ID, "cosmetic")
-	return u.ID, true, nil
-}
-
-// finishBrowserLogin is the shared post-resolve tail of the browser callback:
-// issue session + access token (with the same 2FA-enrollment / banned /
-// failure handling), log the session, send a welcome on first creation, and
-// emit the result as a popup postMessage, a JSON body, or a fragment redirect.
-func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName, sessionEvent string, created bool, sd oidckit.StateData) {
-	extra := map[string]any{"provider": providerName}
-	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
-	if err != nil {
-		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
-			s.browser2FAEnrollmentRequired(w, r, userID, providerName, sd)
-			return
-		}
-		if errors.Is(err, authkit.ErrUserBanned) {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusUnauthorized, ErrUserBanned)
-			return
-		}
-		s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrSessionIssueFailed)
+	if out.Kind == authcore.ExternalTwoFAEnrollmentRequired {
+		s.browser2FAEnrollmentRequired(w, r, out.UserID, name, sd)
 		return
 	}
-	extra["sid"] = sid
-	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, extra)
-	if err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusUnauthorized, ErrUserBanned)
-			return
-		}
-		s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrTokenIssueFailed)
-		return
-	}
+	s.emitBrowserLogin(w, r, out.UserID, name, *out.Session, sd)
+}
 
-	ua := r.UserAgent()
-	ip := remoteIP(r)
-	uaPtr, ipPtr := &ua, &ip
-	s.svc.LogSessionCreated(r.Context(), userID, sessionEvent, sid, ipPtr, uaPtr)
-
-	if created {
-		s.svc.SendWelcome(r.Context(), userID)
-	}
-
+// emitBrowserLogin hands the browser its session as a popup postMessage, a
+// JSON body, or a fragment redirect — the transport half of the callback.
+func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authcore.IssuedSession, sd oidckit.StateData) {
+	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
 	// ak#271: the popup document and the fragment redirect both hand the
 	// browser its tokens in script-readable form by design. The ACCESS token
 	// has to stay there — it is short-lived and the SPA builds the
@@ -382,7 +253,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
-	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
+	if wantsJSONResponse(r) {
 		// Provider email is descriptive metadata; return the account's own
 		// nullable address, including on an explicit provider-link callback.
 		user, err := s.svc.AdminGetUser(r.Context(), userID)

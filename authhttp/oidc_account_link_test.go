@@ -9,11 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/oidckit"
 )
 
 // C-2: AuthKit must never silently link a fresh OIDC/OAuth2 identity to a
@@ -58,7 +58,7 @@ func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
 }
 
 // The core takeover assertion: when a local account already owns the asserted
-// email, resolveOAuthUser refuses (errAccountExistsLinkRequired) and creates NO
+// email, resolveOAuthUser refuses (authkit.ErrAccountExistsLinkRequired) and creates NO
 // link to the attacker's provider identity.
 func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	pool := testdb.UnlockedPool(t)
@@ -81,8 +81,8 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	// email — the strongest version of the attack.
 	info := authprovider.Identity{Subject: "attacker-subject", Email: email, EmailVerified: true}
 
-	uid, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
-	require.ErrorIs(t, err, errAccountExistsLinkRequired)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
+	require.ErrorIs(t, err, authkit.ErrAccountExistsLinkRequired)
 	require.Empty(t, uid)
 	require.False(t, created)
 
@@ -114,10 +114,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 
 	// Authenticated link flow: the owner is signed in (LinkUserID) and chooses to
 	// link the provider. This is allowed and binds to the owner's own account.
-	uid, created, err := s.resolveProviderUser(
-		httptest.NewRequest(http.MethodGet, "/", nil), cfg,
-		oidckit.StateData{LinkUserID: owner.ID}, info,
-	)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info), LinkUserID: owner.ID})
 	require.NoError(t, err)
 	require.Equal(t, owner.ID, uid)
 	require.False(t, created)
@@ -146,7 +143,7 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	cfg := authprovider.GitHub("github-client", "github-secret")
 	info := authprovider.Identity{Subject: "fresh-subject", Email: email, EmailVerified: false}
 
-	uid, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(cfg, info)})
 	require.NoError(t, err)
 	require.NotEmpty(t, uid)
 	require.True(t, created)

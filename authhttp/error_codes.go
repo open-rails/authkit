@@ -133,9 +133,6 @@ const (
 	// ErrEmailInUse is the email_in_use AuthKit HTTP wire error code.
 	ErrEmailInUse ErrorCode = "email_in_use"
 
-	// ErrEmailNotVerified is the email_not_verified AuthKit HTTP wire error code.
-	ErrEmailNotVerified ErrorCode = "email_not_verified"
-
 	// ErrEmailPasswordResetUnavailable is the email_password_reset_unavailable AuthKit HTTP wire error code.
 	ErrEmailPasswordResetUnavailable ErrorCode = "email_password_reset_unavailable"
 
@@ -374,9 +371,6 @@ const (
 
 	// ErrPhoneInUse is the phone_in_use AuthKit HTTP wire error code.
 	ErrPhoneInUse ErrorCode = "phone_in_use"
-
-	// ErrPhoneNotVerified is the phone_not_verified AuthKit HTTP wire error code.
-	ErrPhoneNotVerified ErrorCode = "phone_not_verified"
 
 	// ErrPhoneNumberMustBeE164 is the phone_number_must_be_e164 AuthKit HTTP wire error code.
 	ErrPhoneNumberMustBeE164 ErrorCode = "phone_number_must_be_e164"

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -79,7 +78,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(body.Method))
-	if method != "" && !validTwoFactorStepUpMethod(method) {
+	if method != "" && !authcore.ValidTwoFactorStepUpMethod(method) {
 		badRequest(w, ErrInvalidMethod)
 		return
 	}
@@ -99,7 +98,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		}
 		sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 			"method":          method,
-			"verification_id": obfuscateVerificationID(destination),
+			"verification_id": authcore.MaskDestination(destination),
 		})
 		return
 	}
@@ -286,140 +285,26 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 	}
 	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
 	providerSlugs, _ := s.svc.ProviderSlugs(r.Context(), userID)
-	return s.stepUpMethodsWith(hasPassword, settings, providerSlugs), nil
+	return authcore.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
 }
 
-// stepUpMethodsWith builds the step-up method list from ALREADY-loaded inputs
-// (#228): the caller passes the user's HasPassword flag, their loaded 2FA
-// settings, and their provider slugs, so a caller that already read them — GET
-// /me — does not re-read any of them. providerSlugs may be the non-distinct,
-// unordered UserProviderSlugs list; this de-duplicates and sorts it to reproduce
-// the DISTINCT ... ORDER BY provider_slug the standalone query applied, so the
-// resulting method order is identical.
-func (s *Service) stepUpMethodsWith(hasPassword bool, settings *authcore.TwoFactorSettings, providerSlugs []string) []string {
-	methods := []string{}
-	if hasPassword {
-		methods = append(methods, "password")
-	}
-	if settings != nil && settings.Enabled {
-		methods = append(methods, "2fa")
-	}
-	seen := make(map[string]struct{}, len(providerSlugs))
-	distinct := make([]string, 0, len(providerSlugs))
-	for _, provider := range providerSlugs {
-		if _, dup := seen[provider]; dup {
-			continue
-		}
-		seen[provider] = struct{}{}
-		distinct = append(distinct, provider)
-	}
-	sort.Strings(distinct)
-	for _, provider := range distinct {
-		if p, ok := s.provider(provider); ok && p.SupportsStepUp() {
-			methods = append(methods, provider)
-		}
-	}
-	return methods
-}
-
-type stepUpTwoFactorOptionsResponse = authkit.StepUpTwoFactorOptions
-
-type stepUpTwoFactorOptionResponse = authkit.StepUpTwoFactorOption
-
-func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *stepUpTwoFactorOptionsResponse {
+func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authkit.StepUpTwoFactorOptions {
 	settings, err := s.svc.Get2FASettings(r.Context(), userID)
 	if err != nil {
 		return nil
 	}
-	// Email destination is fetched lazily — only when an enabled email factor
-	// actually needs it — so users without an email factor incur no user lookup.
-	return s.stepUpTwoFactorOptionsWith(settings, func() string {
-		if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
-			return *user.Email
-		}
-		return ""
-	})
-}
-
-// stepUpTwoFactorOptionsWith builds the 2FA step-up options from ALREADY-loaded
-// 2FA settings (#228), instead of re-reading them AND re-fetching the user for
-// their email as the standalone path did. emailDestinationFor lazily supplies the
-// email used to obfuscate an email factor's verification_id, and is invoked ONLY
-// when an enabled email factor is present — so a caller that already holds the
-// email (GET /me) passes a closure that returns it with zero extra queries, while
-// callers without it fall back to a user lookup only when it is actually needed.
-func (s *Service) stepUpTwoFactorOptionsWith(settings *authcore.TwoFactorSettings, emailDestinationFor func() string) *stepUpTwoFactorOptionsResponse {
-	if settings == nil || !settings.Enabled {
-		return nil
-	}
-	factors := settings.Factors
-	if len(factors) == 0 && strings.TrimSpace(settings.Method) != "" {
-		factors = []embedded.TwoFactorFactor{{
-			Method:      strings.TrimSpace(settings.Method),
-			PhoneNumber: settings.PhoneNumber,
-			IsDefault:   true,
-			Enabled:     true,
-		}}
-	}
-	if len(factors) == 0 {
-		return nil
-	}
-
-	emailDestination := ""
-	var needsEmail bool
-	for _, factor := range factors {
+	// The email destination is fetched only when an enabled email factor needs
+	// it, so users without one incur no user lookup.
+	email := ""
+	for _, factor := range settings.Factors {
 		if factor.Enabled && strings.EqualFold(factor.Method, "email") {
-			needsEmail = true
+			if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
+				email = *user.Email
+			}
 			break
 		}
 	}
-	if needsEmail && emailDestinationFor != nil {
-		emailDestination = emailDestinationFor()
-	}
-
-	out := &stepUpTwoFactorOptionsResponse{}
-	for _, factor := range factors {
-		method := strings.ToLower(strings.TrimSpace(factor.Method))
-		if !factor.Enabled || !validTwoFactorStepUpMethod(method) {
-			continue
-		}
-		option := stepUpTwoFactorOptionResponse{
-			Method:    method,
-			IsDefault: factor.IsDefault,
-		}
-		switch method {
-		case "email":
-			if emailDestination != "" {
-				option.VerificationID = obfuscateVerificationID(emailDestination)
-			}
-		case "sms":
-			if factor.PhoneNumber != nil {
-				option.VerificationID = obfuscateVerificationID(*factor.PhoneNumber)
-			}
-		}
-		out.Methods = append(out.Methods, method)
-		out.Options = append(out.Options, option)
-		if factor.IsDefault {
-			out.DefaultMethod = method
-		}
-	}
-	if len(out.Methods) == 0 {
-		return nil
-	}
-	if out.DefaultMethod == "" {
-		out.DefaultMethod = out.Methods[0]
-		out.Options[0].IsDefault = true
-	}
-	return out
-}
-
-func validTwoFactorStepUpMethod(method string) bool {
-	switch strings.ToLower(strings.TrimSpace(method)) {
-	case "email", "sms", "totp":
-		return true
-	default:
-		return false
-	}
+	return authcore.StepUpTwoFactorOptions(settings, email)
 }
 
 func sessionFreshnessResponse(f embedded.SessionFreshness) map[string]any {
@@ -434,13 +319,6 @@ func sessionFreshnessResponse(f embedded.SessionFreshness) map[string]any {
 		out["auth_methods"] = f.AuthMethods
 	}
 	return out
-}
-
-func obfuscateVerificationID(value string) string {
-	if len(value) <= 5 {
-		return value
-	}
-	return strings.Repeat("*", len(value)-5) + value[len(value)-5:]
 }
 
 func sanitizeReturnTo(value string) string {

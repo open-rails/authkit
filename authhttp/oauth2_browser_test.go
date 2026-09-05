@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"context"
 	"crypto"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,6 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,13 +37,22 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 	return &Service{svc: coreSvc, verifier: ver}
 }
 
+// externalIdentity is the engine's view of a provider identity, as the
+// callback builds it before CompleteExternalLogin.
+func externalIdentity(p authprovider.Provider, id authprovider.Identity) authcore.ExternalIdentity {
+	return authcore.ExternalIdentity{
+		Provider: p.Name(), Issuer: p.Issuer(), Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified,
+		PreferredUsername: id.PreferredUsername, DisplayName: id.DisplayName,
+	}
+}
+
 // Auto-create (a public-registration path) is blocked when native-user
 // registration is disabled. No DB: the disabled gate fires after the (empty)
 // provider-link + email lookups.
 func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	identity := authprovider.Identity{Subject: "brand-new-subject", Email: "newuser@example.com", EmailVerified: true}
-	_, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), authprovider.GitHub("github-client", "github-secret"), oidckit.StateData{}, identity)
+	_, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity)})
 	require.ErrorIs(t, err, authkit.ErrRegistrationDisabled)
 	require.False(t, created)
 }
@@ -53,7 +62,7 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	identity := authprovider.Identity{Subject: "linked-subject", Email: "linked@example.com"}
-	uid, created, err := s.resolveProviderUser(httptest.NewRequest(http.MethodGet, "/", nil), authprovider.GitHub("github-client", "github-secret"), oidckit.StateData{LinkUserID: "user-123"}, identity)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), authcore.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity), LinkUserID: "user-123"})
 	require.NoError(t, err)
 	require.Equal(t, "user-123", uid)
 	require.False(t, created)
