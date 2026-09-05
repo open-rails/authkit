@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/authprovider"
 )
 
 func randB64(n int) string {
@@ -93,7 +95,7 @@ func stateCookieName(state string) string {
 // provider (Apple) returns a cross-site POST, which browsers do not attach Lax
 // cookies to, so only those providers get SameSite=None; Secure (#295) —
 // NewServer refuses form_post on non-HTTPS deployments.
-func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, provider, state string) {
+func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
 	c := &http.Cookie{
 		Name:     stateCookieName(state),
 		Value:    state,
@@ -103,7 +105,7 @@ func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, provide
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	}
-	if cfg, ok := s.authProvider(provider); ok && cfg.ResponseModeFormPost() {
+	if p.ResponseModeFormPost() {
 		c.SameSite = http.SameSiteNoneMode
 		c.Secure = true
 	}

@@ -29,6 +29,7 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/token":
+			w.Header().Set("Content-Type", "application/json")
 			require.Equal(t, http.MethodPost, r.Method)
 			require.NoError(t, r.ParseForm())
 			require.Equal(t, "authorization_code", r.Form.Get("grant_type"))
@@ -56,35 +57,7 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 	}))
 	t.Cleanup(provider.Close)
 
-	srv.authProvidersByName = map[string]authprovider.Provider{
-		"example-oauth": {
-			Name:         "example-oauth",
-			Kind:         authprovider.KindOAuth2,
-			Issuer:       provider.URL,
-			ClientID:     "oauth-client",
-			ClientSecret: authprovider.ClientSecret{Value: "oauth-secret"},
-			Scopes:       []string{"profile", "email"},
-			AuthorizeURL: provider.URL + "/authorize",
-			TokenURL:     provider.URL + "/token",
-			UserInfoURL:  provider.URL + "/me",
-			IdentityMapper: func(root any) (authprovider.Identity, error) {
-				m, _ := root.(map[string]any)
-				id, _ := m["id"].(string)
-				email, _ := m["email"].(string)
-				verified, _ := m["email_verified"].(bool)
-				login, _ := m["login"].(string)
-				name, _ := m["name"].(string)
-				return authprovider.Identity{
-					Subject:           id,
-					Email:             email,
-					EmailVerified:     verified,
-					PreferredUsername: login,
-					DisplayName:       name,
-				}, nil
-			},
-		},
-	}
-	srv.resetOIDCManagerForTest()
+	setTestProviders(srv, testOAuth2Provider("example-oauth", provider.URL, "oauth-client", "oauth-secret", authprovider.WithScopes("profile", "email")))
 	h := srv.oidcHandler()
 
 	start := httptest.NewRecorder()

@@ -97,8 +97,8 @@ appears in consumer code. Renaming either is breaking.
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
 | `…/documents` | `documents` | Stable | Generic immutable signed-document envelopes, references, verification, authenticated publication, and resolution |
 | `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
-| `…/authprovider` | `authprovider` | Stable | Provider descriptors / claim mapping |
-| `…/oidckit` | `oidckit` | Stable | OIDC RP client manager |
+| `…/authprovider` | `authprovider` | Stable | Identity providers (interface + built-ins) |
+| `…/oidckit` | `oidckit` | Stable | Browser-flow state (StateCache/StateData/PKCE) |
 | `…/password` | `password` | Stable | argon2id/bcrypt hash + verify |
 | `…/lang` | `lang` | Stable | Language context helpers |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
@@ -358,13 +358,15 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   (`AccessTokenType="access+jwt"`, …); `DefaultAuthKeysPath="/vault/auth"`;
   `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `ErrUnsupportedJWK`.
   **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
-- **`authprovider`**: `Provider` (OAuth2 providers extract identity via the
-  `IdentityMapper func(any) (Identity, error)` field; OIDC providers read standard
-  ID-token claims), `Kind` (`KindOIDC`/`KindOAuth2`), `ClientSecret`,
-  `AppleJWTSecret`, `Identity`, `BuiltIn`, `Clone`, `ErrClientSecretEnvEmpty`.
-- **`oidckit`**: `Manager` (+`NewManager*`), `RPClient`, `RPConfig`, `Claims`,
-  `StateCache`, `StateData`, `AppleSecretConfig`,
-  `NewAppleClientSecretProvider`, `GeneratePKCE`, `DefaultExchanger`, TTL consts.
+- **`authprovider`**: `Provider` interface (`Name`, `DisplayName`, `Issuer`, `PKCE`,
+  `ResponseModeFormPost`, `SupportsStepUp`, `AuthCodeURL`, `Exchange`, `Validate`),
+  `Identity`, `AuthRequest`, `ExchangeRequest`; constructors `Google`, `Apple(clientID,
+  AppleSecret)`, `Discord`, `GitHub`, `OIDC(name, issuer, clientID, secret, opts...)`,
+  `OAuth2(name, issuer, Endpoint, clientID, secret, UserInfoFunc, opts...)`; `Secret`
+  (`StaticSecret`, `SecretFunc`), `Option`s (`WithScopes`, `WithDisplayName`, `WithSecret`,
+  `WithPKCE`, `WithHTTPClient`, `WithAuthParams`), `GetJSON`, `IdentityID`,
+  `ErrProviderInvalid`, `ErrProviderNonHTTPSURL`.
+- **`oidckit`**: `StateCache`, `StateData`, `GeneratePKCE`.
 - **`password`**: `HashArgon2id`, `VerifyArgon2id`, `VerifyBcrypt`, `IsBcryptHash`,
   `Validate`, `Params`, `DefaultParams`. **Accepted hash formats (argon2id, bcrypt) are a
   covered whitelist** — see [§6.7](#67-password-hash-policy).
@@ -499,7 +501,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/step-up/password` | user | required |
 | POST | `/step-up/2fa` | user | required |
 | POST | `/oidc/{provider}/link/start` | user | required |
-| POST | `/oidc/{provider}/step-up/start` (`KindOIDC` providers only; OAuth2 kinds answer `invalid_method`) | user | required |
+| POST | `/oidc/{provider}/step-up/start` (providers whose `SupportsStepUp` is true — OIDC; OAuth2 providers answer `invalid_method`) | user | required |
 | GET | `/user/2fa` | user | required |
 | POST | `/user/2fa` | user | required |
 | DELETE | `/user/2fa` | user | required |
@@ -770,8 +772,7 @@ an optional field with a backward-compatible zero-value default is MINOR.
 - **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
   `ErrMissingSigner`, verification/JWKS still work), `AllowEphemeralDevKeys` (default
   false ⇒ no keys is a hard construction error; dev-only opt-in, #231).
-- **`Identity`** `IdentityConfig`: `Providers` (`map[string]oidckit.RPConfig`),
-  `ProviderDescriptors` (`map[string]authprovider.Provider`).
+- **`Identity`** `IdentityConfig`: `Providers` (`[]authprovider.Provider`).
 - **`APIKeys`** `APIKeysConfig`: `Prefix` (lowercase alnum 1–16; empty ⇒ bare `st_`),
   `MaxTTL` (0 ⇒ uncapped).
 - **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 raw bytes; an OVERRIDE —

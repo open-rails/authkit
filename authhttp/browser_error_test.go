@@ -25,11 +25,10 @@ func newBrowserErrorTestService(t *testing.T) (*Service, http.Handler) {
 	t.Helper()
 	s := newTestService(t)
 	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+	s.providers, err = providerRegistry([]authprovider.Provider{
 		authprovider.GitHub("github-client", "github-secret"),
 	})
 	require.NoError(t, err)
-	s.resetOIDCManagerForTest()
 	return s, s.oidcHandler()
 }
 
@@ -229,7 +228,7 @@ func TestBrowserLoginStart_UnknownProvider_RedirectsToFrontendError(t *testing.T
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/oidc/nope/login", nil))
 
 	fragment := parseErrorFragment(t, w)
-	require.Equal(t, "oidc_begin_failed", fragment.Get("error"))
+	require.Equal(t, "unknown_provider", fragment.Get("error"))
 	require.Equal(t, "nope", fragment.Get("provider"))
 }
 

@@ -1,22 +1,6 @@
 package authhttp
 
-import (
-	"strings"
-
-	"github.com/open-rails/authkit/oidckit"
-)
-
-type oidcConfig struct {
-	Manager    *oidckit.Manager
-	StateCache oidckit.StateCache
-}
-
-func (s *Service) oidcCfg() oidcConfig {
-	return oidcConfig{
-		Manager:    s.oidcManager(),
-		StateCache: s.stateCache(),
-	}
-}
+import "strings"
 
 func joinRoutePath(prefix, path string) string {
 	prefix = "/" + strings.Trim(strings.TrimSpace(prefix), "/")

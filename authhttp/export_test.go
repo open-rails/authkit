@@ -3,7 +3,6 @@ package authhttp
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 
 	"github.com/open-rails/authkit/verify"
 )
@@ -25,13 +24,6 @@ func (s *Service) oidcHandler() http.Handler {
 		mux.Handle(route.Method+" "+joinRoutePath(DefaultOIDCPath, route.Path), route.Handler)
 	}
 	return mux
-}
-
-// resetOIDCManagerForTest clears the lazy OIDC manager so a test can mutate
-// providers after New.
-func (s *Service) resetOIDCManagerForTest() {
-	s.oidcMgrOnce = sync.Once{}
-	s.oidcMgr = nil
 }
 
 // serveWithClaims serves h with cl (when non-nil) pre-attached to the request

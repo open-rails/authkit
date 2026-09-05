@@ -28,7 +28,7 @@ type providerTestIdentity struct {
 	Nonce    string `json:"nonce"`
 }
 
-func newSecurityTestProvider(t *testing.T, srv *Service, kind authprovider.Kind) authprovider.Provider {
+func newSecurityTestProvider(t *testing.T, srv *Service, oidc bool) authprovider.Provider {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "provider-test")
 	require.NoError(t, err)
@@ -63,15 +63,13 @@ func newSecurityTestProvider(t *testing.T, srv *Service, kind authprovider.Kind)
 		}
 	}))
 	t.Cleanup(provider.Close)
-	cfg := authprovider.Provider{Name: "security-provider", Kind: kind, Issuer: provider.URL, ClientID: "security-client", ClientSecret: authprovider.ClientSecret{Value: "local-secret"}, AuthorizeURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token", UserInfoURL: provider.URL + "/me", Scopes: []string{"openid", "email", "profile"}, IdentityMapper: func(root any) (authprovider.Identity, error) {
-		m := root.(map[string]any)
-		sub, _ := m["sub"].(string)
-		email, _ := m["email"].(string)
-		verified, _ := m["email_verified"].(bool)
-		return authprovider.Identity{Subject: sub, Email: email, EmailVerified: verified}, nil
-	}}
-	srv.authProvidersByName = map[string]authprovider.Provider{cfg.Name: cfg}
-	srv.resetOIDCManagerForTest()
+	var cfg authprovider.Provider
+	if oidc {
+		cfg = authprovider.OIDC("security-provider", provider.URL, "security-client", "local-secret")
+	} else {
+		cfg = testOAuth2Provider("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithScopes("openid", "email", "profile"))
+	}
+	setTestProviders(srv, cfg)
 	return cfg
 }
 
@@ -91,7 +89,7 @@ func completeSecurityProviderCallback(t *testing.T, srv *Service, cfg authprovid
 	raw, err := json.Marshal(identity)
 	require.NoError(t, err)
 	query := url.Values{"state": {authURL.Query().Get("state")}, "code": {base64.RawURLEncoding.EncodeToString(raw)}, "format": {"json"}}
-	request := httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name+"/callback?"+query.Encode(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name()+"/callback?"+query.Encode(), nil)
 	for _, cookie := range start.Result().Cookies() {
 		request.AddCookie(cookie)
 	}
@@ -103,23 +101,23 @@ func completeSecurityProviderCallback(t *testing.T, srv *Service, cfg authprovid
 func securityProviderLogin(t *testing.T, srv *Service, cfg authprovider.Provider, identity providerTestIdentity, invite string) *httptest.ResponseRecorder {
 	t.Helper()
 	start := httptest.NewRecorder()
-	srv.oidcHandler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name+"/login?account_invite_token="+url.QueryEscape(invite), nil))
+	srv.oidcHandler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name()+"/login?account_invite_token="+url.QueryEscape(invite), nil))
 	require.Equal(t, http.StatusFound, start.Code, start.Body.String())
 	return completeSecurityProviderCallback(t, srv, cfg, start, identity)
 }
 
 func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
-	for _, kind := range []authprovider.Kind{authprovider.KindOIDC, authprovider.KindOAuth2} {
-		t.Run(string(kind), func(t *testing.T) {
+	for _, kind := range []string{"oidc", "oauth2"} {
+		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			pool := newServerTestPool(t)
 			settings := newServerTestConfig()
 			settings.SolanaNetwork = "devnet"
 			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 			require.NoError(t, err)
-			cfg := newSecurityTestProvider(t, srv, kind)
+			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			userID, stale := stalePasswordUserToken(t, srv, pool, "link-guard", "Correct-password-12345")
-			denied := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name+"/link/start", "{}", stale)
+			denied := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", stale)
 			require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
 			require.Contains(t, denied.Body.String(), "step_up_required")
 			require.Empty(t, denied.Result().Cookies())
@@ -132,22 +130,22 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 				Token string `json:"access_token"`
 			}
 			require.NoError(t, json.Unmarshal(stepUp.Body.Bytes(), &fresh))
-			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name+"/link/start", "{}", fresh.Token)
+			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			old := providerTestIdentity{Subject: "original-" + uniqueSuffix()}
 			callback := completeSecurityProviderCallback(t, srv, cfg, start, old)
 			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())
-			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name+"/link/start", "{}", fresh.Token)
+			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
 			require.Equal(t, http.StatusConflict, callback.Code, callback.Body.String())
 			require.Contains(t, callback.Body.String(), "provider_change_requires_unlink")
-			owner, _, err := srv.svc.GetProviderLinkByIssuer(ctx, cfg.Issuer, old.Subject)
+			owner, _, err := srv.svc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), old.Subject)
 			require.NoError(t, err)
 			require.Equal(t, userID, owner)
-			unlinked := serveAuthJSON(srv, http.MethodDelete, "/user/providers/"+cfg.Name, "{}", fresh.Token)
+			unlinked := serveAuthJSON(srv, http.MethodDelete, "/user/providers/"+cfg.Name(), "{}", fresh.Token)
 			require.Equal(t, http.StatusOK, unlinked.Code, unlinked.Body.String())
-			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name+"/link/start", "{}", fresh.Token)
+			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.Token)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
 			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())
@@ -156,14 +154,14 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 }
 
 func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
-	for _, kind := range []authprovider.Kind{authprovider.KindOIDC, authprovider.KindOAuth2} {
-		t.Run(string(kind), func(t *testing.T) {
+	for _, kind := range []string{"oidc", "oauth2"} {
+		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			pool := newServerTestPool(t)
 			sender := &captureEmailSender{}
 			srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
 			require.NoError(t, err)
-			cfg := newSecurityTestProvider(t, srv, kind)
+			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			email := uniqueEmail("unverified-provider")
 			identity := providerTestIdentity{Subject: "attacker-" + uniqueSuffix(), Email: email}
 			callback := securityProviderLogin(t, srv, cfg, identity, "")
@@ -180,7 +178,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			user, err := srv.svc.AdminGetUser(ctx, first.User.ID)
 			require.NoError(t, err)
 			require.Nil(t, user.Email)
-			owner, providerEmail, err := srv.svc.GetProviderLinkByIssuer(ctx, cfg.Issuer, identity.Subject)
+			owner, providerEmail, err := srv.svc.GetProviderLinkByIssuer(ctx, cfg.Issuer(), identity.Subject)
 			require.NoError(t, err)
 			require.Equal(t, first.User.ID, owner)
 			require.NotNil(t, providerEmail)
@@ -209,15 +207,15 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 }
 
 func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
-	for _, kind := range []authprovider.Kind{authprovider.KindOIDC, authprovider.KindOAuth2} {
-		t.Run(string(kind), func(t *testing.T) {
+	for _, kind := range []string{"oidc", "oauth2"} {
+		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			pool := newServerTestPool(t)
 			settings := newServerTestConfig()
 			settings.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
 			srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 			require.NoError(t, err)
-			cfg := newSecurityTestProvider(t, srv, kind)
+			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			identity := providerTestIdentity{Subject: "invite-user-" + uniqueSuffix(), Email: uniqueEmail("unverified-invite")}
 			denied := securityProviderLogin(t, srv, cfg, identity, "")
 			require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
@@ -250,7 +248,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	settings.SolanaNetwork = "devnet"
 	srv, err := NewServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 	require.NoError(t, err)
-	cfg := newSecurityTestProvider(t, srv, authprovider.KindOAuth2)
+	cfg := newSecurityTestProvider(t, srv, false)
 	userID, _ := stalePasswordUserToken(t, srv, pool, "provider-mfa", "Correct-password-12345")
 	sid, _, _, err := srv.svc.IssueRefreshSessionWithAuthMethods(ctx, userID, "test", nil, []string{"pwd"})
 	require.NoError(t, err)
@@ -260,7 +258,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
-	for _, path := range []string{"/oidc/" + cfg.Name + "/link/start", "/solana/link"} {
+	for _, path := range []string{"/oidc/" + cfg.Name() + "/link/start", "/solana/link"} {
 		denied := serveAuthJSON(srv, http.MethodPost, path, "{}", token)
 		require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
 		require.Contains(t, denied.Body.String(), "step_up_required")
@@ -269,6 +267,6 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, srv.svc.MarkSessionAuthenticatedWithMethods(ctx, userID, sid, []string{"pwd", "otp", "mfa"}))
 	token, _, err = srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
-	allowed := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name+"/link/start", "{}", token)
+	allowed := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", token)
 	require.Equal(t, http.StatusOK, allowed.Code, allowed.Body.String())
 }

@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/open-rails/authkit/authprovider"
 )
 
 // #323: two OIDC flows started in one browser must both complete. The state
@@ -26,8 +24,7 @@ func TestParallelOIDCFlowsBothCompleteIntegration(t *testing.T) {
 	idp := newFakeOIDCIdP(t, "parallel-client")
 	subject := "parallel-" + uniqueSuffix()
 	idp.SetIdentity(subject, uniqueEmail("parallel"), true, nil)
-	srv.authProvidersByName = map[string]authprovider.Provider{"custom": idp.Provider("custom")}
-	srv.resetOIDCManagerForTest()
+	setTestProviders(srv, idp.Provider("custom"))
 	h := srv.oidcHandler()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)

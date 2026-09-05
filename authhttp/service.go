@@ -26,7 +26,6 @@ import (
 type Service struct {
 	svc                 *authcore.Service
 	verifier            *verify.Verifier
-	outboundHTTP        *http.Client // OAuth2 token/userinfo and OIDC discovery calls
 	rd                  *redis.Client
 	rl                  RateLimiter
 	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
@@ -34,15 +33,13 @@ type Service struct {
 	memoryLimiterSweep  time.Duration              // withMemoryLimiterSweep (tests); 0 => one minute
 	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool           // WithClientIPFunc: host owns the strategy; proxy sets are not composed
-	directPeerIP        bool           // WithDirectPeerIP: host asserts no proxy in front (ak#299)
-	undeclaredProxyOnce sync.Once      // one-shot tripwire: private peer carrying forwarded headers
-	trustedProxies      []netip.Prefix // WithTrustedProxies: X-Forwarded-For walk
-	cloudflareProxies   []netip.Prefix // WithCloudflareProxies: + CF-Connecting-IP fallback
-	trustedProxyErr     error          // deferred proxy CIDR parse error, surfaced by NewServer
-	authProvidersByName map[string]authprovider.Provider
-	oidcMgr             *oidckit.Manager
-	oidcMgrOnce         sync.Once
+	clientIPExplicit    bool                             // WithClientIPFunc: host owns the strategy; proxy sets are not composed
+	directPeerIP        bool                             // WithDirectPeerIP: host asserts no proxy in front (ak#299)
+	undeclaredProxyOnce sync.Once                        // one-shot tripwire: private peer carrying forwarded headers
+	trustedProxies      []netip.Prefix                   // WithTrustedProxies: X-Forwarded-For walk
+	cloudflareProxies   []netip.Prefix                   // WithCloudflareProxies: + CF-Connecting-IP fallback
+	trustedProxyErr     error                            // deferred proxy CIDR parse error, surfaced by NewServer
+	providers           map[string]authprovider.Provider // validated, keyed by Name()
 	memStateCache       oidckit.StateCache
 	memSIWSCache        siws.ChallengeCache
 	// engineOpts stashes embedded engine options passed via WithEngine — consumed

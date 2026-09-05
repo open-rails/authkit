@@ -260,6 +260,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 			idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/token":
+					w.Header().Set("Content-Type", "application/json")
 					_ = json.NewEncoder(w).Encode(map[string]any{
 						"access_token": "provider-access-token", "token_type": "Bearer",
 					})
@@ -274,23 +275,7 @@ func TestRefreshCookie_OIDCBrowserHandoff(t *testing.T) {
 			}))
 			t.Cleanup(idp.Close)
 
-			srv.authProvidersByName = map[string]authprovider.Provider{
-				"example-oauth": {
-					Name: "example-oauth", Kind: authprovider.KindOAuth2, Issuer: idp.URL,
-					ClientID: "oauth-client", ClientSecret: authprovider.ClientSecret{Value: "oauth-secret"},
-					Scopes:       []string{"profile", "email"},
-					AuthorizeURL: idp.URL + "/authorize", TokenURL: idp.URL + "/token", UserInfoURL: idp.URL + "/me",
-					IdentityMapper: func(root any) (authprovider.Identity, error) {
-						m, _ := root.(map[string]any)
-						id, _ := m["id"].(string)
-						mail, _ := m["email"].(string)
-						verified, _ := m["email_verified"].(bool)
-						login, _ := m["login"].(string)
-						return authprovider.Identity{Subject: id, Email: mail, EmailVerified: verified, PreferredUsername: login}, nil
-					},
-				},
-			}
-			srv.resetOIDCManagerForTest()
+			setTestProviders(srv, testOAuth2Provider("example-oauth", idp.URL, "oauth-client", "oauth-secret", authprovider.WithScopes("profile", "email")))
 			h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
 			require.NoError(t, err)
 

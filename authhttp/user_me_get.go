@@ -114,10 +114,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	enabledProviders := []string{}
-	for provider := range s.authProviders() {
-		enabledProviders = append(enabledProviders, provider)
-	}
+	enabledProviders := s.providerNames()
 
 	// Return the user's roles.
 	var rolesPtr *[]string

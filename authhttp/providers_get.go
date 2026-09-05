@@ -29,7 +29,6 @@ type AuthRegistrationCapabilities struct {
 type AuthProviderSummary struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
-	Kind                 string `json:"kind"`
 	SupportsLogin        bool   `json:"supports_login"`
 	SupportsRegistration bool   `json:"supports_registration"`
 	SupportsLink         bool   `json:"supports_link"`
