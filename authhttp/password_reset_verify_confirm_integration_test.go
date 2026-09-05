@@ -446,7 +446,7 @@ func serveRequest(srv *Service, method, path, body string) *httptest.ResponseRec
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	srv.APIHandler().ServeHTTP(w, r)
+	srv.apiHandler().ServeHTTP(w, r)
 	return w
 }
 

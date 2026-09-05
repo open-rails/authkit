@@ -96,7 +96,7 @@ func TestClientIPTrustScope_LimiterKey(t *testing.T) {
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = peer
 		r.Header.Set("CF-Connecting-IP", cfIP)
-		srv.APIHandler().ServeHTTP(w, r)
+		srv.apiHandler().ServeHTTP(w, r)
 		return w.Code
 	}
 
@@ -161,7 +161,7 @@ func TestUndeclaredProxyTripwire(t *testing.T) {
 		for k, v := range headers {
 			r.Header.Set(k, v)
 		}
-		srv.APIHandler().ServeHTTP(w, r)
+		srv.apiHandler().ServeHTTP(w, r)
 	}
 
 	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool))

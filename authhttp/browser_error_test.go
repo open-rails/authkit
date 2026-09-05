@@ -30,7 +30,7 @@ func newBrowserErrorTestService(t *testing.T) (*Service, http.Handler) {
 	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
-	return s, s.OIDCHandler()
+	return s, s.oidcHandler()
 }
 
 // startBrowserLogin drives GET /oidc/github/login and returns the issued

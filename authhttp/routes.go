@@ -54,53 +54,6 @@ type RouteSpec struct {
 	MFAEnrollmentExempt bool
 }
 
-// Routes provides access to AuthKit's canonical route groups.
-type Routes struct {
-	svc *Service
-}
-
-// Routes returns AuthKit's canonical route registry for this service.
-func (s *Service) Routes() Routes {
-	return Routes{svc: s}
-}
-
-// DefaultAPI returns every AuthKit JSON API route enabled by this service.
-func (r Routes) DefaultAPI() []RouteSpec {
-	if r.svc == nil {
-		return nil
-	}
-	return r.svc.APIRoutes()
-}
-
-// Groups returns every enabled AuthKit JSON API route in the requested groups.
-func (r Routes) Groups(groups ...RouteGroup) []RouteSpec {
-	if r.svc == nil {
-		return nil
-	}
-	return r.svc.APIRoutes(groups...)
-}
-
-// OIDCBrowser returns browser redirect OIDC routes without a mount prefix.
-// Host applications choose where to mount them, commonly "/oidc".
-func (r Routes) OIDCBrowser() []RouteSpec {
-	if r.svc == nil {
-		return nil
-	}
-	return r.svc.OIDCBrowserRoutes()
-}
-
-// PermissionGroups returns the auto-generated per-persona group-management
-// routes (members, roles, etc.) implied by this service's declared
-// permission-group schema, plus the cross-persona GET /me/groups discovery
-// route. These are also included in DefaultAPI; this accessor lets a host mount
-// only the group-management surface. See Service.PermissionGroupRoutes.
-func (r Routes) PermissionGroups() []RouteSpec {
-	if r.svc == nil {
-		return nil
-	}
-	return r.svc.PermissionGroupRoutes()
-}
-
 // APIRoutes returns AuthKit's enabled JSON API routes. With no groups it
 // returns the default API surface. With groups, it returns only matching routes.
 func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {

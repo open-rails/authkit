@@ -177,7 +177,7 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	// Machine principals (no user subject) cannot create.
 	req := httptest.NewRequest(http.MethodPost, "/org", strings.NewReader(`{"slug":"machine-made"}`))
 	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
+	srv.apiHandler().ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
@@ -189,7 +189,7 @@ func serveAuthJSONFrom(srv *Service, method, path, body, token, remoteAddr strin
 	r.RemoteAddr = remoteAddr
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+token)
-	srv.APIHandler().ServeHTTP(w, r)
+	srv.apiHandler().ServeHTTP(w, r)
 	return w
 }
 

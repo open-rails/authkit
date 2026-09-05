@@ -79,7 +79,7 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
 
-	h := svc.APIHandler()
+	h := svc.apiHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/password/login", bytes.NewReader([]byte(`{"login":"`+email+`","password":"`+pass+`"}`)))
 	r.Header.Set("Content-Type", "application/json")

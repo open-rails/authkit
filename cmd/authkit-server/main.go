@@ -378,16 +378,13 @@ func run() error {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
 
-	// The whole auth surface — JWKS at root, API + browser OIDC under the
-	// configured prefix — is ONE neutral handler (#250).
+	// The whole auth surface — JWKS at root, browser OIDC at /oidc, API under
+	// the configured prefix — is ONE neutral handler (#250).
 	prefix := cfg.apiPrefix
 	if strings.TrimSpace(prefix) == "" {
 		prefix = "/" // explicit empty AUTHKIT_API_PREFIX means root
 	}
-	authH, err := authhttp.MountHandler(svc, authhttp.MountOptions{
-		APIPrefix: prefix,
-		OIDCPath:  strings.TrimSuffix(prefix, "/") + "/oidc",
-	})
+	authH, err := authhttp.MountHandler(svc, authhttp.MountOptions{APIPrefix: prefix})
 	if err != nil {
 		return fmt.Errorf("mount authkit routes: %w", err)
 	}

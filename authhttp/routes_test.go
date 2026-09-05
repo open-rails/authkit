@@ -70,9 +70,9 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, permissions, http.MethodPost, "/password/login")
 
 	requireRoute(t, s.APIRoutes(RouteAccount), http.MethodGet, "/me/permissions")
-	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/capabilities")
-	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/identity-providers")
-	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
+	requireRoute(t, s.APIRoutes(), http.MethodGet, "/capabilities")
+	requireNoRoute(t, s.APIRoutes(), http.MethodGet, "/identity-providers")
+	requireNoRoute(t, s.APIRoutes(), http.MethodGet, "/providers")
 }
 
 func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
@@ -87,7 +87,7 @@ func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
 	requireNoRoute(t, off.APIRoutes(RouteAuth), http.MethodPost, "/2fa/verify")
 	requireNoRoute(t, off.APIRoutes(RouteAuth), http.MethodPost, "/solana/challenge")
 	requireNoRoute(t, off.APIRoutes(RouteAccount), http.MethodPost, "/oidc/{provider}/link/start")
-	requireNoRoute(t, off.Routes().OIDCBrowser(), http.MethodGet, "/{provider}/login")
+	requireNoRoute(t, off.OIDCBrowserRoutes(), http.MethodGet, "/{provider}/login")
 
 	on := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
 		cfg.Registration.PasswordlessLogin = true
@@ -100,7 +100,7 @@ func TestAPIRoutesAreConfigAwareForAuthFeatures(t *testing.T) {
 	requireRoute(t, on.APIRoutes(RouteAuth), http.MethodPost, "/2fa/verify")
 	requireRoute(t, on.APIRoutes(RouteAuth), http.MethodPost, "/solana/challenge")
 	requireRoute(t, on.APIRoutes(RouteAccount), http.MethodPost, "/oidc/{provider}/link/start")
-	requireRoute(t, on.Routes().OIDCBrowser(), http.MethodGet, "/{provider}/login")
+	requireRoute(t, on.OIDCBrowserRoutes(), http.MethodGet, "/{provider}/login")
 }
 
 func TestPermissionGroupDiscoveryRoutesAreConfigAware(t *testing.T) {
@@ -123,14 +123,14 @@ func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
 	require.False(t, off.svc.PasskeysEnabled())
 	requireNoRoute(t, off.APIRoutes(RouteAccount), http.MethodGet, "/passkeys")
 	requireNoRoute(t, off.APIRoutes(RouteAuth), http.MethodPost, "/passkeys/login/begin")
-	requireNoRoute(t, off.Routes().DefaultAPI(), http.MethodPost, "/passkeys/login/begin")
+	requireNoRoute(t, off.APIRoutes(), http.MethodPost, "/passkeys/login/begin")
 
 	// With an RPID configured, the passkey routes appear.
 	on := newTestServiceWithPasskeys(t)
 	require.True(t, on.svc.PasskeysEnabled())
 	requireRoute(t, on.APIRoutes(RouteAccount), http.MethodGet, "/passkeys")
 	requireRoute(t, on.APIRoutes(RouteAuth), http.MethodPost, "/passkeys/login/begin")
-	requireRoute(t, on.Routes().DefaultAPI(), http.MethodPost, "/passkeys/login/begin")
+	requireRoute(t, on.APIRoutes(), http.MethodPost, "/passkeys/login/begin")
 }
 
 func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Service {
@@ -194,7 +194,7 @@ func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {
 	s := newTestService(t)
 	enableTestOIDCProvider(s)
 
-	routes := s.Routes().OIDCBrowser()
+	routes := s.OIDCBrowserRoutes()
 	requireRoute(t, routes, http.MethodGet, "/{provider}/login")
 	requireRoute(t, routes, http.MethodGet, "/{provider}/callback")
 	requireRoute(t, routes, http.MethodGet, "/{provider}/step-up/callback")

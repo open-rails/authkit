@@ -409,8 +409,8 @@ Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
   MountHandler anchors the MFA-enrollment exempt routes at its APIPrefix and the verifier
   matches them exactly; the suffix match covers only verifiers that never mounted (ak#324).
-  svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
-  svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
+  svc.JWKSHandler(), svc.APIRoutes(groups...), svc.OIDCBrowserRoutes(),
+  svc.PermissionGroupRoutes()
 Verification surface: NOT re-exported (#206 — the former verify_aliases re-exports were
   removed pre-1.0). Import github.com/open-rails/authkit/verify directly for Verifier,
   Claims, Required/Optional/Sensitive/Require* middleware, and the With* verifier options.
@@ -421,7 +421,7 @@ Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
 Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare),
   PublicRemoteAddrClientIP
 Language: LanguageConfig, LanguageMiddleware
-Routing: RouteGroup (+consts), RouteSpec, Routes
+Routing: RouteGroup (+consts), RouteSpec
 Errors: ErrorCode (+the full constant set, §6.2)
 Remote-application issuers client: RemoteApplicationIssuersClient (+options/registration)
 ```
@@ -435,16 +435,15 @@ Remote-application issuers client: RemoteApplicationIssuersClient (+options/regi
 - Routes are **prefix-neutral**. AuthKit's internal paths (`/token`, `/me`,
   `/admin/users`, …) are fixed; `authhttp.MountHandler(svc, MountOptions)` (#250) serves
   the whole surface as one handler: API under `APIPrefix` (default `/api/v1`), browser
-  OIDC under `OIDCPath` (default `/oidc`), JWKS at `/.well-known/jwks.json`, all
-  optionally under a boundary-checked `MountPrefix`.
-- `MountOptions{Groups, APIPrefix, OIDCPath, MountPrefix, ExcludeRoutes, Wrap}` and
+  OIDC at `/oidc`, JWKS at `/.well-known/jwks.json`.
+- `MountOptions{Groups, APIPrefix, ExcludeRoutes, Wrap, RefreshCookie}` and
   `RouteRef{Method, Path}` are covered. Hosts select capability subsets via
-  `MountOptions.Groups` (or `svc.Routes().Groups(...)` for direct table access). The set
+  `MountOptions.Groups` (or `svc.APIRoutes(groups...)` for direct table access). The set
   of `RouteGroup` values and their membership is covered.
 - `RouteSpec{Method, Path, Group, Handler}` shape is covered. Path params use net/http
   `{param}` syntax.
 - The lower-level pieces stay covered for hosts that assemble their own mux:
-  `svc.JWKSHandler()`, `svc.Routes().OIDCBrowser()`, `svc.APIHandler()`.
+  `svc.JWKSHandler()`, `svc.APIRoutes()`, `svc.OIDCBrowserRoutes()`.
 
 **Adding a route** to an existing group is MINOR. **Removing/renaming a route, changing
 its method, moving it between groups, or changing its auth requirement** is MAJOR.
@@ -859,8 +858,8 @@ To keep this document honest, CI should gate the contract mechanically:
 1. **Go API diff** — snapshot `go doc ./...` (or `gorelease` / `apidiff`) for every
    non-`internal` package; fail the build if a symbol is removed/changed without a MAJOR
    bump. This is the source of truth for Plane A.
-2. **Route table diff** — assert `svc.Routes().DefaultAPI()` + `OIDCBrowser()` +
-   `PermissionGroups()` against a golden list ([§5](#5-plane-b--http-route-surface)).
+2. **Route table diff** — assert `svc.APIRoutes()` + `OIDCBrowserRoutes()` +
+   `PermissionGroupRoutes()` against a golden list ([§5](#5-plane-b--http-route-surface)).
 3. **Error-code diff** — assert the `ErrorCode` constant set against a golden list.
 4. **Wire-shape tests** — golden JSON for the error envelope, token-pair, `/me`, and the
    2FA login responses.

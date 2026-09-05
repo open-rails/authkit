@@ -85,7 +85,7 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 		},
 	}
 	srv.resetOIDCManagerForTest()
-	h := srv.OIDCHandler()
+	h := srv.oidcHandler()
 
 	start := httptest.NewRecorder()
 	startReq := httptest.NewRequest(http.MethodGet, "/oidc/example-oauth/login?return_to=%2Fsubscribe%3Fplan%3Dpro", nil)

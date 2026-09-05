@@ -74,7 +74,7 @@ func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcor
 // admin's bearer token, decoding the list envelope.
 func adminListUsers(t *testing.T, s *Service, token, rawQuery string) adminUsersListResponse {
 	t.Helper()
-	h := s.APIHandler()
+	h := s.apiHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/admin/users?"+rawQuery, nil)
 	r.Header.Set("Authorization", "Bearer "+token)
@@ -92,7 +92,7 @@ func adminUsersStatus(t *testing.T, s *Service, token, rawQuery string) int {
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	s.APIHandler().ServeHTTP(w, r)
+	s.apiHandler().ServeHTTP(w, r)
 	return w.Code
 }
 
@@ -103,7 +103,7 @@ func adminUserPathStatus(t *testing.T, s *Service, token, path string) int {
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	s.APIHandler().ServeHTTP(w, r)
+	s.apiHandler().ServeHTTP(w, r)
 	return w.Code
 }
 
@@ -242,7 +242,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 		if body != "" {
 			r.Header.Set("Content-Type", "application/json")
 		}
-		s.APIHandler().ServeHTTP(w, r)
+		s.apiHandler().ServeHTTP(w, r)
 		return w
 	}
 

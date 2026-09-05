@@ -69,7 +69,7 @@ func TestHTTPValidationErrorCodesAliasCore(t *testing.T) {
 }
 
 func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
-	server := httptest.NewServer(newTestService(t).APIHandler())
+	server := httptest.NewServer(newTestService(t).apiHandler())
 	t.Cleanup(server.Close)
 
 	resp, err := http.Get(server.URL + "/register/availability")

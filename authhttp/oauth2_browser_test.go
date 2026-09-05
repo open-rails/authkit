@@ -227,7 +227,7 @@ func TestOAuthCallback_MissingStateOrCode(t *testing.T) {
 	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
-	h := s.OIDCHandler()
+	h := s.oidcHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/callback", nil)

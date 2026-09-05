@@ -11,7 +11,7 @@ import (
 
 func TestRegisterAvailability_MissingFields(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/register/availability", nil)
@@ -23,7 +23,7 @@ func TestRegisterAvailability_MissingFields(t *testing.T) {
 
 func TestRegisterAvailability_InvalidUsernameDoesNotRequireDatabase(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/register/availability?username=1bad", nil)
@@ -35,7 +35,7 @@ func TestRegisterAvailability_InvalidUsernameDoesNotRequireDatabase(t *testing.T
 
 func TestRegisterAvailability_InvalidPhoneDoesNotRequireDatabase(t *testing.T) {
 	s := newTestService(t)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/register/availability?phone_number=5551234", nil)
@@ -50,7 +50,7 @@ func TestRegisterAvailability_InvalidPhoneDoesNotRequireDatabase(t *testing.T) {
 // no DB lookup happens.
 func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/register/availability?username=alice&email=a@example.com&phone_number=%2B12025550123", nil)
@@ -67,7 +67,7 @@ func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
 // When native-user registration is closed, the public /register POST is not mounted.
 func TestRegisterPost_DisabledShortCircuits(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
-	h := s.APIHandler()
+	h := s.apiHandler()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register", nil)
@@ -84,7 +84,7 @@ func TestRegisterPost_OpenNotShortCircuited(t *testing.T) {
 	s := newTestService(t)
 	require.True(t, s.svc.PublicNativeUserRegistrationEnabled())
 
-	h := s.APIHandler()
+	h := s.apiHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register", nil)
 	r.Header.Set("Content-Type", "application/json")
