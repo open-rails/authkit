@@ -318,8 +318,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			}
 			obfuscatedID := obfuscateVerificationID(verificationID)
 			factors := twoFactorFactorResponses(twoFASettings.Factors)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"requires_2fa":    true,
+			sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 				"user_id":         finalUserID,
 				"method":          method,
 				"verification_id": obfuscatedID,
@@ -342,7 +341,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		sid, rt, accessTok, accessExp, _, issueErr := s.svc.IssueAuthenticatedSession(r.Context(), finalUserID, r.UserAgent(), nil, []string{"pwd"}, nil)
 		if issueErr != nil {
 			if errors.Is(issueErr, authkit.ErrTwoFAEnrollmentRequired) {
-				s.write2FAEnrollmentRequired(w, r, finalUserID)
+				s.send2FAEnrollmentRequired(w, r, finalUserID)
 				return
 			}
 			if errors.Is(issueErr, authkit.ErrUserBanned) {
@@ -357,28 +356,22 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		ip := remoteIP(r)
 		uaPtr, ipPtr := &ua, &ip
 		s.svc.LogSessionCreated(r.Context(), finalUserID, "password_login", sid, ipPtr, uaPtr)
-		s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(accessTok, rt, accessExp), nil)
+		s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(accessTok, rt, accessExp))
 		return
 	}
 
-	// Distinct 3-field shape (no refresh_token) for the already-fresh re-issue path;
-	// intentionally not the full token-pair envelope.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": token,
-		"token_type":   "Bearer",
-		"expires_in":   int64(time.Until(exp).Seconds()),
-	})
+	// Already-fresh re-issue path: a TokenSet without a refresh token.
+	writeJSON(w, http.StatusOK, authkit.TokenSet{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())})
 }
 
-// writeVerificationRequired emits the structured "registration verification
-// required" handoff, parallel to the requires_2fa response. By the time this is
-// called the caller has already (re)sent a fresh verification code; the
-// frontend routes the user to the OTP verify page using identifier + channel.
+// writeVerificationRequired emits the 403 verification_required envelope
+// (#313), parallel to 2fa_required. By the time this is called the caller has
+// already (re)sent a fresh verification code; the frontend routes the user to
+// the OTP verify page using metadata.identifier + metadata.channel.
 func writeVerificationRequired(w http.ResponseWriter, identifier, channel string) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"requires_verification": true,
-		"identifier":            identifier,
-		"channel":               channel,
+	sendErrData(w, http.StatusForbidden, ErrVerificationRequired, map[string]any{
+		"identifier": identifier,
+		"channel":    channel,
 	})
 }
 

@@ -67,7 +67,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		serverErr(w, ErrDatabaseError)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	accepted(w)
 }
 
 func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.Request) {
@@ -129,5 +129,5 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 	if strings.TrimSpace(result.ReturnTo) != "" {
 		extra = map[string]any{"return_to": result.ReturnTo}
 	}
-	s.writeAccessTokenJSON(w, r, http.StatusOK, tokens, extra)
+	s.writeTokenSetWith(w, r, http.StatusOK, tokens, extra)
 }

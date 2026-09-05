@@ -50,10 +50,6 @@ type contactChannel struct {
 	isVerified    func(*authcore.User) bool
 	pendingExists func(context.Context, string) (bool, error)
 
-	changedMessage    string
-	changeSentMessage string
-	resetSentMessage  string
-
 	errVerifyUnavailable ErrorCode
 	errResetUnavailable  ErrorCode
 	errResendUnavailable ErrorCode
@@ -101,9 +97,6 @@ func (s *Service) emailChannel() contactChannel {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
 		},
-		changedMessage:       "Email changed successfully",
-		changeSentMessage:    "Verification sent to new email address",
-		resetSentMessage:     "If this email is registered, password reset instructions will be sent.",
 		errVerifyUnavailable: ErrEmailVerificationUnavailable,
 		errResetUnavailable:  ErrEmailPasswordResetUnavailable,
 		errResendUnavailable: ErrEmailUnavailable,
@@ -152,9 +145,6 @@ func (s *Service) phoneChannel() contactChannel {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
 		},
-		changedMessage:       "Phone number changed successfully",
-		changeSentMessage:    "Verification sent to new phone",
-		resetSentMessage:     "If this phone number is registered, password reset instructions will be sent via SMS.",
 		errVerifyUnavailable: ErrPhoneVerificationUnavailable,
 		errResetUnavailable:  ErrSMSUnavailable,
 		errResendUnavailable: ErrPhoneUnavailable,
@@ -240,11 +230,11 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 			mapContactChangeError(w, err, ch.errUnchanged, ch.errInUse, ch.errChangeFailed)
 			return
 		}
-		resp := map[string]any{"ok": true, "message": ch.changeSentMessage}
-		for k, v := range authMeta {
-			resp[k] = v
+		if len(authMeta) == 0 {
+			accepted(w)
+			return
 		}
-		writeJSON(w, http.StatusAccepted, resp)
+		writeJSON(w, http.StatusAccepted, authMeta)
 		return
 	}
 	if err := ch.requestVerification(r.Context(), id); err != nil {
@@ -258,7 +248,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		serverErr(w, ErrVerificationRequestFailed)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	accepted(w)
 }
 
 // POST /verify/confirm — {identifier, code} or {token, identifier?}.
@@ -318,7 +308,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		err := ch.confirmChangeCode(r.Context(), claims.UserID, id, code, keepSession(claims))
 		if err == nil {
 			ch.clearCodeAttempts(r.Context(), id)
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": ch.changedMessage})
+			noContent(w)
 			return
 		}
 		if s.confirmBackendFailed(w, r, "verify_confirm", "confirm_contact_change", err) {
@@ -357,7 +347,7 @@ func (s *Service) confirmVerificationToken(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if userID, err := ch.confirmChangeToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": ch.changedMessage})
+			noContent(w)
 			return
 		}
 	}
@@ -459,7 +449,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		Identifier string `json:"identifier"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Identifier) == "" {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		accepted(w)
 		return
 	}
 	ch, id, ok := s.requireContactChannel(w, req.Identifier)
@@ -483,7 +473,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		serverErr(w, ErrPasswordResetRequestFailed)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": ch.resetSentMessage})
+	accepted(w)
 }
 
 // POST /password/reset/confirm — {token, new_password}.
@@ -514,7 +504,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 // POST /register/resend — {identifier}: re-issue a pending registration's code.
@@ -524,7 +514,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !s.svc.RegistrationVerificationEnabled() {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		accepted(w)
 		return
 	}
 	if s.rateLimited(w, r, RLRegisterResend) {
@@ -561,5 +551,5 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		serverErr(w, ErrResendFailed)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	accepted(w)
 }

@@ -37,11 +37,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 
 	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-		ExpiresIn   int64  `json:"expires_in"`
-	}
+	var body nestedTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.NotEmpty(t, body.AccessToken)
 	require.Equal(t, "Bearer", body.TokenType)
@@ -82,9 +78,7 @@ func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 
 	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body struct {
-		AccessToken string `json:"access_token"`
-	}
+	var body nestedTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 
 	claims := unverifiedAccessClaims(t, body.AccessToken)
@@ -128,14 +122,12 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{}`, setupToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 
 	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"code":"`+stepUpCode+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body struct {
-		AccessToken string `json:"access_token"`
-	}
+	var body nestedTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.NotEmpty(t, body.AccessToken)
 
@@ -181,12 +173,14 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var me struct {
-		StepUpMethods []string               `json:"step_up_methods"`
-		StepUp2FA     stepUpOptionsTestShape `json:"step_up_2fa"`
+		Security struct {
+			StepUpMethods []string               `json:"step_up_methods"`
+			StepUp2FA     stepUpOptionsTestShape `json:"step_up_2fa"`
+		} `json:"security"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
-	require.Contains(t, me.StepUpMethods, "2fa")
-	requireStepUp2FAOptions(t, me.StepUp2FA, []string{"totp"}, "totp")
+	require.Contains(t, me.Security.StepUpMethods, "2fa")
+	requireStepUp2FAOptions(t, me.Security.StepUp2FA, []string{"totp"}, "totp")
 
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
@@ -210,7 +204,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	requireStepUp2FAOptions(t, stepUpRequired.Error.Metadata.StepUp2FA, []string{"totp"}, "totp")
 
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, staleToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
 	require.NotContains(t, w.Body.String(), "factor")
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"bad"}`, staleToken)
@@ -221,9 +215,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp","code":"`+stepUpCode+`"}`, staleToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var stepUpBody struct {
-		AccessToken string `json:"access_token"`
-	}
+	var stepUpBody nestedTokenBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stepUpBody))
 	require.NotEmpty(t, stepUpBody.AccessToken)
 

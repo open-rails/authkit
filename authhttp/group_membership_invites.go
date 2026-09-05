@@ -2,10 +2,11 @@ package authhttp
 
 import (
 	"errors"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/verify"
 
 	authcore "github.com/open-rails/authkit/internal/authcore"
 )
@@ -72,5 +73,5 @@ func (s *Service) meGroupInviteRespond(w http.ResponseWriter, r *http.Request, a
 		s.writeGroupOpError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "invite_id": inviteID, "accepted": accept})
+	noContent(w)
 }

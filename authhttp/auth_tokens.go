@@ -2,34 +2,30 @@ package authhttp
 
 import (
 	"net/http"
-	"time"
+
+	authkit "github.com/open-rails/authkit"
 )
 
-type authTokensResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	// RefreshToken is omitted when MountOptions.RefreshCookie is on — the
-	// token then rides an HttpOnly cookie instead of the body (ak#271).
-	RefreshToken string `json:"refresh_token,omitempty"`
-}
+// Session-establishing responses (#313): every route hands out the same
+// authkit.TokenSet — as the whole body (writeTokenSet) or under "token_set"
+// beside route-specific fields (writeTokenSetWith). The refresh token rides in
+// the body unless the mount opted into the HttpOnly cookie (ak#271).
 
 func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, userID string, method string) error {
 	tokens, err := s.createTokensForUser(r, userID, method)
 	if err != nil {
 		return err
 	}
-
-	writeJSON(w, http.StatusOK, tokens)
+	s.writeTokenSet(w, r, http.StatusOK, tokens)
 	return nil
 }
 
-func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authTokensResponse, error) {
+func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authkit.TokenSet, error) {
 	ua := r.UserAgent()
 	ip := parseIP(remoteIP(r))
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, ua, ip, authMethodsForSessionMethod(method))
 	if err != nil {
-		return authTokensResponse{}, err
+		return authkit.TokenSet{}, err
 	}
 
 	ipStr := remoteIP(r)
@@ -38,30 +34,17 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 
 	accessToken, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sid})
 	if err != nil {
-		return authTokensResponse{}, err
+		return authkit.TokenSet{}, err
 	}
-
-	return newAuthTokens(accessToken, rt, exp), nil
-}
-
-// newAuthTokens builds the canonical OAuth-style token-pair envelope from a
-// freshly issued access token: token_type is always "Bearer" and expires_in is
-// derived from the access token's expiry.
-func newAuthTokens(access, refresh string, exp time.Time) authTokensResponse {
-	return authTokensResponse{
-		AccessToken:  access,
-		TokenType:    "Bearer",
-		ExpiresIn:    int64(time.Until(exp).Seconds()),
-		RefreshToken: refresh,
-	}
+	return authkit.NewTokenSet(accessToken, rt, exp), nil
 }
 
 // deliverRefreshToken routes the refresh token to whichever transport this
-// mount declared. With MountOptions.RefreshCookie on it moves to an HttpOnly
+// mount declared: with MountOptions.RefreshCookie on it moves to an HttpOnly
 // cookie and leaves the envelope, so nothing downstream can leak it into a
-// body, a URL fragment or a postMessage payload; otherwise the envelope is
-// returned untouched. EVERY session-establishing response goes through here.
-func (s *Service) deliverRefreshToken(w http.ResponseWriter, r *http.Request, tokens authTokensResponse) authTokensResponse {
+// body, a URL fragment or a postMessage payload. EVERY session-establishing
+// response goes through here.
+func (s *Service) deliverRefreshToken(w http.ResponseWriter, r *http.Request, tokens authkit.TokenSet) authkit.TokenSet {
 	if _, ok := refreshCookieEnabled(r); !ok {
 		return tokens
 	}
@@ -70,24 +53,15 @@ func (s *Service) deliverRefreshToken(w http.ResponseWriter, r *http.Request, to
 	return tokens
 }
 
-// writeAccessTokenJSON marshals the token-pair envelope (the four §6.3 fields)
-// plus any extra top-level fields (e.g. return_to, created, user) at the given
-// status — replacing the hand-built map[string]any literals scattered across the
-// session-establishing handlers.
-func (s *Service) writeAccessTokenJSON(w http.ResponseWriter, r *http.Request, status int, tokens authTokensResponse, extra map[string]any) {
-	tokens = s.deliverRefreshToken(w, r, tokens)
-	if len(extra) == 0 {
-		writeJSON(w, status, tokens)
-		return
-	}
-	body := map[string]any{
-		"access_token": tokens.AccessToken,
-		"token_type":   tokens.TokenType,
-		"expires_in":   tokens.ExpiresIn,
-	}
-	if tokens.RefreshToken != "" {
-		body["refresh_token"] = tokens.RefreshToken
-	}
+// writeTokenSet answers with the TokenSet as the whole body.
+func (s *Service) writeTokenSet(w http.ResponseWriter, r *http.Request, status int, tokens authkit.TokenSet) {
+	writeJSON(w, status, s.deliverRefreshToken(w, r, tokens))
+}
+
+// writeTokenSetWith answers {"token_set": ..., ...extra} — for routes whose
+// response carries more than the session (created, return_to, user, ...).
+func (s *Service) writeTokenSetWith(w http.ResponseWriter, r *http.Request, status int, tokens authkit.TokenSet, extra map[string]any) {
+	body := map[string]any{"token_set": s.deliverRefreshToken(w, r, tokens)}
 	for k, v := range extra {
 		body[k] = v
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -114,15 +115,22 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 
-	var body map[string]any
+	var body struct {
+		NextAction string `json:"next_action"`
+		User       struct {
+			Username    string  `json:"username"`
+			Email       *string `json:"email"`
+			PhoneNumber *string `json:"phone_number"`
+		} `json:"user"`
+		TokenSet *authkit.TokenSet `json:"token_set"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, true, body["ok"])
-	require.Equal(t, "user", body["username"])
-	require.Equal(t, "user@example.com", body["email"])
-	require.Nil(t, body["phone_number"])
-	require.Nil(t, body["discord_username"])
-	require.Equal(t, string(registrationNextActionVerifyEmail), body["next_action"])
-	require.NotContains(t, body, "message")
+	require.Equal(t, "user", body.User.Username)
+	require.Equal(t, "user@example.com", *body.User.Email)
+	require.Nil(t, body.User.PhoneNumber)
+	require.Nil(t, body.TokenSet, "verification pending: no session yet")
+	require.Equal(t, string(registrationNextActionVerifyEmail), body.NextAction)
+	require.NotContains(t, w.Body.String(), "message")
 }
 
 func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
@@ -178,7 +186,7 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	require.JSONEq(t, `{"ok":true}`, w.Body.String())
+	require.Empty(t, w.Body.String())
 }
 
 func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testing.T) {

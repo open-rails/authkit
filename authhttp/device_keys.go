@@ -30,10 +30,8 @@ type deviceKeyListResponse struct {
 }
 
 type deviceKeyTokenResponse struct {
-	AccessToken string            `json:"access_token"`
-	TokenType   string            `json:"token_type"`
-	ExpiresAt   time.Time         `json:"expires_at"`
-	DeviceKey   deviceKeyResponse `json:"device_key"`
+	TokenSet  authkit.TokenSet  `json:"token_set"`
+	DeviceKey deviceKeyResponse `json:"device_key"`
 }
 
 func deviceKeyHTTPResponse(id, label string, createdAt time.Time) deviceKeyResponse {
@@ -129,10 +127,8 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		return
 	}
 	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		AccessToken: result.AccessToken,
-		TokenType:   "Bearer",
-		ExpiresAt:   result.ExpiresAt,
-		DeviceKey:   deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
+		TokenSet:  authkit.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
+		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }
 
@@ -207,10 +203,8 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		AccessToken: result.AccessToken,
-		TokenType:   "Bearer",
-		ExpiresAt:   result.ExpiresAt,
-		DeviceKey:   deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
+		TokenSet:  authkit.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
+		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }
 
@@ -241,7 +235,7 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 			Current: key.ID == claims.DeviceKeyID,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"device_keys": answer})
+	writeList(w, answer, "")
 }
 
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +256,7 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }
 
 func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
@@ -291,5 +285,5 @@ func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *htt
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	noContent(w)
 }

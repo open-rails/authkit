@@ -21,35 +21,26 @@ const (
 	registrationNextActionVerifyPhone registrationNextAction = "verify_phone"
 )
 
+// registrationResponse: what happens next, who was registered, and — when no
+// verification is pending — the session (#313).
 type registrationResponse struct {
-	OK              bool                   `json:"ok"`
-	Username        string                 `json:"username"`
-	Email           *string                `json:"email"`
-	PhoneNumber     *string                `json:"phone_number"`
-	DiscordUsername *string                `json:"discord_username"`
-	NextAction      registrationNextAction `json:"next_action"`
-	AccessToken     string                 `json:"access_token,omitempty"`
-	TokenType       string                 `json:"token_type,omitempty"`
-	ExpiresIn       int64                  `json:"expires_in,omitempty"`
-	RefreshToken    string                 `json:"refresh_token,omitempty"`
+	NextAction registrationNextAction `json:"next_action"`
+	User       registrationUser       `json:"user"`
+	TokenSet   *authkit.TokenSet      `json:"token_set,omitempty"`
 }
 
-func newRegistrationResponse(username string, email, phone *string, nextAction registrationNextAction, tokens *authTokensResponse) registrationResponse {
-	resp := registrationResponse{
-		OK:              true,
-		Username:        username,
-		Email:           email,
-		PhoneNumber:     phone,
-		DiscordUsername: nil,
-		NextAction:      nextAction,
+type registrationUser struct {
+	Username    string  `json:"username"`
+	Email       *string `json:"email"`
+	PhoneNumber *string `json:"phone_number"`
+}
+
+func newRegistrationResponse(username string, email, phone *string, nextAction registrationNextAction, tokens *authkit.TokenSet) registrationResponse {
+	return registrationResponse{
+		NextAction: nextAction,
+		User:       registrationUser{Username: username, Email: email, PhoneNumber: phone},
+		TokenSet:   tokens,
 	}
-	if tokens != nil {
-		resp.AccessToken = tokens.AccessToken
-		resp.TokenType = tokens.TokenType
-		resp.ExpiresIn = tokens.ExpiresIn
-		resp.RefreshToken = tokens.RefreshToken
-	}
-	return resp
 }
 
 func preferredLanguageFromRequest(r *http.Request) string {
@@ -179,7 +170,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		}
 
 		nextAction := registrationNextActionNone
-		var tokens *authTokensResponse
+		var tokens *authkit.TokenSet
 		if requiresVerification {
 			nextAction = registrationNextActionVerifyPhone
 		} else {
@@ -252,7 +243,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	nextAction := registrationNextActionNone
-	var tokens *authTokensResponse
+	var tokens *authkit.TokenSet
 	if requiresVerification {
 		nextAction = registrationNextActionVerifyEmail
 	} else {
@@ -309,8 +300,6 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		return
 	}
 
-	ok := map[string]any{"ok": true}
-
 	if strings.HasPrefix(identifier, "+") {
 		phone := embedded.NormalizePhone(identifier)
 		// Only delete when the password matches; otherwise respond ok without
@@ -322,7 +311,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, ok)
+		noContent(w)
 		return
 	}
 
@@ -334,5 +323,5 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, ok)
+	noContent(w)
 }

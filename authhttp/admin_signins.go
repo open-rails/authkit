@@ -34,7 +34,5 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": resp,
-	})
+	writeList(w, resp, "")
 }

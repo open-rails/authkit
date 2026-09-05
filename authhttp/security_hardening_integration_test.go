@@ -31,7 +31,7 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 	require.Contains(t, w.Body.String(), "step_up_required")
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/user", `{"password":"`+pass+`"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	u, err := srv.svc.AdminGetUser(ctx, userID)
 	require.NoError(t, err)
@@ -53,7 +53,7 @@ func TestProviderUnlinkRequiresFreshAuthOrPassword(t *testing.T) {
 	require.Contains(t, w.Body.String(), "step_up_required")
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/user/providers/google", `{"password":"`+pass+`"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	slugs, _, err := srv.svc.UserProfileLinks(ctx, userID)
 	require.NoError(t, err)
 	require.Empty(t, slugs)

@@ -74,7 +74,7 @@ func TestContactChannelRoutes_BothChannels(t *testing.T) {
 			w = serveJSON(srv, http.MethodPost, "/password/reset/request", `{"identifier":"`+byCode+`"}`)
 			require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 			w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+tc.sender.passwordResetToken(t)+`","new_password":"Reset-password-12345"}`)
-			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 		})
 	}
 

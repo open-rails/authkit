@@ -157,7 +157,7 @@ func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
 	lr.Host = "example.com"
 	lr.AddCookie(rotated)
 	h.ServeHTTP(logout, lr)
-	require.Equal(t, http.StatusOK, logout.Code, logout.Body.String())
+	require.Equal(t, http.StatusNoContent, logout.Code, logout.Body.String())
 
 	raw := logout.Header().Get("Set-Cookie")
 	require.Contains(t, raw, RefreshCookieName+"=;", "the clear must send an empty value")

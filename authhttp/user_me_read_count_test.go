@@ -113,25 +113,27 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 
 	// Response shape preserved end-to-end.
 	var me struct {
-		ID                string                 `json:"id"`
-		Email             *string                `json:"email"`
-		Username          string                 `json:"username"`
-		HasPassword       bool                   `json:"has_password"`
-		PreferredLanguage *string                `json:"preferred_language"`
-		MFAEnabled        bool                   `json:"mfa_enabled"`
-		StepUpMethods     []string               `json:"step_up_methods"`
-		StepUp2FA         stepUpOptionsTestShape `json:"step_up_2fa"`
+		ID                string  `json:"id"`
+		Email             *string `json:"email"`
+		Username          string  `json:"username"`
+		HasPassword       bool    `json:"has_password"`
+		PreferredLanguage *string `json:"preferred_language"`
+		Security          struct {
+			MFAEnabled    bool                   `json:"mfa_enabled"`
+			StepUpMethods []string               `json:"step_up_methods"`
+			StepUp2FA     stepUpOptionsTestShape `json:"step_up_2fa"`
+		} `json:"security"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
 	require.Equal(t, user.ID, me.ID)
 	require.Equal(t, username, me.Username)
 	require.True(t, me.HasPassword)
-	require.True(t, me.MFAEnabled)
+	require.True(t, me.Security.MFAEnabled)
 	require.NotNil(t, me.PreferredLanguage, "preferred_language must round-trip off the loaded user row")
 	require.Equal(t, "en", *me.PreferredLanguage)
-	require.Contains(t, me.StepUpMethods, "password")
-	require.Contains(t, me.StepUpMethods, "2fa")
-	requireStepUp2FAOptions(t, me.StepUp2FA, []string{"email"}, "email")
+	require.Contains(t, me.Security.StepUpMethods, "password")
+	require.Contains(t, me.Security.StepUpMethods, "2fa")
+	requireStepUp2FAOptions(t, me.Security.StepUp2FA, []string{"email"}, "email")
 
 	// The #228 dedup: the 2FA-settings read (MFASettingsByUser, inside
 	// Get2FASettings) now runs exactly once for the whole /me request — it ran

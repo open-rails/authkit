@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
@@ -14,17 +15,7 @@ const (
 	ActionRequestVerification  = "request_verification"
 )
 
-type ActionAvailability struct {
-	Action            string     `json:"action"`
-	Allowed           bool       `json:"allowed"`
-	Reason            string     `json:"reason,omitempty"`
-	RetryAfterSeconds int64      `json:"retry_after_seconds,omitempty"`
-	NextAllowedAt     *time.Time `json:"next_allowed_at,omitempty"`
-	Limit             *int       `json:"limit,omitempty"`
-	Remaining         *int       `json:"remaining,omitempty"`
-	WindowSeconds     *int64     `json:"window_seconds,omitempty"`
-	CooldownSeconds   *int64     `json:"cooldown_seconds,omitempty"`
-}
+type ActionAvailability = authkit.ActionAvailability
 
 func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.Time) ActionAvailability {
 	out := ActionAvailability{

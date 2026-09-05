@@ -2,13 +2,14 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
@@ -99,8 +100,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 			serverErr(w, ErrTwoFASendFailed)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"requires_2fa":    true,
+		sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 			"method":          method,
 			"verification_id": obfuscateVerificationID(destination),
 		})
@@ -254,7 +254,6 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 			serverErr(w, ErrTokenIssueFailed)
 			return false, nil
 		}
-		delete(body, "ok")
 		return true, body
 	}
 	s.requireStepUp(w, r, claims)
@@ -286,11 +285,8 @@ func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID st
 		return nil, err
 	}
 	return map[string]any{
-		"ok":           true,
-		"access_token": token,
-		"token_type":   "Bearer",
-		"expires_in":   int64(time.Until(exp).Seconds()),
-		"fresh_auth":   sessionFreshnessResponse(freshness),
+		"token_set":  authkit.TokenSet{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())},
+		"fresh_auth": sessionFreshnessResponse(freshness),
 	}, nil
 }
 
@@ -340,17 +336,9 @@ func (s *Service) stepUpMethodsWith(hasPassword bool, settings *authcore.TwoFact
 	return methods
 }
 
-type stepUpTwoFactorOptionsResponse struct {
-	Methods       []string                        `json:"methods,omitempty"`
-	DefaultMethod string                          `json:"default_method,omitempty"`
-	Options       []stepUpTwoFactorOptionResponse `json:"options,omitempty"`
-}
+type stepUpTwoFactorOptionsResponse = authkit.StepUpTwoFactorOptions
 
-type stepUpTwoFactorOptionResponse struct {
-	Method         string `json:"method"`
-	IsDefault      bool   `json:"is_default,omitempty"`
-	VerificationID string `json:"verification_id,omitempty"`
-}
+type stepUpTwoFactorOptionResponse = authkit.StepUpTwoFactorOption
 
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *stepUpTwoFactorOptionsResponse {
 	settings, err := s.svc.Get2FASettings(r.Context(), userID)

@@ -22,6 +22,14 @@ const (
 
 	// ErrTwoFAEnrollmentRequired is the 2fa_enrollment_required AuthKit HTTP wire error code.
 	ErrTwoFAEnrollmentRequired ErrorCode = "2fa_enrollment_required"
+	// ErrTwoFARequired is the 2fa_required AuthKit HTTP wire error code: the
+	// credentials were accepted but a second factor is pending (#313); the
+	// challenge rides in the error metadata.
+	ErrTwoFARequired ErrorCode = "2fa_required"
+	// ErrVerificationRequired is the verification_required AuthKit HTTP wire
+	// error code: the account must confirm its contact before it can sign in
+	// (#313); metadata carries identifier + channel.
+	ErrVerificationRequired ErrorCode = "verification_required"
 
 	// ErrAbandonFailed is the abandon_failed AuthKit HTTP wire error code.
 	ErrAbandonFailed ErrorCode = "abandon_failed"

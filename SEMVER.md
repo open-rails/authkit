@@ -607,23 +607,32 @@ referenced by behavior elsewhere in this contract: `invalid_request`, `not_found
 `permission_grant_denied`, `unknown_permission`, `unknown_role`,
 `role_not_grantable_to_api_key`, `resource_scope_denied`.
 
-### 6.3 Token-pair response (covered)
+### 6.3 Success shapes: TokenSet, list, ack, profile (covered)
 
-Login, refresh, OIDC, Solana, registration-confirm, and verification endpoints that
-establish a session return the OAuth-style pair:
+One vocabulary for every success body (#313), defined as Go types in the root package:
 
-```json
-{ "access_token": "<jwt>", "token_type": "Bearer",
-  "expires_in": 900, "refresh_token": "<opaque>" }
-```
-
-The 2FA-gated login variant instead returns:
-```json
-{ "requires_2fa": true, "user_id": "...", "method": "email|sms|totp",
-  "challenge": "...", "default_factor": {...}, "available_factors": [...] }
-```
-A mandatory-2FA-but-unenrolled login returns `2fa_enrollment_required` with an
-enrollment-only bearer token scoped to `GET/POST /user/2fa`.
+- **`authkit.TokenSet`** — every session-establishing route (login, refresh, OIDC JSON,
+  Solana, passwordless, passkeys, verification, 2FA verify) returns
+  `{ "access_token", "token_type": "Bearer", "expires_in", "refresh_token"? }` as the whole
+  body, or under `"token_set"` when the response says more: registration
+  (`{next_action, user, token_set?}`), step-up (`{token_set, fresh_auth}`), device keys
+  (`{token_set, device_key}`), passwordless/SIWS/OIDC JSON (`{token_set, return_to? | created,
+  user}`). `refresh_token` is omitted when the mount uses the refresh cookie (ak#271).
+- **Pending-challenge outcomes are 403 error envelopes**, never a 200 with an error field:
+  `2fa_required` (metadata: `user_id`, `method`, `verification_id`, `challenge`,
+  `default_factor`, `available_factors`; the `/2fa/challenge` re-send and `/step-up/2fa`
+  start carry `method`, `verification_id`[, `factor`]), `2fa_enrollment_required`
+  (metadata: `requires_2fa_enrollment`, `allowed_methods`, and `token_set` holding the
+  enrollment-only bearer scoped to `GET/POST /user/2fa`), `verification_required`
+  (metadata: `identifier`, `channel`).
+- **`authkit.ListPage`** — every list is `{ "object": "list", "data": [...], "next_cursor"? }`;
+  `GET /admin/users` pages with `?cursor=&limit=` (cursors are opaque and bound to the page
+  size they were issued with).
+- **Acks** — a mutation with nothing to return answers `204`; anti-enumeration sends
+  (`/verify/request`, `/password/reset/request`, `/register/resend`, `/passwordless/start`)
+  answer `202` with an empty body. No `{"ok": true}` / `"message"` bodies exist.
+- **`authkit.UserProfile`** — `GET /me`; session/step-up/MFA state sits under `security`.
+- `POST /delegated/token` keeps its own `{token, expires_at, ...}` shape (#277).
 
 ### 6.4 JWT token taxonomy & claims (covered)
 

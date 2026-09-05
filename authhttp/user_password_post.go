@@ -2,10 +2,11 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -88,9 +89,11 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp := map[string]any{"ok": true}
-	for k, v := range authMeta {
-		resp[k] = v
+	// A password step-up on the way in earned a fresh token set; otherwise
+	// there is nothing to return.
+	if len(authMeta) == 0 {
+		noContent(w)
+		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, authMeta)
 }

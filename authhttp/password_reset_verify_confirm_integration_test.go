@@ -201,8 +201,7 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	require.Contains(t, emailSender.passwordResetURL(t), "https://example.com/reset?channel=email&token=")
 
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"New-password-12345"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"ok":true`)
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	_, _, err = srv.svc.PasswordLogin(ctx, email, "New-password-12345", nil)
 	require.NoError(t, err)
@@ -227,7 +226,7 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	phoneToken := smsSender.passwordResetToken(t)
 
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+phoneToken+`","new_password":"Phone-password-12345"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	require.NotContains(t, w.Body.String(), `"user_id"`, "phone reset confirm must not echo the user id (ak#324)")
 
 }
@@ -264,7 +263,7 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	require.Equal(t, "/subscribe?plan=pro", frag.Get("return_to"))
 
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+resetToken+`","new_password":"New-password-12345"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 
 	verifyEmail := "link-verify-" + suffix + "@example.com"
 	verifyUser, err := srv.svc.CreateUser(ctx, verifyEmail, "linkverify"+suffix)
@@ -363,7 +362,7 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
 
 	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newEmail+`","code":"`+emailCode+`"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	var gotEmail string
 	var emailVerified bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email, email_verified FROM profiles.users WHERE id=$1::uuid`, userID).Scan(&gotEmail, &emailVerified))
@@ -380,7 +379,7 @@ func TestUnifiedVerificationRoutesHandleContactChanges(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
 	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newPhone+`","code":"`+phoneCode+`"}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	var gotPhone string
 	var phoneVerified bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT phone_number, phone_verified FROM profiles.users WHERE id=$1::uuid`, userID).Scan(&gotPhone, &phoneVerified))
@@ -405,7 +404,7 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	emailToken := emailSender.verificationToken(t)
 
 	w = serveJSON(srv, http.MethodPost, "/verify/confirm", `{"identifier":"`+newEmail+`","token":"`+emailToken+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	var gotEmail string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, userID).Scan(&gotEmail))
 	require.Equal(t, newEmail, gotEmail)

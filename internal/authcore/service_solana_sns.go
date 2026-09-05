@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -103,19 +104,8 @@ func (r defaultSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, addres
 	return name, nil
 }
 
-// SolanaLinkedAccount is the AuthKit-owned normalized metadata for a SIWS-linked wallet.
-type SolanaLinkedAccount struct {
-	Provider            string     `json:"provider"`
-	Issuer              string     `json:"issuer"`
-	Address             string     `json:"address"`
-	Verified            bool       `json:"verified"`
-	VerifiedAt          *time.Time `json:"verified_at"`
-	PrimarySNSName      *string    `json:"primary_sns_name"`
-	SNSResolutionStatus string     `json:"sns_resolution_status"`
-	SNSResolvedAt       *time.Time `json:"sns_resolved_at"`
-	SNSStale            bool       `json:"sns_stale"`
-	SNSError            *string    `json:"sns_error"`
-}
+// SolanaLinkedAccount is the wire type; see authkit.SolanaLinkedAccount.
+type SolanaLinkedAccount = authkit.SolanaLinkedAccount
 
 type solanaSNSProfile struct {
 	PrimaryName      *string    `json:"sns_primary_name"`

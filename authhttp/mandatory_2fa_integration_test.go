@@ -42,14 +42,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin"))
 
 	w := login(t, srv, "mfa-required-admin", adminID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var challenge struct {
-		Requires2FA bool   `json:"requires_2fa"`
-		Challenge   string `json:"challenge"`
-		Method      string `json:"method"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-	require.True(t, challenge.Requires2FA)
+	challenge := requireTwoFARequired(t, w)
 	require.Equal(t, "email", challenge.Method)
 
 	ordinaryID := mustPasswordUser(t, srv, "mfa-required-refresh")
@@ -66,9 +59,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
-	require.Contains(t, w.Body.String(), "access_token")
+	require.NotEmpty(t, requireEnrollmentToken(t, w))
 }
 
 // #249 follow-up: an MFA-required role assigned while TwoFactor.Mode is
@@ -112,14 +103,13 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 	require.NoError(t, err)
 
 	w = login(t, optionalSrv, "mfa-gate-role-disabled", unenrolledID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"requires_2fa_enrollment":true`)
-	require.Contains(t, w.Body.String(), `"access_token"`)
+	require.NotEmpty(t, requireEnrollmentToken(t, w))
 
 	w = serveJSON(optionalSrv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
-	require.Contains(t, w.Body.String(), "access_token")
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.NotEmpty(t, requireEnrollmentToken(t, w))
 }
 
 func mandatory2FATestConfig() embedded.Config {

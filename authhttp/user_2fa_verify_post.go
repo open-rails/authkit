@@ -2,9 +2,10 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +87,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	uaPtr, ipPtr := &ua, &ip
 	s.svc.LogSessionCreated(r.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
 
-	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(token, rt, exp), nil)
+	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(token, rt, exp))
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
@@ -129,8 +130,7 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 		serverErr(w, ErrTwoFASendFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"requires_2fa":    true,
+	sendErrData(w, http.StatusForbidden, ErrTwoFARequired, map[string]any{
 		"method":          method,
 		"verification_id": obfuscateVerificationID(destination),
 		"factor": twoFactorFactorResponse{

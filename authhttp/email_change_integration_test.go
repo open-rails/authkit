@@ -43,7 +43,7 @@ func testEmailChangeRequestConfirmReplay(t *testing.T, store ephemeralStore) {
 	require.Equal(t, email, current, "the address must not change before confirmation")
 
 	w = serveAuthJSON(srv, http.MethodPost, "/verify/confirm", `{"code":"`+code+`","identifier":"`+newEmail+`"}`, access)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1::uuid`, user.ID).Scan(&current))
 	require.Equal(t, newEmail, current)
 

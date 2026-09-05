@@ -190,14 +190,14 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 	return &sd
 }
 
-// browser2FAEnrollmentRequired is write2FAEnrollmentRequired for browser
+// browser2FAEnrollmentRequired is send2FAEnrollmentRequired for browser
 // navigations: the enrollment token rides the error contract (fragment or
 // popup payload) as enrollment_token — deliberately NOT access_token, so a
 // frontend that only looks for access_token treats the login as failed
 // instead of storing an enrollment-scoped token as a real session.
 func (s *Service) browser2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID, provider string, sd oidckit.StateData) {
 	if wantsJSONResponse(r) {
-		s.write2FAEnrollmentRequired(w, r, userID)
+		s.send2FAEnrollmentRequired(w, r, userID)
 		return
 	}
 	token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
