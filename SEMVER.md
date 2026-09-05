@@ -294,7 +294,8 @@ password-reset senders receive the final reset URL, not a raw token.
 overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `NormalizeEmail`, `ValidateEmail`, `NormalizePhone`, `ValidatePhone`,
 `NormalizePreferredLanguage`, `ValidatePermission`, `ValidateGrantPattern`,
-`ValidationErrorCode`, plus the `ErrCode*` validation-code constants.
+`ValidationErrorCode` (a validation failure is a `*authkit.Error` carrying one of the
+catalogued validation codes; `param` names the field).
 
 **Sentinel errors** (covered — consumers compare with `errors.Is`): `ErrUserBanned`,
 `ErrPasswordResetRequired` (→ HTTP `password_reset_required`), `ErrStepUpRequired` (→ HTTP `step_up_required`),
@@ -344,13 +345,13 @@ Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenT
 via `(*Verifier).WithService(...)`.
 
 **Root `authkit` verify-only primitives** (Stable, verify-only; formerly package
-`authbase`): `ErrorEnvelope`, `ErrorObject`, `NewErrorEnvelope`
+`authbase`): `ErrorEnvelope`, `ErrorObject`, `ErrorEnvelopeFor`, `WriteError`
 (see [§6.1](#61-error-envelope)); `APIKeyResource`, `RemoteApplication`,
 `RemoteAppKey`, `RemoteAppAttributeDef`, `ResolvedAPIKey`, `ServiceJWTClaims`; opaque-key
 funcs `APIKeyMarker`, `FormatAPIKey`, `ParseAPIKey`, `HasAPIKeyPrefix`; permission match
 method `Perm.Matches`, `PermWildcard="*"`; origin funcs
-`NormalizeAllowedOrigin(s)`, `OriginAllowed`; error helpers `ErrorMessage`,
-`ErrorTypeForStatus`, `ErrorTypeInvalidRequest…` consts; mode consts `RemoteAppModeJWKS`,
+`NormalizeAllowedOrigin(s)`, `OriginAllowed`; the error model `Code`, `Error`, `E`,
+`AsError`, `Recode`, `DescribeCode`, `Codes`, `ErrorTypeForStatus`, `ErrorTypeInvalidRequest…` consts; mode consts `RemoteAppModeJWKS`,
 `ServiceJWTTokenUse="service"`; sentinels `ErrInvalidAccessToken="invalid_token"`,
 `ErrInvalidServiceJWT`, `ErrInvalidRemoteApplication`, `ErrAttributeDefNotFound`.
 
@@ -428,7 +429,7 @@ Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
 Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare)
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec
-Errors: ErrorCode (+the full constant set, §6.2)
+Errors: none — every code is an `authkit.Code` (§6.2)
 ```
 
 ---
@@ -597,14 +598,20 @@ All error responses use the **Stripe-style nested envelope** (`authbase.ErrorEnv
 
 ### 6.2 Error codes (covered enumeration)
 
-The `ErrorCode` constants in `authhttp` are the wire-code contract. The **string value**
-of each is frozen; removing a code or changing its value is MAJOR. Adding a new code is
-MINOR (a client must already tolerate unknown codes). Compare against the constants
-(e.g. `authhttp.ErrPasswordResetRequired`), never copied literals.
+The `authkit.Code` catalog (root `errors.go`; enumerate with `authkit.Codes()`, describe
+with `authkit.DescribeCode`) is the wire-code contract. The **string value** of each code
+is frozen; removing a code or changing its value is MAJOR. Adding a new code is MINOR (a
+client must already tolerate unknown codes). Compare against the values
+(e.g. `authkit.CodePasswordResetRequired`), never copied literals.
 
-The full set is enumerated in `http/error_codes.go` (~260 codes). Notable stable codes
-referenced by behavior elsewhere in this contract: `invalid_request`, `not_found`,
-`unauthorized`, `forbidden`, `rate_limited`, `database_error`, `invalid_credentials`,
+One error model (ak#290): every failure is a `*authkit.Error{Code, Status, Param, Meta}`;
+`errors.Is` compares codes, so the `authkit.ErrX` sentinels, a fresh `authkit.E(CodeX)`
+and any wrapper are one identity. `authkit.WriteError` is the one writer: status, code,
+param and metadata come from the error, the message from the catalog. Every status-500
+code is `internal_error` on the wire (the operation name is logged, never sent); 502/503
+keep their codes. Notable stable codes referenced by behavior elsewhere in this contract:
+`invalid_request`, `not_found`,
+`unauthorized`, `forbidden`, `rate_limited`, `internal_error`, `invalid_credentials`,
 `password_too_short`, `password_reset_required`, `passwordless_disabled`, `registration_disabled`,
 `step_up_required`, `2fa_enrollment_required`,
 `rename_rate_limited`, `owner_slug_taken`, `username_not_allowed`,
@@ -866,7 +873,7 @@ To keep this document honest, CI should gate the contract mechanically:
    bump. This is the source of truth for Plane A.
 2. **Route table diff** — assert `svc.APIRoutes()` + `OIDCBrowserRoutes()` +
    `PermissionGroupRoutes()` against a golden list ([§5](#5-plane-b--http-route-surface)).
-3. **Error-code diff** — assert the `ErrorCode` constant set against a golden list.
+3. **Error-code diff** — assert `authkit.Codes()` against a golden list.
 4. **Wire-shape tests** — golden JSON for the error envelope, token-pair, `/me`, and the
    2FA login responses.
 5. **Migration immutability** — checksum published migration files; forbid edits.
