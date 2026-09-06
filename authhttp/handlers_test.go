@@ -350,22 +350,26 @@ func TestOIDCLoginStoresReturnTo(t *testing.T) {
 	require.Equal(t, "/subscribe?plan=pro", sd.ReturnTo)
 }
 
+// An off-origin return_to on a real login request is stored as "/": absolute
+// URLs, and the "//" and "/\" prefixes browsers read as scheme-relative.
 func TestOIDCLoginDropsMaliciousReturnTo(t *testing.T) {
 	s := newTestService(t)
 	configureGitHubOAuthForTest(t, s)
 	h := s.oidcHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to=https%3A%2F%2Fevil.example%2F", nil)
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusFound, w.Code)
-	loc, err := url.Parse(w.Header().Get("Location"))
-	require.NoError(t, err)
-	state := loc.Query().Get("state")
-	require.NotEmpty(t, state)
-	sd, ok, err := s.stateCache().Get(context.Background(), state)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, "/", sd.ReturnTo)
+	for _, returnTo := range []string{"https://evil.example/", "//evil.example/", `/\evil.example/`} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to="+url.QueryEscape(returnTo), nil)
+		h.ServeHTTP(w, r)
+		require.Equal(t, http.StatusFound, w.Code)
+		loc, err := url.Parse(w.Header().Get("Location"))
+		require.NoError(t, err)
+		state := loc.Query().Get("state")
+		require.NotEmpty(t, state)
+		sd, ok, err := s.stateCache().Get(context.Background(), state)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, "/", sd.ReturnTo, returnTo)
+	}
 }
 
 func TestOIDCCallbackPath_StepUpStartUsesStepUpCallback(t *testing.T) {
