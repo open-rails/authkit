@@ -40,6 +40,15 @@ func TestLogInternalErrorLogsToSlog(t *testing.T) {
 	buf.Reset()
 	svc.logInternalError(req, "register", "validate_username", "database_error", nil)
 	require.Empty(t, buf.String())
+
+	// A percent-encoded newline in the request target decodes into URL.Path; the
+	// record carries it escaped so no handler can be made to emit a forged
+	// second line (CWE-117).
+	buf.Reset()
+	svc.logInternalError(httptest.NewRequest("GET", "/register%0Ainjected", nil), "register", "s", "c", errors.New("multi\nline"))
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	require.Equal(t, `/register\ninjected`, rec["path"])
+	require.Equal(t, `multi\nline`, rec["error"])
 }
 
 func TestWriteErrorMapsHonestTargetErrors(t *testing.T) {

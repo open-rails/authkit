@@ -180,7 +180,7 @@ func (s *Client) ListEntitlements(ctx context.Context, userID string) []string {
 	}
 	m, err := s.entitlements.ListEntitlements(ctx, []string{userID})
 	if err != nil {
-		stdlog.Printf("authkit: error: entitlements provider failed for user %s; reporting no entitlements: %v", userID, err)
+		stdlog.Printf("authkit: error: entitlements provider failed for user %q; reporting no entitlements: %v", userID, err)
 		return nil
 	}
 	return m[userID]

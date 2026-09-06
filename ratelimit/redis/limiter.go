@@ -138,7 +138,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 			RetryAfter: time.Duration(retryAfterMs) * time.Millisecond,
 			Reason:     reasonFromCode(reasonCode),
 			Limit:      lim.Limit,
-			Remaining:  ratelimit.Remaining(lim.Limit, int(count)),
+			Remaining:  ratelimit.Remaining(lim.Limit, count),
 			Window:     lim.Window,
 			Cooldown:   lim.Cooldown,
 		}, nil
@@ -146,7 +146,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	return ratelimit.Result{
 		Allowed:   true,
 		Limit:     lim.Limit,
-		Remaining: ratelimit.Remaining(lim.Limit, int(count)+1),
+		Remaining: ratelimit.Remaining(lim.Limit, count+1),
 		Window:    lim.Window,
 		Cooldown:  lim.Cooldown,
 	}, nil

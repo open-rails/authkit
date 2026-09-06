@@ -1,8 +1,11 @@
 package embedded
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	stdlog "log"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,6 +41,22 @@ func TestEnrichEntitlements_BatchErrorDegradesToNone(t *testing.T) {
 	users := []AdminUser{{ID: "u1"}}
 	s.enrichEntitlements(context.Background(), users)
 	require.Empty(t, users[0].Entitlements)
+}
+
+// A provider failure is logged with the user id quoted, so a request-supplied
+// id cannot forge log lines (CWE-117).
+func TestListEntitlements_ProviderErrorLogsQuotedUserID(t *testing.T) {
+	// Not parallel: captures the process-global stdlog output.
+	p := &batchEntitlementsProvider{batchErr: errors.New("billing unreachable")}
+	s, _ := newClaimTestService(t, "multi", WithEntitlements(p))
+	var logs bytes.Buffer
+	prev := stdlog.Writer()
+	stdlog.SetOutput(&logs)
+	t.Cleanup(func() { stdlog.SetOutput(prev) })
+
+	require.Nil(t, s.ListEntitlements(context.Background(), "u1\nINJECTED line"))
+	require.Contains(t, logs.String(), `for user "u1\nINJECTED line"`)
+	require.False(t, strings.Contains(logs.String(), "\nINJECTED"), logs.String())
 }
 
 func TestEnrichEntitlements_StaticProviderCoversAllUsers(t *testing.T) {

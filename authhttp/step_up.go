@@ -317,9 +317,13 @@ func sessionFreshnessResponse(f embedded.SessionFreshness) map[string]any {
 	return out
 }
 
+// sanitizeReturnTo admits only a same-origin absolute path: a leading "/" but
+// not "//" or "/\" (browsers read both as scheme-relative), no control
+// characters, no scheme or host. Anything else becomes "/".
 func sanitizeReturnTo(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || strings.ContainsAny(value, "\\\r\n\t") || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
+	if value == "" || strings.ContainsAny(value, "\\\r\n\t") || !strings.HasPrefix(value, "/") ||
+		strings.HasPrefix(value, "//") || strings.HasPrefix(value, "/\\") {
 		return "/"
 	}
 	u, err := url.Parse(value)

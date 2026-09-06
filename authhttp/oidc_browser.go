@@ -147,7 +147,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	params := callbackParams(r)
 	if qErr := params.Get("error"); qErr != "" {
 		logIdPCallbackError(name, r)
-		errSD := s.recoverCallbackState(w, r, name)
+		errSD := s.recoverCallbackState(w, r, p)
 		s.failBrowserFlow(w, r, errSD, name, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
 	}
@@ -162,7 +162,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// set at flow start. This blocks login CSRF, where an attacker supplies a
 	// valid state+code captured from their own login.
 	cookieOK := stateCookieMatches(r, state)
-	clearStateCookie(w, state)
+	s.clearStateCookie(w, r, p, state)
 	if !cookieOK {
 		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)
 		return

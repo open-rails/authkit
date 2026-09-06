@@ -88,8 +88,6 @@ func (s *Client) DelegationAuthorizer() DelegationAuthorizer {
 	return s.delegationAuthorizer
 }
 
-// --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---
-
 // Config returns THE configuration (#237): the host Config, normalized once at
 // construction. Both the engine and the HTTP transport read it — there is no
 // parallel flat options struct (#236 bug class is structurally impossible).

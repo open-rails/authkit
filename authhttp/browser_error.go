@@ -10,6 +10,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -178,14 +179,14 @@ func truncateForLog(s string, max int) string {
 // redirects too). The state cookie must match — a mismatched cookie means this
 // browser did not start the flow, and no context may be recovered for it.
 // Consuming here also burns the one-time state on the error path.
-func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, provider string) *oidckit.StateData {
+func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p authprovider.Provider) *oidckit.StateData {
 	state := callbackParams(r).Get("state")
 	if strings.TrimSpace(state) == "" || !stateCookieMatches(r, state) {
 		return nil
 	}
-	clearStateCookie(w, state)
+	s.clearStateCookie(w, r, p, state)
 	sd, ok, err := consumeState(r.Context(), s.stateCache(), state)
-	if err != nil || !ok || sd.Provider != provider {
+	if err != nil || !ok || sd.Provider != p.Name() {
 		return nil
 	}
 	return &sd

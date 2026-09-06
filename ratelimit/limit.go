@@ -24,11 +24,15 @@ func LookupLimit(limits map[string]Limit, bucket string) (Limit, bool) {
 	return Limit{Limit: 100, Window: time.Minute}, false
 }
 
-// Remaining returns the non-negative requests left given a limit and used count.
-func Remaining(limit, used int) int {
-	left := limit - used
-	if left < 0 {
+// Remaining is the non-negative budget left after used requests. used is
+// int64 because the Redis backend reads it straight from a Lua reply; it is
+// clamped before any narrowing so an out-of-range count cannot wrap.
+func Remaining(limit int, used int64) int {
+	if used <= 0 {
+		return limit
+	}
+	if used >= int64(limit) {
 		return 0
 	}
-	return left
+	return int(int64(limit) - used)
 }

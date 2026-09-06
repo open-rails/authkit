@@ -15,7 +15,7 @@ import (
 
 // Two-factor authentication: enrolment (factors + backup codes), the account
 // gate, login and step-up code send/verify, challenges, and factor resolution.
-// TOTP crypto and phone-2FA-setup codes live in totp.go; this file is the
+// TOTP crypto and phone-2FA-setup codes live in flow_totp.go; this file is the
 // account-level 2FA machine on top of the mfa_factors/mfa_settings tables.
 
 type TwoFactorSettings struct {

@@ -84,7 +84,7 @@ func (s *Client) logSessionEvent(ctx context.Context, e AuthSessionEvent) {
 		UserAgent:  e.UserAgent,
 	})
 	if err != nil {
-		stdlog.Printf("authkit: error: failed to record session event %s for user %s: %v", e.Event, e.UserID, err)
+		stdlog.Printf("authkit: error: failed to record session event %s for user %q: %v", e.Event, e.UserID, err)
 	}
 }
 
