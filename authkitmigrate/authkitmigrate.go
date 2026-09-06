@@ -14,9 +14,11 @@ package authkitmigrate
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -73,7 +75,7 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrateResult, error) {
 	}
 	defer db.Close()
 
-	if err := p.Setup(ctx); err != nil {
+	if err := setup(ctx, p); err != nil {
 		return nil, fmt.Errorf("authkitmigrate: ensure tracking table: %w", err)
 	}
 	before, err := p.Applied(ctx)
@@ -99,6 +101,48 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrateResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// setupAttempts bounds the Setup retry loop; a loser that keeps colliding
+// past this is not racing, it is broken.
+const setupAttempts = 8
+
+// setup ensures the tracking table exists. Migrators racing a fresh database
+// (a host's Postgres and ClickHouse migration groups both track in
+// public.migrations) hit Postgres's concurrent-create race on each idempotent
+// DDL statement behind Setup — CREATE TABLE / ADD COLUMN / CREATE INDEX ... IF
+// NOT EXISTS — and the loser fails with a duplicate key on a catalog index or
+// a duplicate object. Every statement is a no-op once the winner has
+// committed, so the loser retries with a short backoff (migratekit's own
+// ApplyMigrations retries once, which covers a single lost statement; two
+// migrators in lockstep lose several in a row).
+func setup(ctx context.Context, p *migratekit.Postgres) error {
+	for attempt := 1; ; attempt++ {
+		err := p.Setup(ctx)
+		if err == nil || attempt == setupAttempts || !isConcurrentDDL(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * 10 * time.Millisecond):
+		}
+	}
+}
+
+// isConcurrentDDL reports the SQLSTATEs a lost "... IF NOT EXISTS" race
+// surfaces as: unique_violation on a catalog index, duplicate_table,
+// duplicate_object, duplicate_column.
+func isConcurrentDDL(err error) bool {
+	var state interface{ SQLState() string }
+	if !errors.As(err, &state) {
+		return false
+	}
+	switch state.SQLState() {
+	case "23505", "42P07", "42710", "42701":
+		return true
+	}
+	return false
 }
 
 // Validate returns nil when every AuthKit migration has been applied, and an
