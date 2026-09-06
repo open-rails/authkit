@@ -91,6 +91,17 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	require.NotEmpty(t, frag.Get("access_token"))
 	require.Equal(t, "apple", frag.Get("provider"))
 	require.Equal(t, state, frag.Get("state"))
+	// The clearing Set-Cookie mirrors the attributes of the cookie it evicts.
+	var cleared *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == stateCookieName(state) {
+			cleared = c
+		}
+	}
+	require.NotNil(t, cleared)
+	require.Less(t, cleared.MaxAge, 0)
+	require.True(t, cleared.Secure)
+	require.Equal(t, http.SameSiteNoneMode, cleared.SameSite)
 
 	// Same POST without the browser's state cookie is login CSRF: refused, state untouched.
 	state, _ = startFlow("apple")

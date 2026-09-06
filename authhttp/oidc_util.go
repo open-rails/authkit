@@ -81,18 +81,20 @@ func stateCookieName(state string) string {
 	return oauthStateCookie + "_" + hex.EncodeToString(sum[:4])
 }
 
-// setStateCookie stores the flow's state in an HttpOnly cookie. SameSite=Lax
-// (not Strict) is required so the cookie is sent on the cross-site top-level GET
-// navigation back from the IdP to the callback. A response_mode=form_post
-// provider (Apple) returns a cross-site POST, which browsers do not attach Lax
-// cookies to, so only those providers get SameSite=None; Secure (#295) —
-// authhttp.New refuses form_post on non-HTTPS deployments.
-func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
+// stateCookie is the one shape of the flow's state cookie — set and clear
+// share it so the clearing Set-Cookie carries the same Secure/SameSite
+// attributes as the cookie it evicts. SameSite=Lax (not Strict) is required so
+// the cookie is sent on the cross-site top-level GET navigation back from the
+// IdP to the callback. A response_mode=form_post provider (Apple) returns a
+// cross-site POST, which browsers do not attach Lax cookies to, so only those
+// providers get SameSite=None; Secure (#295) — authhttp.New refuses form_post
+// on non-HTTPS deployments.
+func (s *Service) stateCookie(r *http.Request, p authprovider.Provider, state, value string, maxAge int) *http.Cookie {
 	c := &http.Cookie{
 		Name:     stateCookieName(state),
-		Value:    state,
+		Value:    value,
 		Path:     "/",
-		MaxAge:   int(oauthStateCookieTTL.Seconds()),
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
@@ -101,7 +103,12 @@ func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authp
 		c.SameSite = http.SameSiteNoneMode
 		c.Secure = true
 	}
-	http.SetCookie(w, c)
+	return c
+}
+
+// setStateCookie stores the flow's state in an HttpOnly cookie.
+func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
+	http.SetCookie(w, s.stateCookie(r, p, state, state, int(oauthStateCookieTTL.Seconds())))
 }
 
 // callbackParams returns the IdP's authorization response: the query string of
@@ -116,15 +123,8 @@ func callbackParams(r *http.Request) url.Values {
 
 // clearStateCookie expires this flow's state cookie (single-use); other flows'
 // cookies are untouched.
-func clearStateCookie(w http.ResponseWriter, state string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     stateCookieName(state),
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
+	http.SetCookie(w, s.stateCookie(r, p, state, "", -1))
 }
 
 // stateCookieMatches reports whether the request carries the state cookie and it
