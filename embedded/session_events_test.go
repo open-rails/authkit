@@ -1,8 +1,11 @@
 package embedded
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	stdlog "log"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,11 +92,21 @@ func TestSessionEventsRoundTrip(t *testing.T) {
 // insert (canceled context) must not panic or surface — the auth operation
 // that triggered it already succeeded. A service with no Postgres no-ops.
 func TestSessionEventsBestEffortWrite(t *testing.T) {
+	// Not parallel: captures the process-global stdlog output.
 	svc := newSessionEventsService(t)
+	var logs bytes.Buffer
+	prev := stdlog.Writer()
+	stdlog.SetOutput(&logs)
+	t.Cleanup(func() { stdlog.SetOutput(prev) })
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	svc.LogSessionCreated(canceled, "se-best-effort", "password_login", "sess-x", nil, nil) // must not panic
-	events, err := svc.ListSessionEvents(context.Background(), "se-best-effort")
+	// The failure line quotes the request-supplied user id so it cannot forge
+	// log lines (CWE-117).
+	const uid = "se-best-effort\nINJECTED line"
+	svc.LogSessionCreated(canceled, uid, "password_login", "sess-x", nil, nil) // must not panic
+	require.Contains(t, logs.String(), `for user "se-best-effort\nINJECTED line"`)
+	require.False(t, strings.Contains(logs.String(), "\nINJECTED"), logs.String())
+	events, err := svc.ListSessionEvents(context.Background(), uid)
 	require.NoError(t, err)
 	require.Empty(t, events)
 
