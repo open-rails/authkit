@@ -351,4 +351,4 @@ type PasskeyConfig struct {
 }
 
 // RegistrationVerificationPolicy and RegistrationMode are defined in authkit and
-// re-exported in registration.go (#147).
+// re-exported in flow_registration.go (#147).
