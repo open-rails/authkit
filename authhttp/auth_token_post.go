@@ -25,6 +25,14 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	// state after the migration, not a malformed request.
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
+		// Still fail closed on ambiguity (a planted sibling cookie must never
+		// pick the session), but when the ambiguity is two refresh cookies —
+		// the pre-v0.98 legacy Path next to the current one — tombstone the
+		// legacy path with the refusal so an honest jar converges and the
+		// client's retry succeeds.
+		if s.hasDuplicateRefreshCookies(r) {
+			s.clearLegacyRefreshCookie(w, r)
+		}
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}

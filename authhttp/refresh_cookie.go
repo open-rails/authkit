@@ -80,6 +80,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 		c.MaxAge = int(d.Seconds())
 	}
 	http.SetCookie(w, c)
+	s.clearLegacyRefreshCookie(w, r)
 }
 
 // clearRefreshCookie expires the cookie.
@@ -103,6 +104,62 @@ func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+	s.clearLegacyRefreshCookie(w, r)
+}
+
+// legacyRefreshCookiePath is the pre-v0.98 anchor: the cookie used to live at
+// the mount's API prefix before it was narrowed to <apiPrefix>/token. A jar
+// that crossed that upgrade holds BOTH cookies, which the duplicate gate below
+// rightly refuses — so every response that touches the refresh cookie also
+// tombstones the legacy path until jars have converged. Empty when the current
+// policy has no distinct parent path.
+func legacyRefreshCookiePath(policy refreshCookiePolicy) string {
+	legacy := strings.TrimSuffix(policy.path, "/token")
+	if legacy == policy.path {
+		return ""
+	}
+	if legacy == "" {
+		legacy = "/"
+	}
+	return legacy
+}
+
+// clearLegacyRefreshCookie expires the pre-v0.98 cookie at the old Path.
+// Attribute-for-attribute identical to the legacy setter (HttpOnly, Secure,
+// Lax) — anything else and the browser keeps the original next to the
+// tombstone.
+func (s *Service) clearLegacyRefreshCookie(w http.ResponseWriter, r *http.Request) {
+	policy, ok := refreshCookieEnabled(r)
+	if !ok {
+		return
+	}
+	legacy := legacyRefreshCookiePath(policy)
+	if legacy == "" {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     RefreshCookieName,
+		Value:    "",
+		Path:     legacy,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   s.cookieSecure(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// hasDuplicateRefreshCookies reports whether the request carries more than one
+// refresh cookie — either a legacy-path migration leftover or a planted sibling
+// cookie. Consumers refuse the request either way; migration callers use this
+// to also emit the legacy tombstone so honest jars converge.
+func (s *Service) hasDuplicateRefreshCookies(r *http.Request) bool {
+	n := 0
+	for _, c := range r.Cookies() {
+		if c.Name == RefreshCookieName {
+			n++
+		}
+	}
+	return n > 1
 }
 
 // refreshTokenFromRequest resolves the refresh credential for a consuming
