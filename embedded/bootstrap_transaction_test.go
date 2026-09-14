@@ -90,7 +90,7 @@ func TestBootstrapSchemasAreIndependent(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: "other"}).Migrate(ctx); err != nil {
+	if err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: "other"}).Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	newClient := func(schema string) *Client {
