@@ -318,6 +318,9 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 		if strings.TrimSpace(p.Hash) == "" || strings.TrimSpace(p.HashAlgo) == "" {
 			return ErrInvalidBootstrapManifest
 		}
+		if err := validatePasswordHashForStorage(strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidBootstrapManifest, err)
+		}
 	}
 	if p.ResetRequired {
 		modes++
@@ -327,7 +330,7 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 	}
 	// enforce-as-desired-state is incompatible with reset_required (#89): a
 	// reset sentinel re-applied every reconcile would force a reset on every run.
-	if p.Enforce && p.ResetRequired {
+	if p.Enforce && (p.ResetRequired || strings.TrimSpace(p.HashAlgo) == HashAlgoLegacyResetRequired) {
 		return ErrInvalidBootstrapManifest
 	}
 	return nil

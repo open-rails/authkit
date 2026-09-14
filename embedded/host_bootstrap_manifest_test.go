@@ -2,9 +2,9 @@ package embedded
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -138,15 +138,29 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.Contains(t, authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant()))
 }
 
-func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
-	if err := validateBootstrapUserPassword(BootstrapUserPassword{ResetRequired: true, Enforce: true}); !errors.Is(err, ErrInvalidBootstrapManifest) {
-		t.Fatalf("enforce+reset_required err=%v, want ErrInvalidBootstrapManifest", err)
-	}
-	if err := validateBootstrapUserPassword(BootstrapUserPassword{Plaintext: "bootstrap-password-1", Enforce: true}); err != nil {
-		t.Fatalf("enforce+plaintext should be valid, got %v", err)
-	}
-	if err := validateBootstrapUserPassword(BootstrapUserPassword{ResetRequired: true}); err != nil {
-		t.Fatalf("reset_required alone should be valid, got %v", err)
+func TestValidateBootstrapUserPassword(t *testing.T) {
+	const phc = "$argon2id$v=19$m=65536,t=1,p=1$c29tZXNhbHQ$YWJjZGVmZ2hpamtsbW5vcA"
+	for name, tc := range map[string]struct {
+		password BootstrapUserPassword
+		valid    bool
+	}{
+		"plaintext enforcement":      {BootstrapUserPassword{Plaintext: "bootstrap-password-1", Enforce: true}, true},
+		"reset flag":                 {BootstrapUserPassword{ResetRequired: true}, true},
+		"reset flag enforcement":     {BootstrapUserPassword{ResetRequired: true, Enforce: true}, false},
+		"explicit reset state":       {BootstrapUserPassword{Hash: "reset-required", HashAlgo: HashAlgoLegacyResetRequired}, true},
+		"explicit reset enforcement": {BootstrapUserPassword{Hash: "reset-required", HashAlgo: HashAlgoLegacyResetRequired, Enforce: true}, false},
+		"supported PHC":              {BootstrapUserPassword{Hash: phc, HashAlgo: "argon2id"}, true},
+		"unsafe PHC":                 {BootstrapUserPassword{Hash: strings.Replace(phc, "t=1", "t=0", 1), HashAlgo: "argon2id"}, false},
+		"unsupported algorithm":      {BootstrapUserPassword{Hash: "opaque", HashAlgo: "md5"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateBootstrapUserPassword(tc.password)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidBootstrapManifest)
+			}
+		})
 	}
 }
 
