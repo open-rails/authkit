@@ -65,13 +65,13 @@ func phcEncode(p Params, salt, sum []byte) string {
 var ErrInvalidHash = errors.New("invalid_password_hash")
 
 // ValidateHash checks a supported hash without computing the password KDF.
-// An empty algorithm is accepted only for historical bcrypt rows.
+// The algorithm must be explicit; imports normalize their source format.
 func ValidateHash(hash, algorithm string) error {
 	switch algorithm {
 	case "argon2id":
 		_, _, _, err := phcDecode(hash)
 		return err
-	case "bcrypt", "":
+	case "bcrypt":
 		return validateBcrypt(hash)
 	default:
 		return ErrInvalidHash

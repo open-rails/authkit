@@ -86,7 +86,7 @@ func TestSupportedLegacyHashesRemainUsable(t *testing.T) {
 		encoded := prefix + string(hash[4:])
 		require.True(t, IsBcryptHash(encoded))
 		require.NoError(t, ValidateHash(encoded, "bcrypt"))
-		require.NoError(t, ValidateHash(encoded, ""))
+		require.ErrorIs(t, ValidateHash(encoded, ""), ErrInvalidHash)
 		ok, err := VerifyBcrypt(encoded, pass)
 		require.NoError(t, err)
 		require.True(t, ok)

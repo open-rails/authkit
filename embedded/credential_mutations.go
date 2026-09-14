@@ -126,7 +126,7 @@ func verifyPasswordHash(hash, algo, pass string) error {
 		return ErrPasswordResetRequired
 	case "argon2id":
 		ok, err = password.VerifyArgon2id(hash, pass)
-	case "bcrypt", "":
+	case "bcrypt":
 		ok, err = password.VerifyBcrypt(hash, pass)
 	default:
 		return ErrPasswordResetRequired

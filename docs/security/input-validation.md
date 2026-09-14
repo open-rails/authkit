@@ -16,7 +16,7 @@ parameters, and canonical unpadded Base64. The encoded hash is at most 256 bytes
 parallelism is 1–16, memory is 8 × parallelism through 262144 KiB, iterations are
 1–10, and memory × iterations is at most 1048576 KiB. Salt length is 8–64 bytes;
 digest length is 16–64 bytes. Bcrypt accepts exactly 60-byte `$2a$`, `$2b$`, or
-`$2y$` hashes with costs 4–14. Empty algorithm names only support legacy bcrypt.
+`$2y$` hashes with costs 4–14. Algorithm names are required, including for imported bcrypt hashes.
 
 AuthKit's generated Argon2id defaults are unchanged (65536 KiB, one iteration,
 one thread, 16-byte salt, 32-byte digest). Common PHP Argon2id settings and bcrypt
