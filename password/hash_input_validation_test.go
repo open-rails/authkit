@@ -11,25 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPHCRejectsUnsafeParameters(t *testing.T) {
-	for _, encoded := range []string{
-		"$argon2id$v=19$m=8,t=0,p=1$c2FsdA$aGFzaA",
-		"$argon2id$v=19$m=8,t=1,p=0$c2FsdA$aGFzaA",
-		"$argon2id$v=19$m=8,t=1,p=256$c2FsdA$aGFzaA",
-		"$argon2id$v=99$m=8,t=1,p=1$c2FsdA$aGFzaA",
-		"$argon2id$v=19$m=4294967295,t=1,p=1$c2FsdA$aGFzaA",
-		"$argon2id$v=19$m=8,t=1,p=1$c2FsdA$",
-	} {
-		t.Run(encoded, func(t *testing.T) {
-			p, salt, sum, err := phcDecode(encoded)
-			t.Logf("params=%+v salt_len=%d digest_len=%d err=%v", p, len(salt), len(sum), err)
-			require.Error(t, err)
-		})
-	}
-}
-
 func TestPHCMalformedNeverAuthenticatesOrPanics(t *testing.T) {
 	for _, encoded := range []string{
+		"not-a-phc-string", "", "$argon2id$",
 		"$argon2id$v=19$m=8,t=0,p=1$c2FsdA$aGFzaA",
 		"$argon2id$v=19$m=8,t=1,p=0$c2FsdA$aGFzaA",
 		"$argon2id$v=19$m=8,t=1,p=1$c2FsdA$",
@@ -89,6 +73,9 @@ func TestSupportedLegacyHashesRemainUsable(t *testing.T) {
 	p := Params{Time: 2, Memory: 32, Threads: 2, SaltLen: uint32(len(salt)), KeyLen: 24}
 	sum := argon2.IDKey([]byte(pass), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
 	encoded := phcEncode(p, salt, sum)
+	for _, other := range []string{encoded, "", "random"} {
+		require.False(t, IsBcryptHash(other))
+	}
 	require.NoError(t, ValidateHash(encoded, "argon2id"))
 	ok, err := VerifyArgon2id(encoded, pass)
 	require.NoError(t, err)
@@ -97,11 +84,15 @@ func TestSupportedLegacyHashesRemainUsable(t *testing.T) {
 	require.NoError(t, err)
 	for _, prefix := range []string{"$2a$", "$2b$", "$2y$"} {
 		encoded := prefix + string(hash[4:])
+		require.True(t, IsBcryptHash(encoded))
 		require.NoError(t, ValidateHash(encoded, "bcrypt"))
 		require.NoError(t, ValidateHash(encoded, ""))
 		ok, err := VerifyBcrypt(encoded, pass)
 		require.NoError(t, err)
 		require.True(t, ok)
+		ok, err = VerifyBcrypt(encoded, "wrong-password")
+		require.NoError(t, err)
+		require.False(t, ok)
 	}
 	for _, encoded := range []string{
 		string(hash) + "suffix", string(hash[:59]), "$2x$" + string(hash[4:]),

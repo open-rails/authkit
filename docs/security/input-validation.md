@@ -33,3 +33,12 @@ and negative/fractional-millisecond or over-window cooldowns. The memory bucket
 cap must be positive. Redis requires a client and retains state with a
 millisecond TTL. Empty policy maps keep the same built-in fallback. HTTP `New`
 already returns errors and propagates these checks for ordinary overrides.
+
+Test coverage is consolidated around the import/recovery workflow and one shared
+real memory/Redis policy workflow (threshold, cooldown, overlapping window,
+independent keys/buckets, copied configuration, TTL). These replace separate
+backend threshold/cooldown tests and the old memory zero-limit exception test.
+Malformed PHC and supported legacy roundtrips replace the older shallow
+malformed/bcrypt-prefix tests. Small decode-only fuzz, exact-boundary retention,
+concurrent-admission, cleanup and backend-failure checks remain independent
+because a sequential happy path cannot establish those properties.

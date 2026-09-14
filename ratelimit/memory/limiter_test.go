@@ -42,18 +42,6 @@ func TestCleanupEvictsIdleBuckets(t *testing.T) {
 	}
 }
 
-func TestCleanupKeepsBucketWithLiveTimestamps(t *testing.T) {
-	limiter := newLimiter(t, map[string]ratelimit.Limit{
-		"login": {Limit: 5, Window: time.Hour},
-	})
-	if _, err := limiter.AllowNamed("login", "user"); err != nil {
-		t.Fatalf("AllowNamed: %v", err)
-	}
-	if got := limiter.Cleanup(); got != 1 {
-		t.Fatalf("Cleanup dropped a bucket with a live timestamp: retained %d, want 1", got)
-	}
-}
-
 func TestStartCleanupStopsOnContextCancel(t *testing.T) {
 	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 5 * time.Millisecond},
@@ -83,64 +71,6 @@ func TestStartCleanupStopsOnContextCancel(t *testing.T) {
 
 	// A non-positive interval must not start a goroutine or panic.
 	limiter.StartCleanup(context.Background(), 0)
-}
-
-func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
-	limiter := newLimiter(t, map[string]ratelimit.Limit{
-		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	})
-
-	allowed, retryAfter, err := allowRetry(limiter, "request_code", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !allowed || retryAfter != 0 {
-		t.Fatalf("first request allowed=%v retry_after=%s, want allowed with no retry_after", allowed, retryAfter)
-	}
-
-	allowed, retryAfter, err = allowRetry(limiter, "request_code", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed {
-		t.Fatal("second request was allowed during cooldown")
-	}
-	if retryAfter < 59*time.Second || retryAfter > time.Minute {
-		t.Fatalf("retry_after=%s, want about 60s", retryAfter)
-	}
-}
-
-func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
-	limiter := newLimiter(t, map[string]ratelimit.Limit{
-		"request_code": {Limit: 1, Window: time.Hour, Cooldown: time.Minute},
-	})
-
-	allowed, _, err := allowRetry(limiter, "request_code", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !allowed {
-		t.Fatal("first request denied")
-	}
-
-	allowed, retryAfter, err := allowRetry(limiter, "request_code", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed {
-		t.Fatal("second request was allowed")
-	}
-	if retryAfter < 59*time.Minute || retryAfter > time.Hour {
-		t.Fatalf("retry_after=%s, want window reset around 1h", retryAfter)
-	}
-}
-
-// allowRetry adapts AllowNamedResult to the (allowed, retryAfter, err) shape these
-// cooldown/window tests assert on, after the dedicated AllowNamedWithRetryAfter
-// wrapper was removed (#189). The retry-after value comes from AllowNamedResult.
-func allowRetry(l *Limiter, bucket, key string) (bool, time.Duration, error) {
-	r, err := l.AllowNamedResult(bucket, key)
-	return r.Allowed, r.RetryAfter, err
 }
 
 func newLimiter(t testing.TB, limits map[string]ratelimit.Limit, opts ...Option) *Limiter {

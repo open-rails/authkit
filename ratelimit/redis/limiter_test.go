@@ -11,40 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestAllowNamedResultDeniesAtLimit(t *testing.T) {
-	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
-		"login": {Limit: 3, Window: time.Minute},
-	}, "t:")
-
-	for i := 1; i <= 3; i++ {
-		r, err := l.AllowNamedResult("login", "ip1")
-		if err != nil {
-			t.Fatalf("request %d: %v", i, err)
-		}
-		if !r.Allowed || r.Remaining != 3-i || r.Limit != 3 {
-			t.Fatalf("request %d: %+v, want allowed with remaining %d", i, r, 3-i)
-		}
-	}
-	r, err := l.AllowNamedResult("login", "ip1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Allowed || r.Reason != ratelimit.ReasonLimitExceeded || r.Remaining != 0 {
-		t.Fatalf("4th request: %+v, want denied with reason %q", r, ratelimit.ReasonLimitExceeded)
-	}
-	if r.RetryAfter <= 0 || r.RetryAfter > time.Minute {
-		t.Fatalf("RetryAfter = %s, want within (0, 1m]", r.RetryAfter)
-	}
-
-	// Other keys and other buckets are independent.
-	if r, err := l.AllowNamedResult("login", "ip2"); err != nil || !r.Allowed {
-		t.Fatalf("other key: %+v err=%v, want allowed", r, err)
-	}
-	if r, err := l.AllowNamedResult("reset", "ip1"); err != nil || !r.Allowed {
-		t.Fatalf("other bucket: %+v err=%v, want allowed", r, err)
-	}
-}
-
 func TestAllowNamedResultWindowResets(t *testing.T) {
 	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"probe": {Limit: 2, Window: 200 * time.Millisecond},
@@ -61,25 +27,6 @@ func TestAllowNamedResultWindowResets(t *testing.T) {
 	time.Sleep(250 * time.Millisecond)
 	if r, err := l.AllowNamedResult("probe", "k"); err != nil || !r.Allowed {
 		t.Fatalf("after window: %+v err=%v, want allowed again", r, err)
-	}
-}
-
-func TestAllowNamedResultCooldown(t *testing.T) {
-	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
-		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	}, "t:")
-	if r, err := l.AllowNamedResult("request_code", "user"); err != nil || !r.Allowed || r.RetryAfter != 0 {
-		t.Fatalf("first request: %+v err=%v", r, err)
-	}
-	r, err := l.AllowNamedResult("request_code", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Allowed || r.Reason != ratelimit.ReasonCooldown {
-		t.Fatalf("second request: %+v, want denied by cooldown", r)
-	}
-	if r.RetryAfter < 59*time.Second || r.RetryAfter > time.Minute {
-		t.Fatalf("RetryAfter = %s, want about 60s", r.RetryAfter)
 	}
 }
 

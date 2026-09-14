@@ -52,10 +52,16 @@ func TestBackendsRejectTheSameInvalidLimits(t *testing.T) {
 
 func TestBackendPolicyParityAndSnapshot(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
-	for name, limit := range map[string]ratelimit.Limit{
-		"threshold": {Limit: 3, Window: time.Minute},
-		"cooldown":  {Limit: 6, Window: time.Minute, Cooldown: 10 * time.Second},
+	for name, policy := range map[string]struct {
+		limit    ratelimit.Limit
+		accepted int
+		reason   string
+	}{
+		"threshold":                 {ratelimit.Limit{Limit: 3, Window: time.Minute}, 3, ratelimit.ReasonLimitExceeded},
+		"cooldown":                  {ratelimit.Limit{Limit: 6, Window: time.Minute, Cooldown: 10 * time.Second}, 1, ratelimit.ReasonCooldown},
+		"window_dominates_cooldown": {ratelimit.Limit{Limit: 1, Window: time.Minute, Cooldown: 10 * time.Second}, 1, ratelimit.ReasonLimitExceeded},
 	} {
+		limit := policy.limit
 		t.Run(name, func(t *testing.T) {
 			limits := map[string]ratelimit.Limit{"test": limit}
 			mem, err := memorylimiter.New(limits)
@@ -63,24 +69,44 @@ func TestBackendPolicyParityAndSnapshot(t *testing.T) {
 			red, err := redislimiter.New(rdb, limits, name+":")
 			require.NoError(t, err)
 			limits["test"] = ratelimit.Limit{Limit: 0} // Caller mutation cannot weaken either backend.
-			for range 5 {
+			for i := range 5 {
 				a, err := mem.AllowNamedResult("test", "user")
 				require.NoError(t, err)
 				b, err := red.AllowNamedResult("test", "user")
 				require.NoError(t, err)
+				require.Equal(t, i < policy.accepted, a.Allowed)
 				require.Equal(t, a.Allowed, b.Allowed)
+				require.Equal(t, limit.Limit-min(i+1, policy.accepted), a.Remaining)
 				require.Equal(t, a.Remaining, b.Remaining)
 				require.Equal(t, a.Reason, b.Reason)
 				require.Equal(t, a.Limit, b.Limit)
 				require.Equal(t, a.Window, b.Window)
 				require.Equal(t, a.Cooldown, b.Cooldown)
 				if !a.Allowed {
+					require.Equal(t, policy.reason, a.Reason)
+					if name == "window_dominates_cooldown" {
+						require.Greater(t, a.RetryAfter, limit.Cooldown)
+						require.Greater(t, b.RetryAfter, limit.Cooldown)
+					}
 					require.Positive(t, a.RetryAfter)
 					require.Positive(t, b.RetryAfter)
 					require.LessOrEqual(t, a.RetryAfter, limit.Window)
 					require.LessOrEqual(t, b.RetryAfter, limit.Window)
 				}
 			}
+			a, err := mem.AllowNamedResult("test", "other-user")
+			require.NoError(t, err)
+			b, err := red.AllowNamedResult("test", "other-user")
+			require.NoError(t, err)
+			require.True(t, a.Allowed)
+			require.Equal(t, a, b)
+			a, err = mem.AllowNamedResult("other-bucket", "user")
+			require.NoError(t, err)
+			b, err = red.AllowNamedResult("other-bucket", "user")
+			require.NoError(t, err)
+			require.True(t, a.Allowed)
+			require.Equal(t, 100, a.Limit)
+			require.Equal(t, a, b)
 			ttl, err := rdb.PTTL(t.Context(), name+":user:test").Result()
 			require.NoError(t, err)
 			require.Positive(t, ttl)
