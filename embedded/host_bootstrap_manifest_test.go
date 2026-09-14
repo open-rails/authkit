@@ -3,11 +3,9 @@ package embedded
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
@@ -104,6 +102,23 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, result.PasswordsKept)
 
+	// A repeated manifest cannot appoint another owner while one exists; the
+	// same workflow can recover an explicitly emptied owner assignment set.
+	recovery := BootstrapManifest{Users: []BootstrapManifestUser{{Username: "recovery-owner", Email: "recovery@example.test", RootRole: string(OwnerRoleName)}}}
+	_, err = svc.ApplyBootstrapManifest(ctx, recovery, BootstrapReconcileOptions{})
+	require.NoError(t, err)
+	recoveryUser, err := svc.GetUserByUsername(ctx, "recovery-owner")
+	require.NoError(t, err)
+	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
+	require.NoError(t, err)
+	require.NotContains(t, roles[recoveryUser.ID], string(OwnerRoleName))
+	require.NoError(t, svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), OwnerRoleName))
+	_, err = svc.ApplyBootstrapManifest(ctx, recovery, BootstrapReconcileOptions{})
+	require.NoError(t, err)
+	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
+	require.NoError(t, err)
+	require.Contains(t, roles[recoveryUser.ID], string(OwnerRoleName))
+
 	enabled := true
 	app := BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled, RootRole: string(OwnerRoleName)}
 	result, err = svc.ApplyBootstrapManifest(ctx, BootstrapManifest{RemoteApplications: []BootstrapManifestRemoteApplication{app}}, BootstrapReconcileOptions{})
@@ -132,60 +147,6 @@ func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
 	}
 	if err := validateBootstrapUserPassword(BootstrapUserPassword{ResetRequired: true}); err != nil {
 		t.Fatalf("reset_required alone should be valid, got %v", err)
-	}
-}
-
-func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-
-	suffix := time.Now().UnixNano()
-	existingUsername := fmt.Sprintf("bootstrap-existing-owner-%d", suffix)
-	recoveryUsername := fmt.Sprintf("bootstrap-recovery-owner-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username IN ($1, $2)`, existingUsername, recoveryUsername)
-	})
-
-	existing, err := svc.CreateUser(ctx, existingUsername+"@example.com", existingUsername)
-	if err != nil {
-		t.Fatalf("create existing owner: %v", err)
-	}
-	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(existing.ID), OwnerRoleName); err != nil {
-		t.Fatalf("seed existing owner: %v", err)
-	}
-
-	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
-		Email:         recoveryUsername + "@example.com",
-		Username:      recoveryUsername,
-		EmailVerified: true,
-		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		RootRole:      string(OwnerRoleName),
-	}}}
-
-	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
-		t.Fatalf("reconcile with existing owner: %v", err)
-	}
-	recovery, err := svc.getUserByUsername(ctx, recoveryUsername)
-	if err != nil {
-		t.Fatalf("lookup recovery user: %v", err)
-	}
-	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
-		t.Fatalf("list recovery roles: %v", err)
-	} else if containsString(rolesByUser[recovery.ID], string(OwnerRoleName)) {
-		t.Fatalf("bootstrap should not assign owner while another owner exists; roles=%v", rolesByUser[recovery.ID])
-	}
-
-	if err := svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(existing.ID), OwnerRoleName); err != nil {
-		t.Fatalf("remove existing owner: %v", err)
-	}
-	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
-		t.Fatalf("reconcile after zero-owner state: %v", err)
-	}
-	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
-		t.Fatalf("list recovery roles after reseed: %v", err)
-	} else if !containsString(rolesByUser[recovery.ID], string(OwnerRoleName)) {
-		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", rolesByUser[recovery.ID])
 	}
 }
 
