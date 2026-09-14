@@ -129,6 +129,33 @@ func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSincePa
 	return i, err
 }
 
+const sessionFreshSinceForUpdate = `-- name: SessionFreshSinceForUpdate :one
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
+FROM profiles.refresh_sessions
+WHERE id = $1::uuid AND user_id = $2::uuid
+  AND issuer = $3 AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > now())
+FOR UPDATE
+`
+
+type SessionFreshSinceForUpdateParams struct {
+	SessionID string
+	UserID    string
+	Issuer    string
+}
+
+type SessionFreshSinceForUpdateRow struct {
+	FreshSince  time.Time
+	AuthMethods []string
+}
+
+func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFreshSinceForUpdateParams) (SessionFreshSinceForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, sessionFreshSinceForUpdate, arg.SessionID, arg.UserID, arg.Issuer)
+	var i SessionFreshSinceForUpdateRow
+	err := row.Scan(&i.FreshSince, &i.AuthMethods)
+	return i, err
+}
+
 const sessionIDByCurrentTokenHash = `-- name: SessionIDByCurrentTokenHash :one
 SELECT id::text
 FROM profiles.refresh_sessions

@@ -2,10 +2,7 @@ package embedded
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -30,32 +27,16 @@ func (s *Client) upsertPasswordHash(ctx context.Context, userID, hash, algo stri
 	return s.q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
 }
 
-// UpsertPasswordHash stores a precomputed password hash for a user.
+// UpsertPasswordHash replaces a precomputed password hash and invalidates all
+// sessions and recovery grants. Intended for trusted host import/maintenance.
 func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
-	return s.upsertPasswordHash(ctx, userID, hash, algo, params)
+	return s.mutateCredentials(ctx, userID, nil, SessionRevokeReasonAdminSetPassword, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
+		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
+	})
 }
 
 // email verification tokens
 type emailVerifyToken struct {
 	UserID string
 	Email  *string
-}
-
-func (s *Client) useResetToken(ctx context.Context, tokenHash string) (struct{ UserID string }, error) {
-	if s.useEphemeralStore() {
-		userID, err := s.consumePasswordReset(ctx, tokenHash)
-		return struct{ UserID string }{UserID: userID}, err
-	}
-	return struct{ UserID string }{}, jwt.ErrTokenUnverifiable
-}
-
-func (s *Client) createResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	if s.useEphemeralStore() {
-		ttl := time.Until(expiresAt)
-		if ttl <= 0 {
-			ttl = time.Hour
-		}
-		return s.storePasswordReset(ctx, tokenHash, userID, ttl)
-	}
-	return fmt.Errorf("ephemeral store not configured")
 }

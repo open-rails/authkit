@@ -7,8 +7,6 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/password"
 )
 
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
@@ -30,7 +28,7 @@ func (s *Client) RequestPasswordReset(ctx context.Context, email string, ttl tim
 
 	token := RandB64(32)
 	hash := sha256Hex(token)
-	if err := s.createResetToken(ctx, u.ID, hash, time.Now().Add(ttl)); err != nil {
+	if err := s.storePasswordReset(ctx, hash, u.ID, "email", email, ttl); err != nil {
 		// Internal error, but do not reveal anything about whether user exists.
 		return err
 	}
@@ -67,11 +65,11 @@ func (s *Client) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	rt, err := s.useResetToken(ctx, sha256Hex(token))
+	rt, err := s.consumePasswordReset(ctx, sha256Hex(token))
 	if err != nil {
 		return "", err
 	}
-	if err := s.finishPasswordReset(ctx, rt.UserID, newPassword); err != nil {
+	if err := s.changePassword(ctx, rt.UserID, newPassword, nil, nil, &rt, SessionRevokeReasonPasswordChange); err != nil {
 		return "", err
 	}
 	return rt.UserID, nil
@@ -85,52 +83,6 @@ func resetGateError(err error) error {
 		return nil
 	}
 	return err
-}
-
-func (s *Client) finishPasswordReset(ctx context.Context, userID, newPassword string) error {
-	if s.pg == nil {
-		return nil
-	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return errOrUnauthorized(err)
-	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return err
-	}
-	phc, err := password.HashArgon2id(newPassword)
-	if err != nil {
-		return err
-	}
-	// Atomic rotation (#199): the new password hash and the revocation of every
-	// pre-reset session COMMIT TOGETHER. Done separately, a crash/error between the
-	// two writes could leave the new password live while an attacker's stolen
-	// sessions survive — the reset would look successful without evicting them.
-	// (The revocation error is also propagated — a reset must NOT report success
-	// unless the revocation committed; matches ChangePassword/SetPasswordAfterFreshAuth.)
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := db.New(db.ForSchema(tx, s.dbSchema()))
-	if err := qtx.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: phc, HashAlgo: "argon2id", HashParams: nil}); err != nil {
-		return err
-	}
-	revoked, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	// Post-commit audit trail (best-effort, mirroring RevokeAllSessions' own logging).
-	reason := string(SessionRevokeReasonPasswordChange)
-	for _, sid := range revoked {
-		s.logSessionRevoked(ctx, userID, sid, &reason)
-	}
-	s.LogPasswordChanged(ctx, userID, "", nil, nil)
-	return nil
 }
 
 // --- Phone Password Reset (for phone+password users) ---
@@ -153,7 +105,7 @@ func (s *Client) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 
 	token := RandB64(32)
 	hash := sha256Hex(token)
-	if err := s.createResetToken(ctx, u.ID, hash, time.Now().Add(ttl)); err != nil {
+	if err := s.storePasswordReset(ctx, hash, u.ID, "sms", NormalizePhone(phone), ttl); err != nil {
 		return err
 	}
 

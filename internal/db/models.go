@@ -245,8 +245,9 @@ type ProfilesUser struct {
 	// User communication/auth language, e.g. en, es, de, ko, zh
 	PreferredLanguage *string
 	// Host-supplied avatar URL/key string; blob storage is host-owned
-	AvatarUrl     *string
-	LastRenamedAt *time.Time
+	AvatarUrl         *string
+	LastRenamedAt     *time.Time
+	CredentialVersion int64
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

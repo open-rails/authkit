@@ -3,7 +3,6 @@ package embedded
 import (
 	"context"
 	"crypto"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/password"
 )
 
 // Plain accessors and small setters on Client: keys/JWKS, config, the DB pool
@@ -54,28 +52,7 @@ func (s *Client) JWKS() jwtkit.JWKS {
 // AdminSetPassword force-sets a user's password
 // (admin only, no current password required)
 func (s *Client) AdminSetPassword(ctx context.Context, userID, new string) error {
-	if s.pg == nil {
-		return fmt.Errorf("postgres not configured")
-	}
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("invalid_user")
-	}
-	if err := ValidatePassword(new); err != nil {
-		return err
-	}
-	phc, err := password.HashArgon2id(new)
-	if err != nil {
-		return err
-	}
-	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
-		return err
-	}
-	// Revoke all sessions for security
-	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonAdminSetPassword)
-	if err := s.RevokeAllSessions(ctx, userID, nil); err != nil {
-		return err
-	}
-	return nil
+	return s.changePassword(ctx, userID, new, nil, nil, nil, SessionRevokeReasonAdminSetPassword)
 }
 
 func (s *Client) EntitlementsProvider() EntitlementsProvider {

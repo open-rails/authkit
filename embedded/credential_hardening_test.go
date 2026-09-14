@@ -123,7 +123,7 @@ func TestPasswordReset_GatedAccountWritesNothing(t *testing.T) {
 	require.Zero(t, sender.resetLinks, "a banned account must not receive a reset link")
 
 	const token = "planted-reset-token"
-	require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, time.Minute))
+	require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, "email", email, time.Minute))
 	_, err = svc.ConfirmPasswordReset(ctx, token, "New-password-12345")
 	require.ErrorIs(t, err, ErrUserBanned)
 	require.False(t, svc.CheckUserPassword(ctx, u.ID, "New-password-12345") == nil, "no hash may be written for a gated account")
