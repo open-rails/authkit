@@ -55,6 +55,19 @@ func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 	return b, true, nil
 }
 
+var compareAndConsumeScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`)
+
+func (k *KV) CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error) {
+	n, err := compareAndConsumeScript.Run(ctx, k.rdb, []string{k.key(key)}, expected).Int()
+	return n == 1, err
+}
+
 // incrScript increments and, only on creation, sets the expiry — one atomic
 // server-side step, so concurrent callers observe distinct consecutive values
 // and repeated increments never extend the counter's life.

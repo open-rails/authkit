@@ -26,6 +26,10 @@ type EphemeralStore interface {
 	// two concurrent requests both observe the value before either deletes it,
 	// defeating the single-use guarantee (replay). Missing key => (nil, false, nil).
 	Consume(ctx context.Context, key string) ([]byte, bool, error)
+	// CompareAndConsume deletes a live key only while it still holds expected.
+	// OTP/link representations use one canonical record; an old reader can
+	// neither win twice nor consume a newer issuance. Missing/mismatch => false.
+	CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error)
 	// Incr atomically increments the integer at key and returns the new value,
 	// creating it as 1 with ttl when absent (the TTL is set once, not on every
 	// increment). Attempt caps MUST use it: a Get+Set counter lets K concurrent

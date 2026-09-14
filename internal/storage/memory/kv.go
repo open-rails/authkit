@@ -1,6 +1,7 @@
 package memorystore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strconv"
@@ -87,7 +88,7 @@ func (k *KV) Get(ctx context.Context, key string) ([]byte, bool, error) {
 		delete(k.items, key)
 		return nil, false, nil
 	}
-	return it.value, true, nil
+	return append([]byte(nil), it.value...), true, nil
 }
 
 func (k *KV) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
@@ -135,6 +136,25 @@ func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	return it.value, true, nil
+}
+
+func (k *KV) CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error) {
+	_ = ctx
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	it, ok := k.items[key]
+	if !ok {
+		return false, nil
+	}
+	if !it.expires.IsZero() && !k.now().Before(it.expires) {
+		delete(k.items, key)
+		return false, nil
+	}
+	if !bytes.Equal(it.value, expected) {
+		return false, nil
+	}
+	delete(k.items, key)
+	return true, nil
 }
 
 // Incr is the in-memory analogue of the Redis INCR+PEXPIRE script: read,
