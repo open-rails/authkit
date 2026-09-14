@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,6 +58,10 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 			defer lock.Rollback(ctx)
 			_, err = svc.qtx(lock).UserCredentialVersionForUpdate(ctx, u.ID)
 			require.NoError(t, err)
+			// The fixture lock, blocker and two workers occupy four connections.
+			// Observe through a separate pool so CI's four-connection pool cannot
+			// starve the query that proves both workers reached the database lock.
+			observer := testdb.UnlockedPool(t)
 			result := make(chan error, 2)
 			for i := range 2 {
 				go func() {
@@ -71,7 +76,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 			}
 			require.Eventually(t, func() bool {
 				var n int
-				err := svc.pg.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%UserCredentialVersionForUpdate%'`).Scan(&n)
+				err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%UserCredentialVersionForUpdate%'`).Scan(&n)
 				return err == nil && n == 2
 			}, 10*time.Second, 10*time.Millisecond)
 			require.NoError(t, lock.Commit(ctx))
