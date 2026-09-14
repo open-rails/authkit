@@ -19,6 +19,8 @@ type TestIssuer struct {
 }
 
 // NewTestIssuer creates a new test issuer with an RSA key pair.
+// Register its verifier entry with IsLocal only when modeling local user IDs.
+// Otherwise access tokens expose the qualified external Issuer and Subject.
 func NewTestIssuer() *TestIssuer {
 	return NewTestIssuerWithAudience("test-app")
 }
