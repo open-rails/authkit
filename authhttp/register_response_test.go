@@ -92,6 +92,7 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
+		IsLocal: true,
 	})
 	ver.WithService(coreSvc)
 

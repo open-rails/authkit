@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"context"
-	"crypto"
 	"fmt"
 	"testing"
 	"time"
@@ -42,9 +41,7 @@ func TestDisabledRemoteApplicationTokenRejectedImmediately(t *testing.T) {
 	require.NoError(t, coreSvc.AssignRemoteApplicationRole(ctx, ra.ID, "deployer"))
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second)).WithService(coreSvc)
-	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
-		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-	}))
+	require.NoError(t, ver.LoadRemoteApplications(ctx, coreSvc, []string{"test-app"}))
 	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{
 		Issuer: issuer, Audiences: []string{"test-app"}, TTL: time.Minute,
 	})

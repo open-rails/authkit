@@ -21,8 +21,7 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	t.Helper()
 	v := verify.NewVerifier(verify.WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, verify.IssuerOptions{
-		RawKeys:               map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		RemoteApplicationSlug: "hentai0",
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
 	return v
 }

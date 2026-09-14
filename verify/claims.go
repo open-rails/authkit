@@ -12,6 +12,10 @@ import (
 
 // Claims is a typed view of authenticated user information attached by middleware.
 type Claims struct {
+	// Subject is an external access token's subject. It is meaningful only with
+	// Issuer; it never authorizes a lookup in the host's local user database.
+	Subject string
+	// UserID is populated only for an issuer explicitly trusted as IsLocal.
 	UserID          string
 	Email           string
 	EmailVerified   bool
@@ -99,7 +103,7 @@ type Claims struct {
 
 	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
 	// authenticated by a remote application access token. Populated ONLY for
-	// RemoteApplicationTokenType claims, resolved server-side from the validated
+	// stored self or delegated claims, resolved server-side from the validated
 	// `iss` (never from a self-asserted token claim). The principal's Permissions
 	// carry its STORED, assigned authority.
 	RemoteApplicationID   string
@@ -139,7 +143,7 @@ func (c Claims) PrincipalKind() authkit.PrincipalKind {
 		return authkit.PrincipalKindRemoteApplication
 	case c.isDelegated():
 		return authkit.PrincipalKindDelegated
-	case strings.TrimSpace(c.UserID) != "":
+	case strings.TrimSpace(c.UserID) != "" || strings.TrimSpace(c.Subject) != "":
 		return authkit.PrincipalKindUser
 	default:
 		return ""
@@ -149,6 +153,9 @@ func (c Claims) PrincipalKind() authkit.PrincipalKind {
 // Principal returns the small generic-auth shape for host adapters.
 func (c Claims) Principal() authkit.Principal {
 	subject := strings.TrimSpace(c.UserID)
+	if subject == "" {
+		subject = strings.TrimSpace(c.Subject)
+	}
 	if c.isDelegated() {
 		subject = strings.TrimSpace(c.DelegatedSubject)
 	}
@@ -163,7 +170,7 @@ func (c Claims) Principal() authkit.Principal {
 
 // IsUser reports whether these claims represent a native human user.
 func (c Claims) IsUser() bool {
-	return c.PrincipalKind() == authkit.PrincipalKindUser
+	return c.PrincipalKind() == authkit.PrincipalKindUser && c.UserID != ""
 }
 
 func (c Claims) isAPIKey() bool {
@@ -180,6 +187,10 @@ func (c Claims) isRemoteApplication() bool {
 // validating service — authorization is by issuer trust plus Permissions, not
 // local-user lookup.
 type DelegatedPrincipal struct {
+	// PermissionGroup is the live stored application's authority boundary.
+	// Nil denotes explicitly trusted platform delegation. Missing fields in a
+	// non-nil scope must deny; they never imply unbound authority.
+	PermissionGroup *PermissionScope
 	// Issuer is the validated token issuer the receiving service trusts.
 	Issuer           string
 	DelegatedSubject string
@@ -226,7 +237,12 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	if !c.isDelegated() {
 		return DelegatedPrincipal{}, false
 	}
+	var scope *PermissionScope
+	if c.BoundToPermissionGroup() {
+		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: authkit.Persona(c.PermissionGroupPersona), Instance: c.PermissionGroupInstance}
+	}
 	return DelegatedPrincipal{
+		PermissionGroup:               scope,
 		Issuer:                        c.Issuer,
 		DelegatedSubject:              c.DelegatedSubject,
 		Permissions:                   c.Permissions,
@@ -309,9 +325,10 @@ func (c Claims) AttributeIsReference(key string) bool {
 // BoundToPermissionGroup reports whether these claims carry an owning
 // permission-group binding (#248) — true for machine principals (API keys,
 // remote-application access tokens) whose authority was resolved server-side
-// from a specific group instance; false for user and delegated tokens.
+// from a specific group instance, including stored application delegation.
+// Explicit platform delegation and user identity have no such binding.
 func (c Claims) BoundToPermissionGroup() bool {
-	return c.TokenType == APIKeyPrincipalType || c.TokenType == RemoteApplicationTokenType ||
+	return c.TokenType == APIKeyPrincipalType || c.TokenType == RemoteApplicationTokenType || c.RemoteApplicationID != "" ||
 		c.PermissionGroupID != "" || c.PermissionGroupAuthorityIssuer != "" || c.PermissionGroupPersona != "" || c.PermissionGroupInstance != ""
 }
 

@@ -59,6 +59,7 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 	)
 	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
+		IsLocal: true, // This fixture models the host's own human identity namespace.
 	})
 
 	claims, err := verifier.Verify(context.Background(), token)

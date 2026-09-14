@@ -104,29 +104,32 @@ type Verifier struct {
 	kidRefetchMin    time.Duration
 
 	// permValidator (optional) checks a delegated access token's `permissions`
-	// against the resource server's catalog. Run only by VerifyDelegatedAccess.
+	// against the resource server's catalog on every typed verification path.
 	permValidator PermissionValidator
 }
 
 // issuerEntry describes a trusted issuer (private — replaces authkit.IssuerAccept).
 type issuerEntry struct {
-	issuer                string
-	audiences             []string
-	jwksURL               string
-	cacheTTL              time.Duration
-	maxStale              time.Duration
-	remoteApplicationSlug string
+	issuer    string
+	audiences []string
+	jwksURL   string
+	cacheTTL  time.Duration
+	maxStale  time.Duration
 	// isLocal marks the first-party (host application's own) token signer, as
 	// opposed to a remote_application/federated issuer. It guards the signing-key
 	// registry: a non-local registration must never overwrite the local issuer's
 	// entry (AK-AUTH-01), which would swap the trusted signing keys.
 	isLocal bool
+	// managed entries belong to the application store, never the human namespace.
+	managed    bool
+	publicKeys func() map[string]crypto.PublicKey
+	// application is a per-verification live snapshot, never registry state.
+	application *authkit.RemoteApplication
 }
 
 type issuerKeys struct {
-	jwks      jwtkit.JWKS
-	pubByKID  map[string]crypto.PublicKey
-	fetchedAt time.Time
+	jwksURL  string
+	pubByKID map[string]crypto.PublicKey
 	// expiresAt/staleUntil are meaningful ONLY for issuers with a non-empty
 	// jwksURL (there is something to legitimately refetch from). For a
 	// permanent issuer (jwksURL == "": keys came from Keys/RawKeys/IsLocal
@@ -147,7 +150,7 @@ type VerifierOption func(*Verifier)
 // WithSkew sets the clock skew tolerance for exp/nbf/iat checks.
 // Default: 60s.
 // WithRemoteApplicationAudiences sets the audiences a lazily-loaded remote
-// application issuer is registered with on the keyForToken miss path when the
+// application issuer is registered with on the resolveIssuer miss path when the
 // host never calls LoadRemoteApplications (which overrides it). NewServer passes
 // Config.Token.ExpectedAudiences so both load paths enforce the same audience
 // (ak#324).
@@ -166,7 +169,7 @@ func WithSkew(d time.Duration) VerifierOption {
 // legitimately sign with EC or Ed25519 keys and must verify out of the box.
 // Narrow it only if you control every issuer this Verifier accepts.
 //
-// The list is a pure allow-list checked in keyForToken, so "none" and the
+// The list is a pure allow-list checked in resolveIssuer, so "none" and the
 // symmetric HS* algorithms are absent from the default and rejected there. A
 // caller who adds them anyway does not open an algorithm-confusion hole:
 // authkit only ever hands the parser an asymmetric public key, which
@@ -213,7 +216,7 @@ func WithRequireMFAEnrollment(require bool) VerifierOption {
 // reject the token. Called only for delegated access tokens.
 type PermissionValidator func(permissions []string) error
 
-// WithPermissions installs a validator that VerifyDelegatedAccess runs
+// WithPermissions installs a validator that every typed verification path runs
 // against the token's `permissions`. Use it to ensure every permission string
 // belongs to this resource server's permissions.
 func WithPermissions(fn PermissionValidator) VerifierOption {
@@ -268,18 +271,20 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authk
 	if issuer == "" {
 		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
+	v.mu.RLock()
 	var src RemoteApplicationSource
 	if v.fedSource != nil {
 		src = v.fedSource
 	} else if v.enrich != nil {
 		src = v.enrich
 	}
+	v.mu.RUnlock()
 	if src == nil {
 		return nil, authkit.E(authkit.CodeInvalidToken)
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
-	if err != nil || ra == nil || !ra.Enabled {
+	if err != nil || ra == nil || !ra.Enabled || ra.Issuer != issuer {
 		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
 	return ra, nil
@@ -315,25 +320,11 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 	return eff, nil
 }
 
-// resolveRemoteApplicationSelf authenticates a remote application access token:
-// it maps the VALIDATED issuer to its remote_application and returns Claims
-// populated the way an API-key-authenticated principal would be. The token's own
-// role claims are never consulted — authority is stored.
-//
-// claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
-// nil => no claim => full stored ceiling; non-nil => effective = the claim, but
-// EVERY claimed perm must be within the stored ceiling — an out-of-grant claimed
-// perm REJECTS the whole token (errPermissionNotGranted), never a widening and
-// never a silent clamp.
-func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string, claimedPerms []string) (Claims, error) {
-	ra, err := v.remoteApplication(ctx, issuer)
-	if err != nil {
-		return Claims{}, err
-	}
-
-	// The remote application's STORED permission ceiling (its assigned authority)
-	// is resolved by the core layer through the permission-group assignment path.
-	if v.enrich == nil {
+// resolveRemoteApplicationSelf resolves the stored permission ceiling and group
+// binding shared by application self tokens and delegated tokens. A nil claim
+// uses the full ceiling; a present claim must be a subset or the token fails.
+func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *authkit.RemoteApplication, tokenTyp string, claimedPerms []string) (Claims, error) {
+	if v.enrich == nil || ra.ID == "" {
 		return Claims{}, authkit.E(authkit.CodeInvalidToken)
 	}
 	authority, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
@@ -341,17 +332,13 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 		return Claims{}, authkit.E(authkit.CodeInvalidToken)
 	}
 
-	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
-	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
-	// Any claimed perm OUTSIDE the ceiling rejects the whole token — a
-	// misconfigured caller must fail loudly, not silently lose perms.
 	perms, err := permissionsWithinAuthority(claimedPerms, authority.Permissions)
 	if err != nil {
 		return Claims{}, err
 	}
 
 	return Claims{
-		Issuer:                     issuer,
+		Issuer:                     ra.Issuer,
 		TokenType:                  RemoteApplicationTokenType,
 		TokenTyp:                   tokenTyp,
 		Permissions:                perms,
@@ -404,7 +391,8 @@ type IssuerKey struct {
 }
 
 // IssuerOptions configures how keys are obtained for an issuer.
-// Provide one of JWKSURI, Keys, or RawKeys.
+// Use snapshot Keys/RawKeys, a JWKSURI, or the live PublicKeys provider.
+// Keys/RawKeys may seed a JWKS cache for its configured CacheTTL.
 type IssuerOptions struct {
 	// JWKSURI is the URL to fetch JWKS from. If set, keys are fetched
 	// automatically and refreshed when they expire or an unknown kid appears.
@@ -414,8 +402,12 @@ type IssuerOptions struct {
 	// refreshing by calling AddIssuer again with updated keys.
 	Keys []IssuerKey
 
-	// RawKeys are pre-provided public keys (e.g., from a co-located authkit.Service).
+	// RawKeys are a static snapshot. Replace them by calling AddIssuer again.
 	RawKeys map[string]crypto.PublicKey
+
+	// PublicKeys reads live in-process keys on every verification, without
+	// caching or network requests. Use for a co-located rotating KeySource.
+	PublicKeys func() map[string]crypto.PublicKey
 
 	// CacheTTL controls how long fetched JWKS keys are considered fresh.
 	// Default: 10 minutes.
@@ -425,16 +417,13 @@ type IssuerOptions struct {
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
 
-	// RemoteApplicationSlug is the receiver-internal remote-application slug
-	// registered for this issuer. Tokens do not self-assert this value; it comes
-	// only from the trusted issuer registry.
-	RemoteApplicationSlug string
-
 	// IsLocal marks this issuer as the host application's own (first-party) token
 	// signer, as opposed to a remote_application/federated issuer. It guards the
 	// signing-key registry against a non-local registration overwriting the local
-	// issuer entry (AK-AUTH-01); it does not change how claims are parsed.
+	// issuer entry. Only this explicit trust may populate Claims.UserID.
 	IsLocal bool
+
+	managed bool
 }
 
 // AddIssuer registers (or updates) a trusted issuer. This is the single
@@ -445,78 +434,76 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	if issuerID == "" {
 		return errors.New("empty issuer ID")
 	}
-
-	ie := issuerEntry{
-		issuer:                issuerID,
-		audiences:             audiences,
-		jwksURL:               strings.TrimSpace(opts.JWKSURI),
-		cacheTTL:              opts.CacheTTL,
-		maxStale:              opts.MaxStale,
-		remoteApplicationSlug: strings.TrimSpace(opts.RemoteApplicationSlug),
-		isLocal:               opts.IsLocal,
+	if opts.PublicKeys != nil && (opts.JWKSURI != "" || len(opts.Keys) > 0 || len(opts.RawKeys) > 0) {
+		return errors.New("live PublicKeys cannot be combined with another key source")
 	}
-
+	pubByKID, err := collectKeys(opts)
+	if err != nil {
+		return err
+	}
+	ie := issuerEntry{
+		issuer: issuerID, audiences: append([]string(nil), audiences...),
+		jwksURL: strings.TrimSpace(opts.JWKSURI), cacheTTL: opts.CacheTTL, maxStale: opts.MaxStale,
+		isLocal: opts.IsLocal, managed: opts.managed, publicKeys: opts.PublicKeys,
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
-	// Upsert in the issuers map.
 	if existing, ok := v.issuers[issuerID]; ok {
-		// AK-AUTH-01: never let a non-local (federated/remote_application)
-		// registration overwrite the trusted local issuer entry. Doing so
-		// would swap the first-party signing keys and break verification of
-		// all first-party tokens. The core layer already rejects this at
-		// registration; this is defense-in-depth for any other AddIssuer caller.
 		if existing.isLocal && !ie.isLocal {
 			return errors.New("refusing to overwrite local issuer with non-local registration")
 		}
-	}
-	v.issuers[issuerID] = ie
-
-	// Seed the key cache from pre-provided keys.
-	pubByKID := v.collectKeys(opts)
-	if len(pubByKID) > 0 {
-		now := time.Now()
-		entry := &issuerKeys{pubByKID: pubByKID, fetchedAt: now}
-		if ie.jwksURL != "" {
-			// A JWKS URI is ALSO registered: the pre-provided keys are just a
-			// head start avoiding first-request fetch latency — normal
-			// cacheTTL/maxStale-driven refetch takes over after this
-			// generous initial grace period.
-			farFuture := 24 * time.Hour
-			entry.expiresAt = now.Add(farFuture)
-			entry.staleUntil = now.Add(farFuture * 2)
+		if !existing.managed && ie.managed {
+			return errors.New("refusing to overwrite explicit issuer trust with application registration")
 		}
-		// else: no JWKS URI (RawKeys/Keys/IsLocal) — these keys are
-		// PERMANENT (#239). expiresAt/staleUntil stay zero; publicKeyFor
-		// never compares against them for a URI-less issuer.
-		v.byIss[issuerID] = entry
 	}
-
+	// Validate first, then replace metadata and keys together. Failure preserves
+	// the complete previous registration; success never retains replaced keys.
+	v.issuers[issuerID] = ie
+	entry := &issuerKeys{jwksURL: ie.jwksURL, pubByKID: pubByKID}
+	if ie.jwksURL != "" && len(pubByKID) > 0 {
+		ttl, stale := issuerCacheDurations(ie)
+		entry.expiresAt = time.Now().Add(ttl)
+		entry.staleUntil = entry.expiresAt.Add(stale)
+	}
+	v.byIss[issuerID] = entry
 	return nil
 }
 
-// collectKeys merges PEM Keys and RawKeys into a single map.
-func (v *Verifier) collectKeys(opts IssuerOptions) map[string]crypto.PublicKey {
+// collectKeys validates the complete key set before any registration changes.
+func collectKeys(opts IssuerOptions) (map[string]crypto.PublicKey, error) {
 	out := map[string]crypto.PublicKey{}
-	for _, k := range opts.Keys {
-		kid := strings.TrimSpace(k.KID)
-		if kid == "" {
-			continue
+	add := func(kid string, pub crypto.PublicKey) error {
+		if kid == "" || kid != strings.TrimSpace(kid) {
+			return errors.New("key ID required without surrounding whitespace")
 		}
+		if _, exists := out[kid]; exists {
+			return fmt.Errorf("duplicate key ID %q", kid)
+		}
+		if err := jwtkit.ValidatePublicKey(pub); err != nil {
+			return fmt.Errorf("key %q: %w", kid, err)
+		}
+		out[kid] = pub
+		return nil
+	}
+	for _, k := range opts.Keys {
 		pub, err := jwtkit.ParsePublicKeyFromPEM(k.PublicKeyPEM)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("key %q: %w", k.KID, err)
 		}
-		out[kid] = pub
-	}
-	for kid, pub := range opts.RawKeys {
-		kid = strings.TrimSpace(kid)
-		if kid == "" || pub == nil {
-			continue
+		if err := add(k.KID, pub); err != nil {
+			return nil, err
 		}
-		out[kid] = pub
 	}
-	return out
+	keys := opts.RawKeys
+	if opts.PublicKeys != nil {
+		keys = opts.PublicKeys()
+	}
+	for kid, pub := range keys {
+		if err := add(kid, pub); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // RemoveIssuer removes a previously added issuer.
@@ -536,13 +523,8 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // Enrichment
 // ---------------------------------------------------------------------------
 
-// Enricher is the optional, DB-backed hook surface the Verifier and middleware
-// use for best-effort enrichment (roles/email/provider username), the live-user
-// ban/deleted gate, opaque API-key resolution, and remote_application
-// + attribute lookups. *authkit.Service satisfies it. The Verifier holds this as an
-// INTERFACE (not *authkit.Service) so the verification layer carries no hard
-// dependency on core's storage stack — a verify-only consumer can leave it nil
-// or supply a lightweight implementation (#110).
+// Enricher resolves API keys and stored application authority. Local access
+// tokens remain stateless; account liveness uses the separate LivenessSource.
 type Enricher interface {
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
@@ -553,11 +535,9 @@ type Enricher interface {
 	// path is stateless and those reads live on authkit.Client.)
 }
 
-// WithService wires the engine as the API-key/remote-application resolution
-// backend and as the default remote-application source for lazy-load-on-miss
-// (see keyForToken). (#215/#220: the former per-request roles/provider-username
-// enrichment is gone — the request path is stateless.) *embedded.Client's
-// underlying service satisfies Enricher.
+// WithService installs the API-key/application backend and default lazy source.
+// Explicit AddIssuer entries retain their configured trust; stored entries are
+// loaded through LoadRemoteApplications or lazy discovery, never AddIssuer.
 func (v *Verifier) WithService(svc Enricher) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()
@@ -576,7 +556,7 @@ func (v *Verifier) WithService(svc Enricher) *Verifier {
 // trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
 // the human-managed PEM list (no URL fetching ever for static principals).
 func remoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
-	opts := IssuerOptions{RemoteApplicationSlug: ra.Slug}
+	opts := IssuerOptions{managed: true}
 	if ra.Mode == authkit.RemoteAppModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
@@ -600,16 +580,11 @@ type RemoteApplicationSource interface {
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 }
 
-// LoadRemoteApplications loads the ACTIVE remote_applications from authkit's OWN
-// store (the remote_applications table) and registers each as a trusted issuer
-// via AddIssuer with its JWKS URL. The Verifier's in-house JWKS fetch/refresh
-// then handles the keys — there is NO external push or sync of keys.
-//
-// audiences, when non-empty, is applied to every loaded issuer (typically this
-// resource server's own audience). Call this at startup, and re-call (e.g. on
-// a ticker, or after an inbound registration) to pick up store changes. Pass
-// the embedding app's authkit.Service (or any RemoteApplicationSource); if nil, the
-// Service provided via WithService is used.
+// LoadRemoteApplications registers enabled store-managed issuers and removes
+// entries no longer in the enabled set. Every verification also reads the live
+// row for eligibility and key-source changes; callers need not reload for key
+// rotation or revocation. Explicit AddIssuer registrations are not reconciled.
+// A nil source uses the backend installed by WithService.
 func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplicationSource, audiences []string) error {
 	if src == nil {
 		if v.enrich == nil {
@@ -618,7 +593,7 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 		src = v.enrich
 	}
 
-	// Remember the source + audiences so lazy-load-on-miss (keyForToken) behaves
+	// Remember the source + audiences so lazy-load-on-miss (resolveIssuer) behaves
 	// IDENTICALLY to this bulk load.
 	v.mu.Lock()
 	v.fedSource = src
@@ -835,20 +810,13 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 // Verification
 // ---------------------------------------------------------------------------
 
-// VerifyClaims parses and cryptographically verifies a token against the
-// registered issuers and returns its RAW validated claims. It performs the
-// generic, token-type-agnostic checks: JWKS key resolution + signature,
-// issuer must be registered, audience match, and exp/nbf/iat with the
-// configured skew. It does NOT apply authkit's user-token semantics (the
-// sub/delegated_sub invariant) or map into the typed Claims struct.
-//
-// Use it to verify CUSTOM token types (e.g. a host application's capability
-// tokens) that should reuse authkit's single JWKS engine — registry, caching,
-// rotation, lazy-load — while carrying their own claim shape. The caller
-// registers the token's issuer via AddIssuer and parses the returned MapClaims
-// itself. Verify() is built on top of this for authkit's own user tokens.
+// VerifyClaims verifies signature, issuer eligibility, audience and exp/nbf/iat,
+// returning raw claims for host-defined token profiles. It does not enforce
+// AuthKit token type, subject, permission or sender-proof semantics. Hosts must
+// enforce their custom profile; use Verify or VerifyRequest for AuthKit access
+// tokens. A store-managed issuer always requires a live enabled application row.
 func (v *Verifier) VerifyClaims(ctx context.Context, tokenStr string) (jwt.MapClaims, error) {
-	mapClaims, _, err := v.verifyClaimsWithHeader(ctx, tokenStr)
+	mapClaims, _, _, err := v.verifyClaimsWithHeader(ctx, tokenStr)
 	return mapClaims, err
 }
 
@@ -866,7 +834,7 @@ func (v *Verifier) Verify(ctx context.Context, tokenStr string) (Claims, error) 
 // verify is Verify with the TLS-authenticated peer certificate hash (nil when
 // the request carried none) that a `cnf.x5t#S256` claim must match exactly.
 func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) (Claims, error) {
-	mapClaims, typ, err := v.verifyClaimsWithHeader(ctx, tokenStr)
+	mapClaims, typ, issuer, err := v.verifyClaimsWithHeader(ctx, tokenStr)
 	if err != nil {
 		return Claims{}, err
 	}
@@ -922,7 +890,10 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 				claimedPerms = []string{} // present-but-empty => narrow to nothing
 			}
 		}
-		return v.resolveRemoteApplicationSelf(ctx, strClaim(mapClaims, "iss"), tokenTyp, claimedPerms)
+		if issuer.application == nil {
+			return Claims{}, authkit.E(authkit.CodeBadIssuer)
+		}
+		return v.resolveRemoteApplicationSelf(ctx, issuer.application, tokenTyp, claimedPerms)
 	}
 
 	// Invariant: a delegated access token MUST NOT carry a normal `sub` — no
@@ -958,33 +929,42 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 		}
 	}
 	cl := v.extractClaims(mapClaims)
+	if isAccessTyp {
+		if issuer.managed {
+			return Claims{}, authkit.E(authkit.CodeBadIssuer)
+		}
+		if !issuer.isLocal {
+			cl.Subject, cl.UserID = cl.UserID, ""
+		}
+	}
 	cl.TokenTyp = tokenTyp
 	cl.Documents = documentReferences
 	cl.ConfirmationCertificateSHA256 = confirmation
 
-	// Delegated permission ceiling (#76 target model). A delegated access token's
-	// concrete `permissions` are a DOWN-SCOPING request bounded by the SIGNING
-	// remote application's STORED authority — a remote app must never mint a
-	// delegated token carrying permissions beyond its own assigned grants (no
-	// privilege escalation). When this verifier can resolve the validated `iss`
-	// to a remote_application it stores (i.e. it is the issuing-side AuthKit, the
-	// only party that knows the stored grant), it enforces the subset and rejects
-	// any out-of-ceiling claim — fail closed. A pure federated resource server
-	// that only trusts the issuer's JWKS (no remote-app store) cannot bound the
-	// claim here; it relies on its WithPermissions catalog validator instead.
-	if isDelegatedAccessTyp && len(cl.Permissions) > 0 && v.enrich != nil {
-		if ra, rerr := v.remoteApplication(ctx, cl.Issuer); rerr == nil && ra != nil {
-			authority, aerr := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
-			if aerr != nil {
-				// Never swallow an authority-resolution failure into "allow": a
-				// backend outage must fail closed, not grant the claimed perms.
-				return Claims{}, authkit.E(authkit.CodeInvalidToken)
+	if isDelegatedAccessTyp {
+		if issuer.application != nil {
+			// Delegation inherits the same stored ceiling AND group binding as
+			// the application acting as itself. Missing permissions grant nothing.
+			perms := cl.Permissions
+			if perms == nil {
+				perms = []string{}
 			}
-			perms, perr := permissionsWithinAuthority(cl.Permissions, authority.Permissions)
-			if perr != nil {
-				return Claims{}, perr
+			authority, err := v.resolveRemoteApplicationSelf(ctx, issuer.application, tokenTyp, perms)
+			if err != nil {
+				return Claims{}, err
 			}
-			cl.Permissions = perms
+			cl.Permissions = authority.Permissions
+			cl.RemoteApplicationID = authority.RemoteApplicationID
+			cl.RemoteApplicationSlug = authority.RemoteApplicationSlug
+			cl.PermissionGroupID = authority.PermissionGroupID
+			cl.PermissionGroupAuthorityIssuer = authority.PermissionGroupAuthorityIssuer
+			cl.PermissionGroupPersona = authority.PermissionGroupPersona
+			cl.PermissionGroupInstance = authority.PermissionGroupInstance
+		}
+		if v.permValidator != nil {
+			if err := v.permValidator(cl.Permissions); err != nil {
+				return Claims{}, err
+			}
 		}
 	}
 
@@ -1015,31 +995,33 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, p
 	if !ok {
 		return Claims{}, DelegatedPrincipal{}, authkit.E(authkit.CodeNotDelegatedAccessToken)
 	}
-	if v.permValidator != nil {
-		if err := v.permValidator(cl.Permissions); err != nil {
-			return Claims{}, DelegatedPrincipal{}, err
-		}
-	}
 	return cl, dp, nil
 }
 
-// verifyClaimsWithHeader is the single internal parse that backs both public
-// entry points: it parses and cryptographically verifies the token exactly like
-// VerifyClaims (JWKS key resolution + signature, registered issuer, audience,
-// exp/nbf/iat with skew) AND returns the JOSE `typ` header value read off the
-// SAME verified token, so Verify can enforce delegated-access-token typing
-// without a second base64-decode/JSON-unmarshal (#216). The header comes from
-// the already-verified token; callers must not trust typ for security decisions
-// beyond what the signature and registered-issuer checks already guarantee.
-// VerifyClaims delegates here and drops typ.
-func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, error) {
+// verifyClaimsWithHeader keeps the JOSE type and issuer provenance from the
+// same signature verification used by every typed entrypoint.
+func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, *issuerEntry, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return nil, "", authkit.E(authkit.CodeMissingToken)
+		return nil, "", nil, authkit.E(authkit.CodeMissingToken)
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(ctx, token) }
+	var match *issuerEntry
+	keyFn := func(token *jwt.Token) (any, error) {
+		alg, _ := token.Header["alg"].(string)
+		if !v.algAllowed(alg) {
+			return nil, errors.New("disallowed_alg")
+		}
+		var err error
+		claims, _ := token.Claims.(jwt.MapClaims)
+		match, err = v.resolveIssuer(ctx, strClaim(claims, "iss"))
+		if err != nil {
+			return nil, err
+		}
+		kid, _ := token.Header["kid"].(string)
+		return v.publicKeyFor(ctx, *match, kid)
+	}
 	mapClaims := jwt.MapClaims{}
 	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 	if err != nil || tok == nil || !tok.Valid {
@@ -1050,48 +1032,46 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 		// rejecting. The refetch goes through the per-issuer min-interval +
 		// single-flight guard, so a storm of bad tokens coalesces to at most one
 		// fetch per kidRefetchMin and cannot hammer the JWKS endpoint.
-		if v.forceRefreshForToken(ctx, tokenStr) {
+		if errors.Is(err, jwt.ErrTokenSignatureInvalid) && v.forceRefreshForToken(ctx, tokenStr) {
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
 		if err != nil || tok == nil || !tok.Valid {
-			return nil, "", authkit.E(authkit.CodeInvalidToken)
+			return nil, "", nil, authkit.E(authkit.CodeInvalidToken)
 		}
 	}
 
-	iss, _ := mapClaims["iss"].(string)
-	match := v.matchIssuer(iss)
 	if match == nil {
-		return nil, "", authkit.E(authkit.CodeBadIssuer)
+		return nil, "", nil, authkit.E(authkit.CodeBadIssuer)
 	}
 
 	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
-		return nil, "", authkit.E(authkit.CodeBadAudience)
+		return nil, "", nil, authkit.E(authkit.CodeBadAudience)
 	}
 
 	skew := v.skew
 	now := time.Now()
 	expUnix, ok := toUnix(mapClaims["exp"])
 	if !ok {
-		return nil, "", authkit.E(authkit.CodeMissingExp)
+		return nil, "", nil, authkit.E(authkit.CodeMissingExp)
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return nil, "", authkit.E(authkit.CodeAccessTokenExpired)
+		return nil, "", nil, authkit.E(authkit.CodeAccessTokenExpired)
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
 		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-			return nil, "", authkit.E(authkit.CodeTokenNotYetValid)
+			return nil, "", nil, authkit.E(authkit.CodeTokenNotYetValid)
 		}
 	}
 	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
 		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
-			return nil, "", authkit.E(authkit.CodeTokenNotYetValid)
+			return nil, "", nil, authkit.E(authkit.CodeTokenNotYetValid)
 		}
 	}
 
 	// typ off the ALREADY-VERIFIED token header — no second ParseUnverified.
 	typ, _ := tok.Header["typ"].(string)
-	return mapClaims, typ, nil
+	return mapClaims, typ, match, nil
 }
 
 // extractClaims converts jwt.MapClaims into typed Claims.
@@ -1258,34 +1238,35 @@ func rawStringAttribute(attrs map[string]json.RawMessage, key string) string {
 // Internal key resolution
 // ---------------------------------------------------------------------------
 
-func (v *Verifier) keyForToken(ctx context.Context, token *jwt.Token) (any, error) {
-	if token == nil {
-		return nil, authkit.E(authkit.CodeNilToken)
+// resolveIssuer binds registry provenance to the live application row before
+// any key is used. An unavailable, deleted, or disabled store entry always denies.
+func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEntry, error) {
+	match := v.matchIssuer(issuer)
+	if match == nil && v.lazyLoadIssuer(ctx, issuer) {
+		match = v.matchIssuer(issuer)
 	}
-
-	alg, _ := token.Header["alg"].(string)
-	if !v.algAllowed(alg) {
-		return nil, fmt.Errorf("disallowed_alg")
-	}
-
-	claims, _ := token.Claims.(jwt.MapClaims)
-	iss, _ := claims["iss"].(string)
-	match := v.matchIssuer(iss)
 	if match == nil {
-		// Lazy-load-on-miss: a brand-new remote-application issuer may already be in the
-		// store but not yet in this replica's in-memory cache. Fetch+register it
-		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
-		// when no remote-application source is configured this is a no-op (-> bad_issuer).
-		if v.lazyLoadIssuer(ctx, iss) {
-			match = v.matchIssuer(iss)
+		return nil, authkit.E(authkit.CodeBadIssuer)
+	}
+	if match.managed {
+		ra, err := v.remoteApplication(ctx, issuer)
+		if err != nil {
+			return nil, err
 		}
-		if match == nil {
-			return nil, fmt.Errorf("bad_issuer")
+		match.application = ra
+		match.jwksURL = ""
+		switch ra.Mode {
+		case authkit.RemoteAppModeJWKS:
+			match.jwksURL = strings.TrimSpace(ra.JWKSURI)
+			if match.jwksURL == "" {
+				return nil, authkit.E(authkit.CodeBadIssuer)
+			}
+		case authkit.RemoteAppModeStatic:
+		default:
+			return nil, authkit.E(authkit.CodeBadIssuer)
 		}
 	}
-
-	kid, _ := token.Header["kid"].(string)
-	return v.publicKeyFor(ctx, *match, kid)
+	return match, nil
 }
 
 func (v *Verifier) matchIssuer(issuer string) *issuerEntry {
@@ -1317,70 +1298,52 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		return nil, authkit.E(authkit.CodeBadIssuer)
 	}
 
-	// permanent issuers have no JWKS URI: their keys were supplied directly
-	// (RawKeys/Keys, or IsLocal) with nowhere to legitimately refetch from, so
-	// they never expire and are NEVER network-fetched (#239) — that includes
-	// the unknown-kid force-refresh below, which would otherwise synthesize a
-	// `<issuer>/.well-known/jwks.json` guess.
-	permanent := strings.TrimSpace(ie.jwksURL) == ""
-
-	cacheTTL := ie.cacheTTL
-	if cacheTTL == 0 {
-		cacheTTL = 10 * time.Minute
+	if ie.publicKeys != nil {
+		return selectPublicKey(ie.publicKeys(), kid)
 	}
-	maxStale := ie.maxStale
-	if maxStale == 0 {
-		maxStale = time.Hour
+	if ie.application != nil && ie.application.Mode == authkit.RemoteAppModeStatic {
+		v.mu.Lock()
+		delete(v.byIss, iss)
+		v.mu.Unlock()
+		keys, err := collectKeys(remoteAppOptions(*ie.application))
+		if err != nil {
+			return nil, err
+		}
+		return selectPublicKey(keys, kid)
 	}
 
+	// Snapshot keys never expire or fetch; only configured JWKS URLs do.
+	permanent := ie.jwksURL == ""
+	cacheTTL, maxStale := issuerCacheDurations(ie)
 	v.mu.Lock()
 	c := v.byIss[iss]
-	if c == nil {
-		c = &issuerKeys{}
+	if c == nil || c.jwksURL != ie.jwksURL {
+		c = &issuerKeys{jwksURL: ie.jwksURL}
 		v.byIss[iss] = c
 	}
 	now := time.Now()
-	shouldFetch := !permanent && (c.pubByKID == nil || now.After(c.expiresAt))
-	hasFresh := c.pubByKID != nil && (permanent || now.Before(c.expiresAt))
-	hasStale := c.pubByKID != nil && (permanent || now.Before(c.staleUntil))
+	shouldFetch := !permanent && (len(c.pubByKID) == 0 || now.After(c.expiresAt))
+	canUseCache := len(c.pubByKID) > 0 && (permanent || now.Before(c.staleUntil))
 	v.mu.Unlock()
-
 	if shouldFetch {
-		if err := v.refreshIssuerKeys(ctx, iss, ie, cacheTTL, maxStale); err != nil && !hasStale && !hasFresh {
+		if err := v.refreshIssuerKeys(ctx, iss, ie, cacheTTL, maxStale); err != nil && !canUseCache {
 			return nil, err
 		}
 	}
-
-	v.mu.Lock()
-	if kid != "" {
-		if pk := c.pubByKID[kid]; pk != nil {
-			v.mu.Unlock()
-			return pk, nil
-		}
-		v.mu.Unlock()
-		// Unknown kid for a KNOWN issuer: a key may have rotated mid-TTL (the
-		// cached JWKS is still "fresh" so the TTL refresh above did not fire).
-		// Force ONE bounded JWKS refetch (min-interval + single-flight guarded so
-		// a storm of bad kids can't hammer the JWKS endpoint) and retry — but
-		// only when there IS a JWKS URI to refetch from; a permanent issuer's
-		// key set is exactly what was registered, forever (#239).
-		if !permanent && v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
-			v.mu.Lock()
-			if pk := c.pubByKID[kid]; pk != nil {
-				v.mu.Unlock()
-				return pk, nil
-			}
-			v.mu.Unlock()
-		}
-		return nil, authkit.E(authkit.CodeUnknownKID)
+	v.mu.RLock()
+	key, err := selectPublicKey(c.pubByKID, kid)
+	v.mu.RUnlock()
+	if err == nil || permanent || kid == "" {
+		return key, err
 	}
-	defer v.mu.Unlock()
-	if len(c.pubByKID) == 1 {
-		for _, pk := range c.pubByKID {
-			return pk, nil
-		}
+	// A new KID can arrive during the fresh-cache window. Refresh once through
+	// the shared throttle, then retry the same key-selection rule.
+	if v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
+		v.mu.RLock()
+		key, err = selectPublicKey(c.pubByKID, kid)
+		v.mu.RUnlock()
 	}
-	return nil, authkit.E(authkit.CodeMissingKID)
+	return key, err
 }
 
 // refetchForUnknownKID forces a single bounded JWKS refetch for a known issuer
@@ -1449,8 +1412,8 @@ func (v *Verifier) forceRefreshForToken(ctx context.Context, tokenStr string) bo
 }
 
 func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
-	ie := v.matchIssuer(iss)
-	if ie == nil {
+	ie, err := v.resolveIssuer(ctx, iss)
+	if err != nil {
 		return false
 	}
 	entry := *ie // copy out from under the verifier lock before fetching
@@ -1459,14 +1422,7 @@ func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
 		// a verify failure here is a real signature/key mismatch, not staleness.
 		return false
 	}
-	cacheTTL := entry.cacheTTL
-	if cacheTTL == 0 {
-		cacheTTL = 10 * time.Minute
-	}
-	maxStale := entry.maxStale
-	if maxStale == 0 {
-		maxStale = time.Hour
-	}
+	cacheTTL, maxStale := issuerCacheDurations(entry)
 	// Route through the throttled, single-flighted unknown-kid refetch path rather
 	// than calling refreshIssuerKeys directly. Otherwise a storm of bad tokens
 	// hammers the JWKS endpoint: each verify failure would force its own fetch with
@@ -1487,27 +1443,23 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issu
 	}
 
 	// One fetch+parse attempt. A nil error means the JWKS was fetched and parsed.
-	attempt := func() (jwtkit.JWKS, map[string]crypto.PublicKey, error) {
+	attempt := func() (map[string]crypto.PublicKey, error) {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
 		resp, err := v.httpClient.Do(req)
 		if err != nil {
-			return jwtkit.JWKS{}, nil, err
+			return nil, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return jwtkit.JWKS{}, nil, fmt.Errorf("jwks_http_%d", resp.StatusCode)
+			return nil, fmt.Errorf("jwks_http_%d", resp.StatusCode)
 		}
 		// Limit response body to 1MB to prevent OOM from malicious JWKS endpoints.
 		limited := io.LimitReader(resp.Body, 1<<20)
 		var ks jwtkit.JWKS
 		if derr := json.NewDecoder(limited).Decode(&ks); derr != nil {
-			return jwtkit.JWKS{}, nil, derr
+			return nil, derr
 		}
-		pub, perr := jwtkit.JWKSToPublicKeys(ks)
-		if perr != nil {
-			return jwtkit.JWKS{}, nil, perr
-		}
-		return ks, pub, nil
+		return jwtkit.JWKSToPublicKeys(ks)
 	}
 
 	// Resilience: a JWKS endpoint can be momentarily unreachable (peer still
@@ -1515,13 +1467,12 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issu
 	// before giving up, rather than failing the whole token verification on a
 	// single blip. Aborts early if the request context is cancelled.
 	var (
-		ks       jwtkit.JWKS
 		pubByKID map[string]crypto.PublicKey
 		err      error
 	)
 	backoff := jwksRefreshBackoff
 	for i := 0; i < jwksRefreshAttempts; i++ {
-		ks, pubByKID, err = attempt()
+		pubByKID, err = attempt()
 		if err == nil {
 			break
 		}
@@ -1542,14 +1493,13 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issu
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	c := v.byIss[issuer]
-	if c == nil {
-		c = &issuerKeys{}
-		v.byIss[issuer] = c
+	if c == nil || c.jwksURL != ie.jwksURL {
+		// A concurrent replacement owns the cache now. Never publish an old
+		// endpoint's response into that registration.
+		return errors.New("issuer keys changed during refresh")
 	}
 	now := time.Now()
-	c.jwks = ks
 	c.pubByKID = pubByKID
-	c.fetchedAt = now
 	c.expiresAt = now.Add(cacheTTL)
 	c.staleUntil = now.Add(cacheTTL + maxStale)
 	return nil
@@ -1591,3 +1541,33 @@ func audContainsAny(aud any, want []string) bool {
 // ---------------------------------------------------------------------------
 // Key parsing helpers
 // ---------------------------------------------------------------------------
+
+func issuerCacheDurations(ie issuerEntry) (time.Duration, time.Duration) {
+	ttl, stale := ie.cacheTTL, ie.maxStale
+	if ttl == 0 {
+		ttl = 10 * time.Minute
+	}
+	if stale == 0 {
+		stale = time.Hour
+	}
+	return ttl, stale
+}
+
+func selectPublicKey(keys map[string]crypto.PublicKey, kid string) (crypto.PublicKey, error) {
+	key := keys[kid]
+	if kid == "" {
+		if len(keys) != 1 {
+			return nil, authkit.E(authkit.CodeMissingKID)
+		}
+		for _, candidate := range keys {
+			key = candidate
+		}
+	}
+	if key == nil {
+		return nil, authkit.E(authkit.CodeUnknownKID)
+	}
+	if err := jwtkit.ValidatePublicKey(key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}

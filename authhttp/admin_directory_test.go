@@ -367,9 +367,7 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 		raRole = string(authkit.OwnerRole)
 	}
 	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, raRole)
-	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
-		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-	}))
+	require.NoError(t, s.verifier.LoadRemoteApplications(ctx, s.svc, []string{"test-app"}))
 	token, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer:           issuer,
 		Audiences:        []string{"test-app"},
@@ -388,9 +386,7 @@ func mintAdminTestRemoteAppToken(t *testing.T, s *Service, ctx context.Context, 
 	issuer := "https://" + slug + ".example"
 	ra := registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, role)
 	require.NotEmpty(t, ra.ID)
-	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
-		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-	}))
+	require.NoError(t, s.verifier.LoadRemoteApplications(ctx, s.svc, []string{"test-app"}))
 	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{
 		Issuer:    issuer,
 		Audiences: []string{"test-app"},

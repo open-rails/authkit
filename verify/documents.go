@@ -21,13 +21,10 @@ func (v *Verifier) ValidateDocumentIssuer(ctx context.Context, issuer string) er
 	if issuer == "" {
 		return documents.ErrUntrustedIssuer
 	}
-	if v.matchIssuer(issuer) == nil && !v.lazyLoadIssuer(ctx, issuer) {
+	if _, err := v.resolveIssuer(ctx, issuer); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return documents.ErrUntrustedIssuer
-	}
-	if v.matchIssuer(issuer) == nil {
 		return documents.ErrUntrustedIssuer
 	}
 	return nil
@@ -144,8 +141,8 @@ func (v *Verifier) documentKey(ctx context.Context, algorithm, kid, issuer strin
 	if !v.algAllowed(algorithm) {
 		return nil, documents.ErrUnsupportedAlgorithm
 	}
-	entry := v.matchIssuer(issuer)
-	if entry == nil {
+	entry, err := v.resolveIssuer(ctx, issuer)
+	if err != nil {
 		return nil, documents.ErrUntrustedIssuer
 	}
 	return v.publicKeyFor(ctx, *entry, kid)

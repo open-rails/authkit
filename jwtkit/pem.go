@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
@@ -30,19 +31,41 @@ func ParsePublicKeyFromPEMBytes(pemBytes []byte) (crypto.PublicKey, error) {
 	}
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		if cert, err2 := x509.ParseCertificate(block.Bytes); err2 == nil {
-			return cert.PublicKey, nil
+		if cert, certErr := x509.ParseCertificate(block.Bytes); certErr == nil {
+			pub = cert.PublicKey
+		} else if rsaPub, rsaErr := x509.ParsePKCS1PublicKey(block.Bytes); rsaErr == nil {
+			pub = rsaPub
+		} else {
+			return nil, err
 		}
-		if rsaPub, err3 := x509.ParsePKCS1PublicKey(block.Bytes); err3 == nil {
-			return rsaPub, nil
-		}
+	}
+	if err := ValidatePublicKey(pub); err != nil {
 		return nil, err
 	}
-	switch pub.(type) {
-	case *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey:
-		return pub, nil
+	return pub, nil
+}
+
+// ValidatePublicKey applies the same supported-type and strength policy to
+// raw keys, PEM, JWK, live verification sources, and in-memory signing keys.
+func ValidatePublicKey(pub crypto.PublicKey) error {
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		return validateRSAPublicKey(k)
+	case *ecdsa.PublicKey:
+		if k == nil || (k.Curve != elliptic.P256() && k.Curve != elliptic.P384() && k.Curve != elliptic.P521()) {
+			return errors.New("unsupported_ec_curve")
+		}
+		if _, err := k.ECDH(); err != nil {
+			return fmt.Errorf("invalid_ec_point: %w", err)
+		}
+		return nil
+	case ed25519.PublicKey:
+		if len(k) != ed25519.PublicKeySize {
+			return errors.New("bad_ed25519_key_length")
+		}
+		return nil
 	default:
-		return nil, fmt.Errorf("unsupported public key type %T", pub)
+		return fmt.Errorf("unsupported public key type %T", pub)
 	}
 }
 
@@ -61,6 +84,9 @@ func NewSignerFromPEM(kid string, pemBytes []byte) (Signer, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := ValidatePublicKey(&key.PublicKey); err != nil {
+			return nil, err
+		}
 		return &RSASigner{key: key, kid: kid}, nil
 	case "EC PRIVATE KEY":
 		key, err := x509.ParseECPrivateKey(blk.Bytes)
@@ -75,6 +101,9 @@ func NewSignerFromPEM(kid string, pemBytes []byte) (Signer, error) {
 		}
 		switch k := key.(type) {
 		case *rsa.PrivateKey:
+			if err := ValidatePublicKey(&k.PublicKey); err != nil {
+				return nil, err
+			}
 			return &RSASigner{key: k, kid: kid}, nil
 		case *ecdsa.PrivateKey:
 			return newECDSASigner(kid, k)

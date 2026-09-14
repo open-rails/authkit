@@ -22,6 +22,9 @@ func newECDSASigner(kid string, key *ecdsa.PrivateKey) (*ecdsaSigner, error) {
 	if key == nil {
 		return nil, errors.New("nil ecdsa private key")
 	}
+	if err := ValidatePublicKey(&key.PublicKey); err != nil {
+		return nil, err
+	}
 	alg, err := ecdsaAlgorithm(key)
 	if err != nil {
 		return nil, err
