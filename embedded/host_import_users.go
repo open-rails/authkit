@@ -64,7 +64,8 @@ type preparedImportRow struct {
 // imported. Invalid rows are rejected individually and never abort the batch.
 //
 // Each input may carry an optional pre-hashed PasswordHash; for inserted rows it
-// is stored verbatim (the verify-time hash whitelist still governs login).
+// is validated before insertion; unsupported work factors require an explicit
+// HashAlgoLegacyResetRequired marker.
 func (s *Client) ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error) {
 	res := ImportUsersResult{Results: make([]ImportUserResult, len(inputs))}
 	if len(inputs) == 0 {
@@ -80,6 +81,13 @@ func (s *Client) ImportUsers(ctx context.Context, inputs []ImportUserInput) (Imp
 	seenEmail := make(map[string]struct{}, len(inputs))
 	seenPhone := make(map[string]struct{}, len(inputs))
 	for i, in := range inputs {
+		if in.PasswordHash != "" {
+			if err := validatePasswordHashForStorage(in.PasswordHash, in.HashAlgo); err != nil {
+				res.Results[i] = ImportUserResult{Index: i, Status: ImportStatusRejected, Reason: importRejectReason(err)}
+				res.Rejected++
+				continue
+			}
+		}
 		email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(in)
 		if err != nil {
 			res.Results[i] = ImportUserResult{Index: i, Status: ImportStatusRejected, Reason: importRejectReason(err)}

@@ -5,6 +5,7 @@ package memorylimiter
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -45,20 +46,26 @@ func WithMaxBuckets(n int) Option { return func(l *Limiter) { l.maxBuckets = n }
 func WithClock(now func() time.Time) Option { return func(l *Limiter) { l.now = now } }
 
 // New constructs a new in-memory limiter with the provided per-bucket limits.
-func New(limits map[string]ratelimit.Limit, opts ...Option) *Limiter {
-	if limits == nil {
-		limits = map[string]ratelimit.Limit{}
+func New(limits map[string]ratelimit.Limit, opts ...Option) (*Limiter, error) {
+	if err := ratelimit.ValidateLimits(limits); err != nil {
+		return nil, err
 	}
 	l := &Limiter{
-		limits:     limits,
+		limits:     maps.Clone(limits),
 		buckets:    make(map[string]*bucketState),
 		maxBuckets: DefaultMaxBuckets,
 		now:        time.Now,
 	}
 	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("ratelimit: nil option")
+		}
 		opt(l)
 	}
-	return l
+	if l.maxBuckets <= 0 || l.now == nil {
+		return nil, fmt.Errorf("ratelimit: positive max buckets and non-nil clock required")
+	}
+	return l, nil
 }
 
 // AllowNamed matches the auth adapter's RateLimiter interface.
@@ -93,7 +100,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 
 	b, ok := l.buckets[limitKey]
 	if !ok {
-		if l.maxBuckets > 0 && len(l.buckets) >= l.maxBuckets && l.cleanupLocked(nowMs) >= l.maxBuckets {
+		if len(l.buckets) >= l.maxBuckets && l.cleanupLocked(nowMs) >= l.maxBuckets {
 			return ratelimit.Result{
 				Allowed: false, RetryAfter: lim.Window, Reason: ratelimit.ReasonLimitExceeded,
 				Limit: lim.Limit, Window: lim.Window, Cooldown: lim.Cooldown,
@@ -107,7 +114,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	// Prune timestamps outside the window.
 	ts := b.timestamps
 	pruneIdx := 0
-	for pruneIdx < len(ts) && ts[pruneIdx] < windowStart {
+	for pruneIdx < len(ts) && ts[pruneIdx] <= windowStart {
 		pruneIdx++
 	}
 	if pruneIdx > 0 {
@@ -124,11 +131,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 		}
 	}
 
-	// Guard Limit > 0: a bucket with Limit <= 0 has no positive threshold, so
-	// len(ts) >= lim.Limit would be true even for an empty slice and ts[0] would
-	// panic on the empty backing array (#198). Skipping the check leaves the
-	// window-exceeded branch inactive for such buckets.
-	if lim.Limit > 0 && len(ts) >= lim.Limit {
+	if len(ts) >= lim.Limit {
 		windowRetryAfter := time.Duration(ts[0]+lim.Window.Milliseconds()-nowMs) * time.Millisecond
 		if windowRetryAfter < 0 {
 			windowRetryAfter = 0
@@ -202,7 +205,7 @@ func (l *Limiter) cleanupLocked(nowMs int64) int {
 		windowStart := nowMs - b.windowMs
 		ts := b.timestamps
 		pruneIdx := 0
-		for pruneIdx < len(ts) && ts[pruneIdx] < windowStart {
+		for pruneIdx < len(ts) && ts[pruneIdx] <= windowStart {
 			pruneIdx++
 		}
 		if pruneIdx > 0 {

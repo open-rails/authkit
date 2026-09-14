@@ -11,7 +11,7 @@ import (
 
 func TestCleanupEvictsIdleBuckets(t *testing.T) {
 	clk := testclock.New()
-	limiter := New(map[string]ratelimit.Limit{
+	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 20 * time.Millisecond},
 	}, WithClock(clk.Now))
 
@@ -43,7 +43,7 @@ func TestCleanupEvictsIdleBuckets(t *testing.T) {
 }
 
 func TestCleanupKeepsBucketWithLiveTimestamps(t *testing.T) {
-	limiter := New(map[string]ratelimit.Limit{
+	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"login": {Limit: 5, Window: time.Hour},
 	})
 	if _, err := limiter.AllowNamed("login", "user"); err != nil {
@@ -55,7 +55,7 @@ func TestCleanupKeepsBucketWithLiveTimestamps(t *testing.T) {
 }
 
 func TestStartCleanupStopsOnContextCancel(t *testing.T) {
-	limiter := New(map[string]ratelimit.Limit{
+	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 5 * time.Millisecond},
 	})
 	if _, err := limiter.AllowNamed("probe", "one-shot"); err != nil {
@@ -86,7 +86,7 @@ func TestStartCleanupStopsOnContextCancel(t *testing.T) {
 }
 
 func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
-	limiter := New(map[string]ratelimit.Limit{
+	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 	})
 
@@ -111,7 +111,7 @@ func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
 }
 
 func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
-	limiter := New(map[string]ratelimit.Limit{
+	limiter := newLimiter(t, map[string]ratelimit.Limit{
 		"request_code": {Limit: 1, Window: time.Hour, Cooldown: time.Minute},
 	})
 
@@ -135,36 +135,35 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 	}
 }
 
-func TestAllowNamedZeroLimitNoPanic(t *testing.T) {
-	// #198: a bucket configured with Limit=0 made len(ts) >= lim.Limit true for
-	// an empty slice, so the window-exceeded branch indexed ts[0] on an empty
-	// backing array and panicked. The first request against such a bucket must
-	// return a defined result instead of panicking.
-	limiter := New(map[string]ratelimit.Limit{
-		"zero": {Limit: 0, Window: time.Minute},
-	})
-
-	result, err := limiter.AllowNamedResult("zero", "user")
-	if err != nil {
-		t.Fatalf("AllowNamedResult: %v", err)
-	}
-	// Limit <= 0 disables the threshold, so the request is admitted (rather than
-	// panicking); the reported Limit mirrors the configured value.
-	if !result.Allowed {
-		t.Fatalf("first request denied for Limit=0 bucket: %+v", result)
-	}
-	if result.RetryAfter != 0 {
-		t.Fatalf("RetryAfter = %s, want 0 for Limit=0 bucket", result.RetryAfter)
-	}
-	if result.Limit != 0 {
-		t.Fatalf("Limit = %d, want 0", result.Limit)
-	}
-}
-
 // allowRetry adapts AllowNamedResult to the (allowed, retryAfter, err) shape these
 // cooldown/window tests assert on, after the dedicated AllowNamedWithRetryAfter
 // wrapper was removed (#189). The retry-after value comes from AllowNamedResult.
 func allowRetry(l *Limiter, bucket, key string) (bool, time.Duration, error) {
 	r, err := l.AllowNamedResult(bucket, key)
 	return r.Allowed, r.RetryAfter, err
+}
+
+func newLimiter(t testing.TB, limits map[string]ratelimit.Limit, opts ...Option) *Limiter {
+	t.Helper()
+	l, err := New(limits, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+func TestWindowBoundaryPrunesExpiredRequest(t *testing.T) {
+	now := time.Unix(100, 0)
+	l := newLimiter(t, map[string]ratelimit.Limit{"test": {Limit: 1, Window: time.Second}}, WithClock(func() time.Time { return now }))
+	if ok, err := l.AllowNamed("test", "user"); err != nil || !ok {
+		t.Fatalf("first request: allowed=%v err=%v", ok, err)
+	}
+	now = now.Add(time.Second)
+	result, err := l.AllowNamedResult("test", "user")
+	if err != nil || !result.Allowed || result.Remaining != 0 {
+		t.Fatalf("boundary request: %+v err=%v", result, err)
+	}
+	if n := len(l.buckets["user:test"].timestamps); n != 1 {
+		t.Fatalf("expired request retained at exact window boundary: %d entries", n)
+	}
 }

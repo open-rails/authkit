@@ -1,14 +1,38 @@
 package ratelimit
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Limit configures a named rate-limit bucket: at most Limit requests per Window,
-// with an optional Cooldown applied once the limit is hit. It is the single shared
+// with an optional Cooldown between accepted requests. It is the single shared
 // limit type consumed by the memory and redis limiter backends and the HTTP layer.
 type Limit struct {
 	Limit    int
 	Window   time.Duration
 	Cooldown time.Duration
+}
+
+// ValidateLimits rejects policies that the millisecond-based backends cannot
+// enforce identically. Disabling a limiter is an explicit HTTP configuration.
+func ValidateLimits(limits map[string]Limit) error {
+	for bucket, limit := range limits {
+		if strings.TrimSpace(bucket) == "" {
+			return fmt.Errorf("ratelimit: empty bucket name")
+		}
+		if limit.Limit <= 0 || uint64(limit.Limit) > 1<<53-1 {
+			return fmt.Errorf("ratelimit %q: limit must be between 1 and 2^53-1", bucket)
+		}
+		if limit.Window <= 0 || limit.Window%time.Millisecond != 0 {
+			return fmt.Errorf("ratelimit %q: window must be positive whole milliseconds", bucket)
+		}
+		if limit.Cooldown < 0 || limit.Cooldown > limit.Window || limit.Cooldown%time.Millisecond != 0 {
+			return fmt.Errorf("ratelimit %q: cooldown must be whole milliseconds between zero and window", bucket)
+		}
+	}
+	return nil
 }
 
 // LookupLimit resolves the Limit for a bucket from a limits map: the bucket's own

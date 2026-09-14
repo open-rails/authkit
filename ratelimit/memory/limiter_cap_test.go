@@ -13,7 +13,7 @@ import (
 func TestMaxBucketsDeniesNewKeysWhenFull(t *testing.T) {
 	limits := map[string]ratelimit.Limit{"login": {Limit: 5, Window: 50 * time.Millisecond}}
 	clk := testclock.New()
-	l := New(limits, WithMaxBuckets(2), WithClock(clk.Now))
+	l := newLimiter(t, limits, WithMaxBuckets(2), WithClock(clk.Now))
 
 	for _, ip := range []string{"10.0.0.1", "10.0.0.2"} {
 		if ok, err := l.AllowNamed("login", ip); err != nil || !ok {

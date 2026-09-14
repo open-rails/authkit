@@ -12,7 +12,7 @@ import (
 )
 
 func TestAllowNamedResultDeniesAtLimit(t *testing.T) {
-	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
+	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"login": {Limit: 3, Window: time.Minute},
 	}, "t:")
 
@@ -46,7 +46,7 @@ func TestAllowNamedResultDeniesAtLimit(t *testing.T) {
 }
 
 func TestAllowNamedResultWindowResets(t *testing.T) {
-	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
+	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"probe": {Limit: 2, Window: 200 * time.Millisecond},
 	}, "t:")
 	for i := 0; i < 2; i++ {
@@ -65,7 +65,7 @@ func TestAllowNamedResultWindowResets(t *testing.T) {
 }
 
 func TestAllowNamedResultCooldown(t *testing.T) {
-	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
+	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 	}, "t:")
 	if r, err := l.AllowNamedResult("request_code", "user"); err != nil || !r.Allowed || r.RetryAfter != 0 {
@@ -87,7 +87,7 @@ func TestAllowNamedResultCooldown(t *testing.T) {
 // never over-admit past the limit.
 func TestAllowNamedAdmitsExactlyLimitUnderConcurrency(t *testing.T) {
 	const limit, racers = 10, 64
-	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
+	l := newLimiter(t, testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"race": {Limit: limit, Window: time.Minute},
 	}, "t:")
 
@@ -124,7 +124,7 @@ func TestAllowNamedResultBackendErrorSurfaces(t *testing.T) {
 	if err := closed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	l := New(closed, map[string]ratelimit.Limit{"login": {Limit: 3, Window: time.Minute}}, "t:")
+	l := newLimiter(t, closed, map[string]ratelimit.Limit{"login": {Limit: 3, Window: time.Minute}}, "t:")
 
 	if r, err := l.AllowNamedResult("login", "ip"); err == nil || r.Allowed {
 		t.Fatalf("closed client: got (%+v, %v), want an error and Allowed=false", r, err)
@@ -132,4 +132,13 @@ func TestAllowNamedResultBackendErrorSurfaces(t *testing.T) {
 	if ok, err := l.AllowNamed("login", "ip"); err == nil || ok {
 		t.Fatalf("closed client AllowNamed: got (%v, %v), want (false, error)", ok, err)
 	}
+}
+
+func newLimiter(t testing.TB, rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) *Limiter {
+	t.Helper()
+	l, err := New(rdb, limits, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
 }

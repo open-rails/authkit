@@ -5,6 +5,7 @@ package redislimiter
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
@@ -22,11 +23,14 @@ type Limiter struct {
 
 // New builds a Redis sliding-window limiter whose keys live under prefix (the
 // deployment namespace, #307): <prefix><key>:<bucket>.
-func New(rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) *Limiter {
-	if limits == nil {
-		limits = map[string]ratelimit.Limit{}
+func New(rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) (*Limiter, error) {
+	if err := ratelimit.ValidateLimits(limits); err != nil {
+		return nil, err
 	}
-	return &Limiter{rdb: rdb, ctx: context.Background(), limits: limits, prefix: prefix}
+	if rdb == nil {
+		return nil, fmt.Errorf("ratelimit: Redis client required")
+	}
+	return &Limiter{rdb: rdb, ctx: context.Background(), limits: maps.Clone(limits), prefix: prefix}, nil
 }
 
 // allowScript performs the entire sliding-window decision in a single atomic
@@ -39,7 +43,7 @@ func New(rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) *L
 // keeping the returned ratelimit.Result shape identical.
 //
 // KEYS[1] = bucket key
-// ARGV    = now(ms) start(ms) limit windowMs cooldownMs expireSec member
+// ARGV    = now(ms) start(ms) limit windowMs cooldownMs member
 // Returns = { allowed(0|1), count(pre-add), retryAfterMs, reasonCode }
 //
 //	reasonCode: 0 none, 1 cooldown, 2 limit_exceeded
@@ -55,8 +59,7 @@ local start      = tonumber(ARGV[2])
 local limit      = tonumber(ARGV[3])
 local windowMs   = tonumber(ARGV[4])
 local cooldownMs = tonumber(ARGV[5])
-local expireSec  = tonumber(ARGV[6])
-local member     = ARGV[7]
+local member     = ARGV[6]
 
 redis.call('ZREMRANGEBYSCORE', key, 0, start)
 local count  = redis.call('ZCARD', key)
@@ -93,7 +96,7 @@ if retryAfter <= 0 then
   redis.call('ZADD', key, now, member)
   allowed = 1
 end
-redis.call('EXPIRE', key, expireSec)
+redis.call('PEXPIRE', key, windowMs)
 
 return {allowed, count, retryAfter, reason}
 `)
@@ -116,10 +119,9 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	start := now - lim.Window.Milliseconds()
 	limitKey := l.prefix + key + ":" + bucket
 	member := fmt.Sprintf("%d:%d", now, time.Now().UnixNano())
-	expireSec := int64((lim.Window + time.Second) / time.Second)
 
 	vals, err := allowScript.Run(l.ctx, l.rdb, []string{limitKey},
-		now, start, lim.Limit, lim.Window.Milliseconds(), lim.Cooldown.Milliseconds(), expireSec, member,
+		now, start, lim.Limit, lim.Window.Milliseconds(), lim.Cooldown.Milliseconds(), member,
 	).Slice()
 	if err != nil {
 		return ratelimit.Result{}, err

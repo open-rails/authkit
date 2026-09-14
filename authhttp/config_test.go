@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"testing"
+	"time"
 
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func TestConfigValidate(t *testing.T) {
 		"trusted proxies": {TrustedProxies: []string{"10.0.0.0/8"}},
 		"cloudflare":      {CloudflareProxies: []string{"103.21.244.0/22"}},
 		"client ip":       {ClientIP: DefaultClientIP()},
-		"overrides":       {DirectPeerIP: true, RateLimits: map[string]ratelimit.Limit{RLPasswordLogin: {Limit: 1, Window: 1}}},
+		"overrides":       {DirectPeerIP: true, RateLimits: map[string]ratelimit.Limit{RLPasswordLogin: {Limit: 1, Window: time.Millisecond}}},
 	} {
 		require.NoError(t, cfg.Validate(), name)
 	}
