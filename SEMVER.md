@@ -202,6 +202,14 @@ The YAML schema (`users`, `remote_applications`, password modes `plaintext` /
 `LoadBootstrapManifestFile` / `ParseBootstrapManifestYAML` is a wire contract;
 removing or renaming a field is MAJOR.
 
+`ApplyBootstrapManifest` commits the complete manifest in one transaction.
+`StartupOnly` is once per database schema: names label completion receipts,
+and another name does not run an additional genesis. Failed or canceled seed
+writes roll back with the receipt; a corrected attempt can retry. Separate
+schemas remain independent. `DryRun` validates without writing; ordinary
+reconciliation remains atomic and preserves the password seed-once and
+owner seed-if-absent rules.
+
 ### 5.7 Password hash policy
 
 Exactly argon2id (native) and bcrypt (legacy, re-hashed on first login) are

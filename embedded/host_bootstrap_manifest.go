@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/password"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,15 +77,37 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 	return ParseBootstrapManifestYAML(raw)
 }
 
-func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
-	if err := s.requirePG(); err != nil {
-		return BootstrapManifestResult{}, err
+// ApplyBootstrapManifest commits seed data and its StartupOnly completion claim
+// together. All manifests in one schema serialize, regardless of their names.
+func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (result BootstrapManifestResult, err error) {
+	if err = s.requirePG(); err != nil {
+		return result, err
 	}
-	if err := validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
-		return BootstrapManifestResult{}, err
+	if err = validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
+		return result, err
 	}
-
-	result := BootstrapManifestResult{DryRun: opts.DryRun}
+	schema := s.groupSchemaOrDefault()
+	checkRole := func(raw string) error {
+		role := normalizeRootRoleSlug(authkit.Role(raw))
+		if role != "" && !s.validRoleForPersona(schema, RootPersona, role) {
+			return fmt.Errorf("bootstrap root role %q: %w", role, authkit.ErrRoleNotAssignable)
+		}
+		return nil
+	}
+	for _, user := range manifest.Users {
+		if _, _, _, _, _, _, _, err = normalizeImportUserInput(bootstrapImportUserInput(user)); err != nil {
+			return result, err
+		}
+		if err = checkRole(user.RootRole); err != nil {
+			return result, err
+		}
+	}
+	for _, app := range manifest.RemoteApplications {
+		if err = checkRole(app.RootRole); err != nil {
+			return result, err
+		}
+	}
+	result.DryRun = opts.DryRun
 	if opts.DryRun {
 		result.UsersCreated = len(manifest.Users)
 		for _, user := range manifest.Users {
@@ -96,60 +120,67 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		}
 		return result, nil
 	}
-	claimed := false
-	if opts.StartupOnly {
-		unlock, err := s.lockBootstrapApply(ctx, opts.Name)
-		if err != nil {
-			return result, err
-		}
-		defer unlock()
-
-		var already bool
-		claimed, already, err = s.claimBootstrapApply(ctx, opts.Name)
-		if err != nil {
-			return result, err
-		}
-		if already {
-			result.AlreadyApplied = true
-			return result, nil
-		}
-		defer func() {
-			if claimed {
-				_ = s.releaseBootstrapApply(ctx, opts.Name)
+	// Do password hashing before holding database locks. Equality is checked
+	// against the current stored credential under its account lock below.
+	passwords := make([]db.UserPasswordUpsertParams, len(manifest.Users))
+	for i, user := range manifest.Users {
+		if user.Password != nil {
+			if passwords[i], err = prepareBootstrapPassword(*user.Password); err != nil {
+				return result, err
 			}
-		}()
+		}
 	}
-
-	// The root permission-group is the operator authority plane (#111). Ensure it
-	// exists and seed the declared containment so any root-role assignment lands.
-	if _, err := s.EnsureRootGroup(ctx); err != nil {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
 		return result, err
 	}
-	if err := s.SeedPermissionGroupContainment(ctx); err != nil {
+	defer tx.Rollback(ctx)
+	defer func() {
+		if err != nil {
+			result = BootstrapManifestResult{}
+		}
+	}()
+	raw := db.ForSchema(tx, s.dbSchema())
+	if _, err = raw.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.bootstrap."+s.dbSchema()); err != nil {
 		return result, err
 	}
-
+	if opts.StartupOnly {
+		if result.AlreadyApplied, err = s.claimBootstrapApply(ctx, raw, opts.Name); err != nil {
+			return result, err
+		}
+		if result.AlreadyApplied {
+			return result, tx.Commit(ctx)
+		}
+	}
+	q := s.qtx(tx)
+	groups := s.groupStoreFor(raw)
+	rootID, err := groups.ensureRootGroup(ctx)
+	if err != nil {
+		return result, err
+	}
+	if err = groups.SeedContainment(ctx, schema); err != nil {
+		return result, err
+	}
 	for _, app := range manifest.RemoteApplications {
-		if err := s.applyBootstrapRemoteApplication(ctx, app); err != nil {
+		if err = s.applyBootstrapRemoteApplication(ctx, q, groups, rootID, app); err != nil {
 			return result, err
 		}
 		result.RemoteApplications++
 		result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
 	}
-
-	// #136: owner is the apex and is seeded SEED-IF-ABSENT (break-glass) — compute
-	// owner presence ONCE so a manifest never re-asserts owners once any exist
-	// (runtime owner management wins; the manifest only fires from a zero-owner
-	// state to recover from lockout).
-	rootHasOwner, err := s.rootGroupHasOwner(ctx)
+	owners, err := groups.OwnerCount(ctx, rootID)
 	if err != nil {
 		return result, err
 	}
-
-	for _, user := range manifest.Users {
-		applied, created, err := s.applyBootstrapUser(ctx, user)
-		if err != nil {
-			return result, err
+	type revokedSessions struct {
+		userID string
+		ids    []string
+	}
+	var revocations []revokedSessions
+	for i, user := range manifest.Users {
+		applied, created, applyErr := s.applyBootstrapUser(ctx, tx, user)
+		if applyErr != nil {
+			return result, applyErr
 		}
 		if created {
 			result.UsersCreated++
@@ -157,38 +188,43 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 			result.UsersUpdated++
 		}
 		if user.Password != nil {
-			// Seed-once (#89): apply a manifest password only when the user was
-			// just CREATED, or when the password explicitly opts into
-			// enforce-as-desired-state. Otherwise a password rotated out of band
-			// after the initial seed would be reverted on every reconcile.
 			if created || user.Password.Enforce {
-				set, err := s.applyBootstrapUserPassword(ctx, applied.ID, *user.Password)
-				if err != nil {
-					return result, err
+				set, revoked, passwordErr := s.applyBootstrapUserPassword(ctx, q, applied.ID, *user.Password, passwords[i])
+				if passwordErr != nil {
+					return result, passwordErr
 				}
 				if set {
 					result.PasswordsSet++
 				} else {
 					result.PasswordsKept++
 				}
+				if len(revoked) > 0 {
+					revocations = append(revocations, revokedSessions{applied.ID, revoked})
+				}
 			} else {
 				result.PasswordsKept++
 			}
 		}
-		slug := normalizeRootRoleSlug(authkit.Role(user.RootRole))
-		if slug == "" {
+		role := normalizeRootRoleSlug(authkit.Role(user.RootRole))
+		if role == "" {
 			continue
 		}
-		// #136: seed the genesis user's root role. "owner" (the apex, root:*)
-		// is seed-if-absent and uses the genesis path that bypasses the runtime
-		// owner-reserved guard; any other declared root role assigns directly.
-		if err := s.seedBootstrapRootRole(ctx, applied.ID, slug, rootHasOwner); err != nil {
-			return result, err
+		// Existing owners are never displaced by seed-if-absent owner entries.
+		// Bootstrap is the one role seed that bypasses MFA enrollment.
+		if role != OwnerRoleName || owners == 0 {
+			if err = groups.AssignRole(ctx, rootID, authkit.UserSubject(applied.ID), role); err != nil {
+				return result, err
+			}
 		}
 		result.RootRoleAssignments++
 	}
-
-	claimed = false
+	if err = tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	for _, revoke := range revocations {
+		s.logSessionsRevoked(ctx, revoke.userID, revoke.ids, SessionRevokeReasonAdminSetPassword)
+	}
+	s.logRBACDrift(ctx)
 	return result, nil
 }
 
@@ -199,97 +235,32 @@ func (s *Client) bootstrapApplyName(name string) string {
 	return defaultBootstrapApplyName
 }
 
-func (s *Client) lockBootstrapApply(ctx context.Context, name string) (func(), error) {
-	name = "authkit.bootstrap." + s.bootstrapApplyName(name)
-	conn, err := s.pg.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, name); err != nil {
-		conn.Release()
-		return nil, err
-	}
-	return func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, name)
-		conn.Release()
-	}, nil
-}
-
 // claimBootstrapApply decides whether a StartupOnly apply may run (#259).
 // The refusal protects an authority graph nobody recorded creating, so its
 // scope is the whole claim table, not one name: any recorded claim means the
 // graph is accounted for and a new name records itself as already applied
 // instead of refusing. Only a non-empty graph with an EMPTY claim table is
 // refused.
-func (s *Client) claimBootstrapApply(ctx context.Context, name string) (claimed, already bool, err error) {
-	q := db.ForSchema(s.pg, s.dbSchema())
+func (s *Client) claimBootstrapApply(ctx context.Context, q db.DBTX, name string) (already bool, err error) {
 	name = s.bootstrapApplyName(name)
 	var nameClaimed, anyClaimed, graphEmpty bool
 	if err := q.QueryRow(ctx, `
-		SELECT
-			EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1),
-			EXISTS (SELECT 1 FROM profiles.bootstrap_applies),
-			NOT EXISTS (SELECT 1 FROM profiles.users WHERE deleted_at IS NULL)
-			AND NOT EXISTS (SELECT 1 FROM profiles.remote_applications)
-	`, name).Scan(&nameClaimed, &anyClaimed, &graphEmpty); err != nil {
-		return false, false, err
-	}
-	if nameClaimed {
-		return false, true, nil
-	}
-	if !anyClaimed && !graphEmpty {
-		return false, false, ErrBootstrapDatabaseNotEmpty
-	}
-	tag, err := q.Exec(ctx, `INSERT INTO profiles.bootstrap_applies (name) VALUES ($1) ON CONFLICT DO NOTHING`, name)
-	if err != nil {
-		return false, false, err
-	}
-	if tag.RowsAffected() == 0 || anyClaimed {
-		return false, true, nil
-	}
-	return true, false, nil
-}
-
-func (s *Client) releaseBootstrapApply(ctx context.Context, name string) error {
-	_, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `DELETE FROM profiles.bootstrap_applies WHERE name = $1`, s.bootstrapApplyName(name))
-	return err
-}
-
-// rootGroupHasOwner reports whether the singleton root group currently has any
-// owner. Used to make manifest owner-seeding seed-if-absent (#136).
-func (s *Client) rootGroupHasOwner(ctx context.Context) (bool, error) {
-	members, err := s.ListGroupMembers(ctx, authkit.RootGroup())
-	if err != nil {
-		if errors.Is(err, ErrGroupNotFound) {
-			return false, nil
-		}
+  SELECT
+   EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1),
+   EXISTS (SELECT 1 FROM profiles.bootstrap_applies),
+   NOT EXISTS (SELECT 1 FROM profiles.users WHERE deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM profiles.remote_applications)
+ `, name).Scan(&nameClaimed, &anyClaimed, &graphEmpty); err != nil {
 		return false, err
 	}
-	for _, m := range members {
-		if m.Role == OwnerRoleName {
-			return true, nil
-		}
+	if nameClaimed {
+		return true, nil
 	}
-	return false, nil
-}
-
-// seedBootstrapRootRole seeds one root role for a genesis (manifest) user.
-// "owner" — the apex (root:*) — is SEED-IF-ABSENT and goes through the genesis
-// path (AssignGroupRoleGenesis) that bypasses both the runtime owner-reserved
-// guard (#136) and the MFA-required-role gate (#148/root-owner-MFA) — a
-// manifest-seeded user has no session to have enrolled MFA with, so bootstrap
-// must never brick on it; any other declared root role is assigned the same
-// way via assignRoleBySlugGenesis. The manifest is the deploy-time trust root
-// and the ONE seam that bypasses these runtime rules — GenesisClient does NOT
-// bypass the MFA gate.
-func (s *Client) seedBootstrapRootRole(ctx context.Context, userID string, role authkit.Role, rootHasOwner bool) error {
-	if role == OwnerRoleName {
-		if rootHasOwner {
-			return nil // break-glass: owners already exist; don't fight runtime
-		}
-		return s.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(userID), OwnerRoleName)
+	if !anyClaimed && !graphEmpty {
+		return false, ErrBootstrapDatabaseNotEmpty
 	}
-	return s.assignRoleBySlugGenesis(ctx, userID, role)
+	_, err = q.Exec(ctx, `INSERT INTO profiles.bootstrap_applies (name) VALUES ($1)`, name)
+	return anyClaimed, err
 }
 
 func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS bool) error {
@@ -315,14 +286,10 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 	return nil
 }
 
-func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, app BootstrapManifestRemoteApplication) error {
-	gid, err := s.ResolveGroupIDForSlug(ctx, authkit.RootGroup())
-	if err != nil {
-		return err
-	}
-	ra, err := s.UpsertRemoteApplication(ctx, RemoteApplication{
+func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, q *db.Queries, groups *PermissionGroupStore, rootID string, app BootstrapManifestRemoteApplication) error {
+	ra, err := s.upsertRemoteApplication(ctx, q, RemoteApplication{
 		Slug:              strings.TrimSpace(app.Slug),
-		PermissionGroupID: gid,
+		PermissionGroupID: rootID,
 		Issuer:            strings.TrimSpace(app.Issuer),
 		JWKSURI:           strings.TrimSpace(app.JWKSURI),
 		PublicKeys:        app.PublicKeys,
@@ -335,7 +302,7 @@ func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, app Bootst
 	if role == "" {
 		return nil
 	}
-	return s.AssignRemoteApplicationRole(ctx, ra.ID, role)
+	return groups.AssignRole(ctx, rootID, authkit.RemoteAppSubject(ra.ID), role)
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {
@@ -366,43 +333,49 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 	return nil
 }
 
-func (s *Client) applyBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, bool, error) {
-	existing, err := s.findBootstrapUser(ctx, user)
+func (s *Client) applyBootstrapUser(ctx context.Context, tx pgx.Tx, user BootstrapManifestUser) (*User, bool, error) {
+	q := s.qtx(tx)
+	existing, err := s.findBootstrapUser(ctx, q, user)
 	if err != nil {
 		return nil, false, err
 	}
 	input := bootstrapImportUserInput(user)
 	if existing == nil {
-		applied, err := s.ImportUser(ctx, input)
+		applied, err := s.importUser(ctx, q, input)
 		return applied, true, err
 	}
-	applied, err := s.UpdateImportedUser(ctx, existing.ID, input)
+	applied, err := s.updateImportedUserTx(ctx, tx, existing.ID, input)
 	return applied, false, err
 }
 
-func (s *Client) findBootstrapUser(ctx context.Context, user BootstrapManifestUser) (*User, error) {
+func (s *Client) findBootstrapUser(ctx context.Context, q *db.Queries, user BootstrapManifestUser) (*User, error) {
 	if username := strings.TrimSpace(user.Username); username != "" {
-		existing, err := s.getUserByUsername(ctx, username)
-		if err == nil && existing != nil {
-			return existing, nil
+		resolution, err := q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: username, AtTime: s.namingNow()})
+		if err == nil {
+			row, err := q.UserByID(ctx, resolution.ID)
+			if err != nil {
+				return nil, err
+			}
+			return userFromByIDRow(row), nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
 	}
 	if email := strings.TrimSpace(user.Email); email != "" {
-		existing, err := s.getUserByEmail(ctx, NormalizeEmail(email))
-		if err == nil && existing != nil {
-			return existing, nil
+		row, err := q.UserByEmail(ctx, NormalizeEmail(email))
+		if err == nil {
+			return userFromByEmailRow(row), nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
 	}
 	if phone := strings.TrimSpace(user.PhoneNumber); phone != "" {
-		existing, err := s.GetUserByPhone(ctx, NormalizePhone(phone))
-		if err == nil && existing != nil {
-			return existing, nil
+		normalized := NormalizePhone(phone)
+		row, err := q.UserByPhone(ctx, &normalized)
+		if err == nil {
+			return userFromByPhoneRow(row), nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
@@ -431,21 +404,39 @@ func bootstrapImportUserInput(user BootstrapManifestUser) ImportUserInput {
 	return input
 }
 
-func (s *Client) applyBootstrapUserPassword(ctx context.Context, userID string, p BootstrapUserPassword) (bool, error) {
+func prepareBootstrapPassword(p BootstrapUserPassword) (out db.UserPasswordUpsertParams, err error) {
 	if plaintext := strings.TrimSpace(p.Plaintext); plaintext != "" {
-		if err := s.CheckUserPassword(ctx, userID, plaintext); err == nil {
-			return false, nil
+		out.PasswordHash, err = password.HashArgon2id(plaintext)
+		out.HashAlgo = "argon2id"
+	} else if p.ResetRequired {
+		out.PasswordHash, out.HashAlgo = "reset-required", HashAlgoLegacyResetRequired
+	} else {
+		out.PasswordHash, out.HashAlgo = strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)
+		out.HashParams, err = json.Marshal(p.HashParams)
+	}
+	return out, err
+}
+
+func (s *Client) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, userID string, p BootstrapUserPassword, prepared db.UserPasswordUpsertParams) (bool, []string, error) {
+	// Use the same lock order as every credential mutation, including the no-op
+	// comparison, so another password change cannot slip between read and write.
+	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); err != nil {
+		return false, nil, err
+	}
+	if plaintext := strings.TrimSpace(p.Plaintext); plaintext != "" {
+		row, err := q.UserPasswordRow(ctx, userID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, nil, err
 		}
-		return true, s.AdminSetPassword(ctx, userID, plaintext)
+		if err == nil && verifyPasswordHash(row.PasswordHash, row.HashAlgo, plaintext) == nil {
+			return false, nil, nil
+		}
 	}
-	if p.ResetRequired {
-		return true, s.UpsertPasswordHash(ctx, userID, "reset-required", HashAlgoLegacyResetRequired, nil)
-	}
-	params, err := json.Marshal(p.HashParams)
-	if err != nil {
-		return false, err
-	}
-	return true, s.UpsertPasswordHash(ctx, userID, strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo), params)
+	prepared.UserID = userID
+	revoked, err := s.mutateCredentialsTx(ctx, q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
+		return q.UserPasswordUpsert(ctx, prepared)
+	})
+	return err == nil, revoked, err
 }
 
 func boolToInt(v bool) int {

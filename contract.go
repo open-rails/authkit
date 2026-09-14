@@ -95,10 +95,11 @@ type BootstrapUserPassword struct {
 
 type BootstrapReconcileOptions struct {
 	DryRun bool
-	// StartupOnly applies the manifest at most once, using Name as the marker.
+	// StartupOnly applies initial seed data at most once per database schema.
 	// Leave false for ordinary operator/CLI applies.
 	StartupOnly bool
-	// Name scopes the startup apply-once marker. Empty means "default".
+	// Name labels its completion receipt; another name does not rerun genesis.
+	// Empty means "default".
 	Name string
 }
 

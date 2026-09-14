@@ -113,19 +113,6 @@ func (s *Client) assignRoleBySlug(ctx context.Context, userID string, role authk
 	return s.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }
 
-// assignRoleBySlugGenesis is assignRoleBySlug WITHOUT the MFA-enrollment gate.
-// Bootstrap-manifest seeding only — a manifest-seeded user has no session to
-// have enrolled MFA with, so deploy-time seeding must never brick on it.
-func (s *Client) assignRoleBySlugGenesis(ctx context.Context, userID string, role authkit.Role) error {
-	if s.pg == nil {
-		return nil
-	}
-	if _, err := s.EnsureRootGroup(ctx); err != nil {
-		return err
-	}
-	return s.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
-}
-
 // upsertRoleBySlug is a no-op under the permission-group model: catalog roles
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug

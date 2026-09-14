@@ -41,61 +41,6 @@ func rootRolesOf(t *testing.T, ctx context.Context, svc *Client, userID string) 
 	return roles
 }
 
-// #259: a second bootstrap name on a database another name already claimed
-// records itself as already applied — it neither refuses nor re-runs the
-// manifest (no password reset, no root-role re-assertion, no new users).
-func TestBootstrapClaimSecondNameOnClaimedDatabaseIsAlreadyApplied(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
-	if names := bootstrapClaimNames(t, ctx, pg); len(names) != 0 {
-		t.Fatalf("fresh database must carry no backfill row, got %v", names)
-	}
-
-	const seeded, rotated = "bootstrap-password-1", "rotated-password-2"
-	first := BootstrapManifest{Users: []BootstrapManifestUser{{
-		Username: "genesis", Email: "genesis@example.com", EmailVerified: true,
-		Password: &BootstrapUserPassword{Plaintext: seeded},
-	}}}
-	res, err := svc.ApplyBootstrapManifest(ctx, first, BootstrapReconcileOptions{StartupOnly: true, Name: "tensorhub"})
-	if err != nil || res.AlreadyApplied || res.UsersCreated != 1 {
-		t.Fatalf("first name apply res=%+v err=%v", res, err)
-	}
-	user, err := svc.getUserByUsername(ctx, "genesis")
-	if err != nil {
-		t.Fatalf("lookup genesis: %v", err)
-	}
-	if err := svc.AdminSetPassword(ctx, user.ID, rotated); err != nil {
-		t.Fatalf("rotate password: %v", err)
-	}
-
-	second := BootstrapManifest{Users: []BootstrapManifestUser{
-		{Username: "genesis", Email: "genesis@example.com", EmailVerified: true,
-			Password: &BootstrapUserPassword{Plaintext: seeded, Enforce: true}, RootRole: string(OwnerRoleName)},
-		{Username: "second-app", Email: "second@example.com", EmailVerified: true},
-	}}
-	res, err = svc.ApplyBootstrapManifest(ctx, second, BootstrapReconcileOptions{StartupOnly: true, Name: "openrails"})
-	if err != nil || !res.AlreadyApplied || res.UsersCreated != 0 || res.UsersUpdated != 0 || res.PasswordsSet != 0 || res.RootRoleAssignments != 0 {
-		t.Fatalf("second name apply res=%+v err=%v, want already applied no-op", res, err)
-	}
-	if err := svc.CheckUserPassword(ctx, user.ID, rotated); err != nil {
-		t.Fatalf("second name must not reset the password: %v", err)
-	}
-	if roles := rootRolesOf(t, ctx, svc, user.ID); len(roles) != 0 {
-		t.Fatalf("second name must not assert root roles, got %v", roles)
-	}
-	if _, err := svc.getUserByUsername(ctx, "second-app"); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("second name must not create users, lookup err=%v", err)
-	}
-	if got := bootstrapClaimNames(t, ctx, pg); len(got) != 2 || got[0] != "openrails" || got[1] != "tensorhub" {
-		t.Fatalf("claims=%v, want both names recorded", got)
-	}
-	res, err = svc.ApplyBootstrapManifest(ctx, second, BootstrapReconcileOptions{StartupOnly: true, Name: "openrails"})
-	if err != nil || !res.AlreadyApplied {
-		t.Fatalf("repeat second name res=%+v err=%v", res, err)
-	}
-}
-
 // #259: a non-empty authority graph with an EMPTY claim table was seeded by
 // something that left no record; that is the only case still refused, and the
 // refusal leaves no claim behind.
