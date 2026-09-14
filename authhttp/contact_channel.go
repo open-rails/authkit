@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
@@ -349,44 +348,6 @@ func (s *Service) issueVerifiedTokens(w http.ResponseWriter, r *http.Request, us
 		}
 		serverErr(w, authkit.CodeTokenIssueFailed)
 	}
-}
-
-// GET /verify/confirm and GET /password/reset/confirm hand the emailed/texted
-// link to the host SPA.
-func (s *Service) handleVerifyConfirmGET(w http.ResponseWriter, r *http.Request) {
-	s.redirectLinkLanding(w, r, s.svc.Config().Frontend.VerifyPath)
-}
-
-func (s *Service) handlePasswordResetConfirmGET(w http.ResponseWriter, r *http.Request) {
-	s.redirectLinkLanding(w, r, s.svc.Config().Frontend.PasswordResetPath)
-}
-
-// redirectLinkLanding hands the link token to the host SPA in the URL FRAGMENT
-// (never the query: fragments are not sent to the server, do not land in
-// access logs or Referer) with Cache-Control: no-store — the same shape
-// browser_error.go uses for its token-bearing redirects (ak#324). Frontends
-// read location.hash on VerifyPath / PasswordResetPath; an optional
-// ?channel=email|phone is passed through so one landing page serves both.
-func (s *Service) redirectLinkLanding(w http.ResponseWriter, r *http.Request, frontendPath string) {
-	q := url.Values{}
-	q.Set("status", "ready")
-	if ch := r.URL.Query().Get("channel"); ch == "email" || ch == "phone" {
-		q.Set("channel", ch)
-	}
-	if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
-		q.Set("token", token)
-	} else {
-		q.Set("status", "invalid_request")
-	}
-	if rt := sanitizeReturnTo(r.URL.Query().Get("return_to")); rt != "/" {
-		q.Set("return_to", rt)
-	}
-	if strings.TrimSpace(frontendPath) == "" {
-		frontendPath = "/"
-	}
-	target := strings.TrimRight(strings.TrimSpace(s.svc.Config().Frontend.BaseURL), "/") + frontendPath + "#" + q.Encode()
-	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // POST /password/reset/request — {identifier}; always 202 for a well-formed

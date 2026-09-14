@@ -281,7 +281,11 @@ func (s *Client) Get2FASettings(ctx context.Context, userID string) (*TwoFactorS
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
-	row, err := s.q.MFASettingsByUser(ctx, userID)
+	return s.get2FASettings(ctx, s.q, userID)
+}
+
+func (s *Client) get2FASettings(ctx context.Context, q *db.Queries, userID string) (*TwoFactorSettings, error) {
+	row, err := q.MFASettingsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -294,17 +298,18 @@ func (s *Client) Get2FASettings(ctx context.Context, userID string) (*TwoFactorS
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
-	factors, err := s.List2FAFactors(ctx, userID)
-	if err == nil {
-		settings.Factors = factors
-		for _, factor := range factors {
-			if factor.IsDefault {
-				settings.Method = factor.Method
-				settings.PhoneNumber = factor.PhoneNumber
-				settings.TOTPSecret = factor.TOTPSecret
-				settings.LastTOTPStep = factor.LastTOTPStep
-				break
-			}
+	factors, err := s.list2FAFactors(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	settings.Factors = factors
+	for _, factor := range factors {
+		if factor.IsDefault {
+			settings.Method = factor.Method
+			settings.PhoneNumber = factor.PhoneNumber
+			settings.TOTPSecret = factor.TOTPSecret
+			settings.LastTOTPStep = factor.LastTOTPStep
+			break
 		}
 	}
 	return settings, nil
@@ -314,7 +319,11 @@ func (s *Client) List2FAFactors(ctx context.Context, userID string) ([]TwoFactor
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
-	rows, err := s.q.MFAListFactorsByUser(ctx, userID)
+	return s.list2FAFactors(ctx, s.q, userID)
+}
+
+func (s *Client) list2FAFactors(ctx context.Context, q *db.Queries, userID string) ([]TwoFactorFactor, error) {
+	rows, err := q.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -341,11 +350,23 @@ func (s *Client) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 	if factor.Method == "totp" {
 		return "authenticator app", nil
 	}
-	user, err := s.AdminGetUser(ctx, userID)
+	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", err
 	}
 
+	return s.send2FACodeForUser(ctx, user, sessionID, factor)
+}
+
+func (s *Client) send2FACodeForUser(ctx context.Context, user *User, sessionID string, factor TwoFactorFactor) (string, error) {
+	userID := user.ID
+	language := ""
+	if user.PreferredLanguage != nil {
+		language = *user.PreferredLanguage
+	}
+	if factor.Method == "totp" {
+		return "authenticator app", nil
+	}
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
 
@@ -380,7 +401,7 @@ func (s *Client) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 
 	if factor.Method == "email" {
 		if s.email != nil {
-			sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+			sendCtx := contextWithPreferredLanguage(ctx, language)
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 				return s.email.SendLoginCode(sendCtx, destination, username, code)
 			}); err != nil {
@@ -394,7 +415,7 @@ func (s *Client) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 		}
 	} else { // sms
 		if s.sms != nil {
-			sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+			sendCtx := contextWithPreferredLanguage(ctx, language)
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendLoginCode(sendCtx, destination, code) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
@@ -504,6 +525,10 @@ func (s *Client) Verify2FAFactorCode(ctx context.Context, userID, factorID, code
 }
 
 func (s *Client) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
+	return s.verifyTOTPFactorCodeOn(ctx, s.q, factor, code)
+}
+
+func (s *Client) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, factor TwoFactorFactor, code string) (bool, error) {
 	secret, err := s.decryptTOTPSecret(factor.TOTPSecret)
 	if err != nil {
 		return false, err
@@ -515,13 +540,17 @@ func (s *Client) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFacto
 	if strings.TrimSpace(factor.ID) == "" {
 		return false, fmt.Errorf("totp factor has no id")
 	}
-	rows, err := s.q.MFAConsumeFactorTOTPStep(ctx, db.MFAConsumeFactorTOTPStepParams{ID: factor.ID, UserID: factor.UserID, Step: &step})
+	rows, err := q.MFAConsumeFactorTOTPStep(ctx, db.MFAConsumeFactorTOTPStepParams{ID: factor.ID, UserID: factor.UserID, Step: &step})
 	return rows > 0, err
 }
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.
 // On success, removes the used backup code from the user's backup codes.
 func (s *Client) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
+	return s.verifyBackupCode(ctx, s.q, userID, backupCode)
+}
+
+func (s *Client) verifyBackupCode(ctx context.Context, q *db.Queries, userID, backupCode string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
 	}
@@ -533,7 +562,7 @@ func (s *Client) VerifyBackupCode(ctx context.Context, userID, backupCode string
 	// old "2FA not enabled" check (callers treat (false, nil) and that error
 	// identically — both reject the code).
 	hash := sha256Hex(backupCode)
-	rows, err := s.q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
+	rows, err := q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
 	if err != nil {
 		return false, err
 	}

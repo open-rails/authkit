@@ -31,7 +31,7 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
-	if _, _, _, err := svc.insertRefreshSession(ctx, id, "test", net.ParseIP("127.0.0.1"), []string{"pwd"}); err != nil {
+	if _, _, _, err := svc.IssueRefreshSessionWithAuthMethods(ctx, id, "test", net.ParseIP("127.0.0.1"), []string{"pwd"}); err != nil {
 		t.Fatalf("issue session: %v", err)
 	}
 

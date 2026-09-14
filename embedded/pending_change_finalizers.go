@@ -2,7 +2,6 @@ package embedded
 
 import (
 	"context"
-	"errors"
 	stdlog "log"
 	"strings"
 
@@ -21,9 +20,7 @@ func (s *Client) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (
 	// conflict and its pending registration is dropped.
 	uid, err := s.createVerifiedRegistrationUser(ctx, email, username, rec.PasswordHash)
 	if err != nil {
-		if errors.Is(err, ErrEmailInUse) || errors.Is(err, ErrUsernameInUse) {
-			s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
-		}
+
 		return "", err
 	}
 	if err := s.consumeAccountRegistrationInvite(ctx, email, uid); err != nil {

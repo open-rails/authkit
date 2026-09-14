@@ -98,11 +98,19 @@ func (s *Client) requireSessionMFAState(ctx context.Context, userID string, auth
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
 func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
+	return s.requireSessionMFAStateOn(ctx, db.ForSchema(s.pg, s.dbSchema()), userID, authMethods, status, statusErr)
+}
+
+func (s *Client) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID string, authMethods []string, status MFAStatus, statusErr error) error {
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
 	if statusErr != nil {
 		return statusErr
+	}
+	// A locally verified user-verifying passkey already supplies MFA proof.
+	if hasAuthMethod(authMethods, "swk") && hasAuthMethod(authMethods, "mfa") {
+		return nil
 	}
 	if !status.Enabled {
 		// Global policy: when 2FA enrollment is mandatory, a user without usable
@@ -119,7 +127,7 @@ func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, 
 		// to catch it. Reached only here — not enrolled, and Mode isn't
 		// already Required — so an enrolled user or a Required deployment
 		// never pays for the extra query.
-		holds, err := s.userHoldsMFARequiredRole(ctx, db.ForSchema(s.pg, s.dbSchema()), userID)
+		holds, err := s.userHoldsMFARequiredRole(ctx, q, userID)
 		if err != nil {
 			// Fail closed: a role-lookup error denies session establishment,
 			// it does not silently skip the check.

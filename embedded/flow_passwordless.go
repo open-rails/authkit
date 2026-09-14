@@ -36,6 +36,8 @@ type PasswordlessStartResult = authkit.PasswordlessStartResult
 type PasswordlessConfirmResult = authkit.PasswordlessConfirmResult
 
 type passwordlessChallenge struct {
+	ID                string `json:"id"`
+	expected          []byte
 	Channel           string `json:"channel"`
 	Identifier        string `json:"identifier"`
 	UserID            string `json:"user_id,omitempty"`
@@ -95,14 +97,12 @@ func (s *Client) StartPasswordless(ctx context.Context, req PasswordlessStartReq
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return PasswordlessStartResult{Channel: channel}, nil
 		}
-		if channel == PasswordlessChannelEmail {
-			allowed, err := s.registrationAllowedForEmail(ctx, identifier)
-			if err != nil {
-				return PasswordlessStartResult{}, err
-			}
-			if !allowed {
-				return PasswordlessStartResult{}, ErrRegistrationDisabled
-			}
+		allowed, err := s.registrationAllowedForEmail(ctx, identifier)
+		if err != nil {
+			return PasswordlessStartResult{}, err
+		}
+		if !allowed {
+			return PasswordlessStartResult{}, ErrRegistrationDisabled
 		}
 		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
 	}
@@ -164,6 +164,7 @@ func (s *Client) ConfirmPasswordlessToken(ctx context.Context, token string) (Pa
 // superseding any outstanding one. The code hash stays inside the record; only
 // the 256-bit link token gets a global pointer (#301).
 func (s *Client) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
+	rec.ID = RandB64(16)
 	key := passwordlessKey(rec.Channel, rec.Identifier)
 	s.deletePasswordlessChallenge(ctx, key)
 	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {
@@ -177,16 +178,16 @@ func (s *Client) storePasswordlessChallenge(ctx context.Context, rec passwordles
 
 func (s *Client) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
 	var rec passwordlessChallenge
-	ok, err := s.ephemGetJSON(ctx, key, &rec)
-	return rec, ok, err
+	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
+	rec.expected = raw
+	return rec, ok && rec.ID != "", err
 }
 
 func (s *Client) deletePasswordlessChallenge(ctx context.Context, key string) {
-	var rec passwordlessChallenge
-	if ok, _ := s.ephemGetJSON(ctx, key, &rec); ok && rec.LinkHash != "" {
+	rec, ok, _ := s.loadPasswordlessChallenge(ctx, key)
+	if ok && s.claimProof(ctx, key, rec.expected) == nil && rec.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
 	}
-	_ = s.ephemDel(ctx, key)
 }
 
 func (s *Client) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
@@ -218,6 +219,12 @@ func (s *Client) clearPasswordlessCodeAttempts(ctx context.Context, identifier s
 }
 
 func (s *Client) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (PasswordlessConfirmResult, error) {
+	if err := s.claimProof(ctx, passwordlessKey(rec.Channel, rec.Identifier), rec.expected); err != nil {
+		return PasswordlessConfirmResult{}, err
+	}
+	if rec.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
+	}
 	userID := strings.TrimSpace(rec.UserID)
 	if userID != "" {
 		if err := s.verifyPasswordlessExistingUser(ctx, rec); err != nil {
@@ -233,7 +240,6 @@ func (s *Client) consumePasswordlessChallenge(ctx context.Context, rec passwordl
 			return PasswordlessConfirmResult{}, err
 		}
 	}
-	s.deletePasswordlessByTarget(ctx, rec.Channel, rec.Identifier)
 	return PasswordlessConfirmResult{
 		UserID:   userID,
 		Method:   passwordlessSessionMethod(rec.Channel),

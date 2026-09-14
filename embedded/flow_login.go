@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
 )
@@ -97,12 +99,16 @@ type TwoFactorChallenge struct {
 // LoginOutcome is the result of a password login. Exactly one of Session,
 // Verification and Challenge is set, per Kind; Reason is set for LoginRejected.
 type LoginOutcome struct {
-	Kind         LoginOutcomeKind
-	UserID       string
-	Reason       error
-	Session      *IssuedSession
-	Verification *VerificationRequired
-	Challenge    *TwoFactorChallenge
+	Enrollment     *authkit.TokenSet
+	AllowedMethods []string
+	ReturnTo       string
+	Created        bool
+	Kind           LoginOutcomeKind
+	UserID         string
+	Reason         error
+	Session        *IssuedSession
+	Verification   *VerificationRequired
+	Challenge      *TwoFactorChallenge
 }
 
 // PasswordLoginInput is a password login attempt. Identifier is an email
@@ -165,35 +171,15 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 		}
 	}
 
-	if err := s.authenticatePassword(ctx, u, in.Password); err != nil {
+	version, err := s.authenticatePassword(ctx, u, in.Password)
+	if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
-
-	if settings, err := s.Get2FASettings(ctx, u.ID); err == nil && settings != nil && settings.Enabled && s.TwoFactorEnabled() {
-		destination, method, factor, err := s.Require2FAForLoginFactor(ctx, u.ID, "")
-		if err != nil {
-			return LoginOutcome{}, stageErr("send_2fa_code", fmt.Errorf("%w: %w", ErrTwoFASendFailed, err))
-		}
-		challenge, err := s.Create2FAChallenge(ctx, u.ID)
-		if err != nil {
-			return LoginOutcome{}, stageErr("create_2fa_challenge", fmt.Errorf("%w: %w", ErrTwoFAChallengeFailed, err))
-		}
-		return LoginOutcome{Kind: LoginTwoFactorRequired, UserID: u.ID, Challenge: &TwoFactorChallenge{
-			Method: method, Destination: destination, Challenge: challenge, Factor: factor, Factors: settings.Factors,
-		}}, nil
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
+	if errors.Is(err, ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
+		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
-
-	session, err := s.IssueLoginSession(ctx, LoginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP})
-	if err != nil {
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return LoginOutcome{Kind: LoginTwoFAEnrollmentRequired, UserID: u.ID}, nil
-		}
-		if errors.Is(err, ErrUserBanned) {
-			return s.rejectLogin(ctx, in, u.ID, ErrUserBanned), nil
-		}
-		return LoginOutcome{}, stageErr("issue_session", fmt.Errorf("%w: %w", ErrSessionIssueFailed, err))
-	}
-	return LoginOutcome{Kind: LoginSessionIssued, UserID: u.ID, Session: &session}, nil
+	return out, err
 }
 
 // ErrTwoFASendFailed etc. are the flow sentinels a transport maps (root package).

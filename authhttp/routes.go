@@ -115,7 +115,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/device-keys/{id}", Group: RouteDeviceKeys, Auth: AuthRequired, Bucket: RLDeviceKeysManage, Handler: required(http.HandlerFunc(s.handleDeviceKeyDELETE))},
 		{Method: http.MethodPost, Path: "/device-keys/revoke-others", Group: RouteDeviceKeys, Auth: AuthRequired, Bucket: RLDeviceKeysManage, Handler: required(http.HandlerFunc(s.handleDeviceKeysRevokeOthersPOST))},
 		{Method: http.MethodPost, Path: "/password/reset/request", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordResetRequest, Handler: http.HandlerFunc(s.handlePasswordResetRequestPOST)},
-		{Method: http.MethodGet, Path: "/password/reset/confirm", Group: RouteAuth, Auth: AuthPublic, Handler: http.HandlerFunc(s.handlePasswordResetConfirmGET)},
 		{Method: http.MethodPost, Path: "/password/reset/confirm", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordResetConfirm, Handler: http.HandlerFunc(s.handlePasswordResetConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/register", Group: RouteRegistration, Auth: AuthPublic, Bucket: RLAuthRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
@@ -125,7 +124,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 		// #312: one route per contact flow; the channel comes from the identifier.
 		{Method: http.MethodPost, Path: "/verify/request", Group: RouteAccount, Auth: AuthOptional, Bucket: RLVerifyRequest, Handler: optional(http.HandlerFunc(s.handleVerifyRequestPOST))},
-		{Method: http.MethodGet, Path: "/verify/confirm", Group: RouteAccount, Auth: AuthPublic, Handler: http.HandlerFunc(s.handleVerifyConfirmGET)},
 		{Method: http.MethodPost, Path: "/verify/confirm", Group: RouteAccount, Auth: AuthOptional, Bucket: RLVerifyConfirm, Handler: optional(http.HandlerFunc(s.handleVerifyConfirmPOST))},
 
 		{Method: http.MethodPost, Path: "/user/password", Group: RouteAccount, Auth: AuthRequired, Bucket: RLUserPasswordChange, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},

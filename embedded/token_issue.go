@@ -105,6 +105,7 @@ func (s *Client) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFASt
 }
 
 type accessTokenAssurance struct {
+	JTI         string
 	AuthTime    int64
 	AMR         []string
 	ACR         string
@@ -143,6 +144,9 @@ func (s *Client) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 		"entitlements": ents,
 	}
 	if assurance != nil {
+		if assurance.JTI != "" {
+			claims["jti"] = assurance.JTI
+		}
 		claims["auth_time"] = assurance.AuthTime
 		claims["amr"] = append([]string(nil), assurance.AMR...)
 		claims["acr"] = assurance.ACR
