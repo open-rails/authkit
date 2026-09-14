@@ -7,26 +7,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/password"
 )
 
-// TestPasswordLogin_LegacyResetRequired drives the full HTTP handler against a
-// real database: a user whose stored hash is flagged
-// embedded.HashAlgoLegacyResetRequired must get 401 with the machine-readable code
-// "password_reset_required" (same status family as invalid_credentials; only
-// the body code differs, and only for this flagged cohort). Skips when
-// AUTHKIT_TEST_DATABASE_URL is unset.
+// One HTTP workflow covers explicit migration markers, unsafe older rows and
+// unsupported formats. A wrong password against a valid hash stays a normal
+// authentication failure rather than requesting recovery.
 func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
-	dsn := testdb.URL(t)
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-
+	pool := testdb.Pool(t)
 	cfg := embedded.Config{
 		Keys: testKeys(),
 		Token: embedded.TokenConfig{
@@ -40,20 +33,34 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	svc, err := newServer(newServerClient(t, cfg, pool))
 	require.NoError(t, err)
 
-	coreSvc := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com"}}, embedded.Keyset{}, withPostgres(pool))
-	const email = "legacy-reset-required-http@example.com"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
-	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")
+	coreSvc := svc.svc
+	email, username := uniqueEmail("legacy-reset-required"), "resetrequired"+uniqueSuffix()
+	u, err := coreSvc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
-	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "8RmkP1jcmYBbE", embedded.HashAlgoLegacyResetRequired, nil))
-
-	for _, identifier := range []string{email, "legacyresetrequiredhttp"} {
-		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"identifier":"`+identifier+`","password":"whatever"}`))
-		r.Header.Set("Content-Type", "application/json")
-		svc.apiHandler().ServeHTTP(w, r)
-		require.Equal(t, http.StatusUnauthorized, w.Code, "identifier %q", identifier)
-		require.Contains(t, w.Body.String(), `"password_reset_required"`, "identifier %q", identifier)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired, nil))
+	good, err := password.HashArgon2id("Known-password-123")
+	require.NoError(t, err)
+	for _, stored := range []struct {
+		hash, algo string
+		reset      bool
+	}{
+		{"legacy", embedded.HashAlgoLegacyResetRequired, true},
+		{"$argon2id$v=19$m=8,t=0,p=1$c2FsdA$aGFzaA", "argon2id", true},
+		{"legacy-unknown-format", "unknown", true},
+		{good, "argon2id", false},
+	} {
+		// Simulate rows written before validation existed, without calling a KDF
+		// on the rejected work factor.
+		_, err := pool.Exec(ctx, `UPDATE profiles.user_passwords SET password_hash=$2, hash_algo=$3 WHERE user_id=$1`, u.ID, stored.hash, stored.algo)
+		require.NoError(t, err)
+		for _, identifier := range []string{email, username} {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"identifier":"`+identifier+`","password":"whatever"}`))
+			r.Header.Set("Content-Type", "application/json")
+			svc.apiHandler().ServeHTTP(w, r)
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+			require.Equal(t, stored.reset, strings.Contains(w.Body.String(), `"password_reset_required"`), w.Body.String())
+		}
 	}
 }

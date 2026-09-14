@@ -59,7 +59,9 @@ func TestRateLimiter_FailsClosedOnRedisOutage(t *testing.T) {
 	o := *live.Options()
 	closed := redis.NewClient(&o)
 	require.NoError(t, closed.Close())
-	s := &Service{rl: redislimiter.New(closed, DefaultRateLimits(), "authkit:profiles:ratelimit:"), clientIP: func(*http.Request) string { return "203.0.113.7" }}
+	rl, err := redislimiter.New(closed, DefaultRateLimits(), "authkit:profiles:ratelimit:")
+	require.NoError(t, err)
+	s := &Service{rl: rl, clientIP: func(*http.Request) string { return "203.0.113.7" }}
 	req, _ := http.NewRequest(http.MethodPost, "/x", nil)
 
 	for b := range failClosedBuckets {

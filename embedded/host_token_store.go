@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/password"
 )
 
 // Password-hash storage and the short-lived email-verification / password-reset
@@ -23,6 +24,9 @@ func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo
 // UpsertPasswordHash replaces a precomputed password hash and invalidates all
 // sessions and recovery grants. Intended for trusted host import/maintenance.
 func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
+	if err := validatePasswordHashForStorage(hash, algo); err != nil {
+		return err
+	}
 	return s.mutateCredentials(ctx, userID, nil, SessionRevokeReasonAdminSetPassword, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
 	})
@@ -32,4 +36,11 @@ func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo stri
 type emailVerifyToken struct {
 	UserID string
 	Email  *string
+}
+
+func validatePasswordHashForStorage(hash, algo string) error {
+	if algo == HashAlgoLegacyResetRequired {
+		return nil
+	}
+	return password.ValidateHash(hash, algo)
 }

@@ -12,7 +12,7 @@ import (
 
 // authenticatePassword is the credential half of a password login once the
 // user row is resolved: the liveness gate, then the stored hash (with the
-// legacy-bcrypt lazy rehash to Argon2id) and the last-login stamp. It mints
+// bcrypt import rehash to Argon2id) and the last-login stamp. It mints
 // nothing — PasswordLogin issues the session from its outcome.
 func (s *Client) authenticatePassword(ctx context.Context, u *User, pass string) error {
 	if s.pg == nil {
@@ -62,7 +62,7 @@ func (s *Client) CheckUserPassword(ctx context.Context, userID, pass string) err
 
 // Rehash is a compare-and-swap: a successful concurrent recovery always wins.
 func (s *Client) rehashPassword(ctx context.Context, userID, hash, algo, pass string) {
-	if algo != "bcrypt" && algo != "" {
+	if algo != "bcrypt" {
 		return
 	}
 	if phc, err := password.HashArgon2id(pass); err == nil {

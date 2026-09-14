@@ -42,13 +42,7 @@ func VerifyArgon2id(encoded, password string) (bool, error) {
 		return false, err
 	}
 	dk := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(sum)))
-	if len(dk) != len(sum) {
-		return false, nil
-	}
-	if subtle.ConstantTimeCompare(dk, sum) == 1 {
-		return true, nil
-	}
-	return false, nil
+	return subtle.ConstantTimeCompare(dk, sum) == 1, nil
 }
 
 // Validate applies the current password policy.
@@ -66,26 +60,47 @@ func phcEncode(p Params, salt, sum []byte) string {
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum))
 }
 
+// ErrInvalidHash means a stored hash is malformed or outside the supported work
+// policy. Callers may require a password reset; verification never runs its KDF.
+var ErrInvalidHash = errors.New("invalid_password_hash")
+
+// ValidateHash checks a supported hash without computing the password KDF.
+// The algorithm must be explicit; imports normalize their source format.
+func ValidateHash(hash, algorithm string) error {
+	switch algorithm {
+	case "argon2id":
+		_, _, _, err := phcDecode(hash)
+		return err
+	case "bcrypt":
+		return validateBcrypt(hash)
+	default:
+		return ErrInvalidHash
+	}
+}
+
 func phcDecode(s string) (Params, []byte, []byte, error) {
 	var p Params
+	if len(s) > 256 {
+		return p, nil, nil, ErrInvalidHash
+	}
 	parts := strings.Split(s, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
-		return p, nil, nil, errors.New("bad_phc")
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
+		return p, nil, nil, ErrInvalidHash
 	}
-	// parts[3] like m=65536,t=1,p=1
-	var m, t, par uint32
-	_, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &par)
-	if err != nil {
-		return p, nil, nil, err
+	var m, t, threads uint32
+	n, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &threads)
+	if err != nil || n != 3 || fmt.Sprintf("m=%d,t=%d,p=%d", m, t, threads) != parts[3] ||
+		threads < 1 || threads > 16 || m < 8*threads || m > 256*1024 || t < 1 || t > 10 || uint64(m)*uint64(t) > 1024*1024 {
+		return p, nil, nil, ErrInvalidHash
 	}
-	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil {
-		return p, nil, nil, err
+	salt, err := base64.RawStdEncoding.Strict().DecodeString(parts[4])
+	if err != nil || len(salt) < 8 || len(salt) > 64 || base64.RawStdEncoding.EncodeToString(salt) != parts[4] {
+		return p, nil, nil, ErrInvalidHash
 	}
-	sum, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
-		return p, nil, nil, err
+	sum, err := base64.RawStdEncoding.Strict().DecodeString(parts[5])
+	if err != nil || len(sum) < 16 || len(sum) > 64 || base64.RawStdEncoding.EncodeToString(sum) != parts[5] {
+		return p, nil, nil, ErrInvalidHash
 	}
-	p = Params{Time: uint32(t), Memory: uint32(m), Threads: uint8(par), SaltLen: uint32(len(salt)), KeyLen: uint32(len(sum))}
+	p = Params{Time: t, Memory: m, Threads: uint8(threads), SaltLen: uint32(len(salt)), KeyLen: uint32(len(sum))}
 	return p, salt, sum, nil
 }

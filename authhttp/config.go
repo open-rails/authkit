@@ -78,10 +78,8 @@ func (c Config) Validate() error {
 		return errors.New("authkit: authhttp.Config.Limiter and DisableRateLimiting are mutually exclusive")
 	}
 	if !c.DisableRateLimiting && c.Limiter == nil {
-		for bucket := range c.RateLimits {
-			if strings.TrimSpace(bucket) == "" {
-				return errors.New("authkit: authhttp.Config.RateLimits has an empty bucket name")
-			}
+		if err := ratelimit.ValidateLimits(c.RateLimits); err != nil {
+			return err
 		}
 	}
 	if c.ClientIP == nil && !c.DirectPeerIP && len(c.TrustedProxies) == 0 && len(c.CloudflareProxies) == 0 {

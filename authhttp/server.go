@@ -103,10 +103,17 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 			limits[bucket] = lim
 		}
 		if s.rd != nil {
-			s.rl = redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
+			rl, err := redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
+			if err != nil {
+				return nil, err
+			}
+			s.rl = rl
 			slog.Info("authkit: rate limiter", "backend", "redis")
 		} else {
-			ml := memorylimiter.New(limits)
+			ml, err := memorylimiter.New(limits)
+			if err != nil {
+				return nil, err
+			}
 			sweep := s.memoryLimiterSweep
 			if sweep <= 0 {
 				sweep = time.Minute
