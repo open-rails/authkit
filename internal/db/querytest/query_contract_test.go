@@ -227,18 +227,6 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("RemoteApplicationsEnabled = %+v", enabled)
 		}
 
-		attr, err := q.RemoteAppAttributeDefUpsert(ctx, db.RemoteAppAttributeDefUpsertParams{
-			RemoteApplicationID: app.ID, Key: "deployment.region", Version: 1, Definition: []byte(`{"type":"string"}`),
-		})
-		requireNoError(t, err)
-		if attr.Key != "deployment.region" || attr.Version != 1 {
-			t.Fatalf("RemoteAppAttributeDefUpsert = %+v", attr)
-		}
-		attrs, err := q.RemoteAppAttributeDefsList(ctx, app.ID)
-		requireNoError(t, err)
-		if len(attrs) != 1 || attrs[0].Key != attr.Key {
-			t.Fatalf("RemoteAppAttributeDefsList = %+v", attrs)
-		}
 	})
 }
 

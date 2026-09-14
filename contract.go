@@ -135,18 +135,8 @@ type DelegatedAccessParams struct {
 	// type -> canonical sha256 digest. AuthKit transports and validates these
 	// references but does not resolve or interpret their payload schemas.
 	Documents map[string]string
-	// Attributes becomes the `attributes` claim: the canonical app-specific
-	// ESCAPE HATCH (#75). An object of issuer-asserted, NAMESPACED, OPAQUE
-	// key/values that AuthKit transports + optionally shape-validates but NEVER
-	// interprets — the semantics belong to the consuming app (tensorhub etc.).
-	// Each value is set in ONE of two modes, per key:
-	//   INLINE    — the value carries the full definition, e.g.
-	//               {"tier":{"endpoints":[...],"caps":[...]}}. No lookup.
-	//   REFERENCE — the value is a short string key, e.g. {"tier":"tier-1"},
-	//               resolved by the consumer against a definition the
-	//               remote_application registered ahead of time (see the
-	//               attribute-def registry: Service.RegisterRemoteAppAttributeDef
-	//               / ResolveRemoteAppAttributeDef). Keeps tokens small.
+	// Attributes carries app-specific JSON inline. AuthKit transports values
+	// without interpreting or resolving them; the consuming app owns their schema.
 	// Reserved well-known keys: `tier` (opaque entitlement-tier string), `roles`
 	// (a uuid array; prefer the typed Roles field below), and `documents` (use the
 	// top-level Documents field above). Everything else is free-form per consuming

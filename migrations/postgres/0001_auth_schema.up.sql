@@ -208,19 +208,6 @@ COMMENT ON COLUMN profiles.mfa_factors.is_default IS 'Default factor AuthKit cha
 -- #233: owner_reserved_names dropped — the reserved-account guard is
 -- users.metadata->>'reserved' (UserIsReserved); the seeded table was never consulted.
 
-CREATE TABLE IF NOT EXISTS profiles.user_renames (
-  id bigserial PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
-  from_slug text NOT NULL,
-  renamed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT user_renames_from_slug_format_chk CHECK (
-    from_slug = lower(from_slug)
-    AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
-  )
-);
-CREATE INDEX IF NOT EXISTS user_renames_user_idx
-  ON profiles.user_renames (user_id, renamed_at DESC);
-
 CREATE TABLE IF NOT EXISTS profiles.group_persona_parents (
   persona text NOT NULL,
   parent_persona text NOT NULL,
@@ -329,25 +316,6 @@ COMMENT ON TABLE profiles.remote_applications IS
   'Federation principals: external systems that authenticate by signing JWTs verified against configured keys.';
 COMMENT ON COLUMN profiles.remote_applications.permission_group_id IS
   'Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.';
-
-CREATE TABLE IF NOT EXISTS profiles.remote_application_attribute_defs (
-  remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
-  key text NOT NULL,
-  version integer NOT NULL DEFAULT 1,
-  definition jsonb NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (remote_application_id, key, version),
-  CONSTRAINT raad_key_format_chk CHECK (
-    char_length(key) BETWEEN 1 AND 128
-    AND key ~ '^[a-zA-Z0-9:._-]+$'
-  ),
-  CONSTRAINT raad_version_chk CHECK (version >= 1)
-);
-CREATE INDEX IF NOT EXISTS raad_app_key_idx
-  ON profiles.remote_application_attribute_defs (remote_application_id, key, version DESC);
-COMMENT ON TABLE profiles.remote_application_attribute_defs IS
-  'Reference-mode attribute definitions: opaque JSON by remote application, key, and version.';
 
 -- #247: ONE role per (group, subject) is a HARD rule — no per-group role
 -- unions (the additive walk-up union ACROSS ancestor groups is unchanged). The

@@ -78,34 +78,3 @@ SET issuer            = sqlc.arg(issuer),
     updated_at        = now()
 WHERE domain = sqlc.arg(domain) AND trust_root = 'domain'
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
-
--- Attribute definition registry (#75): REFERENCE-mode opaque definitions.
-
--- name: RemoteAppAttributeDefUpsert :one
-INSERT INTO profiles.remote_application_attribute_defs (remote_application_id, key, version, definition)
-VALUES (sqlc.arg(remote_application_id)::uuid, $2, $3, $4)
-ON CONFLICT (remote_application_id, key, version) DO UPDATE
-  SET definition = EXCLUDED.definition, updated_at = now()
-RETURNING remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at;
-
--- name: RemoteAppAttributeDefGet :one
-SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
-FROM profiles.remote_application_attribute_defs
-WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2 AND version = $3;
-
--- name: RemoteAppAttributeDefGetLatest :one
-SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
-FROM profiles.remote_application_attribute_defs
-WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2
-ORDER BY version DESC
-LIMIT 1;
-
--- name: RemoteAppAttributeDefsList :many
-SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
-FROM profiles.remote_application_attribute_defs
-WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid
-ORDER BY key ASC, version DESC;
-
--- name: RemoteAppAttributeDefDelete :execrows
-DELETE FROM profiles.remote_application_attribute_defs
-WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2;

@@ -54,6 +54,12 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("tenant_a.users should exist (exists=%v, err=%v)", exists, err)
 		}
 
+		var removedTables int
+		err = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('profiles','tenant_a') AND table_name IN ('remote_application_attribute_defs','user_renames')`).Scan(&removedTables)
+		if err != nil || removedTables != 0 {
+			t.Fatalf("removed pre-v1 tables remain: count=%d err=%v", removedTables, err)
+		}
+
 		again, err := m.Migrate(ctx)
 		if err != nil {
 			t.Fatalf("second Migrate: %v", err)

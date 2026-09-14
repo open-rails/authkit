@@ -531,11 +531,7 @@ func (s *Client) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	if _, err := q.Exec(ctx, `UPDATE profiles.users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
 		return err
 	}
-	if oldName != "" {
-		if _, err := q.Exec(ctx, `INSERT INTO profiles.user_renames(user_id,from_slug,renamed_at) VALUES ($1::uuid,lower($2),$3)`, id, oldName, now); err != nil {
-			return err
-		}
-	}
+
 	return nil
 }
 
