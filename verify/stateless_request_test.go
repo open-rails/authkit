@@ -35,10 +35,7 @@ func (e failEnricher) ResolveRemoteApplicationAuthority(context.Context, string)
 	e.t.Fatalf("ResolveRemoteApplicationAuthority called on the stateless native-user path")
 	return authkit.RemoteApplicationAuthority{}, nil
 }
-func (e failEnricher) ResolveRemoteAppAttributeDef(context.Context, string, string, int32) (*authkit.RemoteAppAttributeDef, error) {
-	e.t.Fatalf("ResolveRemoteAppAttributeDef called on the stateless native-user path")
-	return nil, nil
-}
+
 func (e failEnricher) GetProviderUsername(context.Context, string, string) (string, error) {
 	e.t.Fatalf("GetProviderUsername called on the stateless native-user path")
 	return "", nil

@@ -1,7 +1,6 @@
 package authkit
 
 import (
-	"encoding/json"
 	"net/url"
 	"time"
 )
@@ -32,10 +31,6 @@ func ValidRemoteApplicationIssuer(iss string) bool {
 	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
-// ErrAttributeDefNotFound indicates no registered remote-application attribute
-// definition matched.
-var ErrAttributeDefNotFound = E(CodeAttributeDefNotFound)
-
 // ErrInvalidRemoteApplication indicates a malformed remote_application
 // registration payload.
 var ErrInvalidRemoteApplication = E(CodeInvalidRemoteApplication)
@@ -57,16 +52,6 @@ const (
 type RemoteAppKey struct {
 	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
-}
-
-// RemoteAppAttributeDef is a remote_application's registered attribute
-// definition: the full inline value a REFERENCE-mode delegated-token attribute
-// resolves to (#75). Definition is opaque JSON the consuming app interprets.
-type RemoteAppAttributeDef struct {
-	RemoteApplicationID string
-	Key                 string
-	Version             int32
-	Definition          json.RawMessage
 }
 
 // RemoteApplicationAuthority is a remote_application's STORED authority: its

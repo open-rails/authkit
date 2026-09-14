@@ -23,10 +23,11 @@ type meAvailabilityShape struct {
 }
 
 type meProfileShape struct {
-	ID           string                `json:"id"`
-	AvatarURL    *string               `json:"avatar_url"`
-	Availability []meAvailabilityShape `json:"availability"`
-	UserAliases  []string              `json:"user_aliases"`
+	ID              string                `json:"id"`
+	AvatarURL       *string               `json:"avatar_url"`
+	Availability    []meAvailabilityShape `json:"availability"`
+	LinkedProviders []string              `json:"linked_providers"`
+	UserAliases     []string              `json:"user_aliases"`
 }
 
 func meAvailabilityFor(t *testing.T, shape meProfileShape, action string) meAvailabilityShape {
@@ -48,18 +49,17 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.NoError(t, err)
 
 	email := uniqueEmail("profile-surface")
-	// ak#273: the CURRENT username deliberately carries an underscore and
-	// uppercase — both admitted by embedded.ValidateUsername — because the rename
-	// below records lower(current username) as user_renames.from_slug. Under the
-	// 0001 predicate that INSERT violated user_renames_from_slug_format_chk and
-	// took the whole rename transaction with it, so this account could never be
-	// renamed. Keep the shape: it is the regression pin.
+	// Legal mixed-case/underscore names retain their lowercase spelling as
+	// active aliases after a rename.
 	require.NoError(t, embedded.ValidateUsername("Profile_Surface"),
 		"ak#273: this pin only means something while ValidateUsername still admits '_' and uppercase")
 	username := "Profile_Surface" + uniqueSuffix()
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	for _, provider := range []string{"google", "github"} {
+		require.NoError(t, client.LinkProviderByIssuer(ctx, user.ID, "https://"+provider+".example", provider, "subject-"+provider, nil))
+	}
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
@@ -70,6 +70,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var me meProfileShape
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
+	require.ElementsMatch(t, []string{"google", "github"}, me.LinkedProviders)
 	require.Nil(t, me.AvatarURL)
 	avail := meAvailabilityFor(t, me, ActionUpdateUsername)
 	require.True(t, avail.Allowed)
@@ -94,9 +95,6 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.Nil(t, me.AvatarURL)
 
 	// --- cooldown: after a rename, /me reports the wait BEFORE a client tries -
-	// ak#273: the account being renamed here holds an underscore + uppercase
-	// username, so this PATCH is also the regression pin for the rename-history
-	// CHECK. Before migration 0006 it answered 400 failed_to_update_username.
 	w = serveAuthJSON(srv, http.MethodPatch, "/user/username", `{"username":"px`+uniqueSuffix()+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, token)
@@ -106,7 +104,6 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	avail = meAvailabilityFor(t, me, ActionUpdateUsername)
 	require.False(t, avail.Allowed)
 	require.Positive(t, avail.RetryAfterSeconds)
-	// The alias is the old username LOWERCASED, not slugified: ak#273 chose
-	// "constraint follows validator", so '_' survives into the published alias.
+	// The old username remains an active alias, preserving underscores.
 	require.Contains(t, me.UserAliases, strings.ToLower(username))
 }

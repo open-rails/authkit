@@ -2,8 +2,8 @@
 
 The old remote-attribute registry has no required consumer in the fetched source
 heads below. AuthKit already stopped hydrating attributes and exposing registry
-HTTP routes. Remove its unused engine methods, public DTO/reference helpers,
-error codes, and SQL queries. Opaque inline attributes and signed documents keep
+HTTP routes. The engine methods, public DTO/reference helpers, error codes, SQL queries
+and schema objects are removed. Opaque inline attributes and signed documents keep
 their current contracts.
 
 | Consumer | Fetched master |
@@ -17,13 +17,26 @@ their current contracts.
 | SocialKit | `f1115893757f9f6154da974158679dcecdfa226a` |
 
 The census searched exported registry methods/types/errors, reference helpers,
-and the table name in Go, TypeScript and Markdown at these Git heads. It found
+and the table name across all tracked text at these Git heads. It found
 no references. Consumer checkouts were neither edited nor fast-forwarded.
 
-The historical `remote_application_attribute_defs` table and its rows remain.
-No deployed database census was performed. Before a forward migration drops it,
-record row counts for each consumer schema/database, decide whether any rows
-need export, and check consumers outside this source inventory. Dropping the
-retained table/index remains an unresolved part of tracker #362; released
-migrations must remain byte-for-byte unchanged. This source cleanup does not
-complete that schema acceptance criterion.
+The owner explicitly declared all AuthKit-owned tables and data disposable
+before v1. The registry table/index and unused `user_renames` table/write are
+therefore removed from the pre-v1 schema. No compatibility table or forward-drop
+migration is retained. Current parent links are restamped until the repository
+consolidates its fresh baseline; existing pre-launch databases must be rebuilt
+from that baseline. This does not authorize modifying another application's data.
+
+The same fetched-head census found no `user_renames` reader or writer in a
+consumer. Hentai0's only mentions are historical comments in
+`tests/integration/username_rename_test.go` and `agents/test-audit.md`; its actual
+rename workflow uses HTTP. Active aliases remain in `name_claims` and cooldowns
+remain in `users.last_renamed_at`.
+
+The generated query package omits unused table structs. Full root and adapter
+compilation verifies those deleted internal models have no Go consumers.
+The obsolete standalone profile-link fixture is replaced by provider-list
+assertions in the existing HTTP profile/rename workflow. Existing naming,
+inline-attribute and signed-document workflows continue to qualify the retained
+behavior; the existing migrator workflow checks both default and custom schemas
+contain neither removed table.

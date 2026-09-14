@@ -1,4 +1,4 @@
--- parent: 6 sha256:ba56d2c3572f24b403da4a3b4fb187662b17e215932fca8586fb70228c1c6f23
+-- parent: 5 sha256:835c36f3c6d2251f9ee8f19637432470855f9f9e8bb30cd7c9b25696d2bbb225
 -- ak#274: a bounded GRACE WINDOW on refresh-token rotation.
 --
 -- Rotation is single-use: the presented token becomes previous_token_hash and a

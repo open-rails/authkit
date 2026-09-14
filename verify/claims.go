@@ -45,18 +45,8 @@ type Claims struct {
 	// stays empty), so the local-user gate does not apply.
 	DelegatedSubject string
 
-	// Attributes is the `attributes` claim of a delegated access token: the
-	// canonical app-specific ESCAPE HATCH (#75). It is an object of issuer-
-	// asserted, NAMESPACED, OPAQUE key/values that AuthKit transports but NEVER
-	// interprets —
-	// the semantics belong to the consuming app. Each value is in one of two
-	// modes (see Attribute / AttributeIsReference):
-	//   INLINE    — the value carries the full definition, e.g.
-	//               {"tier":{"endpoints":[...],"caps":[...]}}.
-	//   REFERENCE — the value is a short JSON string key, e.g. {"tier":"tier-1"},
-	//               resolved against a definition the remote_application
-	//               registered ahead of time (resolve via the attribute-def
-	//               registry, or opt-in verify-time hydration).
+	// Attributes carries opaque app-specific JSON inline. AuthKit transports
+	// these values; the consuming app owns their schema and semantics.
 	// Reserved well-known keys: `tier` (opaque entitlement-tier string, surfaced
 	// as UserTier) and `roles` (uuid array, surfaced as DelegatedRoles).
 	// `documents` is forbidden here because it is a top-level signed claim.
@@ -197,11 +187,9 @@ type DelegatedPrincipal struct {
 	// Permissions are the resource-defined permission strings the receiving
 	// service authorizes against its own catalog. This is the authority source.
 	Permissions []string
-	// Attributes is the issuer-asserted escape-hatch bag (#75): namespaced,
-	// OPAQUE, consumer-interpreted key/values, each INLINE or REFERENCE (see
-	// Claims.Attributes / Claims.AttributeReference). Reserved keys: `tier`
-	// (-> UserTier) and `roles` (-> Roles); `documents` is forbidden because it
-	// is a top-level signed claim. Raw JSON values.
+	// Attributes contains opaque, consumer-interpreted inline JSON values.
+	// Reserved keys: tier (UserTier), roles (Roles); documents is a separate
+	// top-level signed claim.
 	Attributes map[string]json.RawMessage
 	// Documents are exact typed signed-document references carried by the token.
 	Documents map[string]string
@@ -287,39 +275,13 @@ func (c Claims) DelegatedAccess() (DelegatedPrincipal, bool) {
 	return c.Delegated()
 }
 
-// Attribute returns the raw JSON value of a single delegated-access-token
-// attribute and whether it was present. The value is opaque (#75): the caller
-// decides whether it is an INLINE definition (a JSON object/array) or a
-// REFERENCE (a JSON string key) — see AttributeIsReference / AttributeReference.
+// Attribute returns one opaque JSON value and whether it is present.
 func (c Claims) Attribute(key string) (json.RawMessage, bool) {
 	if c.Attributes == nil {
 		return nil, false
 	}
 	v, ok := c.Attributes[key]
 	return v, ok
-}
-
-// AttributeReference reports whether attribute `key` is in REFERENCE mode (a
-// JSON string the consumer resolves against the remote_application's registered
-// definition) and returns the reference key. ok is false for INLINE values
-// (objects/arrays/other) or an absent key. This is the ref-vs-inline detector
-// the consumer uses before resolving against the attribute-def registry.
-func (c Claims) AttributeReference(key string) (ref string, ok bool) {
-	raw, present := c.Attribute(key)
-	if !present {
-		return "", false
-	}
-	if err := json.Unmarshal(raw, &ref); err != nil {
-		return "", false // not a JSON string => INLINE
-	}
-	return ref, true
-}
-
-// AttributeIsReference reports whether attribute `key` is a REFERENCE (JSON
-// string) rather than an INLINE definition. Convenience over AttributeReference.
-func (c Claims) AttributeIsReference(key string) bool {
-	_, ok := c.AttributeReference(key)
-	return ok
 }
 
 // BoundToPermissionGroup reports whether these claims carry an owning
