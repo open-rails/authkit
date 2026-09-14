@@ -22,11 +22,13 @@ external identity, application delegation boundaries, and key rotation.
 ```go
 import "github.com/open-rails/authkit/authkitmigrate"
 
-res, err := authkitmigrate.New(pool, nil).Migrate(ctx) // &authkitmigrate.Config{Schema: "…"} for a non-default schema
+err := authkitmigrate.New(pool, nil).Migrate(ctx) // &authkitmigrate.Config{Schema: "…"} for a non-default schema
 ```
 
-Idempotent; `Validate(ctx)` reports pending migrations without applying. Run
-it before `embedded.New`.
+Idempotent; `Validate(ctx)` requires the exact installed migration identity and
+content. Run it before `embedded.New`. Pre-v1 schemas must be rebuilt for the
+[fresh baseline](docs/maintenance/fresh-schema-baseline.md); AuthKit never drops
+existing application data automatically.
 
 ## Construction
 

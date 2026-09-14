@@ -21,7 +21,7 @@ func TestNewServer_RedisKeysAreNamespacedPerSchema(t *testing.T) {
 
 	schemas := []string{"tenant_a", "tenant_b"}
 	for _, schema := range schemas {
-		_, err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: schema}).Migrate(ctx)
+		err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: schema}).Migrate(ctx)
 		require.NoError(t, err)
 		cfg := newServerTestConfig()
 		cfg.Schema = schema

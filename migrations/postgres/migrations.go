@@ -4,7 +4,7 @@
 // schema rendering, and migration tracking in one call:
 //
 //	migrator := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: cfg.Schema})
-//	res, err := migrator.Migrate(ctx)
+//	err := migrator.Migrate(ctx)
 //
 // The raw FS (and FSForSchema for a non-default schema) remains exported for
 // external migration runners.
@@ -52,7 +52,7 @@ var schemaWordRE = regexp.MustCompile(`\bprofiles\b`)
 //
 // This is a deliberate, validated text substitution performed once at load
 // time — the embedded files themselves are never modified, and the FS export
-// above keeps its historical behavior.
+// above supports host-owned runners.
 func FSForSchema(schema string) (fs.FS, error) {
 	if schema == "" || schema == defaultSchema {
 		return migrationFS, nil
