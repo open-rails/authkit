@@ -58,12 +58,12 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 
 // The explicit link flow (StateData.LinkUserID set) is NOT a registration path,
 // so it is unaffected by the registration-disabled gate.
-func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
+func TestResolveOAuthUser_LinkFlowRequiresLiveAuthority(t *testing.T) {
 	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	identity := authprovider.Identity{Subject: "linked-subject", Email: "linked@example.com"}
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity), LinkUserID: "user-123"})
-	require.NoError(t, err)
-	require.Equal(t, "user-123", uid)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(authprovider.GitHub("github-client", "github-secret"), identity), Link: &embedded.ExternalLinkAuthorization{UserID: "user-123"}})
+	require.Error(t, err)
+	require.Empty(t, uid)
 	require.False(t, created)
 }
 

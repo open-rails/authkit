@@ -7,10 +7,10 @@ ALTER TABLE profiles.users ADD COLUMN credential_version bigint NOT NULL DEFAULT
 CREATE FUNCTION profiles.invalidate_recovery_grants() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF ROW(NEW.email, NEW.phone_number, NEW.email_verified, NEW.phone_verified,
-         NEW.banned_at, NEW.banned_until, NEW.deleted_at)
+         NEW.banned_at, NEW.banned_until, NEW.deleted_at, NEW.metadata->'reserved')
      IS DISTINCT FROM
      ROW(OLD.email, OLD.phone_number, OLD.email_verified, OLD.phone_verified,
-         OLD.banned_at, OLD.banned_until, OLD.deleted_at) THEN
+         OLD.banned_at, OLD.banned_until, OLD.deleted_at, OLD.metadata->'reserved') THEN
     NEW.credential_version := OLD.credential_version + 1;
   END IF;
   RETURN NEW;

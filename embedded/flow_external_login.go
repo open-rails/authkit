@@ -12,6 +12,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"strings"
+	"time"
 
 	authkit "github.com/open-rails/authkit"
 )
@@ -30,13 +31,20 @@ type ExternalIdentity struct {
 // ExternalLoginInput is an external-identity login or link attempt.
 type ExternalLoginInput struct {
 	Identity ExternalIdentity
-	// LinkUserID, when set, is the authenticated user explicitly linking this
-	// identity (never a registration path).
-	LinkUserID         string
+	// Link authorizes a provider mutation only; it never creates a session.
+	Link               *ExternalLinkAuthorization
 	AccountInviteToken string
 	Event              string // session-created audit event, e.g. "oidc_login"
 	UserAgent          string
 	IP                 string
+}
+
+// ExternalLinkAuthorization records the fresh session that initiated linking.
+// It is carried only in server-side browser state, never accepted from a callback.
+type ExternalLinkAuthorization struct {
+	UserID          string
+	SessionID       string
+	AuthenticatedAt time.Time
 }
 
 // ExternalLoginOutcomeKind is the closed set of ways an external login ends.
@@ -44,6 +52,7 @@ type ExternalLoginOutcomeKind string
 
 const (
 	ExternalSessionIssued           ExternalLoginOutcomeKind = "session_issued"
+	ExternalProviderLinked          ExternalLoginOutcomeKind = "provider_linked"
 	ExternalTwoFAEnrollmentRequired ExternalLoginOutcomeKind = "2fa_enrollment_required"
 )
 
@@ -73,6 +82,9 @@ func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInpu
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)
 	if err != nil {
 		return ExternalLoginOutcome{}, err
+	}
+	if in.Link != nil {
+		return ExternalLoginOutcome{Kind: ExternalProviderLinked, UserID: userID}, nil
 	}
 	session, err := s.IssueLoginSession(ctx, LoginSessionInput{
 		UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event,
@@ -112,21 +124,11 @@ func (s *Client) ResolveExternalIdentity(ctx context.Context, in ExternalLoginIn
 		}
 	}
 
-	if in.LinkUserID != "" {
-		if uid0, _, err := s.GetProviderLinkByIssuer(ctx, issuer, id.Subject); err == nil && uid0 != "" && uid0 != in.LinkUserID {
-			return "", false, ErrProviderAlreadyLinked
+	if in.Link != nil {
+		if err := s.completeProviderLink(ctx, *in.Link, id, emailPtr); err != nil {
+			return "", false, err
 		}
-		// The provider link is the load-bearing write: a failure must NOT report
-		// success, or the next login won't find the link and diverges.
-		if err := s.LinkProviderByIssuer(ctx, in.LinkUserID, issuer, provider, id.Subject, emailPtr); err != nil {
-			if errors.Is(err, ErrProviderAlreadyLinked) || errors.Is(err, ErrProviderChangeRequiresUnlink) {
-				return "", false, err
-			}
-			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing external login: %v", in.LinkUserID, issuer, err)
-			return "", false, fmt.Errorf("%w: %w", ErrProviderLinkFailed, err)
-		}
-		setUsername(in.LinkUserID, "link succeeded, username not updated")
-		return in.LinkUserID, false, nil
+		return in.Link.UserID, false, nil
 	}
 	if uid, _, err := s.GetProviderLinkByIssuer(ctx, issuer, id.Subject); err == nil && uid != "" {
 		setUsername(uid, "login succeeded, username not updated")

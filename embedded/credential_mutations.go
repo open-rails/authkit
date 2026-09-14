@@ -79,7 +79,7 @@ func (s *Client) changePassword(ctx context.Context, userID, new string, current
 			if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
 				return ErrUserBanned
 			}
-			reserved, err := s.IsUserReserved(ctx, userID)
+			reserved, err := q.UserIsReserved(ctx, userID)
 			if err != nil {
 				return err
 			}

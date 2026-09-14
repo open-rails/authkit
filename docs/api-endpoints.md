@@ -211,6 +211,11 @@ branch. Derived assets (extra avatar sizes, CDN rewrites) stay host-owned.
 
 ## OIDC Browser Flows
 
+Provider-link callbacks are mutations: `format=json` returns an empty 204;
+browser completion redirects with `flow=link&result=success&provider=...` in the
+fragment. Neither creates a session or replaces tokens/cookies. The initiating
+session must still be live and fresh. See [credential grants](security/credential-grants.md).
+
 Notes:
 - After AuthKit handles the provider callback, full-page login redirects to `{BaseURL}{OIDCReturnPath}`. The default OIDC return path is `/login/callback`; host apps may configure another app-relative path.
 - `GET /oidc/:provider/login?return_to=/subscribe?plan=pro` preserves the app-relative path through the provider redirect and returns it as `return_to` in the callback URL fragment. AuthKit rejects absolute URLs, protocol-relative URLs, backslashes, and CR/LF before storing it.

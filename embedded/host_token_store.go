@@ -20,13 +20,6 @@ func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo
 	return row.PasswordHash, row.HashAlgo, row.HashParams, err
 }
 
-func (s *Client) upsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
-}
-
 // UpsertPasswordHash replaces a precomputed password hash and invalidates all
 // sessions and recovery grants. Intended for trusted host import/maintenance.
 func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {

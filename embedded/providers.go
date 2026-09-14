@@ -121,21 +121,32 @@ func (s *Client) GetProviderLinkByIssuer(ctx context.Context, issuer, subject st
 	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
 }
 
+// LinkProviderByIssuer is a trusted host/import operation. Browser flows use
+// ExternalLoginInput.Link, whose initiating session is checked at commit.
 func (s *Client) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
-	// Both unique constraints arbitrate ownership atomically. A new subject
-	// cannot replace the user's existing identity for this issuer.
 	if s.pg == nil {
 		return nil
 	}
-	providerID, err := newUUIDV7String()
+	verified, err := linkProviderByIssuer(ctx, s.q, userID, issuer, providerSlug, subject, email)
 	if err != nil {
 		return err
+	}
+	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() && verified {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
+	}
+	return nil
+}
+
+func linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, providerSlug, subject string, email *string) (bool, error) {
+	providerID, err := newUUIDV7String()
+	if err != nil {
+		return false, err
 	}
 	var slug *string
 	if providerSlug != "" {
 		slug = &providerSlug
 	}
-	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+	linked, err := q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
 		ID:              providerID,
 		UserID:          userID,
 		Issuer:          issuer,
@@ -145,17 +156,14 @@ func (s *Client) LinkProviderByIssuer(ctx context.Context, userID, issuer, provi
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return authkit.ErrProviderAlreadyLinked
+			return false, authkit.ErrProviderAlreadyLinked
 		}
 		if isUniqueViolation(err, "user_providers_user_id_issuer_key") {
-			return authkit.ErrProviderChangeRequiresUnlink
+			return false, authkit.ErrProviderChangeRequiresUnlink
 		}
-		return err
+		return false, err
 	}
-	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() && linked.VerifiedAt != nil {
-		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
-	}
-	return nil
+	return linked.VerifiedAt != nil, nil
 }
 
 func (s *Client) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
