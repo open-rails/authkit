@@ -142,3 +142,20 @@ LIMIT sqlc.arg(max_rows)::bigint;
 
 -- name: UserUsernameExists :one
 SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));
+
+-- name: UserCredentialVersion :one
+SELECT credential_version, email, phone_number
+FROM profiles.users WHERE id = $1;
+
+-- name: UserCredentialVersionForUpdate :one
+-- All credential changes acquire this account lock before credential/session rows.
+SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
+FROM profiles.users WHERE id = $1 FOR UPDATE;
+
+-- name: UserAdvanceCredentialVersion :exec
+UPDATE profiles.users SET credential_version = credential_version + 1 WHERE id = $1;
+
+-- name: UserPasswordRehash :exec
+-- Opportunistic rehash cannot overwrite a password changed after verification.
+UPDATE profiles.user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id', hash_params = NULL
+WHERE user_id = sqlc.arg(user_id) AND password_hash = sqlc.arg(old_hash);

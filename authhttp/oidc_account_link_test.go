@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -114,7 +115,11 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 
 	// Authenticated link flow: the owner is signed in (LinkUserID) and chooses to
 	// link the provider. This is allowed and binds to the owner's own account.
-	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(cfg, info), LinkUserID: owner.ID})
+	sid, _, _, err := coreSvc.IssueRefreshSession(ctx, owner.ID, "test", nil)
+	require.NoError(t, err)
+	fresh, err := coreSvc.SessionFreshness(ctx, owner.ID, sid, time.Now())
+	require.NoError(t, err)
+	uid, created, err := s.svc.ResolveExternalIdentity(context.Background(), embedded.ExternalLoginInput{Identity: externalIdentity(cfg, info), Link: &embedded.ExternalLinkAuthorization{UserID: owner.ID, SessionID: sid, AuthenticatedAt: fresh.LastAuthenticatedAt}})
 	require.NoError(t, err)
 	require.Equal(t, owner.ID, uid)
 	require.False(t, created)

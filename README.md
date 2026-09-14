@@ -157,7 +157,11 @@ to `Frontend.BaseURL + OIDCReturnPath` (default `/login/callback`):
 `return_to` must be app-relative. Linking a provider to an existing account is
 `POST /api/v1/oidc/{provider}/link/start`: it needs fresh authentication
 (`403 step_up_required`) and an existing link for the same issuer must be
-unlinked first (`409 provider_change_requires_unlink`).
+unlinked first (`409 provider_change_requires_unlink`). Completion requires that
+same session to remain live and fresh. Successful linking returns an empty 204
+for JSON, or redirects with `#flow=link&result=success&provider=…`; it retains the
+existing session and issues no tokens or refresh cookie. See
+[credential and recovery grants](docs/security/credential-grants.md).
 
 ## RBAC
 

@@ -10,6 +10,15 @@ import (
 	"time"
 )
 
+const userAdvanceCredentialVersion = `-- name: UserAdvanceCredentialVersion :exec
+UPDATE profiles.users SET credential_version = credential_version + 1 WHERE id = $1
+`
+
+func (q *Queries) UserAdvanceCredentialVersion(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, userAdvanceCredentialVersion, id)
+	return err
+}
+
 const userApplyEmailChange = `-- name: UserApplyEmailChange :exec
 UPDATE profiles.users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
 `
@@ -214,6 +223,53 @@ func (q *Queries) UserClearBan(ctx context.Context, id string) error {
 	return err
 }
 
+const userCredentialVersion = `-- name: UserCredentialVersion :one
+SELECT credential_version, email, phone_number
+FROM profiles.users WHERE id = $1
+`
+
+type UserCredentialVersionRow struct {
+	CredentialVersion int64
+	Email             *string
+	PhoneNumber       *string
+}
+
+func (q *Queries) UserCredentialVersion(ctx context.Context, id string) (UserCredentialVersionRow, error) {
+	row := q.db.QueryRow(ctx, userCredentialVersion, id)
+	var i UserCredentialVersionRow
+	err := row.Scan(&i.CredentialVersion, &i.Email, &i.PhoneNumber)
+	return i, err
+}
+
+const userCredentialVersionForUpdate = `-- name: UserCredentialVersionForUpdate :one
+SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
+FROM profiles.users WHERE id = $1 FOR UPDATE
+`
+
+type UserCredentialVersionForUpdateRow struct {
+	CredentialVersion int64
+	Email             *string
+	PhoneNumber       *string
+	DeletedAt         *time.Time
+	BannedAt          *time.Time
+	BannedUntil       *time.Time
+}
+
+// All credential changes acquire this account lock before credential/session rows.
+func (q *Queries) UserCredentialVersionForUpdate(ctx context.Context, id string) (UserCredentialVersionForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, userCredentialVersionForUpdate, id)
+	var i UserCredentialVersionForUpdateRow
+	err := row.Scan(
+		&i.CredentialVersion,
+		&i.Email,
+		&i.PhoneNumber,
+		&i.DeletedAt,
+		&i.BannedAt,
+		&i.BannedUntil,
+	)
+	return i, err
+}
+
 const userDeleteHard = `-- name: UserDeleteHard :exec
 DELETE FROM profiles.users WHERE id = $1
 `
@@ -409,6 +465,23 @@ type UserPasswordInsertParams struct {
 
 func (q *Queries) UserPasswordInsert(ctx context.Context, arg UserPasswordInsertParams) error {
 	_, err := q.db.Exec(ctx, userPasswordInsert, arg.UserID, arg.PasswordHash)
+	return err
+}
+
+const userPasswordRehash = `-- name: UserPasswordRehash :exec
+UPDATE profiles.user_passwords SET password_hash = $1, hash_algo = 'argon2id', hash_params = NULL
+WHERE user_id = $2 AND password_hash = $3
+`
+
+type UserPasswordRehashParams struct {
+	NewHash string
+	UserID  string
+	OldHash string
+}
+
+// Opportunistic rehash cannot overwrite a password changed after verification.
+func (q *Queries) UserPasswordRehash(ctx context.Context, arg UserPasswordRehashParams) error {
+	_, err := q.db.Exec(ctx, userPasswordRehash, arg.NewHash, arg.UserID, arg.OldHash)
 	return err
 }
 

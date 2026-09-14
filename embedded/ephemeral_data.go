@@ -49,7 +49,10 @@ type emailVerifyData struct {
 }
 
 type passwordResetData struct {
-	UserID string `json:"user_id"`
+	UserID  string `json:"user_id"`
+	Version int64  `json:"version"`
+	Channel string `json:"channel"`
+	Contact string `json:"contact"`
 }
 
 type twoFactorData struct {
@@ -330,24 +333,35 @@ func (s *Client) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
 	s.deletePhoneVerification(ctx, phoneVerificationKey("verify_phone", phone))
 }
 
-func (s *Client) storePasswordReset(ctx context.Context, tokenHash, userID string, ttl time.Duration) error {
-	data := passwordResetData{UserID: userID}
+func (s *Client) storePasswordReset(ctx context.Context, tokenHash, userID, channel, contact string, ttl time.Duration) error {
+	row, err := s.q.UserCredentialVersion(ctx, userID)
+	if err != nil {
+		return err
+	}
+	actual := row.Email
+	if channel == "sms" {
+		actual = row.PhoneNumber
+	}
+	if channel == "email" {
+		contact = strings.ToLower(strings.TrimSpace(contact))
+	}
+	if (channel != "email" && channel != "sms") || actual == nil || *actual != contact {
+		return jwt.ErrTokenInvalidClaims
+	}
+	data := passwordResetData{UserID: userID, Version: row.CredentialVersion, Channel: channel, Contact: contact}
 	return s.ephemSetJSON(ctx, keyPasswordReset+tokenHash, data, ttl)
 }
 
-func (s *Client) consumePasswordReset(ctx context.Context, tokenHash string) (string, error) {
+func (s *Client) consumePasswordReset(ctx context.Context, tokenHash string) (passwordResetData, error) {
 	var data passwordResetData
-	// Single-use: the token hash IS the key, so presenting it consumes it. Consume
-	// atomically (same class as AK2-PK-001) so a reset token can't be redeemed
-	// twice by concurrent requests racing a Get+Del.
 	ok, err := s.ephemConsumeJSON(ctx, keyPasswordReset+tokenHash, &data)
 	if err != nil {
-		return "", err
+		return data, err
 	}
-	if !ok {
-		return "", jwt.ErrTokenUnverifiable
+	if !ok || data.Version <= 0 {
+		return data, jwt.ErrTokenUnverifiable
 	}
-	return data.UserID, nil
+	return data, nil
 }
 
 func (s *Client) storeMFACode(ctx context.Context, userID, codeHash, method, destination string, ttl time.Duration) error {

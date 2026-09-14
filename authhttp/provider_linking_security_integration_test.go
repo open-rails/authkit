@@ -132,7 +132,7 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			old := providerTestIdentity{Subject: "original-" + uniqueSuffix()}
 			callback := completeSecurityProviderCallback(t, srv, cfg, start, old)
-			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())
+			require.Equal(t, http.StatusNoContent, callback.Code, callback.Body.String())
 			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.AccessToken)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
@@ -146,7 +146,7 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 			start = serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", fresh.AccessToken)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 			callback = completeSecurityProviderCallback(t, srv, cfg, start, providerTestIdentity{Subject: "replacement-" + uniqueSuffix()})
-			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())
+			require.Equal(t, http.StatusNoContent, callback.Code, callback.Body.String())
 		})
 	}
 }

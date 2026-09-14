@@ -143,3 +143,11 @@ WHERE ctid = ANY(ARRAY(
     WHERE revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
     LIMIT sqlc.arg(batch_size)::bigint
 ));
+
+-- name: SessionFreshSinceForUpdate :one
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
+FROM profiles.refresh_sessions
+WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid
+  AND issuer = sqlc.arg(issuer) AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > now())
+FOR UPDATE;

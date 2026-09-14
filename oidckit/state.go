@@ -32,13 +32,15 @@ type StateCache interface {
 
 // StateData is what we persist for a pending OIDC login.
 type StateData struct {
-	Provider           string
-	Verifier           string
-	Nonce              string
-	RedirectURI        string
-	LinkUserID         string
-	ReturnTo           string
-	AccountInviteToken string
+	Provider            string
+	Verifier            string
+	Nonce               string
+	RedirectURI         string
+	LinkUserID          string
+	LinkSessionID       string
+	LinkAuthenticatedAt time.Time
+	ReturnTo            string
+	AccountInviteToken  string
 	// StepUp* fields identify a step-up authentication flow for an existing
 	// session. Login/link flows leave these empty.
 	StepUpUserID    string

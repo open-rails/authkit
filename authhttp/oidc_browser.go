@@ -18,9 +18,9 @@ import (
 // flowStart is what a browser flow start records beyond the state machine's
 // own state/nonce/PKCE values.
 type flowStart struct {
-	linkUserID string
-	stepUp     *oidckit.StateData // StepUp* fields to carry
-	params     map[string]string  // extra authorization parameters
+	link   *embedded.ExternalLinkAuthorization
+	stepUp *oidckit.StateData // StepUp* fields to carry
+	params map[string]string  // extra authorization parameters
 }
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +41,12 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
-	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{linkUserID: claims.UserID})
+	freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	if err != nil || freshness.StepUpRequiredForSensitiveOps {
+		unauthorized(w, authkit.CodeUnauthorized)
+		return
+	}
+	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &embedded.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
 }
 
 // startProviderFlow begins a login, link or step-up flow: it generates state,
@@ -50,7 +55,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 // login is a browser navigation and is redirected; link and step-up starts
 // (and any POST) are fetch calls and receive {"auth_url","state"} JSON.
 func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name string, start flowStart) {
-	browserNav := start.linkUserID == "" && start.stepUp == nil && r.Method != http.MethodPost
+	browserNav := start.link == nil && start.stepUp == nil && r.Method != http.MethodPost
 	fail := func(status int, code authkit.Code) {
 		if browserNav {
 			s.failBrowserFlow(w, r, nil, name, status, code)
@@ -103,9 +108,13 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		Verifier:    verifier,
 		Nonce:       nonce,
 		RedirectURI: redirectURI,
-		LinkUserID:  start.linkUserID,
 		UI:          ui,
 		PopupNonce:  popupNonce,
+	}
+	if start.link != nil {
+		sd.LinkUserID = start.link.UserID
+		sd.LinkSessionID = start.link.SessionID
+		sd.LinkAuthenticatedAt = start.link.AuthenticatedAt
 	}
 	if browserNav {
 		sd.ReturnTo = sanitizeReturnTo(r.URL.Query().Get("return_to"))
@@ -184,18 +193,32 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	var link *embedded.ExternalLinkAuthorization
+	if sd.LinkUserID != "" {
+		link = &embedded.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
+	}
 	out, err := s.svc.CompleteExternalLogin(r.Context(), embedded.ExternalLoginInput{
 		Identity: embedded.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified,
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
 		},
-		LinkUserID: sd.LinkUserID, AccountInviteToken: sd.AccountInviteToken,
+		Link: link, AccountInviteToken: sd.AccountInviteToken,
 		Event: "oidc_login", UserAgent: r.UserAgent(), IP: remoteIP(r),
 	})
 	if err != nil {
 		status, code := wireCode(err)
 		s.failBrowserFlow(w, r, &sd, name, status, code)
+		return
+	}
+	if out.Kind == embedded.ExternalProviderLinked {
+		if wantsJSONResponse(r) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		fragment := url.Values{"flow": {"link"}, "result": {"success"}, "provider": {name}}
+		target := buildFrontendCallbackURL(s.svc.Config().Frontend.BaseURL, s.svc.Config().Frontend.OIDCReturnPath, "#"+fragment.Encode())
+		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
 	if out.Kind == embedded.ExternalTwoFAEnrollmentRequired {

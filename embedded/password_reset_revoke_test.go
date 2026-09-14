@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	"github.com/open-rails/authkit/internal/db"
 	"testing"
 	"time"
 
@@ -47,8 +48,12 @@ func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 
 	// Plant a reset token and confirm the reset.
 	const token = "reset-token-199"
-	if err := svc.storePasswordReset(ctx, sha256Hex(token), uid, time.Minute); err != nil {
-		t.Fatalf("storePasswordReset: %v", err)
+	email := "pwreset199-" + uid + "@example.com"
+	if err := svc.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: uid, Email: email}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.storePasswordReset(ctx, sha256Hex(token), uid, "email", email, time.Minute); err != nil {
+		t.Fatal(err)
 	}
 	gotUID, err := svc.ConfirmPasswordReset(ctx, token, "New-password-12345")
 	if err != nil {
