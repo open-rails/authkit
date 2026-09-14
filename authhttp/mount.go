@@ -55,8 +55,8 @@ type MountOptions struct {
 	//
 	// When on, every session-establishing response sets the cookie and omits
 	// refresh_token from its body/fragment/postMessage payload; POST /token
-	// accepts the cookie when the body carries no token (body still wins, so a
-	// mid-migration client is never stranded); and DELETE /logout clears it.
+	// requires the cookie and rejects body refresh tokens; DELETE /logout clears
+	// the cookie. Native mounts use body tokens and never consume cookies.
 	// The cookie is Path-scoped to this mount's POST /token — the only route
 	// that reads a refresh token — so it never rides the SPA document or assets.
 	//

@@ -47,7 +47,8 @@ const attacker = process.env.AUTHKIT_BROWSER_ATTACKER_URL;
     const logout = await page.evaluate(async access => (await fetch('/api/v1/logout', { method: 'DELETE', headers: { Authorization: `Bearer ${access}` } })).status, refreshed.tokens.access_token);
     assert.equal(logout, 204);
     assert.equal(await cookie(), undefined);
-    const replay = await page.evaluate(async token => (await fetch('/api/v1/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: token }) })).status, rotated.value);
+    await context.addCookies([rotated]);
+    const replay = await page.evaluate(async () => (await fetch('/api/v1/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token' }) })).status);
     assert.equal(replay, 401);
     console.log('same-origin login, rotation and logout succeed; revoked refresh replay fails');
   } finally { await browser.close(); }

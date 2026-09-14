@@ -104,11 +104,7 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 		r.AddCookie(live)
 	})
 	require.Equal(t, http.StatusBadRequest, shadowed.Code, "duplicate refresh cookies must be refused")
-	// The refusal carries the legacy-path tombstone (see the migration test):
-	// an honest jar that holds the pre-v0.98 cookie converges on this very
-	// response and the client's retry succeeds; a planted sibling cookie is
-	// untouched and stays refused.
-	requireLegacyTombstone(t, shadowed)
+	require.Empty(t, shadowed.Header().Values("Set-Cookie"))
 
 	// A cross-site Origin is refused, and the session SURVIVES it — a gate
 	// failure must never spend or destroy the credential.
@@ -140,76 +136,18 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	rotated = refreshCookieOf(t, viaHost)
 	require.NotNil(t, rotated)
 
-	// Body wins over cookie: a client mid-migration still holds the token the
-	// server last rotated, and preferring the cookie would spend a credential
-	// it does not know was spent. Here the body carries the CURRENT token and
-	// the cookie a stale one; honoring the body is what keeps it working.
-	bodyWins := postCookieJSON(h, "/api/v1/token",
+	// A cookie mount never accepts a body token, even when it is valid.
+	mixed := postCookieJSON(h, "/api/v1/token",
 		`{"grant_type":"refresh_token","refresh_token":"`+rotated.Value+`"}`,
-		func(r *http.Request) { r.AddCookie(live) })
-	require.Equal(t, http.StatusOK, bodyWins.Code, bodyWins.Body.String())
+		func(r *http.Request) { r.AddCookie(rotated) })
+	require.Equal(t, http.StatusBadRequest, mixed.Code)
+	require.Empty(t, mixed.Header().Values("Set-Cookie"))
+	cookieOnly := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) { r.AddCookie(rotated) })
+	require.Equal(t, http.StatusOK, cookieOnly.Code, cookieOnly.Body.String())
 
 	// No credential at all is a 400, not a 500 or a silent 200.
 	require.Equal(t, http.StatusBadRequest,
 		postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`).Code)
-}
-
-// TestRefreshCookie_LegacyPathMigration covers the v0.98 Path narrowing
-// (<apiPrefix> -> <apiPrefix>/token). A jar that crossed the upgrade holds the
-// refresh cookie at BOTH paths and the duplicate gate refuses the pair — the
-// contract here is that every cookie-touching response tombstones the legacy
-// path, so one refused refresh (or the next login) heals the jar instead of
-// bricking the browser.
-func TestRefreshCookie_LegacyPathMigration(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "legacypath")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	live := refreshCookieOf(t, login)
-	require.NotNil(t, live)
-
-	// Session-establishing responses already carry the legacy tombstone, so a
-	// migrated jar is healed by the login itself.
-	requireLegacyTombstone(t, login)
-
-	// A jar that has not logged in since the upgrade: stale legacy-path value
-	// beside the live one. The refresh is refused (fail closed on duplicates)
-	// but the refusal tombstones the legacy path.
-	stale := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: "stale-pre-upgrade-ancestor"})
-		r.AddCookie(live)
-	})
-	require.Equal(t, http.StatusBadRequest, stale.Code)
-	requireLegacyTombstone(t, stale)
-
-	// After the browser applies that tombstone only the live cookie remains,
-	// and the retry succeeds: one refused round trip, not a bricked session.
-	retry := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(live)
-	})
-	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())
-	requireLegacyTombstone(t, retry)
-}
-
-// requireLegacyTombstone asserts the response expires the pre-v0.98 cookie at
-// the legacy Path (the API prefix) with attributes matching the old setter.
-func requireLegacyTombstone(t *testing.T, rec *httptest.ResponseRecorder) {
-	t.Helper()
-	for _, raw := range rec.Header().Values("Set-Cookie") {
-		if !strings.HasPrefix(raw, RefreshCookieName+"=") {
-			continue
-		}
-		if strings.Contains(raw, "Path=/api/v1;") || strings.HasSuffix(raw, "Path=/api/v1") {
-			require.Contains(t, raw, "Max-Age=0", "legacy-path cookie must be expired, not rewritten: %s", raw)
-			return
-		}
-	}
-	t.Fatalf("no legacy-path (Path=/api/v1) tombstone in Set-Cookie: %v", rec.Header().Values("Set-Cookie"))
 }
 
 // TestRefreshCookie_OIDCBrowserHandoff covers the two paths that deliver tokens

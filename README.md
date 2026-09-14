@@ -137,8 +137,9 @@ authorized scope.
 
 `MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
 every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie
-(`authkit_rt`) path-scoped to the mount's `POST /token`, which takes the
-body's `refresh_token` when present and the cookie otherwise. `DELETE /logout`
+(`authkit_rt`) path-scoped to the mount's `POST /token`, which requires the
+cookie and rejects body refresh tokens. Native mounts require body tokens and
+never consume refresh cookies. `DELETE /logout`
 and a refresh failing with `user_banned` clear it; an unknown-token `401`
 never does. The SPA and mount must share an origin. Cookie-mode JSON mutations
 reject cross-origin, opaque-origin and cross-site requests before consuming
