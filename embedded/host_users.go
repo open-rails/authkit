@@ -237,6 +237,10 @@ func (s *Client) ImportUser(ctx context.Context, input ImportUserInput) (*User, 
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
+	return s.importUser(ctx, s.q, input)
+}
+
+func (s *Client) importUser(ctx context.Context, q *db.Queries, input ImportUserInput) (*User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -245,7 +249,7 @@ func (s *Client) ImportUser(ctx context.Context, input ImportUserInput) (*User, 
 	if err != nil {
 		return nil, err
 	}
-	err = s.q.UserImportInsert(ctx, db.UserImportInsertParams{
+	err = q.UserImportInsert(ctx, db.UserImportInsertParams{
 		ID:            userID,
 		Email:         email,
 		PhoneNumber:   phone,
@@ -264,7 +268,11 @@ func (s *Client) ImportUser(ctx context.Context, input ImportUserInput) (*User, 
 	if err != nil {
 		return nil, err
 	}
-	return s.getUserByID(ctx, userID)
+	row, err := q.UserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByIDRow(row), nil
 }
 
 func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
@@ -275,15 +283,26 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 	if userID == "" {
 		return nil, ErrUserNotFound
 	}
-	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
-	if err != nil {
-		return nil, err
-	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	user, err := s.updateImportedUserTx(ctx, tx, userID, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (s *Client) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input ImportUserInput) (*User, error) {
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
 		return nil, err
 	}
@@ -308,10 +327,11 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	row, err := s.qtx(tx).UserByID(ctx, updatedID)
+	if err != nil {
 		return nil, err
 	}
-	return s.getUserByID(ctx, updatedID)
+	return userFromByIDRow(row), nil
 }
 
 func (s *Client) setEmailVerified(ctx context.Context, id string, v bool) error {

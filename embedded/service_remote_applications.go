@@ -220,6 +220,10 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplicati
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
+	return s.upsertRemoteApplication(ctx, s.q, in)
+}
+
+func (s *Client) upsertRemoteApplication(ctx context.Context, q *db.Queries, in RemoteApplication) (*RemoteApplication, error) {
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	issuer := strings.TrimSpace(in.Issuer)
 	jwksURI := strings.TrimSpace(in.JWKSURI)
@@ -259,7 +263,7 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplicati
 		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", ErrInvalidRemoteApplication)
 	}
 	groupID := &t
-	existing, err := s.q.RemoteApplicationByIssuer(ctx, issuer)
+	existing, err := q.RemoteApplicationByIssuer(ctx, issuer)
 	if err == nil && existing.PermissionGroupID != t {
 		return nil, ErrRemoteApplicationIssuerConflict
 	}
@@ -267,7 +271,7 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplicati
 		return nil, fmt.Errorf("look up remote application issuer: %w", err)
 	}
 
-	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
+	row, err := q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:              slug,
 		PermissionGroupID: groupID,
 		Issuer:            issuer,

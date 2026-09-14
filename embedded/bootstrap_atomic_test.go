@@ -2,9 +2,10 @@ package embedded
 
 import (
 	"context"
-	"github.com/open-rails/authkit/internal/testdb"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestBootstrapFailureIsRetryable(t *testing.T) {

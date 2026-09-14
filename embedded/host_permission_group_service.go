@@ -45,6 +45,11 @@ func (s *Client) SeedPermissionGroupContainment(ctx context.Context) error {
 	if err := s.groupStore().SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
 		return err
 	}
+	s.logRBACDrift(ctx)
+	return nil
+}
+
+func (s *Client) logRBACDrift(ctx context.Context) {
 	if report, err := s.RBACDriftReport(ctx); err == nil && report.Total() > 0 {
 		slog.Default().Warn("authkit: rbac drift detected",
 			"group_user_roles", report.GroupUserRoles,
@@ -52,14 +57,16 @@ func (s *Client) SeedPermissionGroupContainment(ctx context.Context) error {
 			"api_keys", report.APIKeys,
 		)
 	}
-	return nil
 }
 
 // EnsureRootGroup creates the singleton root group if absent (idempotent) and
 // returns its internal id. Concurrent cold boots race the singleton index; the
 // loser adopts the winner's row instead of failing (#258).
 func (s *Client) EnsureRootGroup(ctx context.Context) (string, error) {
-	st := s.groupStore()
+	return s.groupStore().ensureRootGroup(ctx)
+}
+
+func (st *PermissionGroupStore) ensureRootGroup(ctx context.Context) (string, error) {
 	id, err := st.RootGroupID(ctx)
 	if err == nil {
 		return id, nil
@@ -67,14 +74,14 @@ func (s *Client) EnsureRootGroup(ctx context.Context) (string, error) {
 	if !errors.Is(err, ErrGroupNotFound) {
 		return "", err
 	}
-	id, createErr := st.CreateGroup(ctx, authkit.RootGroup(), "")
-	if createErr == nil {
-		return id, nil
+	// DO NOTHING keeps a concurrent singleton insert from aborting a caller's
+	// enclosing transaction. Root has no mutable name claim.
+	err = st.q.QueryRow(ctx, `INSERT INTO profiles.permission_groups (persona)
+		VALUES ('root') ON CONFLICT DO NOTHING RETURNING id::text`).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return st.RootGroupID(ctx)
 	}
-	if id, err := st.RootGroupID(ctx); err == nil {
-		return id, nil
-	}
-	return "", createErr
+	return id, err
 }
 
 // CreatePermissionGroupRequest creates a permission group. Parent is addressed by
