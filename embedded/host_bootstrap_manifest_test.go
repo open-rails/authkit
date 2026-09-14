@@ -12,285 +12,126 @@ import (
 	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/stretchr/testify/require"
 )
 
-func TestParseBootstrapManifestYAMLRejectsUnknownFields(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-users:
-  - username: bootstrap-admin
-    surprise: true
-`))
-	if err == nil {
-		t.Fatal("expected unknown field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsRBACSchema(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-rbac:
-  personas:
-    - name: root
-users:
-  - username: bootstrap-admin
-`))
-	if err == nil {
-		t.Fatal("expected unknown rbac field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsUserRef(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-users:
-  - ref: operator
-    username: bootstrap-admin
-`))
-	if err == nil {
-		t.Fatal("expected unknown ref field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsRootRoleDefinitions(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-root_roles:
-  - slug: admin
-    name: Admin
-`))
-	if err == nil {
-		t.Fatal("expected unknown root_roles field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsRemoteAppMode(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-remote_applications:
-  - slug: cozy-creator
-    issuer: https://cozy.art
-    mode: jwks
-    jwks_uri: https://cozy.art/.well-known/jwks.json
-    enabled: true
-`))
-	if err == nil {
-		t.Fatal("expected unknown mode field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsRemoteAppAudiences(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-remote_applications:
-  - slug: cozy-creator
-    issuer: https://cozy.art
-    jwks_uri: https://cozy.art/.well-known/jwks.json
-    audiences: [authkit]
-    enabled: true
-`))
-	if err == nil {
-		t.Fatal("expected unknown audiences field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsPluralUserRootRoles(t *testing.T) {
-	_, err := ParseBootstrapManifestYAML([]byte(`
-users:
-  - username: bootstrap-admin
-    root_roles:
-      - owner
-`))
-	if err == nil {
-		t.Fatal("expected unknown root_roles field error")
-	}
-}
-
-func TestParseBootstrapManifestYAMLRejectsGroupRoleFields(t *testing.T) {
+func TestBootstrapManifestFormat(t *testing.T) {
 	for name, raw := range map[string]string{
-		"group_roles": `
-group_roles:
-  - username: operator
-    persona: merchant
-    instance_slug: tensorhub
-    role: admin
-`,
-		"assigned_roles": `
-assigned_roles:
-  - user: operator
-    group: root
-    role: admin
-`,
+		"unknown user field": `users: [{username: bootstrap-admin, surprise: true}]`,
+		"rbac schema": `users: [{username: bootstrap-admin}]
+rbac: {personas: [{name: root}]}`,
+		"user ref":              `users: [{username: bootstrap-admin, ref: operator}]`,
+		"root role definitions": `root_roles: [{slug: admin, name: Admin}]`,
+		"app mode":              `remote_applications: [{slug: test, issuer: 'https://app.test', jwks_uri: 'https://app.test/keys', enabled: true, mode: jwks}]`,
+		"app audiences":         `remote_applications: [{slug: test, issuer: 'https://app.test', jwks_uri: 'https://app.test/keys', enabled: true, audiences: [authkit]}]`,
+		"plural root roles":     `users: [{username: bootstrap-admin, root_roles: [owner]}]`,
+		"group roles":           `group_roles: [{username: operator, persona: merchant, instance_slug: tensorhub, role: admin}]`,
+		"assigned roles":        `assigned_roles: [{user: operator, group: root, role: admin}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ParseBootstrapManifestYAML([]byte(raw)); err == nil {
-				t.Fatal("expected unknown field error")
-			}
+			_, err := ParseBootstrapManifestYAML([]byte(raw))
+			require.Error(t, err)
 		})
 	}
-}
-
-func TestParseBootstrapManifestExample(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "bootstrap.example.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ParseBootstrapManifestYAML(raw); err != nil {
-		t.Fatalf("parse example: %v", err)
-	}
+	require.NoError(t, err)
+	_, err = ParseBootstrapManifestYAML(raw)
+	require.NoError(t, err)
 }
 
-func TestApplyBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
-	pool := testdb.Pool(t)
+// One real-database workflow owns file loading, dry-run, initial authority,
+// repeat names, password seed-once/enforcement, and remote application seeds.
+func TestBootstrapWorkflow(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://bootstrap.test"}}, Keyset{}, WithPostgres(pg.Pool))
+	const seeded, rotated = "bootstrap-password-1", "rotated-password-2"
+	path := filepath.Join(t.TempDir(), "bootstrap.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`users:
+ - username: bootstrap-admin
+   email: admin@example.test
+   email_verified: true
+   root_role: owner
+   metadata: {source: bootstrap-test}
+   password: {plaintext: bootstrap-password-1}
+`), 0600))
+	manifest, err := LoadBootstrapManifestFile(path)
+	require.NoError(t, err)
+	dry, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
+	require.NoError(t, err)
+	require.Equal(t, BootstrapManifestResult{DryRun: true, UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, dry)
+	_, err = svc.GetUserByUsername(ctx, "bootstrap-admin")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 
-	username := fmt.Sprintf("bootstrap-dryrun-%d", time.Now().UnixNano())
-	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
-		Email:         username + "@example.com",
-		Username:      username,
-		EmailVerified: true,
-		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		RootRole:      "owner",
-	}}}
+	first, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: "first"})
+	require.NoError(t, err)
+	require.Equal(t, BootstrapManifestResult{UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, first)
+	user, err := svc.GetUserByUsername(ctx, "bootstrap-admin")
+	require.NoError(t, err)
+	require.NoError(t, svc.CheckUserPassword(ctx, user.ID, seeded))
+	roles, err := svc.RoleSlugsByUsers(ctx, []string{user.ID})
+	require.NoError(t, err)
+	require.Contains(t, roles[user.ID], string(OwnerRoleName))
+	require.NoError(t, svc.AdminSetPassword(ctx, user.ID, rotated))
 
-	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
-	if err != nil {
-		t.Fatalf("dry-run reconcile: %v", err)
+	// Neither the original name nor a different name can replay genesis, even
+	// when the new manifest asks to enforce a password or create another owner.
+	requested := manifest
+	requested.Users = append([]BootstrapManifestUser(nil), manifest.Users...)
+	requested.Users[0].Password = &BootstrapUserPassword{Plaintext: seeded, Enforce: true}
+	requested.Users = append(requested.Users, BootstrapManifestUser{Username: "unexpected-owner", Email: "unexpected@example.test", RootRole: string(OwnerRoleName)})
+	for _, name := range []string{"first", "second", "second"} {
+		result, err := svc.ApplyBootstrapManifest(ctx, requested, BootstrapReconcileOptions{StartupOnly: true, Name: name})
+		require.NoError(t, err)
+		require.Equal(t, BootstrapManifestResult{AlreadyApplied: true}, result)
+		require.NoError(t, svc.CheckUserPassword(ctx, user.ID, rotated))
 	}
-	if !result.DryRun || result.UsersCreated != 1 || result.PasswordsSet != 1 || result.RootRoleAssignments != 1 {
-		t.Fatalf("dry-run result=%+v", result)
-	}
-	if _, err := svc.getUserByUsername(ctx, username); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("dry-run user lookup err=%v, want no row", err)
-	}
-}
-
-// The apply-once startup guard needs an empty users/remote-applications table,
-// so this test runs on its own scratch database rather than the shared pool.
-func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {
-	pool := testdb.ScratchPostgres(t).Pool
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-
-	username := "bootstrap-once"
-	applyName := "bootstrap-once"
-
-	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
-		Email:         username + "@example.com",
-		Username:      username,
-		EmailVerified: true,
-	}}}
-	first, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: applyName})
-	if err != nil {
-		t.Fatalf("first apply: %v", err)
-	}
-	if first.AlreadyApplied || first.UsersCreated != 1 {
-		t.Fatalf("first result=%+v, want one created user", first)
-	}
-	second, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: applyName})
-	if err != nil {
-		t.Fatalf("second apply: %v", err)
-	}
-	if !second.AlreadyApplied || second.UsersCreated != 0 || second.UsersUpdated != 0 {
-		t.Fatalf("second result=%+v, want already applied no-op", second)
-	}
-}
-
-// #136: the bootstrap apex is seeded as a root permission-group OWNER (root:*),
-// seed-if-absent; reconcile is idempotent.
-func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-
-	suffix := time.Now().UnixNano()
-	username := fmt.Sprintf("bootstrap-admin-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	})
-
-	manifest := BootstrapManifest{
-		Users: []BootstrapManifestUser{{
-			Email:         username + "@example.com",
-			Username:      username,
-			EmailVerified: true,
-			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-			RootRole:      "owner",
-			Metadata:      map[string]any{"source": "bootstrap-test"},
-		}},
-	}
-
-	first, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("first reconcile: %v", err)
-	}
-	if first.UsersCreated != 1 || first.UsersUpdated != 0 || first.PasswordsSet != 1 || first.PasswordsKept != 0 || first.RootRoleAssignments != 1 {
-		t.Fatalf("first result=%+v", first)
-	}
-
-	user, err := svc.getUserByUsername(ctx, username)
-	if err != nil {
-		t.Fatalf("lookup seeded user: %v", err)
-	}
-	if err := svc.CheckUserPassword(ctx, user.ID, "bootstrap-password-1"); err != nil {
-		t.Fatalf("seeded password check: %v", err)
-	}
-	if roles := svc.listRoleSlugsByUser(ctx, user.ID); !containsString(roles, string(OwnerRoleName)) {
-		t.Fatalf("root roles=%v, want %q", roles, OwnerRoleName)
-	}
-
-	second, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("second reconcile: %v", err)
-	}
-	if second.UsersCreated != 0 || second.UsersUpdated != 1 || second.PasswordsSet != 0 || second.PasswordsKept != 1 {
-		t.Fatalf("second result=%+v", second)
-	}
-}
-
-func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://auth.example"}}, Keyset{}, WithPostgres(pool))
-
-	suffix := time.Now().UnixNano()
-	slug := fmt.Sprintf("bootstrap-remote-%d", suffix)
-	issuer := fmt.Sprintf("https://remote-%d.example", suffix)
-	enabled := true
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
-	})
-
-	manifest := BootstrapManifest{RemoteApplications: []BootstrapManifestRemoteApplication{{
-		Slug:     slug,
-		Issuer:   issuer,
-		JWKSURI:  issuer + "/.well-known/jwks.json",
-		Enabled:  &enabled,
-		RootRole: string(OwnerRoleName),
-	}}}
+	_, err = svc.GetUserByUsername(ctx, "unexpected-owner")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.Equal(t, []string{"first", "second"}, bootstrapClaimNames(t, ctx, pg))
 
 	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+	require.NoError(t, err)
+	require.Equal(t, BootstrapManifestResult{UsersUpdated: 1, PasswordsKept: 1, RootRoleAssignments: 1}, result)
+	require.NoError(t, svc.CheckUserPassword(ctx, user.ID, rotated))
+	require.Error(t, svc.CheckUserPassword(ctx, user.ID, seeded))
+	manifest.Users[0].Password.Enforce = true
+	result, err = svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.PasswordsSet)
+	require.NoError(t, svc.CheckUserPassword(ctx, user.ID, seeded))
+	result, err = svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.PasswordsKept)
+
+	enabled := true
+	app := BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled, RootRole: string(OwnerRoleName)}
+	result, err = svc.ApplyBootstrapManifest(ctx, BootstrapManifest{RemoteApplications: []BootstrapManifestRemoteApplication{app}}, BootstrapReconcileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, BootstrapManifestResult{RemoteApplications: 1, RemoteAppRootRoles: 1}, result)
+	stored, err := svc.GetRemoteApplication(ctx, app.Issuer)
+	require.NoError(t, err)
+	require.Equal(t, app.Slug, stored.Slug)
+	require.Equal(t, app.JWKSURI, stored.JWKSURI)
+	require.Equal(t, RemoteAppModeJWKS, stored.Mode)
+	require.True(t, stored.Enabled)
+	appRoles, err := svc.remoteApplicationRoles(ctx, stored.ID)
+	require.NoError(t, err)
+	require.Contains(t, appRoles, string(OwnerRoleName))
+	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, stored.ID)
+	require.NoError(t, err)
+	require.Contains(t, authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant()))
+}
+
+func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
+	if err := validateBootstrapUserPassword(BootstrapUserPassword{ResetRequired: true, Enforce: true}); !errors.Is(err, ErrInvalidBootstrapManifest) {
+		t.Fatalf("enforce+reset_required err=%v, want ErrInvalidBootstrapManifest", err)
 	}
-	if result.RemoteApplications != 1 || result.RemoteAppRootRoles != 1 {
-		t.Fatalf("result=%+v, want one remote application and one role", result)
+	if err := validateBootstrapUserPassword(BootstrapUserPassword{Plaintext: "bootstrap-password-1", Enforce: true}); err != nil {
+		t.Fatalf("enforce+plaintext should be valid, got %v", err)
 	}
-	got, err := svc.GetRemoteApplication(ctx, issuer)
-	if err != nil {
-		t.Fatalf("lookup remote application: %v", err)
-	}
-	if got.Slug != slug || got.Mode != RemoteAppModeJWKS || got.JWKSURI != issuer+"/.well-known/jwks.json" || !got.Enabled {
-		t.Fatalf("remote application=%+v", got)
-	}
-	roles, err := svc.remoteApplicationRoles(ctx, got.ID)
-	if err != nil {
-		t.Fatalf("remote application roles: %v", err)
-	}
-	if !containsString(roles, string(OwnerRoleName)) {
-		t.Fatalf("remote application roles=%v, want %q", roles, OwnerRoleName)
-	}
-	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, got.ID)
-	if err != nil {
-		t.Fatalf("remote application authority: %v", err)
-	}
-	if !containsString(authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant())) {
-		t.Fatalf("remote application authority=%v, want %q", authority.Permissions, authkit.Persona(RootPersona).OwnerGrant())
+	if err := validateBootstrapUserPassword(BootstrapUserPassword{ResetRequired: true}); err != nil {
+		t.Fatalf("reset_required alone should be valid, got %v", err)
 	}
 }
 
@@ -345,40 +186,6 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 		t.Fatalf("list recovery roles after reseed: %v", err)
 	} else if !containsString(rolesByUser[recovery.ID], string(OwnerRoleName)) {
 		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", rolesByUser[recovery.ID])
-	}
-}
-
-func TestApplyBootstrapManifestFileLoadsAndAppliesYAML(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-
-	username := fmt.Sprintf("bootstrap-file-%d", time.Now().UnixNano())
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	})
-	path := filepath.Join(t.TempDir(), "bootstrap.yaml")
-	if err := os.WriteFile(path, []byte(fmt.Sprintf(`
-users:
-  - email: %[1]s@example.com
-    username: %[1]s
-    email_verified: true
-`, username)), 0o600); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	manifest, err := LoadBootstrapManifestFile(path)
-	if err != nil {
-		t.Fatalf("load manifest file: %v", err)
-	}
-	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("apply file: %v", err)
-	}
-	if result.UsersCreated != 1 {
-		t.Fatalf("users created=%d, want 1", result.UsersCreated)
-	}
-	if _, err := svc.getUserByUsername(ctx, username); err != nil {
-		t.Fatalf("lookup user: %v", err)
 	}
 }
 
