@@ -127,10 +127,12 @@ func verifyPasswordHash(hash, algo, pass string) error {
 	case "argon2id":
 		ok, err = password.VerifyArgon2id(hash, pass)
 	case "bcrypt", "":
-		if !password.IsBcryptHash(hash) && algo == "" {
-			return jwt.ErrTokenInvalidClaims
-		}
 		ok, err = password.VerifyBcrypt(hash, pass)
+	default:
+		return ErrPasswordResetRequired
+	}
+	if errors.Is(err, password.ErrInvalidHash) {
+		return ErrPasswordResetRequired
 	}
 	if err != nil || !ok {
 		return jwt.ErrTokenInvalidClaims

@@ -24,7 +24,8 @@ costs 10–12 fit this policy. This is a supported-format contract, not an inven
 of deployed historical hashes. Import rejects unsafe values per row; it never
 silently converts them to a usable credential. `password.ValidateHash` supports
 import preflight without running a KDF. Stored corrupt/unsupported hashes also
-fail safely at verification.
+fail safely at verification and enter the existing `password_reset_required`
+login outcome without rewriting the stored credential.
 
 `memorylimiter.New` and `redislimiter.New` now return `(*Limiter, error)`; callers
 must handle construction errors. Both reject nonpositive limits, values above

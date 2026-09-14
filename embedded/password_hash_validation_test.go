@@ -28,5 +28,11 @@ func TestImportedPasswordHashValidation(t *testing.T) {
 	require.NoError(t, svc.UpsertPasswordHash(ctx, uid, good, "argon2id", nil))
 	require.ErrorIs(t, svc.UpsertPasswordHash(ctx, uid, unsafe, "argon2id", nil), password.ErrInvalidHash)
 	require.NoError(t, svc.CheckUserPassword(ctx, uid, "Known-password-123"))
+	// Older/corrupt stored rows bypassed today's importer. They should use the
+	// existing recovery outcome, never panic or compute the rejected work.
+	_, err = svc.pg.Exec(ctx, `UPDATE profiles.user_passwords SET password_hash=$2, hash_algo='argon2id' WHERE user_id=$1`, uid, unsafe)
+	require.NoError(t, err)
+	require.ErrorIs(t, svc.CheckUserPassword(ctx, uid, "any"), ErrPasswordResetRequired)
+	require.ErrorIs(t, svc.ChangePassword(ctx, uid, "any", "Another-password-123", nil), ErrPasswordResetRequired)
 	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, uid) })
 }
