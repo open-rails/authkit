@@ -46,7 +46,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 		reset      bool
 	}{
 		{"legacy", embedded.HashAlgoLegacyResetRequired, true},
-		{"$argon2id$v=19$m=4294967295,t=1,p=1$c2FsdA$aGFzaA", "argon2id", true},
+		{"$argon2id$v=19$m=8,t=0,p=1$c2FsdA$aGFzaA", "argon2id", true},
 		{"legacy-unknown-format", "unknown", true},
 		{good, "argon2id", false},
 	} {
