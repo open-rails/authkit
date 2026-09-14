@@ -411,7 +411,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		serverErr(w, ch.errResetUnavailable)
 		return
 	}
-	ua, ip := r.UserAgent(), remoteIP(r)
+	ua, ip := r.UserAgent(), s.requestIP(r)
 	if err := ch.requestPasswordReset(r.Context(), id, &ip, &ua); err != nil {
 		writeError(w, err)
 		return

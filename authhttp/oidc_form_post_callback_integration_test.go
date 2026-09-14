@@ -35,7 +35,8 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 		idp.Provider("apple", authprovider.WithAuthParams(map[string]string{"response_mode": "form_post"})),
 		idp.Provider("google"),
 	)
-	h := srv.oidcHandler()
+	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
 	})
@@ -65,6 +66,8 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 		form := url.Values{"code": {"idp-code"}, "state": {state}}
 		req := httptest.NewRequest(http.MethodPost, "/oidc/apple/callback", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", idp.Server.URL)
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
 		if cookie != nil {
 			req.AddCookie(cookie)
 		}
@@ -89,6 +92,8 @@ func TestOIDCFormPostCallbackIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, frag.Get("error"), target.String())
 	require.NotEmpty(t, frag.Get("access_token"))
+	require.Empty(t, frag.Get("refresh_token"))
+	require.NotNil(t, refreshCookieOf(t, w), "state-bound form_post can establish the cookie session")
 	require.Equal(t, "apple", frag.Get("provider"))
 	require.Equal(t, state, frag.Get("state"))
 	// The clearing Set-Cookie mirrors the attributes of the cookie it evicts.

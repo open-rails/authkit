@@ -113,7 +113,7 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	}
 	svc.verifier.AddMFAEnrollmentExemptRoutes(exempt)
 
-	mount := func(specs []RouteSpec, anchor string) {
+	mount := func(specs []RouteSpec, anchor string, jsonAPI bool) {
 		for _, spec := range specs {
 			if spec.Method == "" || spec.Path == "" || spec.Handler == nil {
 				continue
@@ -125,12 +125,15 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 			if opts.Wrap != nil {
 				handler = opts.Wrap(spec, handler)
 			}
+			if jsonAPI {
+				handler = svc.guardJSONAPI(handler)
+			}
 			mux.Handle(spec.Method+" "+joinRoutePath(anchor, spec.Path), handler)
 		}
 	}
-	mount(svc.APIRoutes(opts.Groups...), apiPrefix)
+	mount(svc.APIRoutes(opts.Groups...), apiPrefix, true)
 	if opts.Groups == nil || routeGroupSet(opts.Groups)(RouteBrowserOIDC) {
-		mount(svc.OIDCBrowserRoutes(), DefaultOIDCPath)
+		mount(svc.OIDCBrowserRoutes(), DefaultOIDCPath, false)
 	}
 
 	if !opts.RefreshCookie {

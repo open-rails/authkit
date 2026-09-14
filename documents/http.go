@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/open-rails/authkit/internal/netguard"
 )
 
 const PublicationPathPrefix = "/.well-known/authkit/documents/"
@@ -100,7 +102,8 @@ type DocumentVerifier interface {
 
 type ResolverOptions struct {
 	// AllowHTTP is for local tests and development only. Production defaults to
-	// HTTPS-only publication endpoints.
+	// HTTPS-only publication endpoints with private network destinations rejected.
+	// AllowHTTP also permits private destinations on the default transport.
 	AllowHTTP        bool
 	Timeout          time.Duration
 	MaxResponseBytes int64
@@ -130,11 +133,19 @@ type resolveFlight struct {
 	err      error
 }
 
+// NewResolver guards default transports against private destinations, including
+// addresses learned through DNS. A non-nil custom Transport is an explicit host
+// trust seam: the host owns its destination/proxy policy. Timeout, redirects,
+// response limits and signature verification apply to either transport.
 func NewResolver(verifier DocumentVerifier, client *http.Client, authorize AuthorizeRequest, opts ResolverOptions) *Resolver {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{}
 	}
 	clientCopy := *client
+	standard, _ := http.DefaultTransport.(*http.Transport)
+	if transport, ok := clientCopy.Transport.(*http.Transport); clientCopy.Transport == nil || (ok && transport == standard) {
+		clientCopy.Transport = netguard.Transport(opts.AllowHTTP)
+	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = 5 * time.Second
 	}

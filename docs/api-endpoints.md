@@ -2,6 +2,11 @@
 
 The route table below is GENERATED from `authhttp`'s route registry (`RouteSpec.Auth`, `RouteSpec.Bucket`, `RouteSpec.Requires()`) by `go test ./authhttp -run TestAPIEndpointsDoc -update`; CI fails when it is stale. Everything after the table is hand-written.
 
+`MountHandler` requires `Content-Type: application/json` for JSON API request
+bodies. Cookie-enabled mounts validate origin and fetch metadata before JSON
+mutations execute; browser OIDC callbacks keep their separate state-bound
+form-post protocol. See the [refresh-cookie contract](../README.md#refresh-cookie).
+
 AuthKit HTTP handlers are prefix-neutral. The paths below are handler paths; when a host mounts AuthKit API routes at `/api/v1`, `GET /me` becomes public route `GET /api/v1/me`.
 
 Downstream applications that embed AuthKit should mount the AuthKit API at `/api/v1` and should not add an extra `/auth` segment. Browser OIDC routes should usually be mounted outside API versioning at `/oidc/*`.

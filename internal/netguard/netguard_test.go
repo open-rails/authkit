@@ -52,13 +52,17 @@ func (f fakeResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr
 }
 
 func TestDialerRefusesPrivateLiteralsAndAnswers(t *testing.T) {
-	dial := DialerWith(fakeResolver{
+	resolver := fakeResolver{
+		"changed.example":  {"93.184.216.34"},
 		"loopback.example": {"127.0.0.1"},
 		"mixed.example":    {"93.184.216.34", "10.0.0.5"},
 		"metadata.example": {"169.254.169.254"},
 		"empty.example":    nil,
-	}, false)
-	for _, addr := range []string{"127.0.0.1:80", "[::1]:80", "10.1.2.3:443", "loopback.example:80", "mixed.example:443", "metadata.example:80", "empty.example:80"} {
+	}
+	dial := DialerWith(resolver, false)
+	// A public answer at construction cannot authorize a later private target.
+	resolver["changed.example"] = []string{"127.0.0.1"}
+	for _, addr := range []string{"127.0.0.1:80", "[::1]:80", "10.1.2.3:443", "loopback.example:80", "mixed.example:443", "metadata.example:80", "empty.example:80", "changed.example:443"} {
 		if _, err := dial(context.Background(), "tcp", addr); err == nil {
 			t.Errorf("dial %q succeeded, want refusal", addr)
 		}

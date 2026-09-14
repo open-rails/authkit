@@ -24,7 +24,7 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authkit.TokenSet, error) {
 	session, err := s.svc.IssueLoginSession(r.Context(), embedded.LoginSessionInput{
 		UserID: userID, AuthMethods: authMethodsForSessionMethod(method), Event: method,
-		UserAgent: r.UserAgent(), IP: remoteIP(r),
+		UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
 		return authkit.TokenSet{}, err

@@ -201,43 +201,31 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 	return found, true
 }
 
-// cookieOriginAllowed reports whether a cookie-sourced credential may be
-// honored. SameSite=Lax already blocks the cross-site POST; this is the belt
-// for clients and proxies that strip it.
-//
-// The test is Origin's HOST against the host the request was addressed to, or
-// the configured Frontend.BaseURL's. Both are needed and neither alone is
-// enough: r.Host covers a deployment reached by an alias or by 127.0.0.1 when
-// BaseURL says localhost, and the configured host covers a proxy that rewrites
-// Host. HOST, not full origin, because a TLS-terminating proxy leaves r.TLS nil
-// and a scheme comparison would then reject every real production request while
-// the browser correctly reports https. X-Forwarded-* is never consulted — it is
-// attacker-settable and would let a cross-site request declare itself
-// same-origin.
-//
-// A browser will not let a cross-site page forge Origin, and an off-browser
-// caller that forges both does not hold the victim's cookie, so this is a sound
-// same-origin test rather than a guess.
-//
-// Absent Origin is allowed: same-origin top-level navigations and non-browser
-// callers legitimately omit it, and refusing them breaks flows this change
-// exists to preserve. Present-and-mismatched is refused.
+// cookieOriginAllowed guards cookie consumption and session establishment.
+// Browser metadata can only narrow the declared deployment/request origin.
+// Non-browser clients may omit Origin; opaque origins and cross-site requests
+// cannot establish cookie sessions. Forwarded origin headers are never trusted.
 func (s *Service) cookieOriginAllowed(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+	case "", "same-origin", "none":
+	default:
+		return false
+	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" || strings.EqualFold(origin, "null") {
+	if origin == "" {
 		return true
 	}
 	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
-	if strings.EqualFold(u.Host, r.Host) {
+	scheme := "http"
+	if s.cookieSecure(r) {
+		scheme = "https"
+	}
+	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
 	configured, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
-	if !ok {
-		return false
-	}
-	cu, err := url.Parse(configured)
-	return err == nil && cu.Host != "" && strings.EqualFold(u.Host, cu.Host)
+	return ok && strings.EqualFold(origin, configured)
 }

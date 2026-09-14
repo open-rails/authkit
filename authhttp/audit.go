@@ -7,6 +7,6 @@ func logLoginFailed(s *Service, r *http.Request, userID string, reason string) {
 		return
 	}
 	ua := r.UserAgent()
-	ip := remoteIP(r)
+	ip := s.requestIP(r)
 	s.svc.LogSessionFailed(r.Context(), userID, "", &reason, &ip, &ua)
 }

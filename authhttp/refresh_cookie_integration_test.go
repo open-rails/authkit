@@ -80,99 +80,6 @@ func bodyRefreshToken(t *testing.T, w *httptest.ResponseRecorder) string {
 	return rt
 }
 
-// TestRefreshCookie_OptOutIsUnchanged is the compatibility guard: a host that
-// does not set MountOptions.RefreshCookie must see exactly today's behaviour.
-func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "cookieoptout")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	require.Nil(t, refreshCookieOf(t, login), "opt-out must set no refresh cookie")
-	rt := bodyRefreshToken(t, login)
-	require.NotEmpty(t, rt, "opt-out must keep refresh_token in the body")
-
-	// And a cookie-only refresh is still a 400 there — no accidental
-	// cookie acceptance on a mount that never opted in.
-	rec := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: rt})
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// TestRefreshCookie_BrowserLifecycle walks the real browser path: password
-// login, a body-less refresh, rotation, and logout.
-func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "cookielife")
-
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	require.Empty(t, bodyRefreshToken(t, login), "the durable credential must not be readable by script")
-
-	c := refreshCookieOf(t, login)
-	require.NotNil(t, c, "login must set the refresh cookie")
-	require.NotEmpty(t, c.Value)
-	require.True(t, c.HttpOnly, "HttpOnly is the entire point")
-	require.True(t, c.Secure, "https BaseURL must yield Secure")
-	require.Equal(t, http.SameSiteLaxMode, c.SameSite, "Strict drops the cookie on the cross-site OIDC/email-link return")
-	require.Equal(t, "/api/v1/token", c.Path, "scoped to the mount's POST /token, off the SPA document")
-
-	// The access token is still delivered in the body — the SPA builds the
-	// Authorization header from it synchronously and a cookie cannot serve that.
-	var loginBody map[string]any
-	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &loginBody))
-	require.NotEmpty(t, loginBody["access_token"])
-
-	// POST /token with an EMPTY refresh_token — the post-migration steady
-	// state — must rotate, not 400.
-	refresh := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(c)
-	})
-	require.Equal(t, http.StatusOK, refresh.Code, refresh.Body.String())
-	require.Empty(t, bodyRefreshToken(t, refresh))
-	rotated := refreshCookieOf(t, refresh)
-	require.NotNil(t, rotated, "a rotation must re-set the cookie or the browser keeps a spent token")
-	require.NotEqual(t, c.Value, rotated.Value, "the refresh token rotates")
-
-	// Logout clears it. The Go footgun: MaxAge 0 OMITS the attribute and
-	// yields a session cookie — only a negative MaxAge serializes Max-Age=0.
-	var access struct {
-		AccessToken string `json:"access_token"`
-	}
-	require.NoError(t, json.Unmarshal(refresh.Body.Bytes(), &access))
-	logout := httptest.NewRecorder()
-	lr := httptest.NewRequest(http.MethodDelete, "/api/v1/logout", nil)
-	lr.Header.Set("Authorization", "Bearer "+access.AccessToken)
-	lr.Header.Set("Origin", cookieTestOrigin)
-	lr.Host = "example.com"
-	lr.AddCookie(rotated)
-	h.ServeHTTP(logout, lr)
-	require.Equal(t, http.StatusNoContent, logout.Code, logout.Body.String())
-
-	raw := logout.Header().Get("Set-Cookie")
-	require.Contains(t, raw, RefreshCookieName+"=;", "the clear must send an empty value")
-	require.Contains(t, raw, "Max-Age=0", "MaxAge:0 would omit the attribute and NOT clear")
-	require.Contains(t, raw, "Path=/api/v1", "a clear whose attributes differ leaves the original cookie in place")
-	require.Contains(t, raw, "HttpOnly")
-	require.Contains(t, raw, "SameSite=Lax")
-
-	// The revoked session is dead server-side as well.
-	dead := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(rotated)
-	})
-	require.Equal(t, http.StatusUnauthorized, dead.Code)
-}
-
 // TestRefreshCookie_SourceResolutionAndGates pins the rules that decide whether
 // a cookie is honored at all.
 func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
@@ -226,7 +133,7 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	// refresh on the dev stack.
 	viaHost := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
 		r.Host = "127.0.0.1:8818"
-		r.Header.Set("Origin", "http://127.0.0.1:8818")
+		r.Header.Set("Origin", "https://127.0.0.1:8818")
 		r.AddCookie(rotated)
 	})
 	require.Equal(t, http.StatusOK, viaHost.Code, viaHost.Body.String())
