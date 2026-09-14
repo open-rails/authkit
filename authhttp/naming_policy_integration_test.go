@@ -49,6 +49,9 @@ func TestNamingHTTPPolicyAndCompositeSettings(t *testing.T) {
 		Naming authkit.NamingState `json:"naming"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, float64(90*24*60*60), body.Naming.Policy.FormerNameRetentionSeconds)
+	require.NotContains(t, w.Body.String(), `"former_name_retention":`)
+	require.NotContains(t, w.Body.String(), `"rename_interval":`)
 	require.Len(t, body.Naming.Aliases, 1)
 	require.Equal(t, "original", body.Naming.Aliases[0].Name)
 	require.NotNil(t, body.Naming.Aliases[0].ExpiresAt)

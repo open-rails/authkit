@@ -34,7 +34,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 				serverErr(w, authkit.CodeDatabaseError)
 				return
 			}
-			sendErrData(w, http.StatusTooManyRequests, authkit.CodeRenameRateLimited, map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(state.Policy.RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": ActionUpdateUsername})
+			sendErrData(w, http.StatusTooManyRequests, authkit.CodeRenameRateLimited, map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(s.svc.NamingPolicy().RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": ActionUpdateUsername})
 			return
 		}
 		writeError(w, err)
