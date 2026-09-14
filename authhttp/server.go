@@ -135,10 +135,12 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 		verOpts = append(verOpts, verify.WithSSRFGuard())
 	}
 	ver := verify.NewVerifier(verOpts...)
-	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
-		RawKeys: coreSvc.PublicKeysByKID(),
-		IsLocal: true,
-	})
+	if err := ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
+		PublicKeys: coreSvc.PublicKeysByKID,
+		IsLocal:    true,
+	}); err != nil {
+		return nil, err
+	}
 	ver.WithService(coreSvc)
 	s.verifier = ver
 

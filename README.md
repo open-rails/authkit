@@ -10,6 +10,9 @@ Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and
 `adapters/riverjobs` as separate modules so gin and river never enter the root
 `go.mod`.
 
+See [verification trust and key ownership](docs/verification.md) for local versus
+external identity, application delegation boundaries, and key rotation.
+
 ## Migrations
 
 ```go

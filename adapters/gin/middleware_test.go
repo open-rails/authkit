@@ -23,6 +23,7 @@ func TestGinNativeRequiredOptional(t *testing.T) {
 	v := verify.NewVerifier(verify.WithAlgorithms("RS256"), verify.WithSkew(60*time.Second))
 	require.NoError(t, v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
+		IsLocal: true,
 	}))
 
 	gin.SetMode(gin.TestMode)
@@ -74,4 +75,27 @@ func TestGinNativeRequiredOptional(t *testing.T) {
 	// as anonymous) — same contract as verify.Optional.
 	w = do("/optional", issuer.CreateExpiredToken("user-209", "u209@example.com"))
 	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+}
+
+func TestExternalIdentityCannotUseLocalUserClaims(t *testing.T) {
+	issuer := authtest.NewTestIssuer()
+	t.Cleanup(issuer.Close)
+	v := verify.NewVerifier()
+	require.NoError(t, v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{JWKSURI: issuer.URL() + "/.well-known/jwks.json"}))
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/identity", Required(v), func(c *gin.Context) {
+		_, ok := UserClaims(c)
+		require.False(t, ok, "external subject must not populate naked local UserID")
+		principal, ok := Principal(c)
+		require.True(t, ok)
+		require.Equal(t, issuer.URL(), principal.Issuer)
+		require.Equal(t, "local-looking-user-id", principal.Subject)
+		c.Status(http.StatusNoContent)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/identity", nil)
+	req.Header.Set("Authorization", "Bearer "+issuer.CreateToken("local-looking-user-id", "external@example.com"))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
 }

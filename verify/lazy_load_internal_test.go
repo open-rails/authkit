@@ -96,7 +96,7 @@ func TestLazyLoad_UnknownIssuersNeverReachStore(t *testing.T) {
 	v.mu.Unlock()
 
 	for i := 0; i < 1000; i++ {
-		_, err := v.Verify(context.Background(), mintFor(t, signer, fmt.Sprintf("https://garbage-%d.example", i)))
+		_, err := v.VerifyClaims(context.Background(), mintFor(t, signer, fmt.Sprintf("https://garbage-%d.example", i)))
 		require.Error(t, err)
 	}
 	list, get := src.calls()
@@ -111,18 +111,18 @@ func TestLazyLoad_UnknownIssuersNeverReachStore(t *testing.T) {
 	// when the snapshot is stale.
 	v.forceStaleSnapshot()
 	for _, iss := range []string{"garbage", "app.example", strings.Repeat("x", 600), "https://" + strings.Repeat("h", 600) + ".example", "https://a.example/with space", "ftp://a.example"} {
-		_, err := v.Verify(context.Background(), mintFor(t, signer, iss))
+		_, err := v.VerifyClaims(context.Background(), mintFor(t, signer, iss))
 		require.Error(t, err, iss)
 	}
 	list, _ = src.calls()
 	require.Equal(t, 1, list)
 
 	// The registered application verifies on first use straight from the
-	// snapshot (ak#42 contract), still without a per-issuer read.
-	_, err := v.Verify(context.Background(), mintFor(t, signer, "https://app.example"))
+	// snapshot, with one live eligibility/key read for a registered application.
+	_, err := v.VerifyClaims(context.Background(), mintFor(t, signer, "https://app.example"))
 	require.NoError(t, err)
 	_, get = src.calls()
-	require.Equal(t, 0, get)
+	require.Equal(t, 1, get)
 }
 
 // TestLazyLoad_NewApplicationVisibleAfterRefresh: an application enabled after
@@ -135,32 +135,32 @@ func TestLazyLoad_NewApplicationVisibleAfterRefresh(t *testing.T) {
 	v.mu.Lock()
 	v.fedSource = src
 	v.mu.Unlock()
-	_, err := v.Verify(context.Background(), mintFor(t, signer, "https://first.example"))
+	_, err := v.VerifyClaims(context.Background(), mintFor(t, signer, "https://first.example"))
 	require.NoError(t, err)
 
 	second, signer2 := staticApp(t, "second", "https://second.example")
 	src.mu.Lock()
 	src.apps = append(src.apps, second)
 	src.mu.Unlock()
-	_, err = v.Verify(context.Background(), mintFor(t, signer2, "https://second.example"))
+	_, err = v.VerifyClaims(context.Background(), mintFor(t, signer2, "https://second.example"))
 	require.Error(t, err, "not visible while the snapshot is fresh")
 	v.forceStaleSnapshot()
-	_, err = v.Verify(context.Background(), mintFor(t, signer2, "https://second.example"))
+	_, err = v.VerifyClaims(context.Background(), mintFor(t, signer2, "https://second.example"))
 	require.NoError(t, err, "visible after the refresh")
 	list, get := src.calls()
 	require.Equal(t, 2, list)
-	require.Equal(t, 0, get)
+	require.Equal(t, 2, get)
 
 	src.mu.Lock()
 	src.listErr = errors.New("store down")
 	src.mu.Unlock()
 	v.forceStaleSnapshot()
-	_, err = v.Verify(context.Background(), mintFor(t, signer, "https://third.example"))
+	_, err = v.VerifyClaims(context.Background(), mintFor(t, signer, "https://third.example"))
 	require.Error(t, err)
-	_, err = v.Verify(context.Background(), mintFor(t, signer, "https://fourth.example"))
+	_, err = v.VerifyClaims(context.Background(), mintFor(t, signer, "https://fourth.example"))
 	require.Error(t, err)
 	list, _ = src.calls()
 	require.Equal(t, 3, list, "a failing store is retried at most once per TTL")
-	_, err = v.Verify(context.Background(), mintFor(t, signer, "https://first.example"))
+	_, err = v.VerifyClaims(context.Background(), mintFor(t, signer, "https://first.example"))
 	require.NoError(t, err, "already-registered issuers are unaffected by store failure")
 }

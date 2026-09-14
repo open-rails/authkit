@@ -31,6 +31,7 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
+		IsLocal: true,
 	})
 	ver.WithService(coreSvc)
 	return &Service{svc: coreSvc, verifier: ver}

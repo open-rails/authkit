@@ -2,9 +2,11 @@ package authhttp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/password"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -155,25 +158,41 @@ func TestV1AuditLocalHTTPVerifierFollowsKeyRotation(t *testing.T) {
 	defer srv.Close()
 	user, err := core.CreateUser(ctx, "audit-rotate@example.test", "audit-rotate")
 	require.NoError(t, err)
-	old, _, err := core.MintAccessToken(ctx, user.ID, nil)
+	hash, err := password.HashArgon2id("rotation-password-12345")
 	require.NoError(t, err)
-	_, err = srv.Verifier().Verify(ctx, old)
+	require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	h, err := MountHandler(srv, MountOptions{APIPrefix: "/api/v1"})
 	require.NoError(t, err)
-	keys.rotate(t, "audit-local-key-2")
-	fresh, _, err := core.MintAccessToken(ctx, user.ID, nil)
-	require.NoError(t, err)
-	_, err = srv.Verifier().Verify(ctx, fresh)
-	if err != nil {
-		t.Errorf("newly minted token rejected after live rotation: %v", err)
+	login := func() string {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/password/login", strings.NewReader(`{"identifier":"audit-rotate@example.test","password":"rotation-password-12345"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var tokens authkit.TokenSet
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
+		require.NotEmpty(t, tokens.AccessToken)
+		return tokens.AccessToken
 	}
+	profile := func(token string) int {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	old := login()
+	require.Equal(t, http.StatusOK, profile(old))
+	keys.rotate(t, "audit-local-key-2")
+	fresh := login()
+	require.Equal(t, http.StatusOK, profile(fresh), "login uses rotated live signing key")
+	require.Equal(t, http.StatusOK, profile(old), "retired key works while published")
 	keys.mu.Lock()
 	delete(keys.pubs, "audit-local-key-1")
 	keys.mu.Unlock()
 	require.NotContains(t, core.PublicKeysByKID(), "audit-local-key-1", "engine/JWKS source removed old key")
-	_, err = srv.Verifier().Verify(ctx, old)
-	if err == nil {
-		t.Error("HTTP verifier still accepts removed local signing key")
-	}
+	require.Equal(t, http.StatusUnauthorized, profile(old), "removed key must fail")
+	require.Equal(t, http.StatusOK, profile(fresh))
 }
 
 func TestV1AuditStaticRemoteKeyRotationReachesVerifier(t *testing.T) {
@@ -183,6 +202,9 @@ func TestV1AuditStaticRemoteKeyRotationReachesVerifier(t *testing.T) {
 	srv, err := newServer(core, WithoutRateLimiter())
 	require.NoError(t, err)
 	defer srv.Close()
+	replica, err := newServer(core, WithoutRateLimiter())
+	require.NoError(t, err)
+	defer replica.Close()
 	gid := createRepoGroup(t, ctx, core, pg.Pool, "audit-remote-rotate")
 	first, err := jwtkit.NewRSASigner(2048, "audit-remote-key-1")
 	require.NoError(t, err)
@@ -197,17 +219,23 @@ func TestV1AuditStaticRemoteKeyRotationReachesVerifier(t *testing.T) {
 		return tok
 	}
 	old := mint(first)
-	_, err = srv.Verifier().Verify(ctx, old)
-	require.NoError(t, err)
-	app.PublicKeys = []authkit.RemoteAppKey{{KID: second.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, second.PublicKey())}}
-	_, err = core.UpsertRemoteApplication(ctx, *app)
-	require.NoError(t, err)
-	_, err = srv.Verifier().Verify(ctx, mint(second))
-	if err != nil {
-		t.Errorf("updated static remote key rejected: %v", err)
+	for _, v := range []*verify.Verifier{srv.Verifier(), replica.Verifier()} {
+		_, err = v.Verify(ctx, old)
+		require.NoError(t, err)
 	}
-	_, err = srv.Verifier().Verify(ctx, old)
-	if err == nil {
-		t.Error("removed static remote key remains accepted")
+	for _, kid := range []string{second.KID(), second.KID()} {
+		replacement, err := jwtkit.NewRSASigner(2048, kid)
+		require.NoError(t, err)
+		app.PublicKeys = []authkit.RemoteAppKey{{KID: replacement.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, replacement.PublicKey())}}
+		_, err = core.UpsertRemoteApplication(ctx, *app)
+		require.NoError(t, err)
+		fresh := mint(replacement)
+		for _, v := range []*verify.Verifier{srv.Verifier(), replica.Verifier()} {
+			_, err = v.Verify(ctx, fresh)
+			require.NoError(t, err, "new key and same-KID replacement are live")
+			_, err = v.Verify(ctx, old)
+			require.Error(t, err, "removed keys fail on both replicas")
+		}
+		old = fresh
 	}
 }

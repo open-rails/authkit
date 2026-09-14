@@ -94,7 +94,7 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 			return nil, errors.New("bad_rsa_exponent")
 		}
 		pub := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(eInt.Int64())}
-		if err := validateRSAPublicKey(pub); err != nil {
+		if err := ValidatePublicKey(pub); err != nil {
 			return nil, err
 		}
 		return pub, nil

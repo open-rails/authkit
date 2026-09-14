@@ -20,8 +20,9 @@ func unauthorizedError(err error) error {
 }
 
 // VerifyRequest runs the full Required authentication pipeline — bearer parse,
-// API-key resolution, JWT verify, 2FA gate, and (for delegated principals) the
-// fail-closed issuer gate — and returns the claims WITHOUT writing a response.
+// API-key resolution, typed JWT verification and the 2FA gate — and returns
+// claims without writing a response. Issuer eligibility and delegated authority
+// are enforced by the shared verifier on every typed entrypoint.
 // Embedders that authenticate a request outside the middleware chain call this
 // instead of driving Required against a throwaway ResponseWriter. The
 // native-user path is stateless: it does ZERO DB lookups (#215) — no ban gate,
@@ -66,26 +67,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
 		return Claims{}, authkit.E(authkit.CodeTwoFAEnrollmentRequired, authkit.WithStatus(http.StatusForbidden))
 	}
-	if v.enrich != nil && cl.isDelegated() {
-		// Fail-closed issuer gate (#78): resolve remote_application by the
-		// VALIDATED issuer, reject unknown/disabled. READ-ONLY.
-		ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
-		if err != nil || ra == nil || !ra.Enabled {
-			return Claims{}, authkit.E(authkit.CodeInvalidToken, authkit.WithStatus(http.StatusUnauthorized))
-		}
-	}
 
-	// #215: the native-user request path is STATELESS — zero DB lookups. We do
-	// NOT re-enrich roles/email/discord and do NOT run a per-request ban/deleted
-	// gate here. Ban/deleted is enforced where NEW tokens are minted — login
-	// (ensureUserAccess) and refresh (ExchangeRefreshToken → ensureUserAccessByID
-	// revoking all sessions on disable) — so a banned/deleted
-	// user cannot obtain a new access token and their existing one expires within
-	// one access-TTL window (≤15min by default). That residual window is the
-	// accepted #90 trade-off (embedded/service.go: trust the
-	// short-lived access token instead of a per-request liveness lookup). Roles
-	// resolve lazily via Can() on permission-gated routes (DB-live there); email
-	// rides in the token claims. Delegated principals are still gated above.
 	return cl, nil
 }
 

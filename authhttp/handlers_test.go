@@ -90,6 +90,7 @@ func serviceFromCore(t *testing.T, coreSvc *embedded.Client) *Service {
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
+		IsLocal: true,
 	})
 	ver.WithService(coreSvc)
 	return &Service{svc: coreSvc, verifier: ver}

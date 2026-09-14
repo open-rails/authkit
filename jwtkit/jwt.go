@@ -99,6 +99,9 @@ func NewRSASigner(bits int, kid string) (*RSASigner, error) {
 	if bits == 0 {
 		bits = 2048
 	}
+	if bits < minRSABits || bits > maxRSABits {
+		return nil, errors.New("RSA key size must be between 2048 and 8192 bits")
+	}
 	k, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
 		return nil, err
