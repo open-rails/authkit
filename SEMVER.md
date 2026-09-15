@@ -76,7 +76,8 @@ generated or canonical sources named below, not here.
 | `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
 Renaming an import path or package name is MAJOR; adding a package is MINOR.
-`go doc` is the live enumeration of each surface; CI does not yet diff it (§8).
+`go doc` is the live enumeration; the compatibility comparison in §8 checks
+exported signatures as well as the documented host compile fixtures.
 
 **Nested modules.** `adapters/gin` and `adapters/riverjobs` are their own
 modules so gin and river never enter the root `go.mod`. Tags: `vX.Y.Z` (root),
@@ -113,7 +114,7 @@ adapters.
 **Caller authority.** Trusted host commands accept identities already selected
 and authorized by the host. A host must authenticate the caller, authorize the
 operation and retain the resolved immutable IDs before calling them. `*As`
-methods additionally check the actor's mutation authority; they do not replace
+methods apply documented actor-dependent mutation constraints; they do not replace
 the host's operation-level authorization. `Genesis()` is for explicitly trusted
 bootstrap/import/provisioning, never for forwarding an untrusted role request.
 The host owns this boundary even when it obtains the client through an interface.
@@ -319,8 +320,14 @@ Mechanical today:
    the migration command reads its explicit database configuration at startup.
 4. **Build graph** — `TestRootAndVerifyArePgxFree`, `TestSharedLeavesAreStdlibOnly`.
 
-Still advisory: a `go doc`/`apidiff` snapshot of Plane A and a checksum gate on
-published migration files.
+5. **Go API and migration compatibility** — `scripts/check-compatibility.sh`
+   compares all three modules against `compatibility/base-ref`, requires every
+   baseline migration to remain byte-identical, and compiles host examples with
+   `GOWORK=off`. The baseline is still a reviewed candidate before v1.
+6. **Wire and browser workflows** — `TestSessionWireWorkflow` reads maintained
+   HTTP/JWT goldens while allowing additive fields. `task test-browser` runs the
+   actual two-site Chrome cookie lifecycle in CI. Route-specific MFA and failure
+   assertions remain in the corresponding workflow suites.
 
 ## 9. Pre-1.0 freeze list
 

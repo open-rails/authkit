@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "authentication_error",
+    "code": "invalid_refresh_token",
+    "message": "$string"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "next_action": "none",
+  "user": {
+    "username": "$string",
+    "email": "$string",
+    "phone_number": null
+  },
+  "token_set": {
+    "access_token": "$string",
+    "refresh_token": "$string",
+    "token_type": "Bearer",
+    "expires_in": "$number"
+  }
+}

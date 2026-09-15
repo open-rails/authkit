@@ -1,0 +1,11 @@
+{
+  "iss": "https://example.com",
+  "aud": ["test-app"],
+  "sub": "$string",
+  "sid": "$string",
+  "iat": "$number",
+  "exp": "$number",
+  "auth_time": "$number",
+  "amr": ["pwd"],
+  "entitlements": ["premium"]
+}
