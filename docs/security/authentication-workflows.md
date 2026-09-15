@@ -94,7 +94,7 @@ The focused command complements the full run; it does not replace the retained
 cryptographic/fuzz, input-bound, state-machine, fault, contention, credential
 mutation, enrollment-revocation and provider-linking regressions.
 
-Measured against `c0aadd8` on the same PG18/Redis7 host with
+Measured against `c0aadd8` at workflow revision `511a87d`, on the same PG18/Redis7 host with
 `GOMAXPROCS=2 go test -race -p 1 -count=1 -json ./authhttp ./embedded`:
 
 | Measurement | Before | After |
@@ -104,8 +104,16 @@ Measured against `c0aadd8` on the same PG18/Redis7 host with
 | `authhttp` package duration | 111.774 s | 159.438 s |
 | `embedded` package duration | 56.360 s | 61.806 s |
 
-This change removes 798 and adds 282 Go test lines (**net -516**); production
+This change removes 798 and adds 310 Go test lines (**net -488**); production
 code is unchanged. Sixteen standalone test roots become two workflow roots and
 one added assertion in the retained passkey matrix. These shared-host timings
 show no speedup; the gains are fewer fixtures, actual session/credential proof,
 and memory/Redis parity for the consolidated workflows.
+
+The final TOTP boundary correction retries enrollment only when an invalid-code
+response coincides with expiry of the captured prior counter, using a fresh
+current counter. Subsequent proofs use an unused real counter, waiting at most
+35 seconds when it is not yet accepted; no replay state or assurance is injected.
+The final memory/Redis native+factor matrix passed in 4.144 s. An uncommitted
+forced-expiry probe also passed in 26.967 s, including an observed 24.439 s wait,
+and was removed after validation. Normal execution need not wait.

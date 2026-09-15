@@ -43,10 +43,37 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		pending := f.expect(200, f.request("POST", "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp"}))
 		require.NotEmpty(t, pending.Secret)
 		require.Contains(t, pending.raw, "otpauth://totp/")
-		// Enroll in the previous accepted step, leaving current and next codes
-		// available for independent real step-up and login proofs without resets.
-		step := time.Now().Unix() / 30
-		enabled := f.expect(200, f.request("POST", "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp", "code": testTOTPCode(t, pending.Secret, step-1), "default": true}))
+		// Start with the previous accepted counter so the real step-up and login
+		// can follow without resetting replay state. Only an actually expired
+		// counter may retry with a fresh code if this request crosses the window.
+		enrolledStep := time.Now().Unix()/30 - 1
+		enroll := func(counter int64) flowResponse {
+			return f.request("POST", "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp", "code": testTOTPCode(t, pending.Secret, counter), "default": true})
+		}
+		enabled := enroll(enrolledStep)
+		if enabled.status == 400 && enabled.Error.Code == "invalid_code" && time.Now().Unix()/30 > enrolledStep+1 {
+			enrolledStep = time.Now().Unix() / 30
+			enabled = enroll(enrolledStep)
+		}
+		f.expect(200, enabled)
+		nextCode := func(after int64) (int64, string) {
+			t.Helper()
+			counter := max(time.Now().Unix()/30, after+1)
+			// The server accepts the next counter, but never a later one. This
+			// wait is needed only after the expiry retry consumed a newer counter.
+			if delay := time.Until(time.Unix((counter-1)*30, 0)); delay > 0 {
+				require.LessOrEqual(t, delay, 35*time.Second)
+				t.Logf("waiting %s for an unused TOTP counter", delay)
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			return counter, testTOTPCode(t, pending.Secret, counter)
+		}
 		require.Len(t, enabled.BackupCodes, 10)
 		original, err := f.service.svc.Get2FASettings(ctx, userID)
 		require.NoError(t, err)
@@ -97,7 +124,8 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		for _, body := range []any{map[string]any{"method": "bad"}, map[string]any{"factor_id": factor.ID}} {
 			f.expect(400, f.request("POST", "/step-up/2fa", current, body))
 		}
-		mfa := f.expect(200, f.request("POST", "/step-up/2fa", current, map[string]any{"code": testTOTPCode(t, pending.Secret, step)})).Tokens
+		stepUpCounter, stepUpCode := nextCode(enrolledStep)
+		mfa := f.expect(200, f.request("POST", "/step-up/2fa", current, map[string]any{"code": stepUpCode})).Tokens
 		claims = unverifiedAccessClaims(t, mfa.AccessToken)
 		require.NotEmpty(t, claims["auth_time"])
 		require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
@@ -129,7 +157,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		proof := map[string]any{"user_id": userID, "challenge": challenge.Error.Metadata.Challenge, "factor_id": factor.ID}
 		selected := f.expect(403, f.post("/2fa/challenge", proof))
 		require.Equal(t, "totp", selected.Error.Metadata.Method)
-		proof["code"] = testTOTPCode(t, pending.Secret, time.Now().Unix()/30+1)
+		_, proof["code"] = nextCode(stepUpCounter)
 		tokens := f.expect(200, f.post("/2fa/verify", proof)).TokenSet
 		f.session(tokens, "pwd", "totp", "otp", "mfa")
 		loginSID := unverifiedAccessClaims(t, tokens.AccessToken)["sid"]
