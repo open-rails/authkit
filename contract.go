@@ -157,8 +157,12 @@ type DelegatedAccessParams struct {
 	NotBefore time.Time
 	// ConfirmationCertificateSHA256, when set, binds the token to the delegate's
 	// X.509 certificate as RFC 8705 `cnf.x5t#S256`; verification then requires
-	// that exact leaf as the TLS peer. Nil mints an unbound bearer token.
+	// that exact leaf as the TLS peer. When both confirmation fields are nil,
+	// the token is an unbound bearer.
 	ConfirmationCertificateSHA256 *[32]byte
+	// ConfirmationJWKThumbprintSHA256 binds the token to a DPoP key (RFC 9449).
+	// Mutually exclusive with ConfirmationCertificateSHA256.
+	ConfirmationJWKThumbprintSHA256 *[32]byte
 }
 
 type GroupInviteLink struct {

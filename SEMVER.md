@@ -64,6 +64,7 @@ generated or canonical sources named below, not here.
 | `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)` |
 | `…/authhttp` | `authhttp` | Stable | HTTP transport: `New(client, Config)`, `MountHandler` |
 | `…/verify` | `verify` | Stable (verify-only) | Verifier, `Claims`, middleware, permission/liveness gates |
+| `…/dpop` | `dpop` | Stable (verify-only) | RFC 9449 sender-proof verification and atomic replay callback |
 | `…/documents` | `documents` | Stable | Signed-document envelopes, publisher/resolver, service |
 | `…/authprovider` | `authprovider` | Stable | `Provider` interface + built-in IdPs |
 | `…/oidckit` | `oidckit` | Stable | Browser-flow state, PKCE |
@@ -202,10 +203,18 @@ claims and `typ`; the `typ` values and claim semantics are frozen:
 | Credential | `typ` / marker | Authority |
 |---|---|---|
 | User access token | `access+jwt` | local identity + `sid` + short-lived `entitlements` |
-| Delegated access token | `delegated-access+jwt` + `delegated_sub` (+ `cnf.x5t#S256` when bound) | `permissions` vs the issuer's stored authority; a bound token needs the exact TLS peer leaf |
+| Delegated access token | `delegated-access+jwt` + `delegated_sub` (+ exactly one of `cnf.x5t#S256` or `cnf.jkt` when bound) | `permissions` vs the issuer's stored authority; certificate or DPoP proof must match its binding |
 | Remote application token | `remote-application-access+jwt`, no `sub` | stored authority from validated `iss` |
 | Service JWT | `service+jwt` + `token_use=service` | receiver intersects requested perms with its grants |
 | API key | opaque `<prefix>_st_<key_id>_<secret>` | one group role, resolved at verify time |
+
+The opt-in browser profile returns `{token, expires_at, token_type: "DPoP"}`
+from the existing delegated-token route and binds that token through `cnf.jkt`.
+Protected requests require the `DPoP` authorization scheme and a fresh proof;
+neither detached verification nor `Bearer` presentation can bypass the binding.
+Certificate delegation retains `{token, expires_at}` and `cnf.x5t#S256`.
+The exact proof, replay, URL and error-header contract is defined in
+[browser delegation](docs/browser-delegation.md), not a separate symbol catalog.
 
 User access tokens carry registered claims + `sub` + `sid` + `entitlements`;
 profile and group state are never claimed. `attributes` is the namespaced,

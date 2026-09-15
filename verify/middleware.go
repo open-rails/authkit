@@ -2,6 +2,7 @@ package verify
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,7 @@ func unauthorizedError(err error) error {
 // deliberately — for genuinely stateless verifiers, and for read paths where a
 // ≤1-TTL window is acceptable.
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
-	tokenStr := bearerToken(r.Header.Get("Authorization"))
+	tokenStr := requestToken(r)
 	if tokenStr == "" {
 		return Claims{}, authkit.E(authkit.CodeMissingToken, authkit.WithStatus(http.StatusUnauthorized))
 	}
@@ -45,13 +46,16 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// rejected here rather than re-tried as a JWT. resolveAPIKey does its own
 	// live secret resolution; it does not flow into the stateless JWT path below.
 	if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
+		if isDPoPRequest(r) {
+			return Claims{}, ErrSenderProofRequired
+		}
 		if serr != nil {
 			return Claims{}, unauthorizedError(serr)
 		}
 		return scl, nil
 	}
 
-	cl, err := v.verify(r.Context(), tokenStr, peerCertificateSHA256(r))
+	cl, err := v.verify(r.Context(), tokenStr, r)
 	if err != nil {
 		return Claims{}, unauthorizedError(err)
 	}
@@ -71,6 +75,13 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	return cl, nil
 }
 
+func writeRequestError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errDPoPProofRequired) || (isDPoPRequest(r) && errors.Is(err, ErrSenderProofRequired)) {
+		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
+	}
+	authkit.WriteError(w, unauthorizedError(err))
+}
+
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
 // Gin hosts: use the gin-native authkitgin.Required (adapters/gin) instead of hand-wrapping this.
 func Required(v *Verifier) func(http.Handler) http.Handler {
@@ -78,7 +89,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := v.VerifyRequest(r)
 			if err != nil {
-				authkit.WriteError(w, unauthorizedError(err))
+				writeRequestError(w, r, err)
 				return
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))
@@ -158,7 +169,7 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 	req := Required(v)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if bearerToken(r.Header.Get("Authorization")) == "" {
+			if r.Header.Get("Authorization") == "" {
 				next.ServeHTTP(w, r)
 				return
 			}

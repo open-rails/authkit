@@ -32,12 +32,15 @@ Do not manually `AddIssuer` a store-managed application: that declares explicit
 host trust instead of store ownership. Store registration cannot overwrite an
 explicitly configured issuer; resolve conflicting configuration deliberately.
 
-Explicit platform delegation configured with `AddIssuer` remains stateless and
-unbound. The receiving host owns resource authorization. `WithPermissions` adds
+Explicit platform delegation configured with `AddIssuer` has no stored group
+binding. The receiving host owns resource authorization. `WithPermissions` adds
 catalog validation to every typed delegated verification path; it cannot replace
 resource authorization. `Verify`, `VerifyRequest`, and both
 `VerifyDelegatedAccess` variants share issuer and authority policy. A certificate
 binding requires the request variant with the matching TLS peer certificate.
+A `cnf.jkt` binding requires `WithDPoP`, the `DPoP` authorization scheme, and a
+fresh matching proof. Detached verification rejects either binding. See
+[browser delegation](browser-delegation.md) for the receiver replay and URL contract.
 `VerifyClaims` is the low-level custom-profile API: it verifies keys, live issuer
 eligibility and registered claims, but leaves token type, subject, permission
 and sender-proof rules to the caller.

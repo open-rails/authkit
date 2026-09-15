@@ -143,6 +143,12 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
 	}
+	if p.ConfirmationCertificateSHA256 != nil && p.ConfirmationJWKThumbprintSHA256 != nil {
+		return "", errors.New("delegated token must have only one sender binding")
+	}
+	if p.ConfirmationJWKThumbprintSHA256 != nil {
+		claims[jwtkit.ConfirmationClaim] = map[string]any{jwtkit.JWKThumbprintMember: jwtkit.CertificateThumbprint(*p.ConfirmationJWKThumbprintSHA256)}
+	}
 	if p.ConfirmationCertificateSHA256 != nil {
 		claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(*p.ConfirmationCertificateSHA256)
 	}

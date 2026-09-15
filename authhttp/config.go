@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"strings"
 	"time"
@@ -16,6 +17,11 @@ import (
 // the transport itself decides: client-IP posture, rate limiting, languages,
 // published documents.
 type Config struct {
+	// DPoPRequestURL returns the externally visible delegation endpoint URL when
+	// a proxy rewrites its path. Nil uses embedded.Config.Token.Issuer's origin and the
+	// received escaped path. Never derive it from untrusted forwarding headers.
+	DPoPRequestURL func(*http.Request) string
+
 	// Redis overrides the engine's Redis client for the HTTP layer's OIDC/SIWS
 	// state caches and rate limiter. Nil reuses embedded.Deps.Redis (#210), so
 	// most hosts never set it.

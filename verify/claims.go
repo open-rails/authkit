@@ -73,6 +73,8 @@ type Claims struct {
 	// delegated token, already matched against the TLS peer leaf. Nil for an
 	// unbound token.
 	ConfirmationCertificateSHA256 *[32]byte
+	// ConfirmationJWKThumbprintSHA256 is matched against this request's DPoP proof.
+	ConfirmationJWKThumbprintSHA256 *[32]byte
 
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
 	// AuthKit user access token; "delegated-access+jwt" identifies a delegated
@@ -196,6 +198,8 @@ type DelegatedPrincipal struct {
 	// ConfirmationCertificateSHA256 is the verified certificate binding; nil
 	// when the token is an unbound bearer.
 	ConfirmationCertificateSHA256 *[32]byte
+	// ConfirmationJWKThumbprintSHA256 is matched against this request's DPoP proof.
+	ConfirmationJWKThumbprintSHA256 *[32]byte
 	// JTI is the token identifier (`jti` claim), when present.
 	JTI string
 	// UserTier is the resolved tier, sourced from `attributes.tier`.
@@ -230,16 +234,17 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: authkit.Persona(c.PermissionGroupPersona), Instance: c.PermissionGroupInstance}
 	}
 	return DelegatedPrincipal{
-		PermissionGroup:               scope,
-		Issuer:                        c.Issuer,
-		DelegatedSubject:              c.DelegatedSubject,
-		Permissions:                   c.Permissions,
-		Attributes:                    c.Attributes,
-		Documents:                     c.Documents,
-		ConfirmationCertificateSHA256: c.ConfirmationCertificateSHA256,
-		JTI:                           c.JTI,
-		UserTier:                      c.UserTier,
-		Roles:                         c.DelegatedRoles,
+		PermissionGroup:                 scope,
+		Issuer:                          c.Issuer,
+		DelegatedSubject:                c.DelegatedSubject,
+		Permissions:                     c.Permissions,
+		Attributes:                      c.Attributes,
+		Documents:                       c.Documents,
+		ConfirmationCertificateSHA256:   c.ConfirmationCertificateSHA256,
+		ConfirmationJWKThumbprintSHA256: c.ConfirmationJWKThumbprintSHA256,
+		JTI:                             c.JTI,
+		UserTier:                        c.UserTier,
+		Roles:                           c.DelegatedRoles,
 	}, true
 }
 

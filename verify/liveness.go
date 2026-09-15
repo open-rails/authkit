@@ -180,7 +180,7 @@ func RequiredLive(v *Verifier) (func(http.Handler) http.Handler, error) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := v.VerifyRequestLive(r)
 			if err != nil {
-				authkit.WriteError(w, unauthorizedError(err))
+				writeRequestError(w, r, err)
 				return
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))

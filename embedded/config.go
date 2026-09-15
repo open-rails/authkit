@@ -120,6 +120,9 @@ type ApplicationsConfig struct {
 // the required delegation authorizer (WithDelegatedAuthorization) and optional
 // document providers (authhttp.WithDocuments).
 type DelegatedConfig struct {
+	// AllowDPoP allows browser-key binding. The authorizer must handle requests
+	// with ConfirmationJWKThumbprintSHA256 set and DelegateCertificate nil.
+	AllowDPoP bool `json:"allow_dpop" yaml:"allow_dpop"`
 	// Audiences is the allowlist. Requested audiences must be a subset; an
 	// empty request receives the full list. Empty = the route is disabled.
 	Audiences []string

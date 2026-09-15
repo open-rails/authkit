@@ -8,6 +8,7 @@ import (
 // RFC 8705 certificate-bound token confirmation: `cnf: {"x5t#S256": ...}`.
 const (
 	ConfirmationClaim            = "cnf"
+	JWKThumbprintMember          = "jkt"
 	CertificateThumbprintMember  = "x5t#S256"
 	CertificateThumbprintEncoded = 43 // unpadded base64url of 32 bytes
 )

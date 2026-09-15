@@ -1,8 +1,8 @@
 package authhttp
 
 // ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic —
-// audience-subset clamp, TTL clamp, delegate-certificate validation and RFC
-// 8705 `cnf.x5t#S256` binding, document stamping from the wired
+// audience-subset clamp, TTL clamp, RFC 8705 certificate or RFC 9449 DPoP
+// sender binding, document stamping from the wired
 // DocumentProviders, and post-mint signing-KID reconciliation. The host owns
 // exactly one decision: the DelegationAuthorizer's grant, which is the
 // complete authority signed. Client input never becomes authority directly.
@@ -14,11 +14,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -49,6 +51,7 @@ type delegatedTokenRequest struct {
 type delegatedTokenResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
+	TokenType string    `json:"token_type,omitempty"`
 }
 
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -79,28 +82,63 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 
-	certificate, err := parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
-	if err != nil {
-		badRequestParam(w, authkit.CodeInvalidDelegateCertificate, "delegate_certificate_der_b64url")
-		return
-	}
-	if expiresAt.After(certificate.NotAfter) {
-		badRequestParam(w, authkit.CodeTTLExceedsDelegateCertificate, "ttl_seconds")
-		return
+	var certificate *x509.Certificate
+	var thumbprint, certificateThumbprint [32]byte
+	var certificateBinding, jwkBinding *[32]byte
+	tokenType := ""
+	if len(r.Header.Values("DPoP")) > 0 {
+		if !cfg.AllowDPoP || req.DelegateCertificateDERB64URL != "" {
+			badRequest(w, authkit.CodeInvalidRequest)
+			return
+		}
+		parent := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+		if len(parent) != 2 || !strings.EqualFold(parent[0], "Bearer") {
+			unauthorized(w, authkit.CodeUnauthorized)
+			return
+		}
+		target := ""
+		if s.dpopRequestURL != nil {
+			target = s.dpopRequestURL(r)
+		} else if issuer, parseErr := url.Parse(s.svc.Config().Token.Issuer); parseErr == nil && issuer.User == nil {
+			target = issuer.Scheme + "://" + issuer.Host + r.URL.EscapedPath()
+		}
+		thumbprint, err = dpop.VerifyRequest(r, target, parent[1], nil, s.svc.ClaimDPoPProof)
+		if err != nil {
+			if errors.Is(err, dpop.ErrReplayUnavailable) {
+				serverErr(w, authkit.CodeInternalError)
+			} else {
+				w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
+				unauthorized(w, authkit.CodeSenderProofRequired)
+			}
+			return
+		}
+		jwkBinding, tokenType = &thumbprint, "DPoP"
+	} else {
+		certificate, err = parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
+		if err != nil {
+			badRequestParam(w, authkit.CodeInvalidDelegateCertificate, "delegate_certificate_der_b64url")
+			return
+		}
+		if expiresAt.After(certificate.NotAfter) {
+			badRequestParam(w, authkit.CodeTTLExceedsDelegateCertificate, "ttl_seconds")
+			return
+		}
+		certificateThumbprint = jwtkit.CertificateSHA256(certificate.Raw)
+		certificateBinding = &certificateThumbprint
 	}
 	if !validRequestedGrant(req.RequestedGrant) {
 		badRequestParam(w, authkit.CodeInvalidRequestedGrant, "requested_grant")
 		return
 	}
-	thumbprint := jwtkit.CertificateSHA256(certificate.Raw)
 
 	grant, err := authorize(r.Context(), authkit.DelegationRequest{
-		UserID:                        claims.UserID,
-		Audiences:                     audiences,
-		TTL:                           ttl,
-		ConfirmationCertificateSHA256: thumbprint,
-		DelegateCertificate:           certificate,
-		RequestedGrant:                req.RequestedGrant,
+		UserID:                          claims.UserID,
+		Audiences:                       audiences,
+		TTL:                             ttl,
+		ConfirmationCertificateSHA256:   certificateThumbprint,
+		ConfirmationJWKThumbprintSHA256: jwkBinding,
+		DelegateCertificate:             certificate,
+		RequestedGrant:                  req.RequestedGrant,
 	})
 	if err != nil {
 		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
@@ -124,13 +162,14 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	}
 
 	token, err := s.svc.MintDelegatedAccessToken(r.Context(), authkit.DelegatedAccessParams{
-		Audiences:                     audiences,
-		DelegatedSubject:              claims.UserID,
-		Permissions:                   grant.Permissions,
-		Documents:                     references,
-		Attributes:                    grant.Attributes,
-		TTL:                           ttl,
-		ConfirmationCertificateSHA256: &thumbprint,
+		Audiences:                       audiences,
+		DelegatedSubject:                claims.UserID,
+		Permissions:                     grant.Permissions,
+		Documents:                       references,
+		Attributes:                      grant.Attributes,
+		TTL:                             ttl,
+		ConfirmationCertificateSHA256:   certificateBinding,
+		ConfirmationJWKThumbprintSHA256: jwkBinding,
 	})
 	if err != nil {
 		serverErr(w, authkit.CodeDelegatedMintFailed)
@@ -164,7 +203,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	writeJSON(w, http.StatusOK, delegatedTokenResponse{Token: token, ExpiresAt: expiresAt})
+	writeJSON(w, http.StatusOK, delegatedTokenResponse{Token: token, ExpiresAt: expiresAt, TokenType: tokenType})
 }
 
 // parseDelegateCertificate accepts exactly one currently valid, non-CA X.509

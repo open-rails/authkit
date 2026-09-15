@@ -35,18 +35,6 @@ func forbidden(w http.ResponseWriter, code authkit.Code) {
 	authkit.WriteError(w, authkit.E(code, authkit.WithStatus(http.StatusForbidden)))
 }
 
-// bearerToken extracts the token from an "Authorization: Bearer <token>" header.
-func bearerToken(authorization string) string {
-	if authorization == "" {
-		return ""
-	}
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-		return parts[1]
-	}
-	return ""
-}
-
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS
 // fetches (the WithHTTPClient override, or the default timeout-bounded client).
 func (v *Verifier) HTTPClient() *http.Client { return v.httpClient }
@@ -58,4 +46,19 @@ func (v *Verifier) SetRemoteApplicationSource(src RemoteApplicationSource) {
 	v.mu.Lock()
 	v.fedSource = src
 	v.mu.Unlock()
+}
+
+func isDPoPRequest(r *http.Request) bool {
+	return r != nil && strings.EqualFold(strings.SplitN(r.Header.Get("Authorization"), " ", 2)[0], "DPoP")
+}
+
+func requestToken(r *http.Request) string {
+	if r == nil || len(r.Header.Values("Authorization")) != 1 {
+		return ""
+	}
+	parts := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+	if len(parts) != 2 || (!strings.EqualFold(parts[0], "Bearer") && !strings.EqualFold(parts[0], "DPoP")) || strings.ContainsAny(parts[1], " \t\r\n") {
+		return ""
+	}
+	return parts[1]
 }

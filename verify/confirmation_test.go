@@ -203,8 +203,9 @@ func TestConfirmationClaimShapeIsStrict(t *testing.T) {
 		"short":            `"cnf":{"x5t#S256":"abc"}`,
 		"padded":           `"cnf":{"x5t#S256":"` + good + `="}`,
 		"not base64url":    `"cnf":{"x5t#S256":"` + strings.Repeat("+", 43) + `"}`,
+		"both mechanisms":  `"cnf":{"x5t#S256":"` + good + `","jkt":"` + good + `"}`,
+		"duplicate jkt":    `"cnf":{"jkt":"` + good + `","jkt":"` + good + `"}`,
 		"extra member":     `"cnf":{"x5t#S256":"` + good + `","jwk":{}}`,
-		"other method":     `"cnf":{"jkt":"` + good + `"}`,
 		"duplicate cnf":    `"cnf":{"x5t#S256":"` + good + `"},"cnf":{"x5t#S256":"` + good + `"}`,
 		"duplicate member": `"cnf":{"x5t#S256":"` + good + `","x5t#S256":"` + good + `"}`,
 	}

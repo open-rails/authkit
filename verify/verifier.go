@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -33,8 +34,10 @@ var errPermissionNotGranted = authkit.E(authkit.CodePermissionNotGranted)
 // For verify-only mode, create with NewVerifier and add issuers via AddIssuer.
 // For issuing mode, authhttp.Service creates a Verifier internally.
 type Verifier struct {
-	skew       time.Duration
-	algorithms []string
+	dpopReplay     dpop.ReplayGuard
+	dpopRequestURL func(*http.Request) string
+	skew           time.Duration
+	algorithms     []string
 
 	// tokenPrefix is the host application's API-key brand prefix (see embedded.Config
 	// APIKeyPrefix). Used to detect API keys in the middleware
@@ -146,6 +149,13 @@ type issuerKeys struct {
 
 // VerifierOption configures a Verifier.
 type VerifierOption func(*Verifier)
+
+// WithDPoP enables RFC 9449 sender-bound delegated requests. requestURL returns
+// the trusted externally visible URL (including any proxy-stripped prefix).
+// Both callbacks are required; no Host/Forwarded header fallback is used.
+func WithDPoP(replay dpop.ReplayGuard, requestURL func(*http.Request) string) VerifierOption {
+	return func(v *Verifier) { v.dpopReplay, v.dpopRequestURL = replay, requestURL }
+}
 
 // WithSkew sets the clock skew tolerance for exp/nbf/iat checks.
 // Default: 60s.
@@ -831,9 +841,8 @@ func (v *Verifier) Verify(ctx context.Context, tokenStr string) (Claims, error) 
 	return v.verify(ctx, tokenStr, nil)
 }
 
-// verify is Verify with the TLS-authenticated peer certificate hash (nil when
-// the request carried none) that a `cnf.x5t#S256` claim must match exactly.
-func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) (Claims, error) {
+// verify additionally checks sender bindings against the originating request.
+func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request) (Claims, error) {
 	mapClaims, typ, issuer, err := v.verifyClaimsWithHeader(ctx, tokenStr)
 	if err != nil {
 		return Claims{}, err
@@ -855,15 +864,25 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 	if hasDocumentReferences && !isDelegatedAccessTyp {
 		return Claims{}, documents.ErrWrongTokenType
 	}
-	confirmation, hasConfirmation, err := confirmationClaim(tokenStr)
+	confirmation, confirmationKind, err := confirmationClaim(tokenStr)
+	hasConfirmation := confirmation != nil
 	if err != nil {
 		return Claims{}, err
 	}
 	if hasConfirmation && !isDelegatedAccessTyp {
 		return Claims{}, ErrConfirmationWrongTokenType
 	}
-	if hasConfirmation && (peer == nil || *peer != *confirmation) {
-		return Claims{}, ErrSenderProofRequired
+	if confirmationKind == jwtkit.CertificateThumbprintMember {
+		peer := peerCertificateSHA256(r)
+		if peer == nil || *peer != *confirmation {
+			return Claims{}, ErrSenderProofRequired
+		}
+	}
+	if isDPoPRequest(r) && confirmationKind != jwtkit.JWKThumbprintMember {
+		return Claims{}, errDPoPProofRequired
+	}
+	if confirmationKind == jwtkit.JWKThumbprintMember && (!isDPoPRequest(r) || v.dpopRequestURL == nil || v.dpopReplay == nil) {
+		return Claims{}, errDPoPProofRequired
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
@@ -939,7 +958,12 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 	}
 	cl.TokenTyp = tokenTyp
 	cl.Documents = documentReferences
-	cl.ConfirmationCertificateSHA256 = confirmation
+	if confirmationKind == jwtkit.CertificateThumbprintMember {
+		cl.ConfirmationCertificateSHA256 = confirmation
+	}
+	if confirmationKind == jwtkit.JWKThumbprintMember {
+		cl.ConfirmationJWKThumbprintSHA256 = confirmation
+	}
 
 	if isDelegatedAccessTyp {
 		if issuer.application != nil {
@@ -968,6 +992,14 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, peer *[32]byte) 
 		}
 	}
 
+	if confirmationKind == jwtkit.JWKThumbprintMember {
+		if _, err := dpop.VerifyRequest(r, v.dpopRequestURL(r), tokenStr, confirmation, v.dpopReplay); err != nil {
+			if errors.Is(err, dpop.ErrReplayUnavailable) {
+				return Claims{}, authkit.E(authkit.CodeInternalError, authkit.WithCause(err))
+			}
+			return Claims{}, errDPoPProofRequired
+		}
+	}
 	return cl, nil
 }
 
@@ -980,14 +1012,13 @@ func (v *Verifier) VerifyDelegatedAccess(ctx context.Context, tokenStr string) (
 }
 
 // VerifyDelegatedAccessRequest is VerifyDelegatedAccess bound to the request's
-// bearer token and TLS peer certificate, the only path that accepts a
-// certificate-bound (cnf) delegated token.
+// authorization scheme and sender proof (DPoP or TLS peer certificate).
 func (v *Verifier) VerifyDelegatedAccessRequest(r *http.Request) (Claims, DelegatedPrincipal, error) {
-	return v.verifyDelegatedAccess(r.Context(), bearerToken(r.Header.Get("Authorization")), peerCertificateSHA256(r))
+	return v.verifyDelegatedAccess(r.Context(), requestToken(r), r)
 }
 
-func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, peer *[32]byte) (Claims, DelegatedPrincipal, error) {
-	cl, err := v.verify(ctx, tokenStr, peer)
+func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r *http.Request) (Claims, DelegatedPrincipal, error) {
+	cl, err := v.verify(ctx, tokenStr, r)
 	if err != nil {
 		return Claims{}, DelegatedPrincipal{}, err
 	}
