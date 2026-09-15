@@ -49,12 +49,15 @@ this baseline; consumers must test required behavior rather than numbering.
 
 ## Validation and removed fixtures
 
-A normalized PostgreSQL 18 schema-only dump of this baseline exactly matches the
-catalog produced by the complete pre-cut chain after #184: tables, columns,
+The initial consolidation in PR #186 had a normalized PostgreSQL 18 schema-only
+dump exactly matching the complete pre-cut chain after #184: tables, columns,
 defaults, constraints, indexes, functions, triggers, sequences and comments.
 Only dump headers and per-run restrict tokens are excluded. The dump is the
 comparison oracle; the maintained baseline is authored DDL without ALTER,
-backfill or intermediate table construction.
+backfill or intermediate table construction. Subsequent pre-v1 storage cleanup
+deliberately changes that candidate: role assignments use live composite primary
+keys without historical timestamps, duplicate group indexes are removed, and
+terminal invite/key indexes support bounded cleanup. See [storage lifetimes](storage-lifetimes.md).
 
 One fresh-schema workflow replaces the separate migration, repeated race,
 old-ledger tolerance and pool-leak fixtures. It holds the entire one-connection
