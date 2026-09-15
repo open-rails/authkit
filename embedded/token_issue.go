@@ -18,10 +18,6 @@ func (s *Client) MintAccessToken(ctx context.Context, userID string, extra map[s
 	return s.mintAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
 }
 
-func (s *Client) Mint2FAEnrollmentToken(ctx context.Context, userID string) (token string, expiresAt time.Time, err error) {
-	return s.mintAccessToken(ctx, userID, map[string]any{"2fa_enrollment": true}, 10*time.Minute)
-}
-
 // reservedAccessTokenClaims are claims the verifier extracts as authoritative
 // identity / authorization / assurance (see verify/verifier.go extractClaims).
 // AuthKit sets these itself from authenticated state, or not at all; a
@@ -165,7 +161,8 @@ func (s *Client) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 	// have a usable second factor, without a DB call at gate time. Emitted only
 	// when true (absent ⇒ false). Reflects state at mint, so it's at most one
 	// token-TTL stale after enroll/disable.
-	if mfa != nil && mfa.Satisfied {
+	amr, _ := claims["amr"].([]string)
+	if mfa != nil && mfa.Satisfied || hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
 		claims["mfa_enrolled"] = true
 	}
 	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim

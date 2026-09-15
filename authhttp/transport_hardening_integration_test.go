@@ -172,7 +172,7 @@ func TestMountAnchorsMFAEnrollmentExemptRoutes(t *testing.T) {
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("mfa-anchor"), "mfaanchor"+uniqueSuffix()[8:])
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
-	token, _, err := srv.svc.Mint2FAEnrollmentToken(ctx, user.ID)
+	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"2fa_enrollment": true})
 	require.NoError(t, err)
 	get := func(h http.Handler, path string) int {
 		w := httptest.NewRecorder()

@@ -89,7 +89,14 @@ func (s *Client) enable2FA(ctx context.Context, userID, method string, phoneNumb
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
-	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
+	if proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof); ok {
+		if _, err := s.lockLoginAccount(ctx, qtx, userID, proof.Version); err != nil {
+			return nil, err
+		}
+		if _, err := s.loadLoginProof(ctx, userID, proof.nonce); err != nil {
+			return nil, err
+		}
+	} else if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err
 	}
 

@@ -159,7 +159,7 @@ func TestPasswordlessEmailMagicLinkExistingUserAndTokenReuse(t *testing.T) {
 	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"identifier":"`+email+`","mode":"link","return_to":"https://evil.example/steal"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	token := emailSender.verificationToken(t)
-	require.Contains(t, emailSender.verificationURL(t), "https://example.com/wallet/login?channel=email&token=")
+	require.Contains(t, emailSender.verificationURL(t), "https://example.com/wallet/login#channel=email&status=ready&token=")
 
 	w = serveJSON(srv, http.MethodPost, "/passwordless/confirm", `{"token":"`+token+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

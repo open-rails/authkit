@@ -29,7 +29,7 @@ func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
-	userID, err := svc.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+	userID, err := svc.createEmailRegistrationUser(ctx, email, username, passwordHash, true, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, userID)
 
@@ -60,7 +60,7 @@ func TestCreatePhoneRegistrationUserAtomic(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
-	userID, err := svc.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
+	userID, err := svc.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, userID)
 

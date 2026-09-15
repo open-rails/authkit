@@ -279,8 +279,8 @@ func (s *Client) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	}
 	mfa, mfaErr := s.MFAStatus(ctx, userID)
 	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return "", time.Time{}, &TwoFAEnrollmentRequiredError{UserID: userID}
+		if errors.Is(err, ErrTwoFAEnrollmentRequired) || errors.Is(err, ErrTwoFARequired) {
+			return "", time.Time{}, &MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
 		}
 		return "", time.Time{}, err
 	}

@@ -112,7 +112,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	challenge := ""
+	if claims.TwoFAEnrollment {
+		challenge = claims.JTI
+	}
 	out, err := s.svc.EnrollTwoFactor(r.Context(), embedded.TwoFactorEnrollInput{
+		LoginChallenge: challenge, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 		UserID: claims.UserID, Mode: scope.Mode, Method: method, Code: req.Code,
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
 	})
@@ -135,6 +140,13 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]any{"enabled": true, "method": out.Method}
 		if len(out.BackupCodes) > 0 {
 			resp["backup_codes"] = out.BackupCodes
+		}
+		if out.Login != nil {
+			if s.writeLoginContinuation(w, r, *out.Login, resp) {
+				return
+			}
+			s.writeTokenSetWith(w, r, http.StatusOK, out.Login.Session.TokenSet(), resp)
+			return
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}

@@ -14,6 +14,9 @@ import (
 // loginProof is server-owned first-factor provenance. One current record per
 // account bounds state; the nonce and exact-value claim distinguish issuances.
 type loginProof struct {
+	SessionID       string `json:"session_id,omitempty"`
+	nonce           string
+	ReturnTo        string            `json:"return_to,omitempty"`
 	Input           LoginSessionInput `json:"input"`
 	Version         int64             `json:"version"`
 	Issuer          string            `json:"issuer"`
@@ -46,14 +49,12 @@ func (s *Client) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
+	proof.nonce = nonce
 	return proof, nil
 }
 
 func independentFactor(proof loginProof, factor TwoFactorFactor) bool {
-	if factor.Method == "email" && hasAuthMethod(proof.Input.AuthMethods, "email") {
-		return false
-	}
-	return !(factor.Method == "sms" && hasAuthMethod(proof.Input.AuthMethods, "sms") && factor.PhoneNumber != nil && *factor.PhoneNumber == proof.Contact)
+	return !hasAuthMethod(proof.Input.AuthMethods, factor.Method) || (factor.Method != "email" && factor.Method != "sms")
 }
 
 func (s *Client) loginFactors(proof loginProof, settings *TwoFactorSettings) []TwoFactorFactor {
@@ -83,6 +84,9 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	if err != nil {
 		return LoginOutcome{}, err
 	}
+	if err := s.validateProofSession(ctx, q, proof); err != nil {
+		return LoginOutcome{}, err
+	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
 	status, statusErr := s.MFAStatusWith(settings, settingsErr)
 	if statusErr != nil {
@@ -98,10 +102,10 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa")
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
 	gateErr := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), user.ID, proof.Input.AuthMethods, status, nil)
-	if gateErr != nil && !errors.Is(gateErr, ErrTwoFAEnrollmentRequired) {
+	if gateErr != nil && !errors.Is(gateErr, ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, ErrTwoFARequired) {
 		return LoginOutcome{}, gateErr
 	}
-	out := LoginOutcome{UserID: user.ID}
+	out := LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
 	if needsChallenge || gateErr != nil {
 		nonce := RandB64(32)
 		proof.NonceHash = sha256Hex(nonce)
@@ -138,6 +142,9 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 			return LoginOutcome{}, err
 		}
 		return out, nil
+	}
+	if proof.SessionID != "" {
+		return LoginOutcome{}, ErrStepUpRequired
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
 	if err != nil {
@@ -224,6 +231,9 @@ func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	if err != nil {
 		return LoginOutcome{}, err
 	}
+	if err := s.validateProofSession(ctx, q, proof); err != nil {
+		return LoginOutcome{}, err
+	}
 	proof, err = s.loadLoginProof(ctx, in.UserID, in.Challenge)
 	if err != nil {
 		return LoginOutcome{}, err
@@ -285,5 +295,71 @@ func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
 	s.LogSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(in.IP), nullable(in.UserAgent))
-	return LoginOutcome{Kind: LoginSessionIssued, UserID: user.ID, Session: &session}, nil
+	return LoginOutcome{Kind: LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
+}
+
+type loginEnrollmentKey struct{}
+
+func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrollInput) (context.Context, error) {
+	if in.Mode != FirstFactorOnly {
+		return ctx, nil
+	}
+	proof, err := s.loadLoginProof(ctx, in.UserID, in.LoginChallenge)
+	if err != nil || !proof.Enrollment {
+		return ctx, jwt.ErrTokenUnverifiable
+	}
+	version, err := s.q.UserCredentialVersion(ctx, in.UserID)
+	if err != nil {
+		return ctx, err
+	}
+	if version.CredentialVersion != proof.Version {
+		return ctx, jwt.ErrTokenUnverifiable
+	}
+	if !independentFactor(proof, TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
+		return ctx, ErrInvalidTwoFAMethod
+	}
+	return context.WithValue(ctx, loginEnrollmentKey{}, proof), nil
+}
+
+func (s *Client) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrollInput, out TwoFactorEnrollOutcome) (TwoFactorEnrollOutcome, error) {
+	proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof)
+	if !ok {
+		return out, nil
+	}
+	if out.Method == "totp" || out.Method == "sms" {
+		proof.Input.AuthMethods = append(append([]string(nil), proof.Input.AuthMethods...), out.Method, "otp", "mfa")
+	}
+	proof.Input.UserAgent = in.UserAgent
+	proof.Input.IP = in.IP
+	login, err := s.finishFirstFactor(ctx, proof)
+	if err != nil {
+		return TwoFactorEnrollOutcome{}, err
+	}
+	out.Login = &login
+	return out, nil
+}
+
+func (s *Client) validateProofSession(ctx context.Context, q *db.Queries, proof loginProof) error {
+	if proof.SessionID == "" {
+		return nil
+	}
+	_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
+	return err
+}
+
+// ContinueRefreshMFA is called only after validating the refresh credential.
+// An old session must repeat a first factor before sensitive factor enrollment.
+func (s *Client) ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error) {
+	fresh, err := s.SessionFreshness(ctx, userID, sessionID, time.Now())
+	if err != nil {
+		return LoginOutcome{}, err
+	}
+	if time.Since(fresh.LastAuthenticatedAt) > 10*time.Minute {
+		return LoginOutcome{}, ErrStepUpRequired
+	}
+	version, err := s.q.UserCredentialVersion(ctx, userID)
+	if err != nil {
+		return LoginOutcome{}, err
+	}
+	return s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: fresh.LastAuthenticatedAt, SessionID: sessionID, Input: LoginSessionInput{UserID: userID, AuthMethods: fresh.AuthMethods, Event: "refresh_mfa"}})
 }

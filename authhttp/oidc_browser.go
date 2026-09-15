@@ -211,7 +211,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.failBrowserFlow(w, r, &sd, name, status, code)
 		return
 	}
-	if out.Kind == embedded.ExternalProviderLinked {
+	if out.Kind == embedded.LoginProviderLinked {
 		if wantsJSONResponse(r) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -221,8 +221,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	if out.Kind == embedded.ExternalTwoFAEnrollmentRequired {
-		s.browser2FAEnrollmentRequired(w, r, out.UserID, name, sd)
+	if out.Kind != embedded.LoginSessionIssued {
+		s.browserLoginContinuation(w, r, out, name, sd)
 		return
 	}
 	s.emitBrowserLogin(w, r, out.UserID, name, *out.Session, sd)

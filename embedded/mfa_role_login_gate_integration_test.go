@@ -113,9 +113,9 @@ func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
 	if _, _, _, err := optional.ExchangeRefreshToken(ctx, preFlipRefreshTok, "test", nil); err == nil {
 		t.Fatalf("refresh for unenrolled MFA-required-role holder under Mode=Optional should be denied")
 	} else {
-		var ee *TwoFAEnrollmentRequiredError
+		var ee *MFAContinuationRequiredError
 		if !errors.As(err, &ee) || ee.UserID != unenrolledHolder {
-			t.Fatalf("ExchangeRefreshToken err = %v, want *TwoFAEnrollmentRequiredError{UserID: %s}", err, unenrolledHolder)
+			t.Fatalf("ExchangeRefreshToken err = %v, want *MFAContinuationRequiredError{UserID: %s}", err, unenrolledHolder)
 		}
 	}
 }

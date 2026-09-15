@@ -172,7 +172,11 @@ func tokenFromURL(raw string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(u.Query().Get("token"))
+	fragment, err := url.ParseQuery(u.Fragment)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(fragment.Get("token"))
 }
 
 func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
@@ -272,7 +276,7 @@ func TestAuthKitBuiltLinksRedirectWithoutConsumingToken(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, verifyUser.ID) })
 	w = serveJSON(srv, http.MethodPost, "/verify/request", `{"identifier":"`+verifyEmail+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	require.Contains(t, emailSender.verificationURL(t), "https://example.com/verify?channel=email&token=")
+	require.Contains(t, emailSender.verificationURL(t), "https://example.com/verify#channel=email&status=ready&token=")
 	verifyToken := emailSender.verificationToken(t)
 	w = serveRequest(srv, http.MethodGet, "/verify/confirm?channel=email&token="+url.QueryEscape(verifyToken)+"&return_to=https%3A%2F%2Fevil.example", "")
 	require.Equal(t, http.StatusFound, w.Code, w.Body.String())

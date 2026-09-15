@@ -8,8 +8,6 @@ package embedded
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	stdlog "log"
 	"strings"
 	"time"
@@ -47,24 +45,6 @@ type ExternalLinkAuthorization struct {
 	AuthenticatedAt time.Time
 }
 
-// ExternalLoginOutcomeKind is the closed set of ways an external login ends.
-type ExternalLoginOutcomeKind string
-
-const (
-	ExternalSessionIssued           ExternalLoginOutcomeKind = "session_issued"
-	ExternalProviderLinked          ExternalLoginOutcomeKind = "provider_linked"
-	ExternalTwoFAEnrollmentRequired ExternalLoginOutcomeKind = "2fa_enrollment_required"
-)
-
-// ExternalLoginOutcome reports the resolved user, whether it was just created,
-// and the session (for ExternalSessionIssued).
-type ExternalLoginOutcome struct {
-	Kind    ExternalLoginOutcomeKind
-	UserID  string
-	Created bool
-	Session *IssuedSession
-}
-
 var (
 	ErrAccountExistsLinkRequired    = authkit.ErrAccountExistsLinkRequired
 	ErrProviderLinkFailed           = authkit.ErrProviderLinkFailed
@@ -78,31 +58,24 @@ var (
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
 // ErrUserCreationFailed. Session errors: ErrUserBanned, or a stage-prefixed
 // ErrSessionIssueFailed.
-func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (ExternalLoginOutcome, error) {
+func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (LoginOutcome, error) {
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)
 	if err != nil {
-		return ExternalLoginOutcome{}, err
+		return LoginOutcome{}, err
 	}
 	if in.Link != nil {
-		return ExternalLoginOutcome{Kind: ExternalProviderLinked, UserID: userID}, nil
+		return LoginOutcome{Kind: LoginProviderLinked, UserID: userID}, nil
 	}
-	session, err := s.IssueLoginSession(ctx, LoginSessionInput{
-		UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event,
-		Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP,
-	})
+	version, err := s.q.UserCredentialVersion(ctx, userID)
 	if err != nil {
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return ExternalLoginOutcome{Kind: ExternalTwoFAEnrollmentRequired, UserID: userID, Created: created}, nil
-		}
-		if errors.Is(err, ErrUserBanned) {
-			return ExternalLoginOutcome{}, err
-		}
-		return ExternalLoginOutcome{}, stageErr("issue_session", fmt.Errorf("%w: %w", ErrSessionIssueFailed, err))
+		return LoginOutcome{}, err
 	}
-	if created {
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
+	out.Created = created
+	if err == nil && created {
 		s.SendWelcome(ctx, userID)
 	}
-	return ExternalLoginOutcome{Kind: ExternalSessionIssued, UserID: userID, Created: created, Session: &session}, nil
+	return out, err
 }
 
 // ResolveExternalIdentity maps a verified provider identity to a local user
@@ -148,38 +121,10 @@ func (s *Client) ResolveExternalIdentity(ctx context.Context, in ExternalLoginIn
 			return "", false, ErrAccountExistsLinkRequired
 		}
 	}
-	// Auto-creating an account is a public registration path. InviteOnly
-	// requires an unbound account invite token carried from flow start.
-	if s.cfg.Registration.NativeUserMode == RegistrationModeInviteOnly {
-		allowed, err := s.RegistrationAllowedForEmailWithInvite(ctx, accountEmail, in.AccountInviteToken)
-		if err != nil {
-			return "", false, err
-		}
-		if !allowed {
-			return "", false, ErrRegistrationDisabled
-		}
-	} else if !s.PublicNativeUserRegistrationEnabled() {
-		return "", false, ErrRegistrationDisabled
-	}
 	username := s.DeriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
-	u, err := s.CreateUser(ctx, accountEmail, username)
-	if err != nil || u == nil {
-		return "", false, ErrUserCreationFailed
-	}
-	// Without a create+link transaction a failure here leaves an orphan user
-	// row; logged CRITICAL for cleanup rather than reported as success.
-	if err := s.LinkProviderByIssuer(ctx, u.ID, issuer, provider, id.Subject, emailPtr); err != nil {
-		stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing external login — manual cleanup may be required: %v", u.ID, issuer, id.Subject, err)
-		return "", false, fmt.Errorf("%w: %w", ErrProviderLinkFailed, err)
-	}
-	if accountEmail != "" {
-		if err := s.MarkEmailVerified(ctx, u.ID); err != nil {
-			stdlog.Printf("[authkit/security] warning: MarkEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
-		}
-	}
-	if err := s.ConsumeAccountRegistrationInvite(ctx, accountEmail, u.ID, in.AccountInviteToken); err != nil {
+	u, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})
+	if err != nil {
 		return "", false, err
 	}
-	setUsername(u.ID, "cosmetic")
 	return u.ID, true, nil
 }

@@ -16,15 +16,18 @@ import (
 
 var ErrTwoFAEnrollmentRequired = authkit.ErrTwoFAEnrollmentRequired
 
-// TwoFAEnrollmentRequiredError wraps ErrTwoFAEnrollmentRequired with the userID
-// of the gated account, so the refresh-token path can mint a usable enrollment
-// token instead of stranding the user (#148, grounding note b — a 403 with no
-// token at refresh is a lockout). errors.Is(err, ErrTwoFAEnrollmentRequired)
-// still matches.
-type TwoFAEnrollmentRequiredError struct{ UserID string }
+var ErrTwoFARequired = authkit.E(authkit.CodeTwoFARequired)
 
-func (e *TwoFAEnrollmentRequiredError) Error() string { return ErrTwoFAEnrollmentRequired.Error() }
-func (e *TwoFAEnrollmentRequiredError) Unwrap() error { return ErrTwoFAEnrollmentRequired }
+// MFAContinuationRequiredError identifies the already-validated refresh session
+// that needs a first-factor continuation. It never authorizes an arbitrary user.
+type MFAContinuationRequiredError struct {
+	UserID    string
+	SessionID string
+	Reason    error
+}
+
+func (e *MFAContinuationRequiredError) Error() string { return e.Reason.Error() }
+func (e *MFAContinuationRequiredError) Unwrap() error { return e.Reason }
 
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
@@ -138,8 +141,11 @@ func (s *Client) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 		}
 		return nil
 	}
-	if !status.Satisfied || !hasAuthMethod(authMethods, "mfa") {
+	if !status.Satisfied {
 		return ErrTwoFAEnrollmentRequired
+	}
+	if !hasAuthMethod(authMethods, "mfa") {
+		return ErrTwoFARequired
 	}
 	return nil
 }

@@ -18,6 +18,8 @@ import (
 type PendingChangeKind string
 
 const (
+	KindVerifyEmail   PendingChangeKind = "verify_email"
+	KindVerifyPhone   PendingChangeKind = "verify_phone"
 	KindRegisterEmail PendingChangeKind = "register_email"
 	KindRegisterPhone PendingChangeKind = "register_phone"
 	KindChangeEmail   PendingChangeKind = "change_email"
@@ -40,6 +42,9 @@ const (
 // leave the signup payload empty. Target is the email or phone being
 // registered/changed-to.
 type pendingChange struct {
+	Version            int64 `json:"version,omitempty"`
+	storeKey           string
+	linkKey            string
 	ID                 string `json:"id"`
 	AccountInviteToken string `json:"account_invite_token,omitempty"`
 	expected           []byte
@@ -58,7 +63,7 @@ func (k PendingChangeKind) isRegister() bool {
 }
 
 func (k PendingChangeKind) isEmail() bool {
-	return k == KindRegisterEmail || k == KindChangeEmail
+	return k == KindRegisterEmail || k == KindChangeEmail || k == KindVerifyEmail
 }
 
 func (k PendingChangeKind) defaultTTL() time.Duration {
@@ -93,6 +98,9 @@ func pendingChangeLinkKey(kind PendingChangeKind, linkHash string) string {
 }
 
 func (rec pendingChange) key() string {
+	if rec.storeKey != "" {
+		return rec.storeKey
+	}
 	if rec.Kind.isRegister() {
 		return pendingChangeKey(rec.Kind, rec.Target)
 	}
@@ -103,6 +111,9 @@ func (rec pendingChange) key() string {
 // link pointer and (register kinds) the username index. Any prior record on the
 // same identity or username is cleared first so a re-request supersedes it.
 func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -112,6 +123,12 @@ func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	rec.ID = RandB64(16)
 	if rec.Kind.isRegister() {
 		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
+	} else {
+		version, err := s.q.UserCredentialVersion(ctx, rec.UserID)
+		if err != nil {
+			return err
+		}
+		rec.Version = version.CredentialVersion
 	}
 	rec.Target = normalizePendingTarget(rec.Kind, rec.Target)
 	if ttl <= 0 {
@@ -224,7 +241,9 @@ func (s *Client) pendingChangeTargetTaken(ctx context.Context, kind PendingChang
 }
 
 func (s *Client) clearPendingIndexes(ctx context.Context, rec pendingChange) {
-	if rec.LinkHash != "" {
+	if rec.linkKey != "" {
+		_ = s.ephemDel(ctx, rec.linkKey)
+	} else if rec.LinkHash != "" {
 		_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
 	}
 	if rec.Kind.isRegister() && rec.Username != "" {

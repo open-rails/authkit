@@ -130,7 +130,7 @@ func TestProviderLinkSerializesWithRevocation(t *testing.T) {
 	link.SessionID, link.AuthenticatedAt = sid, fresh.LastAuthenticatedAt
 	out, err := svc.CompleteExternalLogin(ctx, in)
 	require.NoError(t, err)
-	require.Equal(t, ExternalProviderLinked, out.Kind)
+	require.Equal(t, LoginProviderLinked, out.Kind)
 	require.Nil(t, out.Session)
 	sessions, err = svc.ListUserSessions(ctx, u.ID)
 	require.NoError(t, err)

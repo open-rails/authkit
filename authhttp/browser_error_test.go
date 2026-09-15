@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"github.com/open-rails/authkit/embedded"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -261,7 +262,7 @@ func TestBrowser2FAEnrollmentRequired_FragmentContract(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
-	s.browser2FAEnrollmentRequired(w, r, "user-1", "google", oidckit.StateData{ReturnTo: "/account"})
+	s.browserLoginContinuation(w, r, embedded.LoginOutcome{Kind: embedded.LoginTwoFAEnrollmentRequired, UserID: "user-1", Enrollment: &authkit.TokenSet{AccessToken: "enrollment-token", ExpiresIn: 600}, AllowedMethods: []string{"totp"}}, "google", oidckit.StateData{ReturnTo: "/account"})
 
 	fragment := parseErrorFragment(t, w)
 	require.Equal(t, "2fa_enrollment_required", fragment.Get("error"))
@@ -276,7 +277,7 @@ func TestBrowser2FAEnrollmentRequired_FragmentContract(t *testing.T) {
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
 	r.Header.Set("Accept", "application/json")
-	s.browser2FAEnrollmentRequired(w, r, "user-1", "google", oidckit.StateData{})
+	s.browserLoginContinuation(w, r, embedded.LoginOutcome{Kind: embedded.LoginTwoFAEnrollmentRequired, UserID: "user-1", Enrollment: &authkit.TokenSet{AccessToken: "enrollment-token", ExpiresIn: 600}, AllowedMethods: []string{"totp"}}, "google", oidckit.StateData{})
 	require.NotEmpty(t, requireEnrollmentToken(t, w))
 }
 

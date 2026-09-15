@@ -36,15 +36,3 @@ func (s *Service) confirmBackendFailed(w http.ResponseWriter, r *http.Request, r
 	serverErr(w, authkit.CodeDatabaseError)
 	return true
 }
-
-// issueVerificationTokens is the shared success tail of the verify-confirm
-// handlers: mint the session or map the mint failure.
-func (s *Service) issueVerificationTokens(w http.ResponseWriter, r *http.Request, userID, method string) {
-	if err := s.issueTokensForUser(w, r, userID, method); err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, authkit.CodeUserBanned)
-			return
-		}
-		serverErr(w, authkit.CodeTokenIssueFailed)
-	}
-}

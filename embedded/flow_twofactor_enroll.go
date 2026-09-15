@@ -54,13 +54,16 @@ func (s *Client) BeginTwoFactorEnrollment(ctx context.Context, userID string, en
 
 // TwoFactorEnrollInput is one enrollment request.
 type TwoFactorEnrollInput struct {
-	UserID      string
-	Mode        FactorEnrollmentMode
-	Method      string // "email" | "sms" | "totp"; empty with FactorID+MakeDefault re-points the default
-	Code        string // SMS setup code / TOTP code; empty starts the method's setup
-	PhoneNumber string
-	MakeDefault bool
-	FactorID    string
+	LoginChallenge string
+	UserAgent      string
+	IP             string
+	UserID         string
+	Mode           FactorEnrollmentMode
+	Method         string // "email" | "sms" | "totp"; empty with FactorID+MakeDefault re-points the default
+	Code           string // SMS setup code / TOTP code; empty starts the method's setup
+	PhoneNumber    string
+	MakeDefault    bool
+	FactorID       string
 }
 
 // TwoFactorEnrollKind is the closed set of enrollment results.
@@ -76,6 +79,7 @@ const (
 // TwoFactorEnrollOutcome carries the TOTP material for TwoFactorEnrollTOTPStarted
 // and the plaintext backup codes (shown once) for TwoFactorEnrollEnabled.
 type TwoFactorEnrollOutcome struct {
+	Login       *LoginOutcome
 	Kind        TwoFactorEnrollKind
 	Method      string
 	Secret      string
@@ -89,6 +93,10 @@ type TwoFactorEnrollOutcome struct {
 // prefix wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
 // the delivery sentinel) / ErrTwoFAEnableFailed.
 func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error) {
+	ctx, authErr := s.authorizeLoginEnrollment(ctx, in)
+	if authErr != nil {
+		return TwoFactorEnrollOutcome{}, authErr
+	}
 	method := strings.ToLower(strings.TrimSpace(in.Method))
 	factorID := strings.TrimSpace(in.FactorID)
 	if method == "" && in.MakeDefault && factorID != "" {
@@ -134,7 +142,7 @@ func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 			}
 			return TwoFactorEnrollOutcome{}, ErrInvalidCode
 		}
-		return TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes}, nil
+		return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes})
 	}
 	var (
 		backupCodes []string
@@ -151,7 +159,7 @@ func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 		}
 		return TwoFactorEnrollOutcome{}, stageErr("enable_factor", fmt.Errorf("%w: %w", ErrTwoFAEnableFailed, err))
 	}
-	return TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes}, nil
+	return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes})
 }
 
 // startPhoneTwoFactorSetup sends the six-digit SMS setup code. Deliverability

@@ -46,34 +46,18 @@ func (s *Client) CreatePendingRegistrationWithLanguage(ctx context.Context, emai
 	sendCtx := contextWithPreferredLanguage(ctx, language)
 	switch s.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+		_, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true, language)
 		if err != nil {
-			return "", err
-		}
-		if language != "" {
-			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
-				return "", err
-			}
-		}
-		if err := s.consumeAccountRegistrationInvite(ctx, email, userID); err != nil {
 			return "", err
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
 		verified := s.email == nil
-		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, verified)
+		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, verified, language)
 		if err != nil {
 			return "", err
 		}
-		if language != "" {
-			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
-				return "", err
-			}
-		}
 		if verified {
-			if err := s.consumeAccountRegistrationInvite(ctx, email, userID); err != nil {
-				return "", err
-			}
 			return "", nil
 		}
 		if ttl <= 0 {
@@ -148,9 +132,6 @@ func (s *Client) ConfirmPendingRegistrationByToken(ctx context.Context, token st
 }
 
 func (s *Client) confirmPendingRegistrationCode(ctx context.Context, kind PendingChangeKind, target, code string) (string, error) {
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return "", ErrRegistrationDisabled
-	}
 	rec, ok, err := s.pendingChangeByTarget(ctx, kind, strings.TrimSpace(target))
 	if err != nil {
 		return "", err
@@ -162,9 +143,6 @@ func (s *Client) confirmPendingRegistrationCode(ctx context.Context, kind Pendin
 }
 
 func (s *Client) confirmPendingRegistrationLink(ctx context.Context, kind PendingChangeKind, token string) (string, error) {
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return "", ErrRegistrationDisabled
-	}
 	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kind)
 }
 
@@ -200,7 +178,11 @@ func (s *Client) CheckPendingRegistrationConflict(ctx context.Context, email, us
 // --- Phone Registration (for phone+password signups) ---
 
 func (s *Client) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
-	if !s.PublicNativeUserRegistrationEnabled() {
+	allowed, err := s.registrationAllowedForEmail(ctx, phone)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
 		return "", ErrRegistrationDisabled
 	}
 	language, err := NormalizePreferredLanguage(preferredLanguage)
@@ -210,26 +192,16 @@ func (s *Client) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context,
 	sendCtx := contextWithPreferredLanguage(ctx, language)
 	switch s.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
+		_, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true, language)
 		if err != nil {
 			return "", err
-		}
-		if language != "" {
-			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
-				return "", err
-			}
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
 		verified := s.sms == nil
-		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, verified)
+		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, verified, language)
 		if err != nil {
 			return "", err
-		}
-		if language != "" {
-			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
-				return "", err
-			}
 		}
 		if verified {
 			return "", nil
@@ -325,90 +297,18 @@ func (s *Client) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 	return phoneTaken, usernameTaken, nil
 }
 
-func (s *Client) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
-	return s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+func (s *Client) createEmailRegistrationUser(ctx context.Context, email, username, passwordHash string, verified bool, language string) (string, error) {
+	user, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: email, Username: username, PasswordHash: passwordHash, HashAlgo: "argon2id", EmailVerified: verified}, Language: language, InviteToken: accountRegistrationInviteTokenFromContext(ctx)})
+	if err != nil {
+		return "", err
+	}
+	return user.ID, nil
 }
 
-func (s *Client) createEmailRegistrationUser(ctx context.Context, email, username, passwordHash string, emailVerified bool) (string, error) {
-	if s.pg == nil {
-		return "", fmt.Errorf("postgres not configured")
-	}
-	if err := ValidateEmail(email); err != nil {
-		return "", err
-	}
-	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
-		return "", err
-	}
-	email = NormalizeEmail(email)
-	username = strings.TrimSpace(username)
-
-	tx, err := s.pg.Begin(ctx)
+func (s *Client) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, verified bool, language string) (string, error) {
+	user, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{PhoneNumber: phone, Username: username, PasswordHash: passwordHash, HashAlgo: "argon2id", PhoneVerified: verified}, Language: language, InviteToken: accountRegistrationInviteTokenFromContext(ctx)})
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.qtx(tx)
-
-	userID, err := newUUIDV7String()
-	if err != nil {
-		return "", err
-	}
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: authkit.NameCreate}); err != nil {
-		return "", err
-	}
-	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()}); err != nil {
-		return "", mapUserUniqueViolation(err)
-	}
-	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
-		return "", err
-	}
-	if err := q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: userID, EmailVerified: emailVerified}); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", err
-	}
-	return userID, nil
-}
-
-func (s *Client) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
-	if s.pg == nil {
-		return "", fmt.Errorf("postgres not configured")
-	}
-	if err := ValidatePhone(phone); err != nil {
-		return "", err
-	}
-	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
-		return "", err
-	}
-	phone = NormalizePhone(phone)
-	username = strings.TrimSpace(username)
-
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.qtx(tx)
-
-	userID, err := newUUIDV7String()
-	if err != nil {
-		return "", err
-	}
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: authkit.NameCreate}); err != nil {
-		return "", err
-	}
-	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: "", Username: &username, AtTime: s.namingNow()}); err != nil {
-		return "", mapUserUniqueViolation(err)
-	}
-	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
-		return "", err
-	}
-	if err := q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: userID, PhoneNumber: &phone, PhoneVerified: phoneVerified}); err != nil {
-		return "", mapUserUniqueViolation(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", err
-	}
-	return userID, nil
+	return user.ID, nil
 }

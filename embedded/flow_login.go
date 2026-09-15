@@ -65,6 +65,8 @@ func (s *Client) IssueLoginSession(ctx context.Context, in LoginSessionInput) (I
 type LoginOutcomeKind string
 
 const (
+	LoginProviderLinked LoginOutcomeKind = "provider_linked"
+	LoginContactChanged LoginOutcomeKind = "contact_changed"
 	// LoginSessionIssued: the caller is signed in; Session carries the tokens.
 	LoginSessionIssued LoginOutcomeKind = "session_issued"
 	// LoginVerificationRequired: the identifier still needs verifying; a fresh
@@ -141,7 +143,7 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 		if err != nil || u == nil {
 			// No account: a pending (unverified) email registration whose password
 			// matches is re-sent, or completed when verification is optional.
-			out, recovered := s.recoverPendingEmailLogin(ctx, in, identifier, requiresVerification)
+			out, recovered := s.recoverPendingLogin(ctx, in, KindRegisterEmail, identifier, requiresVerification)
 			if !recovered {
 				return out.LoginOutcome, nil
 			}
@@ -150,7 +152,7 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 	case strings.HasPrefix(identifier, "+"):
 		u, err = s.getUserByPhone(ctx, identifier)
 		if err != nil || u == nil {
-			out, recovered := s.recoverPendingPhoneLogin(ctx, in, identifier, requiresVerification)
+			out, recovered := s.recoverPendingLogin(ctx, in, KindRegisterPhone, identifier, requiresVerification)
 			if !recovered {
 				return out.LoginOutcome, nil
 			}
@@ -220,47 +222,40 @@ type pendingRecovery struct {
 	user *User
 }
 
-// recoverPendingEmailLogin handles a login against an email that has no
-// account yet but a pending registration whose password matches: the pending
-// registration is re-created (which re-sends the code, or — when verification
-// is not required — creates the account outright).
-func (s *Client) recoverPendingEmailLogin(ctx context.Context, in PasswordLoginInput, email string, requiresVerification bool) (pendingRecovery, bool) {
-	pending, err := s.GetPendingRegistrationByEmail(ctx, email)
-	if err != nil || pending == nil || !s.VerifyPendingPassword(ctx, email, in.Password) {
+func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string, requiresVerification bool) (pendingRecovery, bool) {
+	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
+	if err != nil || !ok {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
 	}
-	if _, err := s.CreatePendingRegistrationWithLanguage(ctx, email, pending.Username, pending.PasswordHash, 0, pending.PreferredLanguage); err != nil {
+	valid, err := password.VerifyArgon2id(pending.PasswordHash, in.Password)
+	if err != nil || !valid {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
 	}
-	if requiresVerification {
-		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: email, Channel: "email"}}}, false
+	ctx = contextWithAccountRegistrationInviteToken(ctx, pending.AccountInviteToken)
+	channel := "email"
+	var user *User
+	if kind == KindRegisterEmail {
+		_, err = s.CreatePendingRegistrationWithLanguage(ctx, identifier, pending.Username, pending.PasswordHash, 0, pending.PreferredLanguage)
+		if err == nil && !requiresVerification {
+			user, err = s.getUserByEmail(ctx, identifier)
+		}
+	} else {
+		channel = "phone"
+		_, err = s.CreatePendingPhoneRegistrationWithLanguage(ctx, identifier, pending.Username, pending.PasswordHash, pending.PreferredLanguage)
+		if err == nil && !requiresVerification {
+			user, err = s.getUserByPhone(ctx, identifier)
+		}
 	}
-	u, err := s.getUserByEmail(ctx, email)
-	if err != nil || u == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	return pendingRecovery{user: u}, true
-}
-
-func (s *Client) recoverPendingPhoneLogin(ctx context.Context, in PasswordLoginInput, phone string, requiresVerification bool) (pendingRecovery, bool) {
-	pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
-	if err != nil || pending == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if ok, verr := password.VerifyArgon2id(pending.PasswordHash, in.Password); verr != nil || !ok {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if _, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage); err != nil {
+	if err != nil {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
 	}
 	if requiresVerification {
-		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: phone, Channel: "phone"}}}, false
+		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: identifier, Channel: channel}}}, false
 	}
-	u, err := s.getUserByPhone(ctx, phone)
-	if err != nil || u == nil {
+	if user == nil {
 		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
 	}
-	return pendingRecovery{user: u}, true
+	return pendingRecovery{user: user}, true
 }
 
 // verificationCutoff: accounts created before it predate verification and are

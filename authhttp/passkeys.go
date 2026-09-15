@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -77,10 +76,6 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
-		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
-			s.send2FAEnrollmentRequired(w, r, result.UserID)
-			return
-		}
 		unauthorized(w, authkit.CodeInvalidCredentials)
 		return
 	}

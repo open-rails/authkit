@@ -25,17 +25,17 @@ func TestUserIdentifierWritesMapUniqueViolations(t *testing.T) {
 	if _, err := svc.CreateUser(ctx, "first@example.com", "othername"); !errors.Is(err, ErrEmailInUse) {
 		t.Fatalf("duplicate email err=%v, want ErrEmailInUse", err)
 	}
-	if _, err := svc.createEmailRegistrationUser(ctx, "first@example.com", "reguser", "hash", true); !errors.Is(err, ErrEmailInUse) {
+	if _, err := svc.createEmailRegistrationUser(ctx, "first@example.com", "reguser", "hash", true, ""); !errors.Is(err, ErrEmailInUse) {
 		t.Fatalf("registration duplicate email err=%v, want ErrEmailInUse", err)
 	}
-	if _, err := svc.createEmailRegistrationUser(ctx, "third@example.com", "dupname", "hash", true); !errors.Is(err, ErrUsernameInUse) {
+	if _, err := svc.createEmailRegistrationUser(ctx, "third@example.com", "dupname", "hash", true, ""); !errors.Is(err, ErrUsernameInUse) {
 		t.Fatalf("registration duplicate username err=%v, want ErrUsernameInUse", err)
 	}
 
-	if _, err := svc.createPhoneRegistrationUser(ctx, "+15550000001", "phoneone", "hash", true); err != nil {
+	if _, err := svc.createPhoneRegistrationUser(ctx, "+15550000001", "phoneone", "hash", true, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.createPhoneRegistrationUser(ctx, "+15550000001", "phonetwo", "hash", true); !errors.Is(err, ErrPhoneInUse) {
+	if _, err := svc.createPhoneRegistrationUser(ctx, "+15550000001", "phonetwo", "hash", true, ""); !errors.Is(err, ErrPhoneInUse) {
 		t.Fatalf("duplicate phone err=%v, want ErrPhoneInUse", err)
 	}
 

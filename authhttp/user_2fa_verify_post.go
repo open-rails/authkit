@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -38,53 +37,13 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	validChallenge, err := s.svc.Verify2FAChallenge(r.Context(), userID, challenge)
+	out, err := s.svc.CompleteLoginChallenge(r.Context(), embedded.LoginChallengeInput{UserID: userID, Challenge: challenge, FactorID: strings.TrimSpace(req.FactorID), Code: code, BackupCode: req.BackupCode, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
-		serverErr(w, authkit.CodeChallengeVerifyFailed)
-		return
-	}
-	if !validChallenge {
-		logLoginFailed(s, r, userID, "invalid_challenge")
-		unauthorized(w, authkit.CodeInvalidChallenge)
-		return
-	}
-
-	var valid bool
-	if req.BackupCode {
-		valid, err = s.svc.VerifyBackupCode(r.Context(), userID, code)
-	} else if strings.TrimSpace(req.FactorID) != "" {
-		valid, err = s.svc.Verify2FAFactorCode(r.Context(), userID, strings.TrimSpace(req.FactorID), code)
-	} else {
-		valid, err = s.svc.Verify2FACode(r.Context(), userID, code)
-	}
-	if err != nil || !valid {
-		logLoginFailed(s, r, userID, "invalid_code")
+		logLoginFailed(s, r, userID, "invalid_challenge_or_code")
 		unauthorized(w, authkit.CodeInvalidCode)
 		return
 	}
-	_ = s.svc.Clear2FAChallenge(r.Context(), userID)
-
-	// Create the refresh session AND mint its access token from a single user load +
-	// MFA read (#227), recording the verified second factor via authMethods. The
-	// banned gate still fires with authkit.CodeUserBanned; the ID-token email the old path
-	// fetched (AdminGetUser) was ignored by MintAccessToken, so it's gone.
-	sid, rt, token, exp, _, err := s.svc.IssueAuthenticatedSession(r.Context(), userID, r.UserAgent(), parseIP(s.requestIP(r)), []string{"pwd", "otp", "mfa"}, nil)
-	if err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			logLoginFailed(s, r, userID, "user_banned")
-			unauthorized(w, authkit.CodeUserBanned)
-			return
-		}
-		serverErr(w, authkit.CodeSessionCreationFailed)
-		return
-	}
-
-	ua := r.UserAgent()
-	ip := s.requestIP(r)
-	uaPtr, ipPtr := &ua, &ip
-	s.svc.LogSessionCreated(r.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
-
-	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(token, rt, exp))
+	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
@@ -107,28 +66,10 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
 		return
 	}
-	validChallenge, err := s.svc.Verify2FAChallenge(r.Context(), userID, challenge)
+	out, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
 	if err != nil {
-		serverErr(w, authkit.CodeChallengeVerifyFailed)
-		return
-	}
-	if !validChallenge {
 		unauthorized(w, authkit.CodeInvalidChallenge)
 		return
 	}
-	destination, method, factor, err := s.svc.Require2FAForLoginFactor(r.Context(), userID, factorID)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, map[string]any{
-		"method":          method,
-		"verification_id": embedded.MaskDestination(destination),
-		"factor": twoFactorFactorResponse{
-			ID:          factor.ID,
-			Method:      factor.Method,
-			IsDefault:   factor.IsDefault,
-			PhoneNumber: factor.PhoneNumber,
-		},
-	})
+	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, loginChallengeMetadata(userID, out))
 }

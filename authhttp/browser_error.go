@@ -2,15 +2,14 @@ package authhttp
 
 import (
 	"encoding/json"
-	"fmt"
 	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -51,7 +50,7 @@ func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oi
 // failBrowserFlowExtra is failBrowserFlow with additional payload fields
 // carried to the frontend (fragment params / postMessage keys) — e.g. the
 // 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code, extra url.Values) {
+func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code, extra map[string]any) {
 	if wantsJSONResponse(r) {
 		sendErr(w, status, code)
 		return
@@ -84,8 +83,8 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 				"flow":     flow,
 				"nonce":    popupNonce,
 			}
-			for k := range extra {
-				payload[k] = extra.Get(k)
+			for key, value := range extra {
+				payload[key] = value
 			}
 			b, _ := json.Marshal(payload)
 			writePopupDocument(w, buildPopupHTML(b, targetOrigin))
@@ -104,8 +103,13 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 	if rt := sanitizeReturnTo(returnTo); rt != "/" {
 		v.Set("return_to", rt)
 	}
-	for k := range extra {
-		v.Set(k, extra.Get(k))
+	for key, value := range extra {
+		if text, ok := value.(string); ok {
+			v.Set(key, text)
+		} else {
+			raw, _ := json.Marshal(value)
+			v.Set(key, string(raw))
+		}
 	}
 	target := buildFrontendCallbackURL(s.svc.Config().Frontend.BaseURL, s.svc.Config().Frontend.OIDCReturnPath, "#"+v.Encode())
 	// RFC 6749 §5.1 hygiene: flow results must never be cached — the Location
@@ -192,26 +196,19 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 	return &sd
 }
 
-// browser2FAEnrollmentRequired is send2FAEnrollmentRequired for browser
-// navigations: the enrollment token rides the error contract (fragment or
-// popup payload) as enrollment_token — deliberately NOT access_token, so a
-// frontend that only looks for access_token treats the login as failed
-// instead of storing an enrollment-scoped token as a real session.
-func (s *Service) browser2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID, provider string, sd oidckit.StateData) {
+// Browser and JSON callbacks present the same engine-produced continuation.
+func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out embedded.LoginOutcome, provider string, sd oidckit.StateData) {
 	if wantsJSONResponse(r) {
-		s.send2FAEnrollmentRequired(w, r, userID)
+		s.writeLoginContinuation(w, r, out, nil)
 		return
 	}
-	token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
-	if err != nil {
-		s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, authkit.CodeTokenIssueFailed)
-		return
+	var extra map[string]any
+	code := authkit.CodeTwoFAEnrollmentRequired
+	if out.Kind == embedded.LoginTwoFactorRequired {
+		code = authkit.CodeTwoFARequired
+		extra = loginChallengeMetadata(out.UserID, out.Challenge)
+	} else {
+		extra = map[string]any{"user_id": out.UserID, "enrollment_token": out.Enrollment.AccessToken, "enrollment_expires_in": out.Enrollment.ExpiresIn, "allowed_methods": out.AllowedMethods}
 	}
-	extra := url.Values{}
-	extra.Set("enrollment_token", token)
-	extra.Set("enrollment_expires_in", fmt.Sprint(int64(time.Until(exp).Seconds())))
-	if methods := s.svc.TwoFactorAllowedMethods(); len(methods) > 0 {
-		extra.Set("allowed_methods", strings.Join(methods, ","))
-	}
-	s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, extra)
+	s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusForbidden, code, extra)
 }

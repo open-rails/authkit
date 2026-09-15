@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
@@ -18,8 +20,7 @@ import (
 // "@" is an email, anything else is a phone number — the rule passwordless
 // login already applies (#312).
 type contactChannel struct {
-	name   string // "email" | "phone"
-	method string // session auth-method label
+	name string // "email" | "phone"
 
 	validate        func(string) error
 	normalize       func(string) string
@@ -31,16 +32,6 @@ type contactChannel struct {
 	// resendPending re-issues the pending registration for id; found is false
 	// when no pending registration exists.
 	resendPending func(context.Context, string) (found bool, err error)
-
-	confirmPendingCode func(ctx context.Context, id, code string) (string, error)
-	confirmVerifyCode  func(ctx context.Context, id, code string) (string, error)
-	confirmChangeCode  func(ctx context.Context, userID, id, code string, keepSessionID *string) error
-	clearCodeAttempts  func(context.Context, string)
-	recordFailedCode   func(context.Context, string)
-
-	confirmPendingToken func(context.Context, string) (string, error)
-	confirmVerifyToken  func(context.Context, string) (string, error)
-	confirmChangeToken  func(context.Context, string) (string, error)
 
 	getUser       func(context.Context, string) (*embedded.User, error)
 	isVerified    func(*embedded.User) bool
@@ -55,7 +46,6 @@ type contactChannel struct {
 func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
 		name:            "email",
-		method:          "email_verification",
 		validate:        embedded.ValidateEmail,
 		normalize:       embedded.NormalizeEmail,
 		senderAvailable: s.svc.HasEmailSender,
@@ -74,16 +64,8 @@ func (s *Service) emailChannel() contactChannel {
 			_, err = s.svc.CreatePendingRegistrationWithLanguage(ctx, id, p.Username, p.PasswordHash, 0, p.PreferredLanguage)
 			return true, err
 		},
-		confirmPendingCode:  s.svc.ConfirmPendingRegistration,
-		confirmVerifyCode:   s.svc.ConfirmEmailVerification,
-		confirmChangeCode:   s.svc.ConfirmEmailChange,
-		clearCodeAttempts:   s.svc.ClearEmailVerifyCodeAttempts,
-		recordFailedCode:    s.svc.RecordFailedEmailVerifyCode,
-		confirmPendingToken: s.svc.ConfirmPendingRegistrationByToken,
-		confirmVerifyToken:  s.svc.ConfirmEmailVerificationByToken,
-		confirmChangeToken:  s.svc.ConfirmEmailChangeByToken,
-		getUser:             s.svc.GetUserByEmail,
-		isVerified:          func(u *embedded.User) bool { return u.EmailVerified },
+		getUser:    s.svc.GetUserByEmail,
+		isVerified: func(u *embedded.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -98,7 +80,6 @@ func (s *Service) emailChannel() contactChannel {
 func (s *Service) phoneChannel() contactChannel {
 	return contactChannel{
 		name:            "phone",
-		method:          "phone_verification",
 		validate:        embedded.ValidatePhone,
 		normalize:       embedded.NormalizePhone,
 		senderAvailable: s.svc.SMSAvailable,
@@ -117,16 +98,8 @@ func (s *Service) phoneChannel() contactChannel {
 			_, err = s.svc.CreatePendingPhoneRegistrationWithLanguage(ctx, id, p.Username, p.PasswordHash, p.PreferredLanguage)
 			return true, err
 		},
-		confirmPendingCode:  s.svc.ConfirmPendingPhoneRegistration,
-		confirmVerifyCode:   s.svc.ConfirmPhoneVerificationUserID,
-		confirmChangeCode:   s.svc.ConfirmPhoneChange,
-		clearCodeAttempts:   s.svc.ClearPhoneVerifyCodeAttempts,
-		recordFailedCode:    s.svc.RecordFailedPhoneVerifyCode,
-		confirmPendingToken: s.svc.ConfirmPendingPhoneRegistrationByToken,
-		confirmVerifyToken:  s.svc.ConfirmPhoneVerificationByTokenUserID,
-		confirmChangeToken:  s.svc.ConfirmPhoneChangeByToken,
-		getUser:             s.svc.GetUserByPhone,
-		isVerified:          func(u *embedded.User) bool { return u.PhoneVerified },
+		getUser:    s.svc.GetUserByPhone,
+		isVerified: func(u *embedded.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
@@ -228,97 +201,46 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	if token := strings.TrimSpace(req.Token); token != "" {
-		s.confirmVerificationToken(w, r, token, req.Identifier)
-		return
-	}
-	// Typed 6-digit code: only ever checked against the record issued for the
-	// supplied identifier and attempt-capped per identifier (a per-IP-only
-	// limit is trivially defeated by IP rotation).
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	if code == "" {
+	in := embedded.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	ch, id, ok := s.requireContactChannel(w, req.Identifier)
-	if !ok {
-		return
-	}
-	if s.rateLimitedByIdentifier(w, r, RLVerifyConfirm, id) {
-		return
-	}
-	// Pending registration, then standalone verification, then contact change.
-	// A backend failure on any path is a 500 and is never counted as a guess.
-	userID, err := ch.confirmPendingCode(r.Context(), id, code)
-	if err == nil && userID != "" {
-		ch.clearCodeAttempts(r.Context(), id)
-		s.issueVerificationTokens(w, r, userID, ch.method)
-		return
-	}
-	if s.confirmBackendFailed(w, r, "verify_confirm", "confirm_pending_registration", err) {
-		return
-	}
-	userID, err = ch.confirmVerifyCode(r.Context(), id, code)
-	if err == nil && userID != "" {
-		ch.clearCodeAttempts(r.Context(), id)
-		s.issueVerificationTokens(w, r, userID, ch.method)
-		return
-	}
-	if s.confirmBackendFailed(w, r, "verify_confirm", "confirm_verification", err) {
-		return
-	}
-	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		err := ch.confirmChangeCode(r.Context(), claims.UserID, id, code, keepSession(claims))
-		if err == nil {
-			ch.clearCodeAttempts(r.Context(), id)
-			noContent(w)
-			return
-		}
-		if s.confirmBackendFailed(w, r, "verify_confirm", "confirm_contact_change", err) {
-			return
-		}
-	}
-	// Every path failed on the code itself: count the guess and (after the
-	// cap) invalidate the code.
-	ch.recordFailedCode(r.Context(), id)
-	badRequest(w, authkit.CodeInvalidOrExpiredCode)
-}
-
-// confirmVerificationToken runs the link flow: pending registration, then
-// standalone verification, then contact change. A link token is opaque, so
-// with no identifier both channels are tried; with one, only its channel is
-// tried and it drives the failure classification.
-func (s *Service) confirmVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier string) {
-	channels := []contactChannel{s.emailChannel(), s.phoneChannel()}
 	var target *contactChannel
-	id := strings.TrimSpace(identifier)
-	if id != "" {
-		ch, normalized, err := s.contactChannelFor(id)
-		if err != nil {
+	if in.Identifier != "" || in.Token == "" {
+		ch, id, ok := s.requireContactChannel(w, in.Identifier)
+		if !ok {
+			return
+		}
+		in.Identifier, target = id, &ch
+		if s.rateLimitedByIdentifier(w, r, RLVerifyConfirm, id) {
+			return
+		}
+	}
+	if claims, ok := verify.ClaimsFromContext(r.Context()); ok {
+		in.UserID, in.SessionID = claims.UserID, claims.SessionID
+	}
+	out, err := s.svc.ConfirmVerification(r.Context(), in)
+	if err != nil {
+		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims) {
+			writeError(w, err)
+		} else if in.Token == "" {
+			badRequest(w, authkit.CodeInvalidOrExpiredCode)
+		} else if target != nil {
+			s.classifyVerifyLinkFailure(w, r.Context(), *target, in.Identifier)
+		} else {
 			badRequest(w, authkit.CodeInvalidOrExpiredToken)
-			return
 		}
-		channels, target, id = []contactChannel{ch}, &ch, normalized
-	}
-	for _, ch := range channels {
-		if userID, err := ch.confirmPendingToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
-			s.issueVerifiedTokens(w, r, userID, ch.method)
-			return
-		}
-		if userID, err := ch.confirmVerifyToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
-			s.issueVerifiedTokens(w, r, userID, ch.method)
-			return
-		}
-		if userID, err := ch.confirmChangeToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
-			noContent(w)
-			return
-		}
-	}
-	if target == nil {
-		badRequest(w, authkit.CodeInvalidOrExpiredToken)
 		return
 	}
-	s.classifyVerifyLinkFailure(w, r.Context(), *target, id)
+	if out.Kind == embedded.LoginContactChanged {
+		noContent(w)
+		return
+	}
+	if s.writeLoginContinuation(w, r, out, nil) {
+		return
+	}
+	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
 }
 
 // classifyVerifyLinkFailure explains a missed link token for a known
@@ -338,16 +260,6 @@ func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.C
 		return
 	}
 	sendErr(w, http.StatusGone, authkit.CodeVerificationLinkExpired)
-}
-
-func (s *Service) issueVerifiedTokens(w http.ResponseWriter, r *http.Request, userID, method string) {
-	if err := s.issueTokensForUser(w, r, userID, method); err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, authkit.CodeUserBanned)
-			return
-		}
-		serverErr(w, authkit.CodeTokenIssueFailed)
-	}
 }
 
 // POST /password/reset/request — {identifier}; always 202 for a well-formed
