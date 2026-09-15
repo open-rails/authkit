@@ -47,7 +47,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}, RBAC: []PersonaDef{
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly}, RBAC: []PersonaDef{
 		{Name: "org", Parent: RootPersona, Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true}, Catalog: []string{"org:billing:read", "org:billing:write"}},
 		{Name: "repo", Parent: "org"}, {Name: "leaf", Parent: "repo"},
 	}}, Keyset{}, WithPostgres(pool))
@@ -120,8 +120,23 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		// FK KEY SHARE is compatible with the blocker, so this descendant commits
 		// after deletion began but before the child row can be locked/traversed.
 		create("leaf", "late-leaf", "fault-child")
+		renamed := make(chan error, 1)
+		newName := "fault-child-renamed"
+		go func() {
+			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, authkit.GroupInstanceUpdate{Slug: &newName})
+			renamed <- err
+		}()
+		require.Eventually(t, func() bool {
+			var n int
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%profiles.permission_groups%'`).Scan(&n)
+			return err == nil && n == 2
+		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
+		renameErr := <-renamed
+		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: "repo", Instance: newName})
+		require.NoError(t, err)
+		require.Equal(t, renameErr != nil, newAvailable, "a completed concurrent rename must be reserved; a losing rename leaves no claim")
 		available, err := svc.groupStore().InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: "leaf", Instance: "late-leaf"})
 		require.NoError(t, err)
 		require.False(t, available, "late committed descendants must be reserved too")
