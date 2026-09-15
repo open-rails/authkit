@@ -68,6 +68,12 @@ func TestCookieSessionBoundaries(t *testing.T) {
 	// Rejected cookie requests must leave one-time credentials usable.
 	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
 	require.NoError(t, err)
+	mounted := h
+	h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Host middleware wraps every request, including the empty-body sentinel.
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		mounted.ServeHTTP(w, r)
+	})
 	email := "cookie-confirm@example.test"
 	start := postCookieJSON(h, "/api/v1/passwordless/start", `{"identifier":"`+email+`","mode":"code"}`)
 	require.Equal(t, http.StatusAccepted, start.Code, start.Body.String())
@@ -97,6 +103,11 @@ func TestCookieSessionBoundaries(t *testing.T) {
 		Token string `json:"access_token"`
 	}
 	require.NoError(t, json.Unmarshal(refresh.Body.Bytes(), &access))
+	profile := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	profile.Header.Set("Authorization", "Bearer "+access.Token)
+	profileResponse := httptest.NewRecorder()
+	h.ServeHTTP(profileResponse, profile)
+	require.Equal(t, http.StatusOK, profileResponse.Code, profileResponse.Body.String())
 	logoutRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/logout", nil)
 	logoutRequest.Header.Set("Authorization", "Bearer "+access.Token)
 	logoutRequest.Header.Set("Origin", cookieTestOrigin)

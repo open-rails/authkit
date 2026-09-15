@@ -11,7 +11,9 @@ import (
 // consumed. Browser OIDC callbacks have their own state binding and form format.
 func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil && r.Body != http.NoBody {
+		// Incoming HTTP framing identifies empty bodies even when host middleware
+		// has wrapped http.NoBody (for example with MaxBytesReader).
+		if r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody {
 			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mediaType != "application/json" {
 				badRequest(w, authkit.CodeInvalidRequest)
