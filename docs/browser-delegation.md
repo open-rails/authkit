@@ -77,6 +77,12 @@ An embedding host can use `embedded.Client.ClaimDPoPProof`, which uses its
 existing ephemeral store. A receiver with its own storage can supply the
 minimal callback without importing AuthKit's PostgreSQL engine. Live replay
 claims must not be evicted to admit more claims; capacity errors fail closed.
+Use a Redis `noeviction` policy for a shared replay store.
+
+Authenticate a request once. After `verify.Required` succeeds, downstream
+handlers use `verify.ClaimsFromContext` and authorize from those verified claims.
+Calling `VerifyRequest` again with the same proof is a replay, even within the
+same application; middleware must pass its verified result to the handler.
 
 The issuer defaults to its configured token issuer's origin plus the received
 escaped request path. If ingress strips a public prefix, supply
