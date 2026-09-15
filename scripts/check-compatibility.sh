@@ -44,7 +44,7 @@ def preserve(want, got, path):
             if key not in got:
                 raise SystemExit(f"published wire field removed: {path}.{key}")
             preserve(value, got[key], f"{path}.{key}")
-    elif want != got:
+    elif type(want) is not type(got) or want != got:
         raise SystemExit(f"published wire contract changed: {path}")
 
 for fixture in (old_root / "authhttp/testdata/wire").glob("*.json"):
