@@ -19,6 +19,12 @@ expand the semantic-versioning promise. The documented host workflows, route
 table, error catalog, wire assertions and real browser workflow remain separate
 obligations. API compatibility alone does not prove authorization correctness.
 
+Before the first release containing these fixtures, there is no historical wire
+fixture to compare with. The current workflow tests still enforce the candidate
+shapes; historical preservation starts with that release. New catalog codes
+extend the code/status fixture. Existing values and published route rows cannot
+be changed by updating the current expectations alone.
+
 Reports and the immutable baseline source archive are retained under
 `.reports/compatibility/<commit>`. The tool is run at an explicit version and is
 not added to the library's dependency graph.
