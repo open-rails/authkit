@@ -176,12 +176,9 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 	return out, err
 }
 
-// ErrTwoFASendFailed etc. are the flow sentinels a transport maps (root package).
+// Password-login errors shared with the transport.
 var (
 	ErrInvalidCredentials          = authkit.ErrInvalidCredentials
-	ErrTwoFASendFailed             = authkit.ErrTwoFASendFailed
-	ErrTwoFAChallengeFailed        = authkit.ErrTwoFAChallengeFailed
-	ErrSessionIssueFailed          = authkit.ErrSessionIssueFailed
 	ErrEmailVerificationSendFailed = authkit.ErrEmailVerificationSendFailed
 	ErrPhoneVerificationSendFailed = authkit.ErrPhoneVerificationSendFailed
 )

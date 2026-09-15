@@ -17,12 +17,7 @@ import (
 
 const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
 
-var (
-	ErrAccountRegistrationInviteConsumed = authkit.ErrAccountRegistrationInviteConsumed
-	ErrAccountRegistrationInviteExpired  = authkit.ErrAccountRegistrationInviteExpired
-	ErrAccountRegistrationInviteNotFound = authkit.ErrAccountRegistrationInviteNotFound
-	ErrAccountRegistrationInviteRevoked  = authkit.ErrAccountRegistrationInviteRevoked
-)
+var ErrAccountRegistrationInviteNotFound = authkit.ErrAccountRegistrationInviteNotFound
 
 type accountInviteTokenContextKey struct{}
 

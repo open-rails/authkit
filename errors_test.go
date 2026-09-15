@@ -68,7 +68,7 @@ func TestErrorEnvelope(t *testing.T) {
 	if status != 400 || env.Error.Param == nil || *env.Error.Param != "email" || env.Error.Metadata["retry_after_seconds"] != 5 || env.Error.Type != ErrorTypeInvalidRequest {
 		t.Fatalf("validation envelope = %d %+v", status, env)
 	}
-	for _, err := range []error{errors.New("opaque"), nil, E(CodeTokenIssueFailed), fmt.Errorf("%w: cause", ErrSessionIssueFailed)} {
+	for _, err := range []error{errors.New("opaque"), nil, E(CodeTokenIssueFailed), fmt.Errorf("%w: cause", E(CodeTokenIssueFailed))} {
 		status, env := ErrorEnvelopeFor(err)
 		if status != 500 || env.Error.Code != "internal_error" || env.Error.Type != ErrorTypeAPI {
 			t.Errorf("%v -> %d %s", err, status, env.Error.Code)
