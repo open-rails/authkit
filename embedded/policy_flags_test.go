@@ -18,14 +18,14 @@ func TestAllowMissingSendersIsOffByDefault(t *testing.T) {
 	verified := Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}
 
 	strict := mustNewWithKeys(t, verified, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
-	_, err := strict.CreatePendingRegistrationWithLanguage(ctx, "strict@example.com", "strictuser", "argon2id$hash", 0, "")
+	_, err := strict.issuePendingEmailRegistration(ctx, "strict@example.com", "strictuser", "argon2id$hash", 0, "")
 	if err == nil || !strings.Contains(err.Error(), "email sender not configured") {
 		t.Fatalf("no sender and no opt-in must refuse, got %v", err)
 	}
 
 	verified.Registration.AllowMissingSenders = true
 	lenient := mustNewWithKeys(t, verified, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
-	code, err := lenient.CreatePendingRegistrationWithLanguage(ctx, "lenient@example.com", "lenientuser", "argon2id$hash", 0, "")
+	code, err := lenient.issuePendingEmailRegistration(ctx, "lenient@example.com", "lenientuser", "argon2id$hash", 0, "")
 	if err != nil || len(code) != 6 {
 		t.Fatalf("AllowMissingSenders must let registration proceed undelivered: code=%q err=%v", code, err)
 	}

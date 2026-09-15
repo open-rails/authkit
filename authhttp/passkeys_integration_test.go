@@ -64,21 +64,14 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.Len(t, creation.PublicKey.ExcludeCredentials, 1)
 	require.Equal(t, base64.RawURLEncoding.EncodeToString(authn.CredentialID), creation.PublicKey.ExcludeCredentials[0].ID)
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"does-not-exist@example.com"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var unknown passkeyRequestOptions
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &unknown))
-	require.Empty(t, unknown.PublicKey.AllowCredentials)
-
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"`+*user.Email+`"}`)
+	for _, body := range []string{`{"identifier":"does-not-exist@example.com"}`, `{"identifier":"` + *user.Email + `"}`, `{"`, `[]`, `null`} {
+		w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", body)
+		require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	}
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var assertion passkeyRequestOptions
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))
-	// AK2-PK-002: login-begin is ALWAYS discoverable, so even a known identifier
-	// yields an empty allowCredentials list (identical to the unknown-identifier
-	// response above) — no account-existence probe, no credential-ID leak. The
-	// authenticator resolves its resident credential and the ceremony still
-	// completes via the user handle (verified by the finish below).
 	require.Empty(t, assertion.PublicKey.AllowCredentials)
 
 	firstAssertion := string(assert(t, authn, assertion, 1))
@@ -108,7 +101,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", string(assert(t, authn, assertion, 2)))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{"identifier":"`+*user.Email+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assertion = passkeyRequestOptions{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))

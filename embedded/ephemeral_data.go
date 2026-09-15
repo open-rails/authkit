@@ -34,6 +34,8 @@ const (
 )
 
 type phoneVerificationData struct {
+	ID       string `json:"id"`
+	Version  int64  `json:"version"`
 	UserID   string `json:"user_id"`
 	Phone    string `json:"phone"`
 	Purpose  string `json:"purpose"`
@@ -42,6 +44,8 @@ type phoneVerificationData struct {
 }
 
 type emailVerifyData struct {
+	ID       string  `json:"id"`
+	Version  int64   `json:"version"`
 	UserID   string  `json:"user_id"`
 	Email    *string `json:"email,omitempty"`
 	CodeHash string  `json:"code_hash"`
@@ -109,6 +113,9 @@ func phoneVerificationKey(purpose, phone string) string {
 // storePhoneVerification issues one verification record per (purpose, phone),
 // superseding any outstanding one. linkHash may be empty for code-only purposes.
 func (s *Client) storePhoneVerification(ctx context.Context, purpose, phone, userID, codeHash, linkHash string, ttl time.Duration) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
 	}
@@ -116,7 +123,11 @@ func (s *Client) storePhoneVerification(ctx context.Context, purpose, phone, use
 	phone = NormalizePhone(phone)
 	key := phoneVerificationKey(purpose, phone)
 	s.deletePhoneVerification(ctx, key)
-	data := phoneVerificationData{UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
+	version, err := s.q.UserCredentialVersion(ctx, userID)
+	if err != nil {
+		return err
+	}
+	data := phoneVerificationData{ID: RandB64(16), Version: version.CredentialVersion, UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
@@ -128,10 +139,10 @@ func (s *Client) storePhoneVerification(ctx context.Context, purpose, phone, use
 
 func (s *Client) deletePhoneVerification(ctx context.Context, key string) {
 	var data phoneVerificationData
-	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
+	raw, ok, _ := s.ephemReadJSON(ctx, key, &data)
+	if ok && s.claimProof(ctx, key, raw) == nil && data.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPhoneVerifyLink+data.LinkHash)
 	}
-	_ = s.ephemDel(ctx, key)
 }
 
 // consumePhoneVerification checks a typed code against the record issued for
@@ -140,46 +151,38 @@ func (s *Client) deletePhoneVerification(ctx context.Context, key string) {
 func (s *Client) consumePhoneVerification(ctx context.Context, purpose, phone, codeHash string) (string, error) {
 	key := phoneVerificationKey(purpose, phone)
 	var data phoneVerificationData
-	ok, err := s.ephemGetJSON(ctx, key, &data)
+	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
 	if err != nil {
 		return "", err
 	}
-	if !ok || !SecretEqual(data.CodeHash, codeHash) {
+	if !ok || data.ID == "" || data.Version <= 0 || !SecretEqual(data.CodeHash, codeHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	s.deletePhoneVerification(ctx, key)
+	if err := s.claimProof(ctx, key, raw); err != nil {
+		return "", err
+	}
+	if data.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyPhoneVerifyLink+data.LinkHash)
+	}
 	return data.UserID, nil
-}
-
-// consumePhoneVerificationByLink redeems the 256-bit link token: the pointer is
-// consumed atomically (single-use), then the record it names must still carry
-// that link hash. Returns (userID, phone).
-func (s *Client) consumePhoneVerificationByLink(ctx context.Context, purpose, linkHash string) (string, string, error) {
-	key, ok := s.consumeLink(ctx, keyPhoneVerifyLink+linkHash)
-	if !ok {
-		return "", "", jwt.ErrTokenUnverifiable
-	}
-	var data phoneVerificationData
-	ok, err := s.ephemGetJSON(ctx, key, &data)
-	if err != nil {
-		return "", "", err
-	}
-	if !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !SecretEqual(data.LinkHash, linkHash) {
-		return "", "", jwt.ErrTokenUnverifiable
-	}
-	_ = s.ephemDel(ctx, key)
-	return data.UserID, data.Phone, nil
 }
 
 // storeEmailVerification issues one verification record per user, superseding
 // any outstanding one.
 func (s *Client) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
 	}
 	key := keyEmailVerify + userID
 	s.deleteEmailVerification(ctx, userID)
-	data := emailVerifyData{UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
+	version, err := s.q.UserCredentialVersion(ctx, userID)
+	if err != nil {
+		return err
+	}
+	data := emailVerifyData{ID: RandB64(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
@@ -189,48 +192,10 @@ func (s *Client) storeEmailVerification(ctx context.Context, userID string, emai
 func (s *Client) deleteEmailVerification(ctx context.Context, userID string) {
 	key := keyEmailVerify + userID
 	var data emailVerifyData
-	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
+	raw, ok, _ := s.ephemReadJSON(ctx, key, &data)
+	if ok && s.claimProof(ctx, key, raw) == nil && data.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyEmailVerifyLink+data.LinkHash)
 	}
-	_ = s.ephemDel(ctx, key)
-}
-
-// consumeEmailVerificationCode checks a typed code against the user's outstanding
-// record; the record must have been issued for the supplied address. A wrong
-// code leaves the record intact; the per-email attempt cap bounds guessing.
-func (s *Client) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
-	var data emailVerifyData
-	ok, err := s.ephemGetJSON(ctx, keyEmailVerify+userID, &data)
-	if err != nil {
-		return err
-	}
-	if !ok || !SecretEqual(data.CodeHash, codeHash) {
-		return jwt.ErrTokenUnverifiable
-	}
-	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
-		return jwt.ErrTokenInvalidClaims
-	}
-	s.deleteEmailVerification(ctx, userID)
-	return nil
-}
-
-// consumeEmailVerificationByLink redeems the 256-bit link token (single-use
-// pointer consume, then the record must still carry that link hash).
-func (s *Client) consumeEmailVerificationByLink(ctx context.Context, linkHash string) (*emailVerifyToken, error) {
-	key, ok := s.consumeLink(ctx, keyEmailVerifyLink+linkHash)
-	if !ok {
-		return nil, jwt.ErrTokenUnverifiable
-	}
-	var data emailVerifyData
-	ok, err := s.ephemGetJSON(ctx, key, &data)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || !SecretEqual(data.LinkHash, linkHash) {
-		return nil, jwt.ErrTokenUnverifiable
-	}
-	_ = s.ephemDel(ctx, key)
-	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
 }
 
 // RecordFailedEmailVerifyCode increments the per-email failed-attempt counter for
@@ -406,18 +371,6 @@ func (s *Client) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, co
 		return false, nil
 	}
 	return true, nil
-}
-
-func (s *Client) storeMFAChallenge(ctx context.Context, userID, challengeHash string, ttl time.Duration) error {
-	return s.ephemSetString(ctx, keyTwoFactorChallenge+userID, challengeHash, ttl)
-}
-
-func (s *Client) getMFAChallenge(ctx context.Context, userID string) (string, bool, error) {
-	return s.ephemGetString(ctx, keyTwoFactorChallenge+userID)
-}
-
-func (s *Client) deleteMFAChallenge(ctx context.Context, userID string) error {
-	return s.ephemDel(ctx, keyTwoFactorChallenge+userID)
 }
 
 func (s *Client) storePasskeyCeremony(ctx context.Context, challenge string, data passkeyCeremonyData, ttl time.Duration) error {

@@ -8,8 +8,9 @@ package embedded
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
@@ -31,6 +32,7 @@ type RegisterInput struct {
 type RegisterOutcomeKind string
 
 const (
+	RegisterLoginRequired RegisterOutcomeKind = "login_required"
 	// RegisterSessionIssued: the account exists and is signed in (no
 	// verification pending).
 	RegisterSessionIssued RegisterOutcomeKind = "session_issued"
@@ -42,6 +44,7 @@ const (
 
 // RegisterOutcome reports who was registered and what happens next.
 type RegisterOutcome struct {
+	Login    *LoginOutcome
 	Kind     RegisterOutcomeKind
 	Username string
 	Email    *string
@@ -59,6 +62,11 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {
 		return RegisterOutcome{}, ErrRegistrationDisabled
 	}
+	language, err := NormalizePreferredLanguage(in.PreferredLanguage)
+	if err != nil {
+		return RegisterOutcome{}, err
+	}
+	in.PreferredLanguage = language
 	identifier := strings.TrimSpace(in.Identifier)
 	username := strings.TrimSpace(in.Username)
 	if identifier == "" || username == "" {
@@ -84,6 +92,7 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	}
 	requiresVerification := s.RegistrationVerificationRequired()
 
+	ctx = contextWithAccountRegistrationInviteToken(ctx, in.AccountInviteToken)
 	if isPhone {
 		phone := NormalizePhone(identifier)
 		if requiresVerification && !s.SMSAvailable() {
@@ -99,18 +108,25 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 		if usernameTaken {
 			return RegisterOutcome{}, ErrUsernameInUse
 		}
-		if _, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, username, phc, in.PreferredLanguage); err != nil {
-			return RegisterOutcome{}, registrationErr("send_phone_verification", err)
-		}
-		out := RegisterOutcome{Kind: RegisterVerifyPhone, Username: username, Phone: &phone}
+		out := RegisterOutcome{Username: username, Phone: &phone}
 		if requiresVerification {
+			if _, err := s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage); err != nil {
+				return RegisterOutcome{}, registrationErr("send_phone_verification", err)
+			}
+			out.Kind = RegisterVerifyPhone
 			return out, nil
 		}
-		u, err := s.getUserByPhone(ctx, phone)
-		if err != nil || u == nil {
-			return RegisterOutcome{}, stageErr("load_registered_user", errOrUnauthorized(err))
+		verified := s.RegistrationVerificationPolicy() == RegistrationVerificationNone || !s.SMSAvailable()
+		account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id", PhoneVerified: verified}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+		if err != nil {
+			return RegisterOutcome{}, err
 		}
-		return s.registeredSession(ctx, in, out, u.ID)
+		if !verified {
+			if err := s.SendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
+				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
+			}
+		}
+		return s.registeredSession(ctx, in, out, account)
 	}
 
 	email := NormalizeEmail(identifier)
@@ -127,19 +143,25 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	if usernameTaken {
 		return RegisterOutcome{}, ErrUsernameInUse
 	}
-	inviteCtx := WithAccountRegistrationInviteToken(ctx, in.AccountInviteToken)
-	if _, err := s.CreatePendingRegistrationWithLanguage(inviteCtx, email, username, phc, 0, in.PreferredLanguage); err != nil {
-		return RegisterOutcome{}, registrationErr("send_email_verification", err)
-	}
-	out := RegisterOutcome{Kind: RegisterVerifyEmail, Username: username, Email: &email}
+	out := RegisterOutcome{Username: username, Email: &email}
 	if requiresVerification {
+		if _, err := s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage); err != nil {
+			return RegisterOutcome{}, registrationErr("send_email_verification", err)
+		}
+		out.Kind = RegisterVerifyEmail
 		return out, nil
 	}
-	u, err := s.getUserByEmail(ctx, email)
-	if err != nil || u == nil {
-		return RegisterOutcome{}, stageErr("load_registered_user", errOrUnauthorized(err))
+	verified := s.RegistrationVerificationPolicy() == RegistrationVerificationNone || !s.HasEmailSender()
+	account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id", EmailVerified: verified}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+	if err != nil {
+		return RegisterOutcome{}, err
 	}
-	return s.registeredSession(ctx, in, out, u.ID)
+	if !verified {
+		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
+			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
+		}
+	}
+	return s.registeredSession(ctx, in, out, account)
 }
 
 // registrationErr keeps the typed conflicts, validation codes, delivery
@@ -154,15 +176,17 @@ func registrationErr(stage string, err error) error {
 	}
 }
 
-func (s *Client) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, userID string) (RegisterOutcome, error) {
-	session, err := s.IssueLoginSession(ctx, LoginSessionInput{UserID: userID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP})
+func (s *Client) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, account registeredAccount) (RegisterOutcome, error) {
+	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
 	if err != nil {
-		if errors.Is(err, ErrUserBanned) || errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return RegisterOutcome{}, err
-		}
-		return RegisterOutcome{}, stageErr("issue_session", fmt.Errorf("%w: %w", ErrSessionIssueFailed, err))
+		return RegisterOutcome{}, err
 	}
-	out.Kind = RegisterSessionIssued
-	out.Session = &session
+	if login.Kind == LoginSessionIssued {
+		out.Kind = RegisterSessionIssued
+		out.Session = login.Session
+	} else {
+		out.Kind = RegisterLoginRequired
+		out.Login = &login
+	}
 	return out, nil
 }

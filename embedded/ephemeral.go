@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/redis/go-redis/v9"
@@ -26,6 +28,10 @@ type EphemeralStore interface {
 	// two concurrent requests both observe the value before either deletes it,
 	// defeating the single-use guarantee (replay). Missing key => (nil, false, nil).
 	Consume(ctx context.Context, key string) ([]byte, bool, error)
+	// CompareAndConsume deletes a live key only while it still holds expected.
+	// OTP/link representations use one canonical record; an old reader can
+	// neither win twice nor consume a newer issuance. Missing/mismatch => false.
+	CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error)
 	// Incr atomically increments the integer at key and returns the new value,
 	// creating it as 1 with ttl when absent (the TTL is set once, not on every
 	// increment). Attempt caps MUST use it: a Get+Set counter lets K concurrent
@@ -106,14 +112,37 @@ func (s *Client) ephemSetJSON(ctx context.Context, key string, value any, ttl ti
 }
 
 func (s *Client) ephemGetJSON(ctx context.Context, key string, out any) (bool, error) {
+	_, ok, err := s.ephemReadJSON(ctx, key, out)
+	return ok, err
+}
+
+// ephemReadJSON retains the exact bytes for a later conditional claim.
+func (s *Client) ephemReadJSON(ctx context.Context, key string, out any) ([]byte, bool, error) {
 	if !s.useEphemeralStore() {
-		return false, fmt.Errorf("ephemeral store unavailable")
+		return nil, false, fmt.Errorf("ephemeral store unavailable")
 	}
-	b, ok, err := s.ephemeralStore.Get(ctx, key)
+	raw, ok, err := s.ephemeralStore.Get(ctx, key)
 	if err != nil || !ok {
-		return false, err
+		return nil, false, err
 	}
-	return true, json.Unmarshal(b, out)
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, false, err
+	}
+	return raw, true, nil
+}
+
+func (s *Client) claimProof(ctx context.Context, key string, expected []byte) error {
+	if !s.useEphemeralStore() || len(expected) == 0 {
+		return jwt.ErrTokenUnverifiable
+	}
+	claimed, err := s.ephemeralStore.CompareAndConsume(ctx, key, expected)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return jwt.ErrTokenUnverifiable
+	}
+	return nil
 }
 
 func (s *Client) ephemSetString(ctx context.Context, key, value string, ttl time.Duration) error {

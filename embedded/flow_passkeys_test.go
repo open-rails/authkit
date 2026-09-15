@@ -122,7 +122,7 @@ func TestPasskeyVerificationProvesIdentityWithoutSession(t *testing.T) {
 		response := authn.Assert(t, assertion, 1)
 		verified, err := c.FinishDiscoverablePasskeyVerification(ctx, response)
 		require.NoError(t, err)
-		require.Equal(t, VerifiedPasskey{UserID: user.ID, PasskeyID: created.ID, CredentialID: b64(authn.CredentialID), BackupEligible: true, BackupState: true}, verified)
+		require.Equal(t, VerifiedPasskey{credentialVersion: 1, UserID: user.ID, PasskeyID: created.ID, CredentialID: b64(authn.CredentialID), BackupEligible: true, BackupState: true}, verified)
 		require.Zero(t, sessionCount(t, ctx, pool, user.ID))
 		var lastUsed *time.Time
 		require.NoError(t, pool.QueryRow(ctx, `SELECT last_used_at FROM profiles.user_passkeys WHERE id=$1::uuid`, created.ID).Scan(&lastUsed))
@@ -138,7 +138,7 @@ func TestPasskeyVerificationProvesIdentityWithoutSession(t *testing.T) {
 		_, err = c.FinishPasskeyLogin(ctx, authn.Assert(t, assertion, 2), "test", nil)
 		require.Error(t, err)
 		require.Zero(t, sessionCount(t, ctx, pool, user.ID))
-		assertion, err = c.BeginPasskeyLogin(ctx, "")
+		assertion, err = c.BeginPasskeyLogin(ctx)
 		require.NoError(t, err)
 		crossed := authn.Assert(t, assertion, 3)
 		_, err = c.FinishDiscoverablePasskeyVerification(ctx, crossed)
@@ -147,7 +147,7 @@ func TestPasskeyVerificationProvesIdentityWithoutSession(t *testing.T) {
 		require.Error(t, err, "a cross-purpose attempt burns the ceremony")
 		require.Zero(t, sessionCount(t, ctx, pool, user.ID))
 
-		assertion, err = c.BeginPasskeyLogin(ctx, "")
+		assertion, err = c.BeginPasskeyLogin(ctx)
 		require.NoError(t, err)
 		login, err := c.FinishPasskeyLogin(ctx, authn.Assert(t, assertion, 4), "test", nil)
 		require.NoError(t, err)

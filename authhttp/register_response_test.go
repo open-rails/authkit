@@ -155,7 +155,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	// (#108 removed the chainable WithEmailSender swap this previously used.)
 	sender := &failableEmailSender{}
 	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(sender))
-	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
+	_, err := s.svc.Register(context.Background(), embedded.RegisterInput{Identifier: "user@example.com", Username: "user", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
 	sender.fail = true
 	h := s.apiHandler()
@@ -173,7 +173,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 
 func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, withEmailSender(testEmailSender{}))
-	_, err := s.svc.CreatePendingRegistrationWithLanguage(context.Background(), "user@example.com", "user", "argon2id$hash", 0, "")
+	_, err := s.svc.Register(context.Background(), embedded.RegisterInput{Identifier: "user@example.com", Username: "user", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
 	h := s.apiHandler()
 

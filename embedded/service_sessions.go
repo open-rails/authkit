@@ -62,93 +62,67 @@ func (s *Client) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID,
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
-	if err := s.ensureUserAccessByID(ctx, userID); err != nil {
-		return "", "", nil, err
-	}
-	if err := s.requireSessionMFAState(ctx, userID, authMethods); err != nil {
-		return "", "", nil, err
-	}
-	return s.insertRefreshSession(ctx, userID, userAgent, ip, authMethods)
-}
-
-// insertRefreshSession generates a refresh token and inserts the session row,
-// enforcing the per-user cap in one advisory-locked transaction. It performs NO
-// live-user gate and NO MFA check — callers MUST have already loaded + gated the
-// user (ensureUserAccess) and satisfied requireSessionMFAState. Split out of
-// IssueRefreshSessionWithAuthMethods (#227) so the authenticated login / 2FA-verify
-// paths (IssueAuthenticatedSession) can create the session and mint its access token
-// from a SINGLE user load instead of re-reading + re-gating for each step.
-func (s *Client) insertRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
-	if s.pg == nil {
-		return "", "", nil, errors.New("postgres not configured")
-	}
-	// Generate token
-	rt := RandB64(32)
-	hash := s.hashRefresh(rt)
-	var expPtr *time.Time
-	if s.cfg.Token.RefreshTokenDuration > 0 {
-		exp := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
-		expPtr = &exp
-	}
-	sid, err := newUUIDV7String()
-	if err != nil {
-		return "", "", nil, err
-	}
-	fam, err := newUUIDV7String()
-	if err != nil {
-		return "", "", nil, err
-	}
-
-	// Enforce the per-user session cap and insert the new session in ONE
-	// transaction, serialized against concurrent creates for the same user by a
-	// transaction-scoped advisory lock. Without the lock the count→evict→insert
-	// steps race: N concurrent logins at the cap each read count==max, each evict
-	// the same one oldest session, and each insert — leaving the user above
-	// SessionMaxPerUser. The lock auto-releases at transaction end.
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return "", "", nil, err
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(db.ForSchema(tx, s.dbSchema()))
-
-	var evicted []string
-	if s.cfg.Token.SessionMaxPerUser > 0 {
-		if lockErr := q.SessionCreateLock(ctx, userID+"|"+s.cfg.Token.Issuer); lockErr != nil {
-			return "", "", nil, lockErr
-		}
-		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Token.Issuer)
-		if err != nil {
-			return "", "", nil, err
-		}
+	q := s.qtx(tx)
+	if _, err := s.lockLoginAccount(ctx, q, userID, 0); err != nil {
+		return "", "", nil, err
 	}
-
-	row, err := q.SessionInsert(ctx, db.SessionInsertParams{
-		ID:               sid,
-		FamilyID:         fam,
-		UserID:           userID,
-		Issuer:           s.cfg.Token.Issuer,
-		CurrentTokenHash: hash,
-		ExpiresAt:        expPtr,
-		UserAgent:        nullable(userAgent),
-		IpAddr:           ipText(ip),
-		AuthMethods:      normalizeAuthMethods(authMethods),
-	})
+	settings, settingsErr := s.get2FASettings(ctx, q, userID)
+	status, statusErr := s.MFAStatusWith(settings, settingsErr)
+	if err := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), userID, authMethods, status, statusErr); err != nil {
+		return "", "", nil, err
+	}
+	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, userID, userAgent, ip, authMethods)
 	if err != nil {
 		return "", "", nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", "", nil, err
 	}
+	s.logSessionEvictions(ctx, userID, evicted)
+	return sid, rt, exp, nil
+}
 
-	// Audit evictions after commit (best-effort).
-	if len(evicted) > 0 {
-		reason := string(SessionRevokeReasonEvicted)
-		for _, esid := range evicted {
-			s.logSessionRevoked(ctx, userID, esid, &reason)
+// insertRefreshSessionTx is the one session insert/cap operation. Its caller
+// owns the account lock, admission checks, commit and post-commit audit.
+func (s *Client) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
+	rt := RandB64(32)
+	var exp *time.Time
+	if s.cfg.Token.RefreshTokenDuration > 0 {
+		deadline := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
+		exp = &deadline
+	}
+	sid, err := newUUIDV7String()
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	family, err := newUUIDV7String()
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	var evicted []string
+	if s.cfg.Token.SessionMaxPerUser > 0 {
+		if err := q.SessionCreateLock(ctx, userID+"|"+s.cfg.Token.Issuer); err != nil {
+			return "", "", nil, nil, err
+		}
+		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Token.Issuer)
+		if err != nil {
+			return "", "", nil, nil, err
 		}
 	}
-	return row.ID, rt, expPtr, nil
+	_, err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, FamilyID: family, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: normalizeAuthMethods(authMethods)})
+	return sid, rt, exp, evicted, err
+}
+
+func (s *Client) logSessionEvictions(ctx context.Context, userID string, evicted []string) {
+	reason := string(SessionRevokeReasonEvicted)
+	for _, id := range evicted {
+		s.logSessionRevoked(ctx, userID, id, &reason)
+	}
 }
 
 // ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
@@ -305,8 +279,8 @@ func (s *Client) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	}
 	mfa, mfaErr := s.MFAStatus(ctx, userID)
 	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return "", time.Time{}, &TwoFAEnrollmentRequiredError{UserID: userID}
+		if errors.Is(err, ErrTwoFAEnrollmentRequired) || errors.Is(err, ErrTwoFARequired) {
+			return "", time.Time{}, &MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
 		}
 		return "", time.Time{}, err
 	}
@@ -362,55 +336,95 @@ func graceKeystream(predecessor string, n int) []byte {
 	return out[:n]
 }
 
-// IssueAuthenticatedSession creates a refresh session AND mints its paired access
-// token for an ALREADY-AUTHENTICATED user in one shot (#227). It loads + gates the
-// user row (ensureUserAccess) and computes MFAStatus ONCE, threading both through the
-// session-creation gate and the access-token mint — instead of the 2× user-read /
-// 2× MFA-read that the separate IssueRefreshSession* + MintAccessToken calls incurred
-// on the password-login and 2FA-verify paths.
-//
-// authMethods records how the session was established (e.g. []string{"pwd"} for
-// password login, []string{"pwd","otp","mfa"} after a verified second factor). extra
-// is merged into the access token; the freshly-created session id is added as "sid".
-// The banned/deleted/reserved gate and the MFA gate behave exactly as they do for the
-// separate calls (same ErrUserBanned / ErrTwoFAEnrollmentRequired at the same point).
-// Returns the session id so the caller can emit its own session-created audit log.
-func (s *Client) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (sessionID, refreshToken, accessToken string, accessExpiresAt time.Time, refreshExpiresAt *time.Time, err error) {
+// IssueAuthenticatedSession issues a session for a trusted, already-authenticated
+// caller. Interactive login flows additionally check their captured proof version
+// before using the same transaction-owned issuance helper.
+func (s *Client) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
 	if s.pg == nil {
 		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
 	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return "", "", "", time.Time{}, nil, errOrUnauthorized(err)
-	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	mfa, mfaErr := s.MFAStatus(ctx, userID)
-	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-
-	sid, rt, refreshExp, err := s.insertRefreshSession(ctx, userID, userAgent, ip, authMethods)
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}
-
-	// Copy caller extra so we never mutate their map, then stamp the new session id.
-	claims := make(map[string]any, len(extra)+1)
-	for k, v := range extra {
-		claims[k] = v
-	}
-	claims["sid"] = sid
-	var mfaForToken *MFAStatus
-	if mfaErr == nil {
-		mfaForToken = &mfa
-	}
-	accessToken, accessExp, err := s.mintAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	u, err := s.lockLoginAccount(ctx, q, userID, 0)
 	if err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}
-	return sid, rt, accessToken, accessExp, refreshExp, nil
+	settings, settingsErr := s.get2FASettings(ctx, q, userID)
+	mfa, mfaErr := s.MFAStatusWith(settings, settingsErr)
+	if err := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), userID, authMethods, mfa, mfaErr); err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+	address := ""
+	if ip != nil {
+		address = ip.String()
+	}
+	session, exp, evicted, err := s.issueLoginSessionTx(ctx, q, u, mfa, LoginSessionInput{UserID: userID, UserAgent: userAgent, IP: address, AuthMethods: authMethods, Extra: extra})
+	if err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+	s.logSessionEvictions(ctx, userID, evicted)
+	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
+}
+
+func (s *Client) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *User, mfa MFAStatus, in LoginSessionInput) (IssuedSession, *time.Time, []string, error) {
+	now := time.Now().UTC()
+	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
+		return IssuedSession{}, nil, nil, err
+	}
+	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, user.ID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods)
+	if err != nil {
+		return IssuedSession{}, nil, nil, err
+	}
+	fresh, err := q.SessionFreshSince(ctx, db.SessionFreshSinceParams{UserID: user.ID, SessionID: sid, Issuer: s.cfg.Token.Issuer})
+	if err != nil {
+		return IssuedSession{}, nil, nil, err
+	}
+	authTime, amr, acr := (SessionFreshness{LastAuthenticatedAt: fresh.FreshSince, AuthMethods: fresh.AuthMethods}).AssuranceClaims()
+	extra := make(map[string]any, len(in.Extra)+1)
+	for k, v := range in.Extra {
+		extra[k] = v
+	}
+	extra["sid"] = sid
+	if hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
+		mfa.Satisfied = true
+	}
+	token, accessExp, err := s.mintAccessTokenForUserWithAssurance(ctx, user, &mfa, extra, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr})
+	return IssuedSession{SessionID: sid, RefreshToken: rt, AccessToken: token, AccessExpiresAt: accessExp}, exp, evicted, err
+}
+
+// lockLoginAccount serializes proof completion with credential recovery. Zero
+// expectedVersion is reserved for trusted host issuance, never an in-flight proof.
+func (s *Client) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*User, error) {
+	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
+		return nil, ErrUserBanned
+	}
+	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
+		return nil, jwt.ErrTokenUnverifiable
+	}
+	reserved, err := q.UserIsReserved(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		return nil, ErrUserBanned
+	}
+	row, err := q.UserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByIDRow(row), nil
 }
 
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
@@ -552,18 +566,27 @@ func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessi
 		v := string(SessionRevokeReasonUserRevokeAll)
 		reason = &v
 	}
-	if keepSessionID != nil && *keepSessionID != "" {
-		ids, err := s.q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
-		if err != nil {
-			return err
-		}
-		for _, sid := range ids {
-			s.logSessionRevoked(ctx, userID, sid, reason)
-		}
-		return nil
-	}
-	ids, err := s.q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var ids []string
+	if keepSessionID != nil && *keepSessionID != "" {
+		ids, err = q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
+	} else {
+		ids, err = q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	for _, sid := range ids {

@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ import (
 type PendingChangeKind string
 
 const (
+	KindVerifyEmail   PendingChangeKind = "verify_email"
+	KindVerifyPhone   PendingChangeKind = "verify_phone"
 	KindRegisterEmail PendingChangeKind = "register_email"
 	KindRegisterPhone PendingChangeKind = "register_phone"
 	KindChangeEmail   PendingChangeKind = "change_email"
@@ -39,14 +42,20 @@ const (
 // leave the signup payload empty. Target is the email or phone being
 // registered/changed-to.
 type pendingChange struct {
-	Kind              PendingChangeKind `json:"kind"`
-	Target            string            `json:"target"`
-	UserID            string            `json:"user_id,omitempty"`
-	Username          string            `json:"username,omitempty"`
-	PasswordHash      string            `json:"password_hash,omitempty"`
-	PreferredLanguage string            `json:"preferred_language,omitempty"`
-	CodeHash          string            `json:"code_hash"`
-	LinkHash          string            `json:"link_hash,omitempty"`
+	Version            int64 `json:"version,omitempty"`
+	storeKey           string
+	linkKey            string
+	ID                 string `json:"id"`
+	AccountInviteToken string `json:"account_invite_token,omitempty"`
+	expected           []byte
+	Kind               PendingChangeKind `json:"kind"`
+	Target             string            `json:"target"`
+	UserID             string            `json:"user_id,omitempty"`
+	Username           string            `json:"username,omitempty"`
+	PasswordHash       string            `json:"password_hash,omitempty"`
+	PreferredLanguage  string            `json:"preferred_language,omitempty"`
+	CodeHash           string            `json:"code_hash"`
+	LinkHash           string            `json:"link_hash,omitempty"`
 }
 
 func (k PendingChangeKind) isRegister() bool {
@@ -54,7 +63,7 @@ func (k PendingChangeKind) isRegister() bool {
 }
 
 func (k PendingChangeKind) isEmail() bool {
-	return k == KindRegisterEmail || k == KindChangeEmail
+	return k == KindRegisterEmail || k == KindChangeEmail || k == KindVerifyEmail
 }
 
 func (k PendingChangeKind) defaultTTL() time.Duration {
@@ -89,6 +98,9 @@ func pendingChangeLinkKey(kind PendingChangeKind, linkHash string) string {
 }
 
 func (rec pendingChange) key() string {
+	if rec.storeKey != "" {
+		return rec.storeKey
+	}
 	if rec.Kind.isRegister() {
 		return pendingChangeKey(rec.Kind, rec.Target)
 	}
@@ -105,6 +117,19 @@ func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	if rec.CodeHash == "" && rec.LinkHash == "" {
 		return fmt.Errorf("pending change without verification secret")
 	}
+	rec.ID = RandB64(16)
+	if rec.Kind.isRegister() {
+		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
+	} else {
+		if err := s.requirePG(); err != nil {
+			return err
+		}
+		version, err := s.q.UserCredentialVersion(ctx, rec.UserID)
+		if err != nil {
+			return err
+		}
+		rec.Version = version.CredentialVersion
+	}
 	rec.Target = normalizePendingTarget(rec.Kind, rec.Target)
 	if ttl <= 0 {
 		ttl = rec.Kind.defaultTTL()
@@ -113,8 +138,9 @@ func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 
 	s.deletePendingChange(ctx, key)
 	if rec.Kind.isRegister() && rec.Username != "" {
-		if old, ok, _ := s.ephemGetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username)); ok && old != "" && old != key {
-			s.deletePendingChange(ctx, old)
+		var old pendingChangeIndex
+		if ok, _ := s.ephemGetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), &old); ok && old.Key != "" && old.Key != key {
+			s.deletePendingChange(ctx, old.Key)
 		}
 	}
 
@@ -127,15 +153,16 @@ func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 		}
 	}
 	if rec.Kind.isRegister() && rec.Username != "" {
-		_ = s.ephemSetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username), key, ttl)
+		_ = s.ephemSetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), pendingChangeIndex{Key: key, ID: rec.ID}, ttl)
 	}
 	return nil
 }
 
 func (s *Client) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
 	var rec pendingChange
-	ok, err := s.ephemGetJSON(ctx, key, &rec)
-	return rec, ok, err
+	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
+	rec.expected = raw
+	return rec, ok && rec.ID != "", err
 }
 
 // findPendingChangeByTarget loads a register-kind record and asserts it really
@@ -163,11 +190,6 @@ func (s *Client) pendingChangeByTarget(ctx context.Context, kind PendingChangeKi
 	return rec, true, nil
 }
 
-func (s *Client) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
-	rec, ok, _ := s.pendingChangeByUser(ctx, kind, userID)
-	return rec, ok
-}
-
 func (s *Client) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false, nil
@@ -184,12 +206,22 @@ func (s *Client) pendingChangeByUser(ctx context.Context, kind PendingChangeKind
 
 // pendingChangeUsernameTaken reports whether a register-kind pending change is
 // holding the given username (used by availability/conflict checks).
+type pendingChangeIndex struct {
+	Key string
+	ID  string
+}
+
 func (s *Client) pendingChangeUsernameTaken(ctx context.Context, username string) bool {
 	if !s.useEphemeralStore() {
 		return false
 	}
 	for _, kind := range []PendingChangeKind{KindRegisterEmail, KindRegisterPhone} {
-		if v, ok, _ := s.ephemGetString(ctx, pendingChangeUserKey(kind, username)); ok && v != "" {
+		var index pendingChangeIndex
+		if ok, _ := s.ephemGetJSON(ctx, pendingChangeUserKey(kind, username), &index); !ok {
+			continue
+		}
+		rec, ok, _ := s.loadPendingChange(ctx, index.Key)
+		if ok && rec.ID == index.ID && rec.Username == username {
 			return true
 		}
 	}
@@ -203,16 +235,30 @@ func (s *Client) pendingChangeTargetTaken(ctx context.Context, kind PendingChang
 	return ok
 }
 
+func (s *Client) clearPendingIndexes(ctx context.Context, rec pendingChange) {
+	if rec.linkKey != "" {
+		_ = s.ephemDel(ctx, rec.linkKey)
+	} else if rec.LinkHash != "" {
+		_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
+	}
+	if rec.Kind.isRegister() && rec.Username != "" {
+		value, _ := json.Marshal(pendingChangeIndex{Key: rec.key(), ID: rec.ID})
+		_, _ = s.ephemeralStore.CompareAndConsume(ctx, pendingChangeUserKey(rec.Kind, rec.Username), value)
+	}
+}
+
+func (s *Client) claimPendingChange(ctx context.Context, rec pendingChange) error {
+	if err := s.claimProof(ctx, rec.key(), rec.expected); err != nil {
+		return err
+	}
+	s.clearPendingIndexes(ctx, rec)
+	return nil
+}
+
 func (s *Client) deletePendingChange(ctx context.Context, key string) {
 	if rec, ok, _ := s.loadPendingChange(ctx, key); ok {
-		if rec.LinkHash != "" {
-			_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
-		}
-		if rec.Kind.isRegister() && rec.Username != "" {
-			_ = s.ephemDel(ctx, pendingChangeUserKey(rec.Kind, rec.Username))
-		}
+		_ = s.claimPendingChange(ctx, rec)
 	}
-	_ = s.ephemDel(ctx, key)
 }
 
 func (s *Client) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
@@ -222,21 +268,10 @@ func (s *Client) deletePendingChangeByTarget(ctx context.Context, kind PendingCh
 	s.deletePendingChange(ctx, pendingChangeKey(kind, normalizePendingTarget(kind, target)))
 }
 
-func (s *Client) deletePendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) {
-	if !s.useEphemeralStore() || kind.isRegister() {
-		return
-	}
-	s.deletePendingChange(ctx, pendingChangeKey(kind, userID))
-}
-
 // finalizePendingChange dispatches to the per-kind finalizer that completes the
 // deferred change and returns the affected user's ID.
 func (s *Client) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
-	case KindRegisterEmail:
-		return s.finalizeRegisterEmail(ctx, rec)
-	case KindRegisterPhone:
-		return s.finalizeRegisterPhone(ctx, rec)
 	case KindChangeEmail:
 		return s.finalizeChangeEmail(ctx, rec, keepSessionID)
 	case KindChangePhone:
@@ -254,12 +289,10 @@ func (s *Client) consumePendingChangeCode(ctx context.Context, rec pendingChange
 	if !SecretEqual(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	uid, err := s.finalizePendingChange(ctx, rec, keepSessionID)
-	if err != nil {
+	if err := s.claimPendingChange(ctx, rec); err != nil {
 		return "", err
 	}
-	s.deletePendingChange(ctx, rec.key())
-	return uid, nil
+	return s.finalizePendingChange(ctx, rec, keepSessionID)
 }
 
 // consumePendingChangeByLink redeems the 256-bit link token: the pointer is
@@ -277,10 +310,8 @@ func (s *Client) consumePendingChangeByLink(ctx context.Context, linkHash string
 	if !ok || rec.Kind != expectKind || !SecretEqual(rec.LinkHash, linkHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	uid, err := s.finalizePendingChange(ctx, rec, nil)
-	if err != nil {
+	if err := s.claimPendingChange(ctx, rec); err != nil {
 		return "", err
 	}
-	s.deletePendingChange(ctx, key)
-	return uid, nil
+	return s.finalizePendingChange(ctx, rec, nil)
 }

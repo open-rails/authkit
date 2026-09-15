@@ -202,73 +202,93 @@ func (s *Client) hasValidAccountRegistrationInvite(ctx context.Context, email st
 	return exists, err
 }
 
-func (s *Client) consumeAccountRegistrationInvite(ctx context.Context, email, userID string) error {
-	_ = email // #147 FINAL: unbound — consumed by code, not by address.
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return errors.New("invalid_user")
+type registrationInvite struct {
+	ID      string
+	GroupID *string
+	Role    *authkit.Role
+	Persona *authkit.Persona
+}
+
+func (s *Client) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
+	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
+	if err != nil || mode == RegistrationModeClosed {
+		return nil, ErrRegistrationDisabled
 	}
-	token := accountRegistrationInviteTokenFromContext(ctx)
-	if token == "" || s.pg == nil {
-		// No code presented. Under InviteOnly the registration gate
-		// (hasValidAccountRegistrationInvite) already ran; there is nothing to consume.
+	token = strings.TrimSpace(token)
+	if token == "" {
+		if mode == RegistrationModeInviteOnly {
+			return nil, ErrRegistrationDisabled
+		}
+		return nil, nil
+	}
+	q := db.ForSchema(tx, s.dbSchema())
+	var groupID *string
+	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAccountRegistrationInviteNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if groupID != nil {
+		if err := lockPermissionGroup(ctx, q, *groupID); err != nil {
+			return nil, err
+		}
+	}
+	var invite registrationInvite
+	err = db.ForSchema(tx, s.dbSchema()).QueryRow(ctx, `SELECT i.id::text,i.permission_group_id::text,i.role,g.persona
+FROM profiles.account_registration_invites i LEFT JOIN profiles.permission_groups g ON g.id=i.permission_group_id
+WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now()
+AND i.permission_group_id IS NOT DISTINCT FROM $2::uuid
+FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &invite.Role, &invite.Persona)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAccountRegistrationInviteNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &invite, nil
+}
+
+func (s *Client) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *registrationInvite, userID string) error {
+	if invite == nil {
 		return nil
 	}
-	mode, _ := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
+	q := db.ForSchema(tx, s.dbSchema())
+	if _, err := q.Exec(ctx, `UPDATE profiles.account_registration_invites SET consumed_at=now(),consumed_by=$2::uuid,updated_at=now() WHERE id=$1::uuid`, invite.ID, userID); err != nil {
+		return err
+	}
+	if invite.GroupID != nil && invite.Role != nil {
+		var persona authkit.Persona
+		if invite.Persona != nil {
+			persona = *invite.Persona
+		}
+		if err := s.requireMFAForRoleAssignment(ctx, q, *invite.GroupID, persona, authkit.UserSubject(userID), *invite.Role); err != nil {
+			return err
+		}
+		return NewPermissionGroupStore(q).AssignRole(ctx, *invite.GroupID, authkit.UserSubject(userID), *invite.Role)
+	}
+	return nil
+}
 
-	// Claim the code and apply any carried group grant in ONE transaction, so a
-	// register+join can never mark the code used without also assigning the role
-	// (#147). Mirrors RedeemGroupInviteLink's FOR UPDATE + assign-then-mark pattern.
+func (s *Client) consumeAccountRegistrationInvite(ctx context.Context, _ string, userID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("invalid_user")
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
-
-	var inviteID string
-	var groupID *string // group/role NULL for a plain registration invite
-	var role *authkit.Role
-	var persona *authkit.Persona
-	err = q.QueryRow(ctx,
-		`SELECT i.id::text, i.permission_group_id::text, i.role, g.persona
-		   FROM profiles.account_registration_invites i
-		   LEFT JOIN profiles.permission_groups g
-		     ON g.id = i.permission_group_id
-		  WHERE i.code_hash = $1 AND i.revoked_at IS NULL
-		    AND i.consumed_at IS NULL AND i.expires_at > now()
-		  FOR UPDATE OF i`,
-		sha256Hex(token)).Scan(&inviteID, &groupID, &role, &persona)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// No live code matched. Under InviteOnly the code WAS the registration
-		// authority, so its absence is an error; otherwise the token was optional.
-		if mode == RegistrationModeInviteOnly {
-			return ErrAccountRegistrationInviteNotFound
-		}
-		return nil
-	}
+	defer tx.Rollback(ctx)
+	invite, err := s.lockRegistrationInvite(ctx, tx, accountRegistrationInviteTokenFromContext(ctx))
 	if err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx,
-		`UPDATE profiles.account_registration_invites
-		 SET consumed_at = now(), consumed_by = $2::uuid, updated_at = now()
-		 WHERE id = $1::uuid`,
-		inviteID, userID); err != nil {
+	if err := s.applyRegistrationInvite(ctx, tx, invite, userID); err != nil {
 		return err
-	}
-	// register+join: grant the carried group role to the freshly-registered user.
-	if groupID != nil && role != nil && strings.TrimSpace(*groupID) != "" && strings.TrimSpace(string(*role)) != "" {
-		var p authkit.Persona
-		if persona != nil {
-			p = *persona
-		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, *groupID, p, authkit.UserSubject(userID), *role); err != nil {
-			return err
-		}
-		if err := NewPermissionGroupStore(q).AssignRole(ctx, *groupID, authkit.UserSubject(userID), *role); err != nil {
-			return err
-		}
 	}
 	return tx.Commit(ctx)
 }

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
@@ -59,11 +58,8 @@ func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	sender := &codeCaptureEmailSender{}
-	svc := mustNewWithKeys(t,
-		Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
-		Keyset{},
-		WithPostgres(pool), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender),
-	)
+	svc, err := New(Config{Keys: staticTestKeys(t), Token: TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}}, Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}, Ephemeral: EphemeralConfig{AllowMemory: true}}, Deps{Postgres: pool, Email: sender})
+	require.NoError(t, err)
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	emailA, userA, passA := "col-a-"+suffix+"@example.com", "cola"+suffix, "password-A-"+suffix
@@ -76,9 +72,9 @@ func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email = ANY($1::text[])`, []string{emailA, emailB})
 	})
 
-	codeA, err := svc.CreatePendingRegistrationWithLanguage(ctx, emailA, userA, hashA, 0, "")
+	codeA, err := svc.issuePendingEmailRegistration(ctx, emailA, userA, hashA, 0, "")
 	require.NoError(t, err)
-	_, err = svc.CreatePendingRegistrationWithLanguage(ctx, emailB, userB, hashB, 0, "")
+	_, err = svc.issuePendingEmailRegistration(ctx, emailB, userB, hashB, 0, "")
 	require.NoError(t, err)
 
 	forceSameCode := func(code string) {
@@ -111,9 +107,11 @@ func TestPendingRegistration_SameCodeTwoUsers(t *testing.T) {
 	require.True(t, svc.VerifyPendingPassword(ctx, emailB, passB))
 
 	// Both confirm with the shared code, each landing on its own account.
-	uidA, err := svc.ConfirmPendingRegistration(ctx, emailA, codeA2)
+	outA, err := svc.ConfirmVerification(ctx, VerificationInput{Identifier: emailA, Code: codeA2})
+	uidA := outA.UserID
 	require.NoError(t, err)
-	uidB, err := svc.ConfirmPendingRegistration(ctx, emailB, codeA2)
+	outB, err := svc.ConfirmVerification(ctx, VerificationInput{Identifier: emailB, Code: codeA2})
+	uidB := outB.UserID
 	require.NoError(t, err)
 	require.NotEqual(t, uidA, uidB)
 

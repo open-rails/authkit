@@ -48,10 +48,10 @@ func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
-	if _, err := svc.CreatePendingRegistrationWithLanguage(t.Context(), "a@b.com", "alice", "hash", 0, ""); err != ErrRegistrationDisabled {
+	if _, err := svc.issuePendingEmailRegistration(t.Context(), "a@b.com", "alice", "hash", 0, ""); err != ErrRegistrationDisabled {
 		t.Fatalf("want ErrRegistrationDisabled, got %v", err)
 	}
-	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(t.Context(), "+12025550123", "alice", "hash", ""); err != ErrRegistrationDisabled {
+	if _, err := svc.issuePendingPhoneRegistration(t.Context(), "+12025550123", "alice", "hash", ""); err != ErrRegistrationDisabled {
 		t.Fatalf("want ErrRegistrationDisabled, got %v", err)
 	}
 }

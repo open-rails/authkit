@@ -3,7 +3,6 @@ package embedded
 import (
 	"context"
 	"strings"
-	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/internal/db"
@@ -12,25 +11,29 @@ import (
 
 // authenticatePassword is the credential half of a password login once the
 // user row is resolved: the liveness gate, then the stored hash (with the
-// bcrypt import rehash to Argon2id) and the last-login stamp. It mints
+// bcrypt import rehash to Argon2id), with its credential version captured before
+// checking the hash. It mints
 // nothing — PasswordLogin issues the session from its outcome.
-func (s *Client) authenticatePassword(ctx context.Context, u *User, pass string) error {
+func (s *Client) authenticatePassword(ctx context.Context, u *User, pass string) (int64, error) {
 	if s.pg == nil {
-		return jwt.ErrTokenUnverifiable
+		return 0, jwt.ErrTokenUnverifiable
 	}
 	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return err
+		return 0, err
+	}
+	version, err := s.q.UserCredentialVersion(ctx, u.ID)
+	if err != nil {
+		return 0, err
 	}
 	hash, algo, _, err := s.getPasswordHash(ctx, u.ID)
 	if err != nil {
-		return errOrUnauthorized(err)
+		return 0, errOrUnauthorized(err)
 	}
 	if err := verifyPasswordHash(hash, algo, pass); err != nil {
-		return err
+		return 0, err
 	}
 	s.rehashPassword(ctx, u.ID, hash, algo, pass)
-	_ = s.setLastLogin(ctx, u.ID, time.Now())
-	return nil
+	return version.CredentialVersion, nil
 }
 
 func errOrUnauthorized(err error) error {

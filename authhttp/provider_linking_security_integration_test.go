@@ -233,7 +233,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 			requireAccountInviteConsumed(t, pool, invite.ID, body.User.ID)
 			identity.Subject = "another-" + uniqueSuffix()
 			denied = securityProviderLogin(t, srv, cfg, identity, invite.Code)
-			require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
+			require.Equal(t, http.StatusNotFound, denied.Code, denied.Body.String())
 		})
 	}
 }

@@ -2,10 +2,8 @@ package authhttp
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
@@ -51,17 +49,14 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 }
 
 func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-	}
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
-		_ = decodeJSON(r, &req)
+		var req map[string]json.RawMessage
+		if err := decodeJSON(r, &req); err != nil || req == nil || len(req) != 0 {
+			badRequest(w, authkit.CodeInvalidRequest)
+			return
+		}
 	}
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier != "" && s.rateLimitedByIdentifier(w, r, RLPasskeyLogin, identifier) {
-		return
-	}
-	assertion, err := s.svc.BeginPasskeyLogin(r.Context(), identifier)
+	assertion, err := s.svc.BeginPasskeyLogin(r.Context())
 	if err != nil {
 		serverErr(w, authkit.CodePasskeyFailed)
 		return
@@ -77,16 +72,10 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
-		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
-			s.send2FAEnrollmentRequired(w, r, result.UserID)
-			return
-		}
 		unauthorized(w, authkit.CodeInvalidCredentials)
 		return
 	}
-	ua := r.UserAgent()
-	ip := s.requestIP(r)
-	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
+
 	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(result.AccessToken, result.RefreshToken, result.ExpiresAt))
 }
 

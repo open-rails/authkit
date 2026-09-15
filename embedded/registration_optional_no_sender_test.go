@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -42,77 +40,35 @@ func (s *spyEmailSender) SendContactChanged(context.Context, string, string, Con
 	return nil
 }
 
-// Locks in the graceful-degrade contract first-party embedders rely on:
-// under RegistrationVerificationOptional with NO email sender configured,
-// a registration creates the user already-verified and sends nothing.
-// Skips without AUTHKIT_TEST_DATABASE_URL (createEmailRegistrationUser needs PG).
-func TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-
-	// Optional policy, no WithEmailSender => s.email == nil.
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{}, WithPostgres(pool))
-
-	email := fmt.Sprintf("opt-no-sender-%d@example.com", time.Now().UnixNano())
-	username := fmt.Sprintf("optnosender%d", time.Now().UnixNano())
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	})
-
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, username, "argon2id$hash", 0, "")
-	if err != nil {
-		t.Fatalf("CreatePendingRegistration: %v", err)
-	}
-	// Graceful degrade: nothing to send, so no verification code is issued.
-	if code != "" {
-		t.Fatalf("expected empty code (nothing sent) under Optional+no-sender, got %q", code)
-	}
-
-	u, err := svc.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if u == nil {
-		t.Fatal("expected user to be created under Optional+no-sender")
-	}
-	if !u.EmailVerified {
-		t.Fatal("expected user to be created already-verified under Optional+no-sender")
-	}
-}
-
-// Companion: with a sender configured under Optional, a code IS issued and the
-// sender IS invoked (the user is left unverified pending confirmation). This
-// pins the "no-sender" branch above as the genuine degrade path, not an accident.
-func TestRegistrationOptionalWithSenderSendsAndLeavesUnverified(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-
-	spy := &spyEmailSender{}
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{},
-		WithPostgres(pool), WithEmailSender(spy), WithEphemeralStore(memorystore.NewKV()))
-
-	email := fmt.Sprintf("opt-sender-%d@example.com", time.Now().UnixNano())
-	username := fmt.Sprintf("optsender%d", time.Now().UnixNano())
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	})
-
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, username, "argon2id$hash", 0, "")
-	if err != nil {
-		t.Fatalf("CreatePendingRegistration: %v", err)
-	}
-	if len(code) != 6 {
-		t.Fatalf("expected 6-digit verification code under Optional+sender, got %q", code)
-	}
-	if spy.calls != 1 {
-		t.Fatalf("expected exactly one SendVerification call, got %d", spy.calls)
-	}
-
-	u, err := svc.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if u == nil || u.EmailVerified {
-		t.Fatalf("expected unverified user pending confirmation under Optional+sender, got %+v", u)
+// Optional verification has one registration path with and without delivery.
+func TestOptionalRegistrationWorkflow(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	for _, sender := range []bool{false, true} {
+		t.Run(fmt.Sprint("sender=", sender), func(t *testing.T) {
+			spy := &spyEmailSender{}
+			deps := Deps{Postgres: pg.Pool}
+			if sender {
+				deps.Email = spy
+			}
+			svc, err := New(Config{Keys: staticTestKeys(t), Token: TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}}, Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}, Ephemeral: EphemeralConfig{AllowMemory: true}}, deps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			email, username := fmt.Sprintf("optional-%t@example.com", sender), fmt.Sprintf("optional%t", sender)
+			out, err := svc.Register(t.Context(), RegisterInput{Identifier: email, Username: username, Password: "Correct-horse-battery-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Kind != RegisterSessionIssued || out.Session.AccessToken == "" {
+				t.Fatalf("registration did not issue session: %+v", out)
+			}
+			user, err := svc.GetUserByEmail(t.Context(), email)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if user.EmailVerified == sender || (spy.calls == 1) != sender {
+				t.Fatalf("verified=%t sends=%d", user.EmailVerified, spy.calls)
+			}
+		})
 	}
 }

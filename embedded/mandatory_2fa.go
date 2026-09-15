@@ -16,15 +16,18 @@ import (
 
 var ErrTwoFAEnrollmentRequired = authkit.ErrTwoFAEnrollmentRequired
 
-// TwoFAEnrollmentRequiredError wraps ErrTwoFAEnrollmentRequired with the userID
-// of the gated account, so the refresh-token path can mint a usable enrollment
-// token instead of stranding the user (#148, grounding note b — a 403 with no
-// token at refresh is a lockout). errors.Is(err, ErrTwoFAEnrollmentRequired)
-// still matches.
-type TwoFAEnrollmentRequiredError struct{ UserID string }
+var ErrTwoFARequired = authkit.E(authkit.CodeTwoFARequired)
 
-func (e *TwoFAEnrollmentRequiredError) Error() string { return ErrTwoFAEnrollmentRequired.Error() }
-func (e *TwoFAEnrollmentRequiredError) Unwrap() error { return ErrTwoFAEnrollmentRequired }
+// MFAContinuationRequiredError identifies the already-validated refresh session
+// that needs a first-factor continuation. It never authorizes an arbitrary user.
+type MFAContinuationRequiredError struct {
+	UserID    string
+	SessionID string
+	Reason    error
+}
+
+func (e *MFAContinuationRequiredError) Error() string { return e.Reason.Error() }
+func (e *MFAContinuationRequiredError) Unwrap() error { return e.Reason }
 
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
@@ -79,18 +82,6 @@ func (s *Client) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (
 	}, nil
 }
 
-func (s *Client) requireSessionMFAState(ctx context.Context, userID string, authMethods []string) error {
-	// #148: when 2FA is Disabled, the whole flow is off — neither forced
-	// enrollment nor an enrolled user's challenge applies. (Guards against
-	// stranding a user who enrolled while Optional after the host flips to
-	// Disabled.) Read MFAStatus only when 2FA is enabled, then apply the gate.
-	if !s.TwoFactorEnabled() {
-		return nil
-	}
-	status, err := s.MFAStatus(ctx, userID)
-	return s.requireSessionMFAStateWith(ctx, userID, authMethods, status, err)
-}
-
 // requireSessionMFAStateWith applies the session MFA gate using an ALREADY-COMPUTED
 // MFAStatus (and its lookup error) instead of reading it here (#227), so a caller
 // that already read MFA state — the refresh / login / 2FA-verify paths — does not
@@ -98,11 +89,19 @@ func (s *Client) requireSessionMFAState(ctx context.Context, userID string, auth
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
 func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
+	return s.requireSessionMFAStateOn(ctx, db.ForSchema(s.pg, s.dbSchema()), userID, authMethods, status, statusErr)
+}
+
+func (s *Client) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID string, authMethods []string, status MFAStatus, statusErr error) error {
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
 	if statusErr != nil {
 		return statusErr
+	}
+	// A locally verified user-verifying passkey already supplies MFA proof.
+	if hasAuthMethod(authMethods, "swk") && hasAuthMethod(authMethods, "mfa") {
+		return nil
 	}
 	if !status.Enabled {
 		// Global policy: when 2FA enrollment is mandatory, a user without usable
@@ -119,7 +118,7 @@ func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, 
 		// to catch it. Reached only here — not enrolled, and Mode isn't
 		// already Required — so an enrolled user or a Required deployment
 		// never pays for the extra query.
-		holds, err := s.userHoldsMFARequiredRole(ctx, db.ForSchema(s.pg, s.dbSchema()), userID)
+		holds, err := s.userHoldsMFARequiredRole(ctx, q, userID)
 		if err != nil {
 			// Fail closed: a role-lookup error denies session establishment,
 			// it does not silently skip the check.
@@ -130,8 +129,11 @@ func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, 
 		}
 		return nil
 	}
-	if !status.Satisfied || !hasAuthMethod(authMethods, "mfa") {
+	if !status.Satisfied {
 		return ErrTwoFAEnrollmentRequired
+	}
+	if !hasAuthMethod(authMethods, "mfa") {
+		return ErrTwoFARequired
 	}
 	return nil
 }

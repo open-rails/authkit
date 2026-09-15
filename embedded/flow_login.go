@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
 )
@@ -63,6 +65,8 @@ func (s *Client) IssueLoginSession(ctx context.Context, in LoginSessionInput) (I
 type LoginOutcomeKind string
 
 const (
+	LoginProviderLinked LoginOutcomeKind = "provider_linked"
+	LoginContactChanged LoginOutcomeKind = "contact_changed"
 	// LoginSessionIssued: the caller is signed in; Session carries the tokens.
 	LoginSessionIssued LoginOutcomeKind = "session_issued"
 	// LoginVerificationRequired: the identifier still needs verifying; a fresh
@@ -97,12 +101,16 @@ type TwoFactorChallenge struct {
 // LoginOutcome is the result of a password login. Exactly one of Session,
 // Verification and Challenge is set, per Kind; Reason is set for LoginRejected.
 type LoginOutcome struct {
-	Kind         LoginOutcomeKind
-	UserID       string
-	Reason       error
-	Session      *IssuedSession
-	Verification *VerificationRequired
-	Challenge    *TwoFactorChallenge
+	Enrollment     *authkit.TokenSet
+	AllowedMethods []string
+	ReturnTo       string
+	Created        bool
+	Kind           LoginOutcomeKind
+	UserID         string
+	Reason         error
+	Session        *IssuedSession
+	Verification   *VerificationRequired
+	Challenge      *TwoFactorChallenge
 }
 
 // PasswordLoginInput is a password login attempt. Identifier is an email
@@ -134,21 +142,13 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 		u, err = s.getUserByEmail(ctx, identifier)
 		if err != nil || u == nil {
 			// No account: a pending (unverified) email registration whose password
-			// matches is re-sent, or completed when verification is optional.
-			out, recovered := s.recoverPendingEmailLogin(ctx, in, identifier, requiresVerification)
-			if !recovered {
-				return out.LoginOutcome, nil
-			}
-			u = out.user
+			// matches is re-sent.
+			return s.recoverPendingLogin(ctx, in, KindRegisterEmail, identifier)
 		}
 	case strings.HasPrefix(identifier, "+"):
 		u, err = s.getUserByPhone(ctx, identifier)
 		if err != nil || u == nil {
-			out, recovered := s.recoverPendingPhoneLogin(ctx, in, identifier, requiresVerification)
-			if !recovered {
-				return out.LoginOutcome, nil
-			}
-			u = out.user
+			return s.recoverPendingLogin(ctx, in, KindRegisterPhone, identifier)
 		}
 	default:
 		u, err = s.getUserByUsername(ctx, identifier)
@@ -165,35 +165,15 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 		}
 	}
 
-	if err := s.authenticatePassword(ctx, u, in.Password); err != nil {
+	version, err := s.authenticatePassword(ctx, u, in.Password)
+	if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
-
-	if settings, err := s.Get2FASettings(ctx, u.ID); err == nil && settings != nil && settings.Enabled && s.TwoFactorEnabled() {
-		destination, method, factor, err := s.Require2FAForLoginFactor(ctx, u.ID, "")
-		if err != nil {
-			return LoginOutcome{}, stageErr("send_2fa_code", fmt.Errorf("%w: %w", ErrTwoFASendFailed, err))
-		}
-		challenge, err := s.Create2FAChallenge(ctx, u.ID)
-		if err != nil {
-			return LoginOutcome{}, stageErr("create_2fa_challenge", fmt.Errorf("%w: %w", ErrTwoFAChallengeFailed, err))
-		}
-		return LoginOutcome{Kind: LoginTwoFactorRequired, UserID: u.ID, Challenge: &TwoFactorChallenge{
-			Method: method, Destination: destination, Challenge: challenge, Factor: factor, Factors: settings.Factors,
-		}}, nil
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
+	if errors.Is(err, ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
+		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
-
-	session, err := s.IssueLoginSession(ctx, LoginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP})
-	if err != nil {
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return LoginOutcome{Kind: LoginTwoFAEnrollmentRequired, UserID: u.ID}, nil
-		}
-		if errors.Is(err, ErrUserBanned) {
-			return s.rejectLogin(ctx, in, u.ID, ErrUserBanned), nil
-		}
-		return LoginOutcome{}, stageErr("issue_session", fmt.Errorf("%w: %w", ErrSessionIssueFailed, err))
-	}
-	return LoginOutcome{Kind: LoginSessionIssued, UserID: u.ID, Session: &session}, nil
+	return out, err
 }
 
 // ErrTwoFASendFailed etc. are the flow sentinels a transport maps (root package).
@@ -227,67 +207,35 @@ func (s *Client) loginFailed(ctx context.Context, in PasswordLoginInput, userID,
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
 }
 
-// pendingRecovery is the internal result of a pending-registration recovery:
-// either a resolved user to continue with, or the outcome to return.
-type pendingRecovery struct {
-	LoginOutcome
-	user *User
+// recoverPendingLogin resends the same pending signup after checking its password.
+func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string) (LoginOutcome, error) {
+	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
+	if err != nil {
+		return LoginOutcome{}, err
+	}
+	if !ok {
+		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
+	}
+	valid, err := password.VerifyArgon2id(pending.PasswordHash, in.Password)
+	if err != nil || !valid {
+		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
+	}
+	if _, err := s.ResendRegistration(ctx, identifier); err != nil {
+		return LoginOutcome{}, err
+	}
+	channel := "email"
+	if kind == KindRegisterPhone {
+		channel = "phone"
+	}
+	return LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: identifier, Channel: channel}}, nil
 }
-
-// recoverPendingEmailLogin handles a login against an email that has no
-// account yet but a pending registration whose password matches: the pending
-// registration is re-created (which re-sends the code, or — when verification
-// is not required — creates the account outright).
-func (s *Client) recoverPendingEmailLogin(ctx context.Context, in PasswordLoginInput, email string, requiresVerification bool) (pendingRecovery, bool) {
-	pending, err := s.GetPendingRegistrationByEmail(ctx, email)
-	if err != nil || pending == nil || !s.VerifyPendingPassword(ctx, email, in.Password) {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if _, err := s.CreatePendingRegistrationWithLanguage(ctx, email, pending.Username, pending.PasswordHash, 0, pending.PreferredLanguage); err != nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if requiresVerification {
-		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: email, Channel: "email"}}}, false
-	}
-	u, err := s.getUserByEmail(ctx, email)
-	if err != nil || u == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	return pendingRecovery{user: u}, true
-}
-
-func (s *Client) recoverPendingPhoneLogin(ctx context.Context, in PasswordLoginInput, phone string, requiresVerification bool) (pendingRecovery, bool) {
-	pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
-	if err != nil || pending == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if ok, verr := password.VerifyArgon2id(pending.PasswordHash, in.Password); verr != nil || !ok {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if _, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage); err != nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if requiresVerification {
-		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: phone, Channel: "phone"}}}, false
-	}
-	u, err := s.getUserByPhone(ctx, phone)
-	if err != nil || u == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	return pendingRecovery{user: u}, true
-}
-
-// verificationCutoff: accounts created before it predate verification and are
-// never parked on it.
-var verificationCutoff = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired.
 func (s *Client) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
-	recent := u.CreatedAt.After(verificationCutoff)
-	needsEmail := recent && !u.EmailVerified && u.Email != nil
-	needsPhone := recent && !u.PhoneVerified && u.PhoneNumber != nil
+	needsEmail := !u.EmailVerified && u.Email != nil
+	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {
 		return LoginOutcome{}, false, nil
 	}

@@ -16,14 +16,14 @@ func (s *Client) authkitURL(path string, q url.Values) string {
 	}
 	out := base + path
 	if encoded := q.Encode(); encoded != "" {
-		out += "?" + encoded
+		out += "#" + encoded
 	}
 	return out
 }
 
 // verificationURL builds the host-facing link AuthKit emails for a
 // verification/reset flow: BaseURL + a host-configured FRONTEND landing path +
-// ?token=...&channel=email|phone. The frontend page reads the token (and
+// #status=ready&token=...&channel=email|phone. The frontend page reads the token (and
 // channel) and POSTs to the matching confirm endpoint (the SPA-link model,
 // #131). The landing path is configurable (FrontendVerifyPath /
 // FrontendPasswordResetPath) so a host keeps its own routes; channel lets one
@@ -31,6 +31,7 @@ func (s *Client) authkitURL(path string, q url.Values) string {
 // mechanism, different configured path.
 func (s *Client) verificationURL(frontendPath, channel, token string) string {
 	q := url.Values{}
+	q.Set("status", "ready")
 	q.Set("token", token)
 	if channel != "" {
 		q.Set("channel", channel)
@@ -56,6 +57,7 @@ func (s *Client) phonePasswordResetURL(token string) string {
 
 func (s *Client) passwordlessURL(channel, token, returnTo string) string {
 	q := url.Values{}
+	q.Set("status", "ready")
 	q.Set("token", token)
 	if channel != "" {
 		q.Set("channel", channel)

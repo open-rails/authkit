@@ -40,18 +40,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	switch out.Kind {
-	case embedded.LoginSessionIssued:
-		s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
-	case embedded.LoginVerificationRequired:
-		writeVerificationRequired(w, out.Verification.Identifier, out.Verification.Channel)
-	case embedded.LoginTwoFactorRequired:
-		s.writeTwoFactorRequired(w, out.UserID, out.Challenge)
-	case embedded.LoginTwoFAEnrollmentRequired:
-		s.send2FAEnrollmentRequired(w, r, out.UserID)
-	default:
-		unauthorized(w, loginRejectionCode(out.Reason))
+	if s.writeLoginContinuation(w, r, out, nil) {
+		return
 	}
+	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
 }
 
 func loginRejectionCode(reason error) authkit.Code {
@@ -63,24 +55,6 @@ func loginRejectionCode(reason error) authkit.Code {
 	default:
 		return authkit.CodeInvalidCredentials
 	}
-}
-
-// writeTwoFactorRequired emits the 403 2fa_required envelope: the issued
-// challenge, the factor the code went to, and the factor menu.
-func (s *Service) writeTwoFactorRequired(w http.ResponseWriter, userID string, ch *embedded.TwoFactorChallenge) {
-	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, map[string]any{
-		"user_id":         userID,
-		"method":          ch.Method,
-		"verification_id": embedded.MaskDestination(ch.Destination),
-		"challenge":       ch.Challenge,
-		"default_factor": twoFactorFactorResponse{
-			ID:          ch.Factor.ID,
-			Method:      ch.Factor.Method,
-			IsDefault:   ch.Factor.IsDefault,
-			PhoneNumber: ch.Factor.PhoneNumber,
-		},
-		"available_factors": twoFactorFactorResponses(ch.Factors),
-	})
 }
 
 // writeVerificationRequired emits the 403 verification_required envelope

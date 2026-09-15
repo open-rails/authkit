@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // getUserByPhone returns a user by phone number (if any)
@@ -22,14 +19,6 @@ func (s *Client) getUserByPhone(ctx context.Context, phone string) (*User, error
 		return nil, err
 	}
 	return userFromByPhoneRow(r), nil
-}
-
-// setPhoneVerified sets the phone_verified flag for a user.
-func (s *Client) setPhoneVerified(ctx context.Context, id string, v bool) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserSetPhoneVerifiedByID(ctx, db.UserSetPhoneVerifiedByIDParams{ID: id, PhoneVerified: v})
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.
@@ -48,10 +37,10 @@ func (s *Client) RequestEmailVerification(ctx context.Context, email string, ttl
 		}
 	}
 
-	if pending, err := s.GetPendingRegistrationByEmail(ctx, email); err == nil && pending != nil {
-		_, err := s.CreatePendingRegistrationWithLanguage(ctx, email, pending.Username, pending.PasswordHash, ttl, pending.PreferredLanguage)
+	if found, err := s.ResendRegistration(ctx, email); found || err != nil {
 		return err
 	}
+
 	if s.pg == nil {
 		return s.requirePG()
 	}
@@ -97,59 +86,6 @@ func (s *Client) sendEmailVerificationToUser(ctx context.Context, u *User, ttl t
 	return nil
 }
 
-// ConfirmEmailVerification verifies a short typed code for a SPECIFIC email and
-// marks email_verified = true. The record is keyed by the account that owns the
-// address, so the code is only ever compared against that account's own record;
-// the HTTP layer caps attempts per-identifier. For the unguessable 256-bit
-// emailed link token use ConfirmEmailVerificationByToken instead.
-func (s *Client) ConfirmEmailVerification(ctx context.Context, email, code string) (userID string, err error) {
-	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	email = NormalizeEmail(strings.TrimSpace(email))
-	if email == "" {
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	u, err := s.getUserByEmail(ctx, email)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", err
-	}
-	if u == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	if err := s.consumeEmailVerificationCode(ctx, u.ID, email, sha256Hex(code)); err != nil {
-		return "", err
-	}
-	if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
-		return "", err
-	}
-	return u.ID, nil
-}
-
-// ConfirmEmailVerificationByToken verifies the 256-bit emailed link token and
-// marks email_verified = true. The token's own entropy is the security boundary.
-func (s *Client) ConfirmEmailVerificationByToken(ctx context.Context, token string) (userID string, err error) {
-	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	rec, err := s.consumeEmailVerificationByLink(ctx, sha256Hex(token))
-	if err != nil {
-		return "", err
-	}
-	u, err := s.getUserByID(ctx, rec.UserID)
-	if err != nil || u == nil {
-		return "", errOrUnauthorized(err)
-	}
-	if rec.Email != nil && u.Email != nil && !strings.EqualFold(*u.Email, *rec.Email) {
-		// Email changed since request; token consumed but invalid for current address.
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	if err := s.setEmailVerified(ctx, rec.UserID, true); err != nil {
-		return "", err
-	}
-	return rec.UserID, nil
-}
-
 // GetUserByPhone looks up a user by phone number.
 func (s *Client) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
@@ -191,10 +127,10 @@ func (s *Client) RequestPhoneVerification(ctx context.Context, phone string, ttl
 		}
 	}
 
-	if pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone); err == nil && pending != nil {
-		_, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage)
+	if found, err := s.ResendRegistration(ctx, phone); found || err != nil {
 		return err
 	}
+
 	if s.pg == nil {
 		return s.requirePG()
 	}
@@ -237,29 +173,4 @@ func (s *Client) SendPhoneVerificationToUser(ctx context.Context, phone, userID 
 	}
 
 	return nil
-}
-
-// ConfirmPhoneVerificationUserID verifies a token, marks phone_verified = true, and returns the user ID.
-func (s *Client) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
-	userID, err := s.consumePhoneVerification(ctx, "verify_phone", phone, sha256Hex(code))
-	if err != nil {
-		return "", err
-	}
-	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
-		return "", err
-	}
-	return userID, nil
-}
-
-// ConfirmPhoneVerificationByTokenUserID verifies phone ownership using a one-click token and returns the user ID.
-func (s *Client) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
-	userID, phone, err := s.consumePhoneVerificationByLink(ctx, "verify_phone", sha256Hex(token))
-	if err != nil {
-		return "", err
-	}
-
-	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
-		return "", err
-	}
-	return userID, nil
 }

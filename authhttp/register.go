@@ -93,6 +93,9 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	var tokens *authkit.TokenSet
 	nextAction := registrationNextActionNone
 	switch out.Kind {
+	case embedded.RegisterLoginRequired:
+		s.writeLoginContinuation(w, r, *out.Login, nil)
+		return
 	case embedded.RegisterVerifyEmail:
 		nextAction = registrationNextActionVerifyEmail
 	case embedded.RegisterVerifyPhone:

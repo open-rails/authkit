@@ -21,7 +21,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
-	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(&captureEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)
@@ -58,7 +58,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.NotEmpty(t, requireEnrollmentToken(t, w))
+	require.Equal(t, "email", requireTwoFARequired(t, w).Method)
 }
 
 // #249 follow-up: an MFA-required role assigned while TwoFactor.Mode is

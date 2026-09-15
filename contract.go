@@ -307,12 +307,6 @@ type PasswordlessStartResult struct {
 	LinkURL string
 }
 
-type PasswordlessConfirmResult struct {
-	UserID   string
-	Method   string
-	ReturnTo string
-}
-
 type CreatePermissionGroupRequest struct {
 	Persona            Persona
 	InstanceSlug       string

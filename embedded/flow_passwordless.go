@@ -3,7 +3,6 @@ package embedded
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -33,9 +32,10 @@ type PasswordlessStartRequest = authkit.PasswordlessStartRequest
 
 type PasswordlessStartResult = authkit.PasswordlessStartResult
 
-type PasswordlessConfirmResult = authkit.PasswordlessConfirmResult
-
 type passwordlessChallenge struct {
+	Version           int64  `json:"version,omitempty"`
+	ID                string `json:"id"`
+	expected          []byte
 	Channel           string `json:"channel"`
 	Identifier        string `json:"identifier"`
 	UserID            string `json:"user_id,omitempty"`
@@ -90,19 +90,29 @@ func (s *Client) StartPasswordless(ctx context.Context, req PasswordlessStartReq
 		AccountInviteToken: strings.TrimSpace(req.AccountInviteToken),
 	}
 	if user != nil {
+		version, err := s.q.UserCredentialVersion(ctx, user.ID)
+		if err != nil {
+			return PasswordlessStartResult{}, err
+		}
+		contact := version.Email
+		if channel == PasswordlessChannelSMS {
+			contact = version.PhoneNumber
+		}
+		if contact == nil || *contact != identifier {
+			return PasswordlessStartResult{}, jwt.ErrTokenUnverifiable
+		}
+		rec.Version = version.CredentialVersion
 		rec.UserID = user.ID
 	} else {
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return PasswordlessStartResult{Channel: channel}, nil
 		}
-		if channel == PasswordlessChannelEmail {
-			allowed, err := s.registrationAllowedForEmail(ctx, identifier)
-			if err != nil {
-				return PasswordlessStartResult{}, err
-			}
-			if !allowed {
-				return PasswordlessStartResult{}, ErrRegistrationDisabled
-			}
+		allowed, err := s.registrationAllowedForEmail(ctx, identifier)
+		if err != nil {
+			return PasswordlessStartResult{}, err
+		}
+		if !allowed {
+			return PasswordlessStartResult{}, ErrRegistrationDisabled
 		}
 		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
 	}
@@ -131,39 +141,80 @@ func (s *Client) StartPasswordless(ctx context.Context, req PasswordlessStartReq
 	return PasswordlessStartResult{Sent: true, Channel: channel, Code: code, LinkURL: linkURL}, nil
 }
 
-func (s *Client) ConfirmPasswordlessCode(ctx context.Context, identifier, code string) (PasswordlessConfirmResult, error) {
-	channel, normalized, err := normalizePasswordlessIdentifier(identifier)
-	if err != nil {
-		return PasswordlessConfirmResult{}, err
-	}
-	rec, ok, err := s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, normalized))
-	if err != nil || !ok || !SecretEqual(rec.CodeHash, sha256Hex(code)) {
-		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
-	}
-	result, err := s.consumePasswordlessChallenge(ctx, rec)
-	if err == nil {
-		s.clearPasswordlessCodeAttempts(ctx, identifier)
-	}
-	return result, err
+// PasswordlessLoginInput selects either a typed code or a link token, never
+// both, and supplies request metadata for the resulting authentication.
+type PasswordlessLoginInput struct {
+	Identifier string
+	Code       string
+	Token      string
+	UserAgent  string
+	IP         string
 }
 
-func (s *Client) ConfirmPasswordlessToken(ctx context.Context, token string) (PasswordlessConfirmResult, error) {
-	linkHash := sha256Hex(token)
-	key, ok := s.consumeLink(ctx, keyPasswordlessLink+linkHash)
-	if !ok {
-		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
+func (s *Client) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error) {
+	if s == nil || !s.cfg.Registration.PasswordlessLogin {
+		return LoginOutcome{}, ErrPasswordlessDisabled
 	}
-	rec, ok, err := s.loadPasswordlessChallenge(ctx, key)
-	if err != nil || !ok || !SecretEqual(rec.LinkHash, linkHash) {
-		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
+	var rec passwordlessChallenge
+	var ok bool
+	var err error
+	if in.Token != "" && in.Code == "" {
+		hash := sha256Hex(in.Token)
+		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
+		if lookupErr != nil {
+			return LoginOutcome{}, lookupErr
+		}
+		if !found {
+			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		}
+		rec, ok, err = s.loadPasswordlessChallenge(ctx, key)
+		if err != nil {
+			return LoginOutcome{}, err
+		}
+		if !ok || !SecretEqual(rec.LinkHash, hash) {
+			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		}
+		if in.Identifier != "" {
+			channel, identifier, err := normalizePasswordlessIdentifier(in.Identifier)
+			if err != nil || channel != rec.Channel || identifier != rec.Identifier {
+				return LoginOutcome{}, jwt.ErrTokenInvalidClaims
+			}
+		}
+
+	} else if in.Token == "" && in.Identifier != "" && in.Code != "" {
+		channel, identifier, e := normalizePasswordlessIdentifier(in.Identifier)
+		if e != nil {
+			return LoginOutcome{}, e
+		}
+		rec, ok, err = s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
+		if err != nil {
+			return LoginOutcome{}, err
+		}
+		if !ok || rec.CodeHash == "" || !SecretEqual(rec.CodeHash, sha256Hex(in.Code)) {
+			s.RecordFailedPasswordlessCode(ctx, identifier)
+			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		}
+	} else {
+		return LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
-	return s.consumePasswordlessChallenge(ctx, rec)
+	account, err := s.consumePasswordlessChallenge(ctx, rec)
+	if err != nil {
+		return LoginOutcome{}, err
+	}
+	s.clearPasswordlessCodeAttempts(ctx, rec.Identifier)
+	method := "email"
+	if rec.Channel == PasswordlessChannelSMS {
+		method = "sms"
+	}
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
+	return out, err
 }
 
 // storePasswordlessChallenge issues one challenge per (channel, identifier),
 // superseding any outstanding one. The code hash stays inside the record; only
 // the 256-bit link token gets a global pointer (#301).
 func (s *Client) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
+	rec.ID = RandB64(16)
 	key := passwordlessKey(rec.Channel, rec.Identifier)
 	s.deletePasswordlessChallenge(ctx, key)
 	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {
@@ -177,16 +228,16 @@ func (s *Client) storePasswordlessChallenge(ctx context.Context, rec passwordles
 
 func (s *Client) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
 	var rec passwordlessChallenge
-	ok, err := s.ephemGetJSON(ctx, key, &rec)
-	return rec, ok, err
+	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
+	rec.expected = raw
+	return rec, ok && rec.ID != "", err
 }
 
 func (s *Client) deletePasswordlessChallenge(ctx context.Context, key string) {
-	var rec passwordlessChallenge
-	if ok, _ := s.ephemGetJSON(ctx, key, &rec); ok && rec.LinkHash != "" {
+	rec, ok, _ := s.loadPasswordlessChallenge(ctx, key)
+	if ok && s.claimProof(ctx, key, rec.expected) == nil && rec.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
 	}
-	_ = s.ephemDel(ctx, key)
 }
 
 func (s *Client) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
@@ -217,108 +268,86 @@ func (s *Client) clearPasswordlessCodeAttempts(ctx context.Context, identifier s
 	_ = s.ephemDel(ctx, keyPasswordlessAttempts+channel+":"+normalized)
 }
 
-func (s *Client) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (PasswordlessConfirmResult, error) {
-	userID := strings.TrimSpace(rec.UserID)
-	if userID != "" {
-		if err := s.verifyPasswordlessExistingUser(ctx, rec); err != nil {
-			return PasswordlessConfirmResult{}, err
-		}
-	} else {
+func (s *Client) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
+	if err := s.claimProof(ctx, passwordlessKey(rec.Channel, rec.Identifier), rec.expected); err != nil {
+		return registeredAccount{}, err
+	}
+	if rec.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
+	}
+	if rec.UserID == "" {
 		if !s.passwordlessAutoRegistrationAllowed() {
-			return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
+			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		var err error
-		userID, err = s.createPasswordlessUser(ctx, rec)
-		if err != nil {
-			return PasswordlessConfirmResult{}, err
-		}
+		return s.createPasswordlessUser(ctx, rec)
 	}
-	s.deletePasswordlessByTarget(ctx, rec.Channel, rec.Identifier)
-	return PasswordlessConfirmResult{
-		UserID:   userID,
-		Method:   passwordlessSessionMethod(rec.Channel),
-		ReturnTo: rec.ReturnTo,
-	}, nil
+	return s.verifyContactProof(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier)
 }
 
-func (s *Client) verifyPasswordlessExistingUser(ctx context.Context, rec passwordlessChallenge) error {
-	u, err := s.getUserByID(ctx, rec.UserID)
-	if err != nil || u == nil {
-		return errOrUnauthorized(err)
+func (s *Client) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string) (registeredAccount, error) {
+	if version <= 0 {
+		return registeredAccount{}, jwt.ErrTokenUnverifiable
 	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return err
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return registeredAccount{}, err
 	}
-	switch rec.Channel {
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	u, err := s.lockLoginAccount(ctx, q, userID, version)
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	switch channel {
 	case PasswordlessChannelEmail:
-		if u.Email == nil || !strings.EqualFold(NormalizeEmail(*u.Email), rec.Identifier) {
-			return jwt.ErrTokenInvalidClaims
+		if u.Email == nil || *u.Email != identifier {
+			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		return s.setEmailVerified(ctx, rec.UserID, true)
+		err = q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: u.ID, EmailVerified: true})
 	case PasswordlessChannelSMS:
-		if u.PhoneNumber == nil || NormalizePhone(*u.PhoneNumber) != rec.Identifier {
-			return jwt.ErrTokenInvalidClaims
+		if u.PhoneNumber == nil || *u.PhoneNumber != identifier {
+			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		return s.setPhoneVerified(ctx, rec.UserID, true)
+		err = q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: u.ID, PhoneNumber: &identifier})
 	default:
-		return jwt.ErrTokenInvalidClaims
+		return registeredAccount{}, jwt.ErrTokenInvalidClaims
 	}
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	current, err := q.UserCredentialVersion(ctx, u.ID)
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return registeredAccount{}, err
+	}
+	return registeredAccount{ID: u.ID, Version: current.CredentialVersion}, nil
 }
 
-func (s *Client) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (string, error) {
+func (s *Client) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
 	username := rec.GeneratedUsername
-	if username == "" {
+	if username == "" || ValidateUsername(username) != nil {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
-	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
-		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
-	}
+	in := ImportUserInput{Username: username}
 	switch rec.Channel {
 	case PasswordlessChannelEmail:
-		if existing, _ := s.getUserByEmail(ctx, rec.Identifier); existing != nil {
-			return existing.ID, s.setEmailVerified(ctx, existing.ID, true)
-		}
-		u, err := s.createUser(ctx, rec.Identifier, username)
-		if err != nil {
-			return "", err
-		}
-		if u == nil {
-			return "", fmt.Errorf("failed to create user")
-		}
-		if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
-			return "", err
-		}
-		// #147: re-attach the invite code captured at start so the unbound consume
-		// (keyed on the code, not the email) can run at confirm.
-		if err := s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken), rec.Identifier, u.ID); err != nil {
-			return "", err
-		}
-		if rec.PreferredLanguage != "" {
-			_ = s.SetPreferredLanguage(ctx, u.ID, rec.PreferredLanguage)
-		}
-		return u.ID, nil
+		in.Email = rec.Identifier
+		in.EmailVerified = true
 	case PasswordlessChannelSMS:
-		if existing, _ := s.getUserByPhone(ctx, rec.Identifier); existing != nil {
-			return existing.ID, s.setPhoneVerified(ctx, existing.ID, true)
-		}
-		u, err := s.createUser(ctx, "", username)
-		if err != nil {
-			return "", err
-		}
-		if u == nil {
-			return "", fmt.Errorf("failed to create user")
-		}
-		phone := rec.Identifier
-		if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: true}); err != nil {
-			return "", mapUserUniqueViolation(err)
-		}
-		if rec.PreferredLanguage != "" {
-			_ = s.SetPreferredLanguage(ctx, u.ID, rec.PreferredLanguage)
-		}
-		return u.ID, nil
+		in.PhoneNumber = rec.Identifier
+		in.PhoneVerified = true
 	default:
-		return "", jwt.ErrTokenInvalidClaims
+		return registeredAccount{}, jwt.ErrTokenInvalidClaims
 	}
+	// A signup proof stays a signup: a uniqueness race never changes it into
+	// an existing-account login that skips its invitation/admission checks.
+	user, err := s.registerAccount(ctx, accountRegistration{User: in, Language: rec.PreferredLanguage, InviteToken: rec.AccountInviteToken})
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	return user, nil
 }
 
 func (s *Client) sendPasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, code, linkURL string) error {
