@@ -6,7 +6,7 @@
       "user_id": "$string",
       "challenge": "$string",
       "method": "totp",
-      "verification_id": "",
+      "verification_id": "$text",
       "default_factor": { "id": "$string", "method": "totp" },
       "available_factors": "$array"
     }

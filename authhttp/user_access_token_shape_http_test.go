@@ -81,6 +81,8 @@ func assertWireGolden(t *testing.T, name string, value any) {
 			case "$string":
 				require.IsType(t, "", got, path)
 				require.NotEmpty(t, got, path)
+			case "$text":
+				require.IsType(t, "", got, path)
 			case "$number":
 				require.IsType(t, float64(0), got, path)
 				require.Greater(t, got.(float64), float64(0), path)
