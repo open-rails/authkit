@@ -36,8 +36,15 @@ An empty retention object, or `finite` without duration, uses 2160h. A duration
 without mode means finite; finite zero normalizes to immediate. Forever and
 immediate reject **any** supplied duration, including zero. Negative values,
 unknown modes, malformed durations, and duration overflow fail construction.
-`Client.NamingPolicy()` returns the normalized values; durations in its JSON are
-nanoseconds, following Go's `time.Duration` representation.
+`Client.NamingPolicy()` returns normalized Go values using `time.Duration`.
+HTTP `naming.policy` contains `enabled`, `former_name_retention_mode`, and
+`former_name_retention_seconds` (a number, preserving fractional seconds).
+Rename timing is reported by `next_rename_at`/`retry_after_seconds` and the
+action's `cooldown_seconds`; there is no duplicate `rename_interval` wire field.
+
+Pre-v1 hard cut: clients must replace the nanosecond `former_name_retention`
+field with `former_name_retention_seconds`. Doujins/Hentai0's username policy
+notice divides this value by 86400 to display days. There is no old-field fallback.
 
 ## Runtime contract
 

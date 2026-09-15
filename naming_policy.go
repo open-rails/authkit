@@ -30,13 +30,13 @@ type FormerNameRetentionConfig struct {
 	Duration *time.Duration          `json:"duration,omitempty" koanf:"duration"`
 }
 
-// NamingPolicy is the validated, immutable value used by both identity kinds.
-// Duration values in JSON are nanoseconds, as for time.Duration in Go.
+// NamingPolicy is the validated, immutable in-process policy. HTTP responses
+// expose NamingPolicyInfo through NamingState instead of Go duration values.
 type NamingPolicy struct {
-	Enabled                 bool                    `json:"enabled"`
-	RenameInterval          time.Duration           `json:"rename_interval"`
-	FormerNameRetentionMode FormerNameRetentionMode `json:"former_name_retention_mode"`
-	FormerNameRetention     time.Duration           `json:"former_name_retention"`
+	Enabled                 bool
+	RenameInterval          time.Duration
+	FormerNameRetentionMode FormerNameRetentionMode
+	FormerNameRetention     time.Duration
 }
 
 // Normalize validates once at the configuration boundary. An empty retention
@@ -128,16 +128,28 @@ type NameAlias struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
+// NamingPolicyInfo is the policy information used by account/settings UIs.
+// Rename timing is already reported by NextRenameAt and RetryAfterSeconds;
+// the current cadence is available in the action's cooldown_seconds field.
+type NamingPolicyInfo struct {
+	Enabled                    bool                    `json:"enabled"`
+	FormerNameRetentionMode    FormerNameRetentionMode `json:"former_name_retention_mode"`
+	FormerNameRetentionSeconds float64                 `json:"former_name_retention_seconds"`
+}
+
 type NamingState struct {
-	Aliases           []NameAlias  `json:"aliases,omitempty"`
-	Policy            NamingPolicy `json:"policy"`
-	Allowed           bool         `json:"allowed"`
-	NextRenameAt      *time.Time   `json:"next_rename_at,omitempty"`
-	RetryAfterSeconds int64        `json:"retry_after_seconds"`
+	Aliases           []NameAlias      `json:"aliases,omitempty"`
+	Policy            NamingPolicyInfo `json:"policy"`
+	Allowed           bool             `json:"allowed"`
+	NextRenameAt      *time.Time       `json:"next_rename_at,omitempty"`
+	RetryAfterSeconds int64            `json:"retry_after_seconds"`
 }
 
 func (p NamingPolicy) State(last *time.Time, now time.Time) NamingState {
-	out := NamingState{Policy: p, Allowed: p.Enabled}
+	out := NamingState{Policy: NamingPolicyInfo{
+		Enabled: p.Enabled, FormerNameRetentionMode: p.FormerNameRetentionMode,
+		FormerNameRetentionSeconds: p.FormerNameRetention.Seconds(),
+	}, Allowed: p.Enabled}
 	if last != nil {
 		next := last.Add(p.RenameInterval)
 		out.NextRenameAt = &next

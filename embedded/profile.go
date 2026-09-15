@@ -124,7 +124,7 @@ func (s *Client) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 		} else {
 			entry.Reason = "cooldown"
 		}
-		seconds := int64(namingState.Policy.RenameInterval / time.Second)
+		seconds := int64(s.NamingPolicy().RenameInterval / time.Second)
 		entry.CooldownSeconds = &seconds
 		availability = append(availability, entry)
 	}
