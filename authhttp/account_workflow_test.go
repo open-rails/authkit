@@ -391,6 +391,18 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			})
 		}
 		f.t = t
+		phone := uniquePhone()
+		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": phone, "mode": "code"}))
+		phoneGrant := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": f.sms.verificationCode(t)}))
+		require.Equal(t, "2fa_enrollment_required", phoneGrant.Error.Code)
+		require.NotContains(t, phoneGrant.Error.Metadata.AllowedMethods, "email", "an email-less account cannot enroll a mailbox factor")
+		restricted := phoneGrant.Error.Metadata.TokenSet.AccessToken
+		f.expect(400, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "email"}))
+		phoneTOTP := f.expect(200, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "totp"}))
+		phoneSession := f.expect(200, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "totp", "code": flowTOTP(t, phoneTOTP.Secret)}))
+		f.session(phoneSession.Tokens, "sms", "totp", "otp", "mfa")
+
+		f.t = t
 		// Email-first plus email-only MFA offers a recovery key, never another code
 		// to the same mailbox. A password first factor may use that email factor.
 		email := uniqueEmail("same-channel")

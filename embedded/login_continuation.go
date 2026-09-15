@@ -130,7 +130,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 		} else {
 			out.Kind = LoginTwoFAEnrollmentRequired
 			for _, method := range s.TwoFactorAllowedMethods() {
-				if independentFactor(proof, TwoFactorFactor{Method: method}) {
+				if (method != "email" || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, TwoFactorFactor{Method: method}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
@@ -324,6 +324,9 @@ func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrol
 	}
 	if err := s.validateLoginProofSource(ctx, db.ForSchema(s.pg, s.dbSchema()), proof); err != nil {
 		return ctx, err
+	}
+	if strings.EqualFold(strings.TrimSpace(in.Method), "email") && (version.Email == nil || strings.TrimSpace(*version.Email) == "") {
+		return ctx, ErrInvalidTwoFAMethod
 	}
 	if !independentFactor(proof, TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
 		return ctx, ErrInvalidTwoFAMethod
