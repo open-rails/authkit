@@ -323,7 +323,8 @@ type TwoFactorConfig struct {
 	// Mode is the account-wide 2FA policy: Disabled (no enroll/challenge/verify
 	// routes usable), Optional (users may enroll), or Required (every user must
 	// enroll before normal session use; existing un-enrolled users are challenged
-	// on their next authenticated request). Empty defaults to Optional. Per-role
+	// on their next authenticated request). Empty defaults to Optional; other
+	// values fail construction. Per-role
 	// RoleDef.RequiresMFA remains available for narrower enforcement.
 	Mode TwoFactorMode
 

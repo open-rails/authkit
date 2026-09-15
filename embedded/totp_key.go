@@ -103,15 +103,3 @@ func decodeTOTPKeyBytes(raw []byte) ([]byte, error) {
 	}
 	return nil, fmt.Errorf("must decode to 16, 24, or 32 bytes (base64, hex, or raw)")
 }
-
-// normalizeTwoFactorMode defaults an empty mode to Optional and rejects nothing
-// else (unknown strings are treated as Optional for forward tolerance, but the
-// three canonical values are the contract).
-func normalizeTwoFactorMode(m TwoFactorMode) TwoFactorMode {
-	switch m {
-	case TwoFactorDisabled, TwoFactorOptional, TwoFactorRequired:
-		return m
-	default:
-		return TwoFactorOptional
-	}
-}

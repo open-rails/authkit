@@ -19,7 +19,7 @@ var Err2FAMethodUnavailable = authkit.ErrTwoFAMethodUnavailable
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
 func (s *Client) TwoFactorEnabled() bool {
-	return normalizeTwoFactorMode(s.cfg.TwoFactor.Mode) != TwoFactorDisabled
+	return s.cfg.TwoFactor.Mode != TwoFactorDisabled
 }
 
 func (s *Client) twoFactorMethodConfigured(m TwoFactorMethod) bool {
