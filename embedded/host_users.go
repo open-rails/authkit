@@ -288,6 +288,9 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.lockAuthority(ctx, db.ForSchema(tx, s.dbSchema())); err != nil {
+		return nil, err
+	}
 	user, err := s.updateImportedUserTx(ctx, tx, userID, input)
 	if err != nil {
 		return nil, err
@@ -302,6 +305,16 @@ func (s *Client) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
+	}
+	banned := input.BannedAt != nil || input.BannedUntil != nil || input.BanReason != nil || bannedBy != nil
+	if input.BannedUntil != nil && !input.BannedUntil.After(time.Now()) {
+		banned = false
+	}
+	reserved := metadataMarksReserved([]byte(metadata))
+	if banned || reserved {
+		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(db.ForSchema(tx, s.dbSchema())), authkit.UserSubject(userID)); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
 		return nil, err
@@ -376,9 +389,6 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 	if until != nil && !until.UTC().After(now) {
 		return ErrInvalidUntil
 	}
-	if err := s.authorizeAccountAuthority(ctx, bannedBy, userID); err != nil {
-		return err
-	}
 	var reasonPtr *string
 	if reason != nil {
 		trimmed := strings.TrimSpace(*reason)
@@ -397,6 +407,16 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if err := s.authorizeAccountAuthorityOn(ctx, st, bannedBy, userID); err != nil {
+		return err
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
+		return err
+	}
 	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
 		return err
 	}
@@ -419,6 +439,10 @@ func (s *Client) UnbanUser(ctx context.Context, userID string) error {
 // SoftDeleteUser marks the user deleted without dropping rows. Sessions and
 // device keys are revoked in the same transaction.
 func (s *Client) SoftDeleteUser(ctx context.Context, id string) error {
+	return s.softDeleteUser(ctx, "", id)
+}
+
+func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -427,6 +451,23 @@ func (s *Client) SoftDeleteUser(ctx context.Context, id string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if actorUserID != "" {
+		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, id); err != nil {
+			return err
+		}
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(id)); err != nil {
+		return err
+	}
+	if _, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	sessionIDs, err := s.revokeCredentialsTx(ctx, tx, id)
 	if err != nil {
 		return err

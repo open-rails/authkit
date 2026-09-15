@@ -69,6 +69,13 @@ func (s *Client) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 		return ErrInsufficientRoleAuthority
 	}
 
+	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	if err != nil {
+		return err
+	}
+	if !live {
+		return ErrInsufficientRoleAuthority
+	}
 	// Resolve the actor's effective grants in this group (additive walk-up union).
 	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)
 	if err != nil {
@@ -83,6 +90,13 @@ func (s *Client) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 		return ErrInsufficientRoleAuthority
 	}
 	// (2) no step-up: the actor must already hold every perm the target confers.
+	if _, catalog := sch.Role(persona, targetRole); !catalog {
+		targetResolver, err := st.CustomRolesFor(ctx, []string{gid})
+		if err != nil {
+			return err
+		}
+		resolver = targetResolver
+	}
 	targetGrants, err := s.roleGrantsForAuthz(sch, persona, gid, targetRole, resolver)
 	if err != nil {
 		return err
@@ -125,6 +139,13 @@ func (s *Client) authorizeCustomRoleChange(ctx context.Context, st *PermissionGr
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
+	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	if err != nil {
+		return err
+	}
+	if !live {
+		return ErrInsufficientRoleAuthority
+	}
 	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)
 	if err != nil {
 		return err
@@ -160,6 +181,18 @@ func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, grou
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 			return err
 		}
+		old, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if old != "" && old != role {
+			if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, old); err != nil {
+				return err
+			}
+			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+				return err
+			}
+		}
 		if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, group.Persona, subject, role); err != nil {
 			return err
 		}
@@ -177,10 +210,22 @@ func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID string, gr
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
-		return err
-	}
-	return st.UnassignRole(ctx, gid, subject, role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
+			return err
+		}
+		current, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if current != role {
+			return nil
+		}
+		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+			return err
+		}
+		return st.UnassignRole(ctx, gid, subject, role)
+	})
 }
 
 // RemoveGroupSubjectAs strips every role a subject holds in a group. It enforces
@@ -195,50 +240,22 @@ func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, g
 		return err
 	}
 	subject.ID = strings.TrimSpace(subject.ID)
-	// The SINGLE role the subject holds DIRECTLY in this group (#247 — the gid
-	// entry of the walk; ancestor grants are not being removed here, so they
-	// are not authorized).
-	asg, err := st.WalkAssignments(ctx, gid, subject)
-	if err != nil {
-		return err
-	}
-	var role authkit.Role
-	for _, a := range asg {
-		if a.PermissionGroupID == gid {
-			role = a.Role
-			break
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		role, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
 		}
-	}
-	// No step-up on revoke: the actor must already hold every perm the role
-	// confers (which also enforces the capability gate via authorizeRoleChange).
-	// A subject holding no role here has nothing to authorize.
-	if role != "" {
+		if role == "" {
+			return nil
+		}
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 			return err
 		}
-	}
-	if err := s.refuseIfLastOwner(ctx, st, gid, role); err != nil {
-		return err
-	}
-	return st.UnassignSubject(ctx, gid, subject)
-}
-
-// refuseIfLastOwner returns ErrCannotRemoveLastAdminRole when stripping this role
-// from a subject would leave the group instance with zero owners (#193) — so neither
-// an admin removal nor a self-leave can orphan a group. Pure ownership-safety, not an
-// acceptance/consent concern.
-func (s *Client) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid string, role authkit.Role) error {
-	if role != OwnerRoleName {
-		return nil
-	}
-	n, err := st.OwnerCount(ctx, gid)
-	if err != nil {
-		return err
-	}
-	if n <= 1 {
-		return ErrCannotRemoveLastAdminRole
-	}
-	return nil
+		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+			return err
+		}
+		return st.UnassignSubject(ctx, gid, subject)
+	})
 }
 
 // AssignRoleBySlugAs is the actor-aware root-group convenience (the runtime

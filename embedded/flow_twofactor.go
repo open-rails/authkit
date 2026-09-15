@@ -173,6 +173,9 @@ func (s *Client) Disable2FAWithRemovedRoles(ctx context.Context, userID string) 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return nil, err
+	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err
@@ -203,6 +206,9 @@ func (s *Client) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, f
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return nil, err
+	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err

@@ -217,6 +217,9 @@ func (s *Client) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, nil
 	}
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return nil, err
+	}
 	var groupID *string
 	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -258,10 +261,7 @@ func (s *Client) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 		if invite.Persona != nil {
 			persona = *invite.Persona
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, *invite.GroupID, persona, authkit.UserSubject(userID), *invite.Role); err != nil {
-			return err
-		}
-		return NewPermissionGroupStore(q).AssignRole(ctx, *invite.GroupID, authkit.UserSubject(userID), *invite.Role)
+		return s.assignInvitedRole(ctx, NewPermissionGroupStore(q), *invite.GroupID, persona, userID, *invite.Role)
 	}
 	return nil
 }

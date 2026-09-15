@@ -18,7 +18,7 @@ import (
 func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test", RefreshTokenDuration: time.Hour}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test", RefreshTokenDuration: time.Hour}, RBAC: []PersonaDef{{Name: RootPersona, Roles: []RoleDef{{Name: "member"}}}}}, Keyset{}, WithPostgres(pool))
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("ensure root group: %v", err)
 	}
@@ -28,8 +28,8 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
-	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), OwnerRoleName); err != nil {
-		t.Fatalf("seed owner: %v", err)
+	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), "member"); err != nil {
+		t.Fatalf("seed membership: %v", err)
 	}
 	if _, _, _, err := svc.IssueRefreshSessionWithAuthMethods(ctx, id, "test", net.ParseIP("127.0.0.1"), []string{"swk", "mfa"}); err != nil {
 		t.Fatalf("issue session: %v", err)

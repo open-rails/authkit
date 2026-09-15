@@ -96,6 +96,9 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	}
 	owner, adminU, memberMgr, roleMgr, target := mk("owner"), mk("admin"), mk("membermgr"), mk("rolemgr"), mk("target")
 
+	if _, err := svc.Enable2FA(ctx, owner, "email", nil, AllowAdditionalFactors); err != nil {
+		t.Fatalf("enroll recovery owner: %v", err)
+	}
 	// Genesis: seed the owner via the unchecked path.
 	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(owner), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
@@ -120,7 +123,9 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	if err := svc.AssignRoleBySlugAs(ctx, owner, target, "owner"); err != nil {
 		t.Fatalf("owner->owner should succeed: %v", err)
 	}
-	_ = svc.UnassignGroupRoleAs(ctx, owner, authkit.RootGroup(), authkit.UserSubject(target), "owner")
+	if err := svc.UnassignGroupRoleAs(ctx, owner, authkit.RootGroup(), authkit.UserSubject(target), "owner"); err != nil {
+		t.Fatalf("remove target owner: %v", err)
+	}
 
 	// admin lacks root:members:manage → cannot grant anything.
 	if err := svc.AssignRoleBySlugAs(ctx, adminU, target, "admin"); !errors.Is(err, ErrInsufficientRoleAuthority) {

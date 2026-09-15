@@ -44,6 +44,9 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 	}
 	owner, memberMgr, roleMgr, ownerTarget, weakTarget := mk("owner"), mk("membermgr"), mk("rolemgr"), mk("ownertgt"), mk("weaktgt")
 
+	if _, err := svc.Enable2FA(ctx, owner, "email", nil, AllowAdditionalFactors); err != nil {
+		t.Fatalf("enroll recovery owner: %v", err)
+	}
 	// Genesis seeding via the unchecked path.
 	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(owner), OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)

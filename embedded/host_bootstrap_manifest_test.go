@@ -112,7 +112,10 @@ func TestBootstrapWorkflow(t *testing.T) {
 	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
 	require.NoError(t, err)
 	require.NotContains(t, roles[recoveryUser.ID], string(OwnerRoleName))
-	require.NoError(t, svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), OwnerRoleName))
+	require.ErrorIs(t, svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), OwnerRoleName), ErrCannotRemoveLastAdminRole)
+	// Only explicit out-of-band database repair can create this recovery state.
+	_, err = pg.Pool.Exec(ctx, `DELETE FROM profiles.group_user_roles WHERE user_id=$1::uuid`, user.ID)
+	require.NoError(t, err)
 	_, err = svc.ApplyBootstrapManifest(ctx, recovery, BootstrapReconcileOptions{})
 	require.NoError(t, err)
 	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})

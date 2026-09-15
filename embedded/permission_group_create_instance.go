@@ -214,6 +214,19 @@ func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
 			return err
 		}
+		subject := authkit.RemoteAppSubject(ra.ID)
+		old, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if old != "" && old != role {
+			if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), old); err != nil {
+				return err
+			}
+			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+				return err
+			}
+		}
 		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(ra.ID), role)
 	})
 }

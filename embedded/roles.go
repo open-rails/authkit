@@ -15,7 +15,7 @@ import (
 // genesis/bootstrap path; the exported wrappers are what admin/HTTP adapters call.
 
 // ErrCannotRemoveLastAdminRole is returned by the permission-group last-owner
-// guard (refuseIfLastOwner) and mapped to a stable HTTP code by the admin
+// guard (refuseOwnerLoss) and mapped to a stable HTTP code by the admin
 // adapter. Aliased from the root package so core can return it unqualified.
 var ErrCannotRemoveLastAdminRole = authkit.ErrCannotRemoveLastAdminRole
 

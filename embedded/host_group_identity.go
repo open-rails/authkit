@@ -41,7 +41,10 @@ func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
-	if err := st.DeleteGroup(ctx, strings.TrimSpace(groupID), opts); err != nil {
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if err := s.deleteGroupTx(ctx, st, strings.TrimSpace(groupID), opts); err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
 			return nil
 		}

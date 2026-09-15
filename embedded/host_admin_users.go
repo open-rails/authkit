@@ -7,6 +7,7 @@ import (
 	stdlog "log"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
@@ -271,6 +272,10 @@ func (s *Client) AdminGetUser(ctx context.Context, id string) (*AdminUser, error
 // references profiles.users(id) without ON DELETE CASCADE aborts the whole
 // delete with ErrUserReferenced, so a user is never left half-deleted (#304).
 func (s *Client) AdminDeleteUser(ctx context.Context, id string) error {
+	return s.adminDeleteUser(ctx, "", id)
+}
+
+func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -279,7 +284,24 @@ func (s *Client) AdminDeleteUser(ctx context.Context, id string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if actorUserID != "" {
+		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, id); err != nil {
+			return err
+		}
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(id)); err != nil {
+		return err
+	}
 	qtx := s.qtx(tx)
+	if _, err := qtx.UserCredentialVersionForUpdate(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: id, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return err

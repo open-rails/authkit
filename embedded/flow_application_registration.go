@@ -317,6 +317,9 @@ func (s *Client) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	dbtx := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, dbtx); err != nil {
+		return nil, err
+	}
 	q := db.New(dbtx)
 	st := s.groupStoreFor(dbtx)
 

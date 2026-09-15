@@ -24,22 +24,12 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 // withLockedGroup gives role definitions and grants one lifecycle boundary.
 // Authorization stays in the existing caller checks, using this bound store.
 func (s *Client) withLockedGroup(ctx context.Context, groupID string, apply func(*PermissionGroupStore) error) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
-	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
-		return err
-	}
-	if err := apply(st); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
+			return err
+		}
+		return apply(st)
+	})
 }
 
 // A role must exist when a durable reference is created. Catalog definitions

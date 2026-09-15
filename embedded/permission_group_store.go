@@ -392,18 +392,18 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID str
 	return err
 }
 
-// OwnerCount returns how many subjects (users + remote applications) currently
-// hold the owner role in a group — the last-owner guard (#193) refuses to remove
-// the final owner so a group can never be orphaned.
+// OwnerCount returns the count of live, unbanned, unreserved user owners and
+// enabled application owners. Lifecycle safety uses the transaction-bound
+// Client guard, which also checks the deployment's MFA policy.
 func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
 	var n int
-	err := st.q.QueryRow(ctx,
-		`SELECT
-		   (SELECT count(*) FROM profiles.group_user_roles
-		      WHERE permission_group_id = $1::uuid AND role = $2)
-		 + (SELECT count(*) FROM profiles.group_remote_application_roles
-		      WHERE permission_group_id = $1::uuid AND role = $2)`,
-		groupID, OwnerRoleName).Scan(&n)
+	err := st.q.QueryRow(ctx, `SELECT
+    (SELECT count(*) FROM profiles.group_user_roles r JOIN profiles.users u ON u.id=r.user_id
+     WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND u.deleted_at IS NULL
+     AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
+     AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=now()))
+    + (SELECT count(*) FROM profiles.group_remote_application_roles r JOIN profiles.remote_applications a ON a.id=r.remote_application_id
+       WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND a.enabled)`, groupID).Scan(&n)
 	return n, err
 }
 

@@ -245,6 +245,14 @@ func TestAllowLive_DeniesBannedUserWhoStillHoldsThePermission_DB(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, allowed, "a live owner holds its own effective permission")
 
+	recovery, err := svc.CreateUser(ctx, "recovery"+suffix+"@example.com", "recovery"+suffix)
+	require.NoError(t, err)
+	_, err = svc.Enable2FA(ctx, recovery.ID, "email", nil, embedded.AllowAdditionalFactors)
+	require.NoError(t, err)
+	require.NoError(t, svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(recovery.ID), "owner"))
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=ANY($1::uuid[])`, []string{u.ID, recovery.ID})
+	})
 	reason := "spam"
 	require.NoError(t, svc.BanUser(ctx, u.ID, &reason, nil, u.ID))
 
