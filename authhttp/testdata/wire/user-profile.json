@@ -1,0 +1,35 @@
+{
+  "id": "$string",
+  "username": "slimtokenshapehttp",
+  "email": "slim-token-shape-http@example.com",
+  "phone_number": null,
+  "email_verified": true,
+  "phone_verified": false,
+  "has_password": true,
+  "roles": [],
+  "entitlements": ["premium"],
+  "created_at": "$string",
+  "naming": {
+    "allowed": true,
+    "retry_after_seconds": 0,
+    "policy": {
+      "enabled": true,
+      "former_name_retention_mode": "finite",
+      "former_name_retention_seconds": 7776000
+    }
+  },
+  "availability": [{
+    "action": "update_username",
+    "allowed": true,
+    "reason": "cooldown",
+    "cooldown_seconds": 259200
+  }],
+  "security": {
+    "last_authenticated_at": "$string",
+    "time_until_step_up_required": "$number",
+    "step_up_required_for_sensitive_actions": false,
+    "step_up_methods": ["password"],
+    "mfa_enabled": false,
+    "mfa_satisfied": false
+  }
+}

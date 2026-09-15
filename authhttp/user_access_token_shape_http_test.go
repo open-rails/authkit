@@ -159,6 +159,13 @@ func TestSessionWireWorkflow(t *testing.T) {
 	assertSlimUserAccessClaims(t, unverifiedAccessClaims(t, loginResp.AccessToken))
 
 	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	r.Header.Set("Authorization", "Bearer "+loginResp.AccessToken)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assertWireGolden(t, "user-profile", json.RawMessage(w.Body.Bytes()))
+
+	w = httptest.NewRecorder()
 	body := []byte(`{"grant_type":"refresh_token","refresh_token":"` + loginResp.RefreshToken + `"}`)
 	r = httptest.NewRequest(http.MethodPost, "/api/v1/token", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
