@@ -51,7 +51,7 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE id=$1::uuid`, id).Scan(&users); err != nil || users != 1 {
 		t.Fatalf("user row must survive a refused delete: n=%d err=%v", users, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid AND deleted_at IS NULL`, id).Scan(&roles); err != nil || roles != 1 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid`, id).Scan(&roles); err != nil || roles != 1 {
 		t.Fatalf("group roles must survive a refused delete: n=%d err=%v", roles, err)
 	}
 	sessions, err := svc.ListUserSessions(ctx, id)

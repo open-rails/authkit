@@ -282,7 +282,7 @@ func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, 
  SELECT id,persona,parent_id FROM profiles.permission_groups WHERE id=$1::uuid
  UNION ALL SELECT p.id,p.persona,p.parent_id FROM profiles.permission_groups p JOIN chain c ON p.id=c.parent_id)
  SELECT c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
- JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid AND a.deleted_at IS NULL
+ JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
  LEFT JOIN profiles.group_custom_roles r ON r.permission_group_id=c.id AND $3
  ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions)
 	if err != nil {
@@ -331,7 +331,7 @@ func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 	}
 	rows, err := st.q.Query(ctx,
 		`SELECT user_id::text, role FROM profiles.group_user_roles
-		 WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+		 WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[])`,
 		rootGID, userIDs)
 	if err != nil {
 		return nil, err
@@ -347,17 +347,8 @@ func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 	return out, rows.Err()
 }
 
-// AssignRole grants subject a role in a group, REPLACING any previous role it
-// held there (#247 hard rule: one role per subject per group, enforced by a
-// partial unique index on (permission_group_id, subject) — no per-group role
-// unions). A single atomic UPSERT: no live row yet -> insert fresh; a live row
-// already exists (whatever role it holds) -> its role is overwritten in place.
-// Deliberately NOT a soft-delete-then-insert (a two-statement version of that
-// has a same-snapshot visibility trap: a writable CTE's UPDATE is invisible to
-// the following INSERT's ON CONFLICT check in the SAME command, so the INSERT
-// would spuriously conflict with the row the CTE just tried to retire and
-// silently no-op instead of swapping the role). The role NAME is validated
-// against the persona catalog / custom roles by the caller before assignment.
+// AssignRole replaces the current role for a group and subject. The composite
+// primary key enforces one assignment; callers validate the role definition.
 func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, subject authkit.Subject, role authkit.Role) error {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
@@ -366,37 +357,37 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	tag, err := st.q.Exec(ctx, fmt.Sprintf(`WITH locked AS MATERIALIZED (SELECT id FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE)
  INSERT INTO %s (permission_group_id, %s, role)
  SELECT id, $2::uuid, $3 FROM locked
- ON CONFLICT (permission_group_id, %s) WHERE deleted_at IS NULL
- DO UPDATE SET role=EXCLUDED.role, updated_at=now()`, table, subjectColumn, subjectColumn), groupID, subject.ID, role)
+ ON CONFLICT (permission_group_id, %s)
+ DO UPDATE SET role=EXCLUDED.role`, table, subjectColumn, subjectColumn), groupID, subject.ID, role)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrGroupNotFound
 	}
 	return err
 }
 
-// UnassignRole soft-deletes a role assignment.
+// UnassignRole deletes the matching current assignment.
 func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject authkit.Subject, role authkit.Role) error {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
 	}
 	_, err = st.q.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
-		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role = $3 AND deleted_at IS NULL`,
+		fmt.Sprintf(`DELETE FROM %s
+		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role = $3`,
 			table, subjectColumn),
 		groupID, subject.ID, role)
 	return err
 }
 
-// UnassignSubject soft-deletes every active role assignment a subject holds in a group.
+// UnassignSubject deletes the subject's current assignment in this group.
 func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID string, subject authkit.Subject) error {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
 	}
 	_, err = st.q.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
-		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND deleted_at IS NULL`, table, subjectColumn),
+		fmt.Sprintf(`DELETE FROM %s
+		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid`, table, subjectColumn),
 		groupID, subject.ID)
 	return err
 }
@@ -409,9 +400,9 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 	err := st.q.QueryRow(ctx,
 		`SELECT
 		   (SELECT count(*) FROM profiles.group_user_roles
-		      WHERE permission_group_id = $1::uuid AND role = $2 AND deleted_at IS NULL)
+		      WHERE permission_group_id = $1::uuid AND role = $2)
 		 + (SELECT count(*) FROM profiles.group_remote_application_roles
-		      WHERE permission_group_id = $1::uuid AND role = $2 AND deleted_at IS NULL)`,
+		      WHERE permission_group_id = $1::uuid AND role = $2)`,
 		groupID, OwnerRoleName).Scan(&n)
 	return n, err
 }
@@ -523,11 +514,11 @@ type GroupMember = authkit.GroupMember
 func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
 	rows, err := st.q.Query(ctx,
 		`SELECT user_id::text, 'user' AS subject_kind, role FROM profiles.group_user_roles
-		 WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
+		 WHERE permission_group_id = $1::uuid
 		 UNION ALL
 		 SELECT remote_application_id::text, 'remote_application' AS subject_kind, role
 		   FROM profiles.group_remote_application_roles
-		  WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
+		  WHERE permission_group_id = $1::uuid
 		 ORDER BY 1, 3`, groupID)
 	if err != nil {
 		return nil, err
@@ -561,7 +552,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject authk
 		fmt.Sprintf(`SELECT g.id::text, g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
 		 FROM %s a
 		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id
-		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
+		 WHERE a.%s = $1::uuid
 		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subject.ID)
 	if err != nil {
 		return nil, err

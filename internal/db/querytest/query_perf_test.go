@@ -151,7 +151,7 @@ func TestQueryPerformance(t *testing.T) {
 			// has no generated constant to source. Kept hand-written and flagged; if
 			// authcore's SQL changes this must be updated by hand.
 			Name: "root_roles_for_page (raw authcore)", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,
-			SQL:           `SELECT user_id::text, role FROM profiles.group_user_roles WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+			SQL:           `SELECT user_id::text, role FROM profiles.group_user_roles WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[])`,
 			Args:          []any{rootID, []string{perfUserID(1), perfUserID(scale / 2), perfUserID(hot)}},
 			ForbidSeqScan: []string{"group_user_roles"},
 		},
@@ -322,10 +322,10 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 	}
 
 	copyMemberships := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {
-		return []any{rootID, perfUserID(i), "owner", now, now}, nil
+		return []any{rootID, perfUserID(i), "owner"}, nil
 	})
 	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "group_user_roles"},
-		[]string{"permission_group_id", "user_id", "role", "created_at", "updated_at"}, copyMemberships); err != nil || int(n) != scale {
+		[]string{"permission_group_id", "user_id", "role"}, copyMemberships); err != nil || int(n) != scale {
 		t.Fatalf("copy memberships n=%d err=%v", n, err)
 	}
 
