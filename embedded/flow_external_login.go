@@ -13,6 +13,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // ExternalIdentity is a provider-verified identity.
@@ -66,11 +67,13 @@ func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInpu
 	if in.Link != nil {
 		return LoginOutcome{Kind: LoginProviderLinked, UserID: userID}, nil
 	}
-	version, err := s.q.UserCredentialVersion(ctx, userID)
+	var version int64
+	var providerID string
+	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM profiles.users u JOIN profiles.user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, in.Identity.Issuer, in.Identity.Subject).Scan(&version, &providerID)
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: version.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
 	out.Created = created
 	if err == nil && created {
 		s.SendWelcome(ctx, userID)

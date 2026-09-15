@@ -566,18 +566,27 @@ func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessi
 		v := string(SessionRevokeReasonUserRevokeAll)
 		reason = &v
 	}
-	if keepSessionID != nil && *keepSessionID != "" {
-		ids, err := s.q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
-		if err != nil {
-			return err
-		}
-		for _, sid := range ids {
-			s.logSessionRevoked(ctx, userID, sid, reason)
-		}
-		return nil
-	}
-	ids, err := s.q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var ids []string
+	if keepSessionID != nil && *keepSessionID != "" {
+		ids, err = q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
+	} else {
+		ids, err = q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	for _, sid := range ids {

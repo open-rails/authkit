@@ -190,11 +190,6 @@ func (s *Client) pendingChangeByTarget(ctx context.Context, kind PendingChangeKi
 	return rec, true, nil
 }
 
-func (s *Client) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
-	rec, ok, _ := s.pendingChangeByUser(ctx, kind, userID)
-	return rec, ok
-}
-
 func (s *Client) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false, nil
@@ -271,13 +266,6 @@ func (s *Client) deletePendingChangeByTarget(ctx context.Context, kind PendingCh
 		return
 	}
 	s.deletePendingChange(ctx, pendingChangeKey(kind, normalizePendingTarget(kind, target)))
-}
-
-func (s *Client) deletePendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) {
-	if !s.useEphemeralStore() || kind.isRegister() {
-		return
-	}
-	s.deletePendingChange(ctx, pendingChangeKey(kind, userID))
 }
 
 // finalizePendingChange dispatches to the per-kind finalizer that completes the

@@ -82,18 +82,6 @@ func (s *Client) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (
 	}, nil
 }
 
-func (s *Client) requireSessionMFAState(ctx context.Context, userID string, authMethods []string) error {
-	// #148: when 2FA is Disabled, the whole flow is off — neither forced
-	// enrollment nor an enrolled user's challenge applies. (Guards against
-	// stranding a user who enrolled while Optional after the host flips to
-	// Disabled.) Read MFAStatus only when 2FA is enabled, then apply the gate.
-	if !s.TwoFactorEnabled() {
-		return nil
-	}
-	status, err := s.MFAStatus(ctx, userID)
-	return s.requireSessionMFAStateWith(ctx, userID, authMethods, status, err)
-}
-
 // requireSessionMFAStateWith applies the session MFA gate using an ALREADY-COMPUTED
 // MFAStatus (and its lookup error) instead of reading it here (#227), so a caller
 // that already read MFA state — the refresh / login / 2FA-verify paths — does not

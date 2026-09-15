@@ -351,13 +351,6 @@ func (s *Client) ClearEmailVerified(ctx context.Context, id string) error {
 	return s.setEmailVerified(ctx, id, false)
 }
 
-func (s *Client) setLastLogin(ctx context.Context, id string, t time.Time) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: id, LastLogin: &t})
-}
-
 func (s *Client) clearUserBan(ctx context.Context, userID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")

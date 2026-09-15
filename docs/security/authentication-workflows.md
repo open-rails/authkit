@@ -9,7 +9,11 @@ with actual UV proof. See the [wire contract](../api-endpoints.md#authentication
 
 The final account lock checks the credential version captured before password or
 passkey verification, and the provider/passkey/session that supplied the proof.
-MFA completion retains that provenance. Password recovery, contact changes,
+MFA completion retains that provenance and locks the live source row through
+commit. Provider grants bind the immutable link-row ID, so unlinking and
+recreating the same issuer/subject cannot revive an old grant. Revoke-all takes
+the account lock before selecting sessions, including a concurrently completed
+derived session. Password recovery, contact changes,
 provider unlink and source-session revocation invalidate in-flight authority.
 A restricted enrollment JWT carries first-factor assurance for continuation,
 but cannot perform freshness-gated account/factor management.
@@ -35,8 +39,8 @@ The existing cookie/browser suite supplies actual browser transport coverage.
 | Suite | Assertions |
 | --- | --- |
 | `TestAccountAdmissionWorkflow` | Email/SMS, password/passwordless, invitation admission and consumption, pending-password recovery, generated usernames, disabled/unknown-contact behavior, one code/link winner, replay and purpose/identifier binding, attempt budget across reissue, injected invitation-consume rollback after account/password/provider writes, and an older blocked completion preserving a new issuance. |
-| `TestAuthenticationContinuationWorkflow` | Delivered registration/passwordless links through restricted enrollment, TOTP to full session, password/passwordless MFA and backup completion with actual AMR, replay, recovery invalidation, a password check queued behind completed recovery, same-channel factor rejection, and UV passkey login under Required mode with an MFA-required role. |
-| `TestProviderAuthenticationWorkflow` | OIDC and OAuth2 discovery/token exchange, browser state cookie and fragment metadata, SMS enrollment to session, subsequent enrolled-user challenge to session, and retained `oauth` provenance/provider binding. |
+| `TestAuthenticationContinuationWorkflow` | Delivered registration/passwordless links through restricted enrollment, TOTP to full session, password/passwordless MFA and backup completion with actual AMR, replay, recovery invalidation, a password check queued behind completed recovery, same-channel factor rejection, UV passkey login under Required mode with an MFA-required role, controlled passkey deletion, and revoke-all racing a refresh-derived completion. |
+| `TestProviderAuthenticationWorkflow` | OIDC and OAuth2 discovery/token exchange, browser state cookie and fragment metadata, SMS enrollment to session, subsequent enrolled-user challenge to session, retained `oauth` provenance, controlled provider unlink, and rejection of a grant after its provider link is deleted and recreated. |
 
 These replace the standalone passwordless test matrix, four engine outcome
 matrices in `embedded/login_outcomes_test.go`, the registration atomic happy-path

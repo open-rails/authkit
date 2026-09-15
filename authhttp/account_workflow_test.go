@@ -429,7 +429,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 		authn := passkeytest.New(t, "https://app.example")
 		creation, err := f.service.svc.BeginPasskeyRegistration(ctx, passkeyUser.ID)
 		require.NoError(t, err)
-		_, err = f.service.svc.FinishPasskeyRegistration(ctx, passkeyUser.ID, authn.Register(t, creation))
+		createdPasskey, err := f.service.svc.FinishPasskeyRegistration(ctx, passkeyUser.ID, authn.Register(t, creation))
 		require.NoError(t, err)
 		start := f.expect(200, f.post("/passkeys/login/begin", map[string]any{}))
 		var assertion protocol.CredentialAssertion
@@ -438,6 +438,34 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 		uv := f.expect(200, f.post("/passkeys/login/finish", json.RawMessage(authn.Assert(t, &assertion, 1))))
 		f.session(uv.TokenSet, "swk", "mfa")
 		require.Equal(t, true, unverifiedAccessClaims(t, uv.AccessToken)["mfa_enrolled"])
+		start = f.expect(200, f.post("/passkeys/login/begin", map[string]any{}))
+		require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))
+		proof := json.RawMessage(authn.Assert(t, &assertion, 2))
+		completed := f.completeWhileRevoking(passkeyUser.ID, func() flowResponse { return f.post("/passkeys/login/finish", proof) }, func(ctx context.Context) error {
+			return f.service.svc.DeletePasskey(ctx, passkeyUser.ID, createdPasskey.ID)
+		})
+		f.expect(200, completed)
+		f.session(completed.TokenSet, "swk", "mfa")
+		// Revoke-all must see the session committed by refresh-derived MFA, even
+		// when revocation began while that completion held the source session.
+		optionalCfg := cfg
+		optionalCfg.TwoFactor.Mode = embedded.TwoFactorOptional
+		old := newAccountFlow(t, pg.Pool, store, optionalCfg)
+		refreshUser, err := old.service.svc.CreateUser(ctx, uniqueEmail("revoke-all"), "revall"+uniqueSuffix())
+		require.NoError(t, err)
+		require.NoError(t, old.service.svc.AdminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
+		require.NoError(t, old.service.svc.MarkEmailVerified(ctx, refreshUser.ID))
+		initial := old.expect(200, old.post("/password/login", map[string]any{"identifier": *refreshUser.Email, "password": "Correct-horse-battery-1"}))
+		_, err = f.service.svc.Enable2FA(ctx, refreshUser.ID, "email", nil, embedded.AllowAdditionalFactors)
+		require.NoError(t, err)
+		needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
+		require.Equal(t, "2fa_required", needed.Error.Code)
+		completionBody := map[string]any{"user_id": refreshUser.ID, "challenge": needed.Error.Metadata.Challenge, "code": f.email.lastLoginCode()}
+		completed = f.completeWhileRevoking(refreshUser.ID, func() flowResponse { return f.post("/2fa/verify", completionBody) }, func(ctx context.Context) error { return f.service.svc.RevokeAllSessions(ctx, refreshUser.ID, nil) })
+		f.expect(200, completed)
+		var live int
+		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1::uuid AND revoked_at IS NULL`, refreshUser.ID).Scan(&live))
+		require.Zero(t, live, "revoke-all cannot miss the derived session")
 
 	})
 }
@@ -524,6 +552,35 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 				uid, _, err := f.service.svc.GetProviderLinkByIssuer(t.Context(), provider.Issuer(), identity.Subject)
 				require.NoError(t, err)
 				require.Equal(t, next.Error.Metadata.UserID, uid)
+				// Hold completion after source validation, then unlink concurrently.
+				// The source row must remain locked until the session is committed.
+				require.NoError(t, f.service.svc.AdminSetPassword(t.Context(), uid, "Provider-backup-password-123"))
+				next, _ = f.providerLogin(provider, identity, "", false)
+				f.expect(403, next)
+				body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": f.sms.lastLoginCode()}
+				unlink := func(ctx context.Context) error {
+					removed, err := f.service.svc.UnlinkProviderUnlessLast(ctx, uid, provider.Name())
+					if err != nil {
+						return err
+					}
+					if !removed {
+						return fmt.Errorf("provider unlink refused")
+					}
+					return nil
+				}
+				completed := f.completeWhileRevoking(uid, func() flowResponse { return f.post("/2fa/verify", body) }, unlink)
+				f.expect(200, completed)
+				f.session(completed.TokenSet, "oauth", "sms", "otp", "mfa")
+				// Deleting and recreating the same issuer/subject cannot revive a grant
+				// that belonged to the previous immutable provider-link row.
+				require.NoError(t, f.service.svc.LinkProviderByIssuer(t.Context(), uid, provider.Issuer(), provider.Name(), identity.Subject, nil))
+				stale, _ := f.providerLogin(provider, identity, "", false)
+				f.expect(403, stale)
+				code := f.sms.lastLoginCode()
+				require.NoError(t, unlink(t.Context()))
+				require.NoError(t, f.service.svc.LinkProviderByIssuer(t.Context(), uid, provider.Issuer(), provider.Name(), identity.Subject, nil))
+				f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": uid, "challenge": stale.Error.Metadata.Challenge, "code": code}))
+
 			})
 		}
 	})
@@ -606,7 +663,6 @@ func testProofLifecycle(f *accountFlow) {
 			stale := f.verifyCode(phone)
 			oldLink := f.deliveredLink(f.verifyURL(phone), path, channel)
 			begin()
-			current := f.verifyCode(phone)
 			link := f.deliveredLink(f.verifyURL(phone), path, channel)
 			require.NotEqual(t, oldLink, link)
 			otherConfirm := "/passwordless/confirm"
@@ -626,7 +682,7 @@ func testProofLifecycle(f *accountFlow) {
 			f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
 			f.expect(400, f.post(confirm, map[string]any{"token": link}))
 			begin()
-			current = f.verifyCode(phone)
+			current := f.verifyCode(phone)
 			link = f.deliveredLink(f.verifyURL(phone), path, channel)
 			done := f.expect(200, f.post(confirm, map[string]any{"identifier": identifier, "code": current}))
 			tokens := done.TokenSet

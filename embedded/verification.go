@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // getUserByPhone returns a user by phone number (if any)
@@ -20,14 +19,6 @@ func (s *Client) getUserByPhone(ctx context.Context, phone string) (*User, error
 		return nil, err
 	}
 	return userFromByPhoneRow(r), nil
-}
-
-// setPhoneVerified sets the phone_verified flag for a user.
-func (s *Client) setPhoneVerified(ctx context.Context, id string, v bool) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserSetPhoneVerifiedByID(ctx, db.UserSetPhoneVerifiedByIDParams{ID: id, PhoneVerified: v})
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.

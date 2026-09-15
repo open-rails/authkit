@@ -17,6 +17,7 @@ import (
 type loginProof struct {
 	SessionID       string `json:"session_id,omitempty"`
 	ProviderIssuer  string `json:"provider_issuer,omitempty"`
+	ProviderID      string `json:"provider_id,omitempty"`
 	ProviderSubject string `json:"provider_subject,omitempty"`
 	PasskeyID       string `json:"passkey_id,omitempty"`
 	nonce           string
@@ -146,7 +147,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 		}
 		return out, nil
 	}
-	if proof.SessionID != "" {
+	if proof.SessionID != "" && !completedMFA {
 		return LoginOutcome{}, ErrStepUpRequired
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
@@ -351,24 +352,26 @@ func (s *Client) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrol
 func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, proof loginProof) error {
 	q := db.New(source)
 	if proof.ProviderIssuer != "" {
-		linked, err := q.UserProviderByIssuerAny(ctx, db.UserProviderByIssuerAnyParams{UserID: proof.Input.UserID, Issuer: proof.ProviderIssuer})
+		if proof.ProviderID == "" {
+			return jwt.ErrTokenUnverifiable
+		}
+		var id string
+		err := source.QueryRow(ctx, `SELECT id::text FROM profiles.user_providers WHERE id=$1::uuid AND user_id=$2::uuid AND issuer=$3 AND subject=$4 AND verified_at IS NOT NULL FOR UPDATE`, proof.ProviderID, proof.Input.UserID, proof.ProviderIssuer, proof.ProviderSubject).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}
 		if err != nil {
 			return err
 		}
-		if linked.VerifiedAt == nil || linked.Subject != proof.ProviderSubject {
-			return jwt.ErrTokenUnverifiable
-		}
 	}
 	if proof.PasskeyID != "" {
-		var exists bool
-		if err := source.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, proof.PasskeyID, proof.Input.UserID).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
+		var id string
+		err := source.QueryRow(ctx, `SELECT id::text FROM profiles.user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL FOR UPDATE`, proof.PasskeyID, proof.Input.UserID).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
+		}
+		if err != nil {
+			return err
 		}
 	}
 	if proof.SessionID != "" {

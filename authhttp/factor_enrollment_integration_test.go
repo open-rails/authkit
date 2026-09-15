@@ -82,54 +82,70 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor = embedded.TwoFactorConfig{Mode: embedded.TwoFactorRequired, TOTPSecretKey: []byte("0123456789abcdef")}
-	// Issue a session before the site enables mandatory enrollment.
 	oldCfg := cfg
 	oldCfg.TwoFactor.Mode = embedded.TwoFactorOptional
-	oldSrv, err := newServer(newServerClient(t, oldCfg, pool), WithoutRateLimiter())
+	sender := &captureEmailSender{}
+	oldSrv, err := newServer(newServerClient(t, oldCfg, pool, withEmailSender(sender)), WithoutRateLimiter())
 	require.NoError(t, err)
-	userID := mustPasswordUser(t, oldSrv, "first-factor-token")
-	w := login(t, oldSrv, "first-factor-token", userID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var tokens struct {
-		RefreshToken string `json:"refresh_token"`
-		AccessToken  string `json:"access_token"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
-	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(testEmailSender{})), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(sender)), WithoutRateLimiter())
 	require.NoError(t, err)
-	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.Contains(t, w.Body.String(), "requires_2fa_enrollment")
-	tokens.AccessToken = requireEnrollmentToken(t, w)
-	claims := unverifiedAccessClaims(t, tokens.AccessToken)
-	require.Equal(t, true, claims["2fa_enrollment"])
-	require.Empty(t, claims["sid"])
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, tokens.AccessToken)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Equal(t, "email", requireTwoFARequired(t, w).Method)
-	for _, body := range []string{`{"method":"email"}`, `{"method":"totp"}`, `{"default":true,"factor_id":"anything"}`} {
-		w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", body, tokens.AccessToken)
-		require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	for _, scenario := range []string{"email", "totp", "revoked"} {
+		t.Run(scenario, func(t *testing.T) {
+			userID := mustPasswordUser(t, oldSrv, "refresh-"+scenario)
+			w := login(t, oldSrv, "refresh-"+scenario, userID)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var tokens struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
+			w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
+			grant := requireEnrollmentToken(t, w)
+			claims := unverifiedAccessClaims(t, grant)
+			require.Equal(t, true, claims["2fa_enrollment"])
+			require.Empty(t, claims["sid"])
+			var access string
+			if scenario == "email" {
+				w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, grant)
+				challenge := requireTwoFARequired(t, w)
+				require.Contains(t, w.Body.String(), "backup_codes")
+				w = serveJSON(srv, http.MethodPost, "/2fa/verify", fmt.Sprintf(`{"user_id":%q,"challenge":%q,"code":%q}`, userID, challenge.Challenge, sender.lastLoginCode()))
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
+				access = tokens.AccessToken
+			} else {
+				w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, grant)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				var pending struct {
+					Secret string `json:"secret"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pending))
+				if scenario == "revoked" {
+					require.NoError(t, srv.svc.RevokeAllSessions(t.Context(), userID, nil))
+				}
+				w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", fmt.Sprintf(`{"method":"totp","code":%q}`, testTOTPCode(t, pending.Secret, time.Now().Unix()/30)), grant)
+				if scenario == "revoked" {
+					require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+					factors, err := srv.svc.List2FAFactors(t.Context(), userID)
+					require.NoError(t, err)
+					require.Empty(t, factors, "revoked source cannot persist a factor")
+					return
+				}
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				require.Contains(t, w.Body.String(), "backup_codes")
+				var completed nestedTokenBody
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &completed))
+				access = completed.AccessToken
+			}
+			require.NotEmpty(t, access)
+			w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, access)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			for _, body := range []string{`{"method":"email"}`, `{"method":"totp"}`, `{"default":true,"factor_id":"anything"}`} {
+				w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", body, grant)
+				require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+			}
+			w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, grant)
+			require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		})
 	}
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, tokens.AccessToken)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	// Revocation after setup invalidates the source grant before any factor write.
-	revokedID := mustPasswordUser(t, oldSrv, "revoked-enrollment")
-	w = login(t, oldSrv, "revoked-enrollment", revokedID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
-	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	enrollment := requireEnrollmentToken(t, w)
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, enrollment)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var pending struct {
-		Secret string `json:"secret"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pending))
-	require.NoError(t, srv.svc.RevokeAllSessions(t.Context(), revokedID, nil))
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", fmt.Sprintf(`{"method":"totp","code":%q}`, testTOTPCode(t, pending.Secret, time.Now().Unix()/30)), enrollment)
-	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
-	factors, err := srv.svc.List2FAFactors(t.Context(), revokedID)
-	require.NoError(t, err)
-	require.Empty(t, factors, "source revocation must reject before factor persistence")
-
 }
