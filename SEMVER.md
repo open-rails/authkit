@@ -268,7 +268,7 @@ Default rate limits: `authhttp.DefaultRateLimits()`.
 
 ## 7. Explicitly out of contract
 
-- Anything under `internal/`; `cmd/authkit-server` and its env vars; the root
+- Anything under `internal/`; `cmd/authkit-migrate` and its env vars; the root
   `docker-compose.yaml`.
 - `*_test.go` and test-only helpers (`authtest` IS covered).
 - Error `message` strings, log lines, metrics names.
@@ -286,8 +286,8 @@ Mechanical today:
 2. **Error catalog** — `errors_test.go` and
    `authhttp/error_catalog_integration_test.go` pin every code's status and
    envelope.
-3. **Env doctrine** — `TestLibraryCodeReadsNoEnvironment`,
-   `TestBinaryEnvNamesAreAuthkitPrefixed`.
+3. **Env doctrine** — `TestLibraryCodeReadsNoEnvironment` guards the library;
+   the migration command reads its explicit database configuration at startup.
 4. **Build graph** — `TestRootAndVerifyArePgxFree`, `TestSharedLeavesAreStdlibOnly`.
 
 Still advisory: a `go doc`/`apidiff` snapshot of Plane A and a checksum gate on

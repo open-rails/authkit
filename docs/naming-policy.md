@@ -31,16 +31,7 @@ cfg.Naming = authkit.NamingConfig{
 }
 ```
 
-The standalone server maps these environment variables to the identical config:
-
-| Variable | Default | Examples |
-| --- | --- | --- |
-| `AUTHKIT_NAMING_ENABLED` | `true` | `false` |
-| `AUTHKIT_NAMING_RENAME_INTERVAL` | `72h` | `0s`, `24h` |
-| `AUTHKIT_NAMING_FORMER_NAMES_MODE` | `finite` | `forever`, `immediate` |
-| `AUTHKIT_NAMING_FORMER_NAMES_DURATION` | `2160h` when finite | `0s`, `720h` |
-
-Omit a variable to use its default. Present empty booleans/durations are invalid.
+Hosts own configuration input and pass the typed policy to AuthKit.
 An empty retention object, or `finite` without duration, uses 2160h. A duration
 without mode means finite; finite zero normalizes to immediate. Forever and
 immediate reject **any** supplied duration, including zero. Negative values,

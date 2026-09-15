@@ -3,12 +3,16 @@
 Embedded auth library for Go services: users, sessions, MFA, passkeys, device
 keys, OAuth/OIDC and Solana login, RBAC permission groups, API keys, signed
 documents and delegated tokens, running in your process against your Postgres
-(18+) and Redis. `cmd/authkit-server` is the dev/CI harness that boots this
-surface for `docker compose`, not a product.
+(18+) and Redis. Tests exercise the embedded HTTP handlers directly; the
+`cmd/authkit-migrate` command prepares the schema without starting a server.
 
 Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and
 `adapters/riverjobs` as separate modules so gin and river never enter the root
 `go.mod`.
+
+For local tests, run `task test-db-ready` then `task test`. The migration command
+reads `AUTHKIT_DATABASE_URL` and accepts `--schema` for a non-default schema;
+applications normally call `authkitmigrate` during their own startup.
 
 See [verification trust and key ownership](docs/verification.md) for local versus
 external identity, application delegation boundaries, and key rotation.

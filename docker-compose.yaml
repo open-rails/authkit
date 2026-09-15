@@ -15,39 +15,6 @@ services:
       timeout: 3s
       retries: 20
 
-  issuer:
-    # Deterministic image name so CI can pre-build with buildx layer caching
-    # and `docker compose up --no-build` picks it up.
-    image: authkit-issuer:local
-    build:
-      context: .
-      dockerfile: cmd/authkit-server/Dockerfile
-      network: host
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      # Dev env: auto-generate signing keys.
-      AUTHKIT_ENV: dev
-
-      AUTHKIT_LISTEN_ADDR: ":8080"
-      AUTHKIT_ISSUER: "http://issuer:8080"
-      AUTHKIT_AUDIENCES: "billing-app"
-
-      DB_URL: "postgres://admin:admin_password@postgres:5432/authkit_db?sslmode=disable"
-
-      # Apply the schema on boot — this service doubles as the migration runner
-      # the test suite waits on (CI waits for /healthz after migrations).
-      AUTHKIT_MIGRATE_ON_START: "true"
-
-      # Generated dev signing keys stay in memory unless a path is explicit.
-      AUTHKIT_KEYS_PATH: "/.runtime/authkit"
-    ports:
-      - "127.0.0.1:38080:8080"
-    volumes:
-      # Persist the generated dev signing key across restarts.
-      - authkit_runtime_keys:/.runtime/authkit
-
   redis:
     image: redis:7-alpine
     ports:
@@ -60,4 +27,3 @@ services:
 
 volumes:
   authkit_postgres_data:
-  authkit_runtime_keys:
