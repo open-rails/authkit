@@ -6,6 +6,11 @@ deletion column retained incomplete, unread history and is removed before v1.
 The unused creation/update timestamps are removed from assignments too.
 Security-event retention is separate; assignment rows are not an audit log.
 
+AuthKit installs `citext` and uses PostgreSQL 18's native UUID functions. It does
+not install `pgcrypto`, which none of its SQL uses. Hosts such as OpenRails that
+use that extension provision it in their own migrations. Existing extensions
+are never dropped by AuthKit.
+
 API keys and invitations keep terminal metadata for 90 days after the first
 expiry/revocation/redemption event. Cleanup removes at most 5,000 eligible rows
 per table per maintenance call, using indexed terminal timestamps. A later

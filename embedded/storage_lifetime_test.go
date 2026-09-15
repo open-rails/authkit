@@ -15,6 +15,9 @@ import (
 func TestStorageLifetimeWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
+	var cryptoInstalled bool
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pgcrypto')`).Scan(&cryptoInstalled))
+	require.False(t, cryptoInstalled, "AuthKit does not install an unused extension")
 	client := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://storage.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}}, Keyset{}, WithPostgres(pg.Pool))
 	group, err := client.EnsureRootGroup(ctx)
 	require.NoError(t, err)
