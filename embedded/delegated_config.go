@@ -33,7 +33,7 @@ type (
 func normalizeDelegatedConfig(cfg DelegatedConfig) (DelegatedConfig, error) {
 	cfg.Audiences = normalizeDedupStrings(cfg.Audiences)
 	if len(cfg.Audiences) == 0 {
-		if cfg.TTLFloor != 0 || cfg.TTLDefault != 0 || cfg.TTLCeiling != 0 {
+		if cfg.AllowDPoP || cfg.TTLFloor != 0 || cfg.TTLDefault != 0 || cfg.TTLCeiling != 0 {
 			return DelegatedConfig{}, fmt.Errorf("authkit: Delegated TTLs are set but Delegated.Audiences is empty — the mint route is disabled without an audience allowlist, so these TTLs can never apply")
 		}
 		return cfg, nil

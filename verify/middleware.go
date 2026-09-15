@@ -36,7 +36,7 @@ func unauthorizedError(err error) error {
 // deliberately — for genuinely stateless verifiers, and for read paths where a
 // ≤1-TTL window is acceptable.
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
-	tokenStr := bearerToken(r.Header.Get("Authorization"))
+	tokenStr := requestToken(r)
 	if tokenStr == "" {
 		return Claims{}, authkit.E(authkit.CodeMissingToken, authkit.WithStatus(http.StatusUnauthorized))
 	}
@@ -45,13 +45,16 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// rejected here rather than re-tried as a JWT. resolveAPIKey does its own
 	// live secret resolution; it does not flow into the stateless JWT path below.
 	if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
+		if isDPoPRequest(r) {
+			return Claims{}, ErrSenderProofRequired
+		}
 		if serr != nil {
 			return Claims{}, unauthorizedError(serr)
 		}
 		return scl, nil
 	}
 
-	cl, err := v.verify(r.Context(), tokenStr, peerCertificateSHA256(r))
+	cl, err := v.verify(r.Context(), tokenStr, r)
 	if err != nil {
 		return Claims{}, unauthorizedError(err)
 	}
@@ -158,7 +161,7 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 	req := Required(v)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if bearerToken(r.Header.Get("Authorization")) == "" {
+			if r.Header.Get("Authorization") == "" {
 				next.ServeHTTP(w, r)
 				return
 			}

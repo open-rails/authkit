@@ -20,8 +20,11 @@ type DelegationRequest struct {
 	Audiences                     []string
 	TTL                           time.Duration
 	ConfirmationCertificateSHA256 [32]byte
-	DelegateCertificate           *x509.Certificate
-	RequestedGrant                json.RawMessage
+	// ConfirmationJWKThumbprintSHA256 is set only after validating a DPoP proof.
+	// DelegateCertificate is nil on this browser-capable path.
+	ConfirmationJWKThumbprintSHA256 *[32]byte
+	DelegateCertificate             *x509.Certificate
+	RequestedGrant                  json.RawMessage
 }
 
 // DelegationGrant is the complete authority AuthKit signs for one request.

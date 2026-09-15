@@ -59,3 +59,18 @@ func (v *Verifier) SetRemoteApplicationSource(src RemoteApplicationSource) {
 	v.fedSource = src
 	v.mu.Unlock()
 }
+
+func isDPoPRequest(r *http.Request) bool {
+	return r != nil && strings.EqualFold(strings.SplitN(r.Header.Get("Authorization"), " ", 2)[0], "DPoP")
+}
+
+func requestToken(r *http.Request) string {
+	if r == nil || len(r.Header.Values("Authorization")) != 1 {
+		return ""
+	}
+	parts := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+	if len(parts) != 2 || (!strings.EqualFold(parts[0], "Bearer") && !strings.EqualFold(parts[0], "DPoP")) || strings.ContainsAny(parts[1], " \t\r\n") {
+		return ""
+	}
+	return parts[1]
+}

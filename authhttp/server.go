@@ -61,6 +61,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 	cfg := coreSvc.Config()
 
 	s := &Service{
+		dpopRequestURL:     hcfg.DPoPRequestURL,
 		svc:                coreSvc,
 		rd:                 hcfg.Redis,
 		clientIP:           DefaultClientIP(),
