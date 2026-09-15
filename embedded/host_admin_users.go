@@ -96,7 +96,7 @@ func (s *Client) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOpt
 		// use an index.
 		where = append(where, "EXISTS (SELECT 1 FROM profiles.group_user_roles gur"+
 			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id"+
-			" WHERE gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $"+fmt.Sprint(argIdx)+
+			" WHERE gur.user_id = u.id AND gur.role = $"+fmt.Sprint(argIdx)+
 			" AND pg.persona = 'root')")
 		args = append(args, slug)
 		argIdx++

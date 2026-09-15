@@ -45,7 +45,6 @@ SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '300s';
 
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 CREATE SCHEMA IF NOT EXISTS profiles;
 
@@ -370,39 +369,21 @@ CREATE TABLE profiles.group_user_roles (
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   role text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
+  PRIMARY KEY (permission_group_id, user_id),
   CONSTRAINT gur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
-CREATE UNIQUE INDEX gur_group_subject_uidx
-  ON profiles.group_user_roles (permission_group_id, user_id)
-  WHERE deleted_at IS NULL;
 CREATE INDEX gur_user_idx
-  ON profiles.group_user_roles (user_id)
-  WHERE deleted_at IS NULL;
-CREATE INDEX gur_group_idx
-  ON profiles.group_user_roles (permission_group_id)
-  WHERE deleted_at IS NULL;
+  ON profiles.group_user_roles (user_id);
 
 CREATE TABLE profiles.group_remote_application_roles (
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
   role text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
+  PRIMARY KEY (permission_group_id, remote_application_id),
   CONSTRAINT grar_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
-CREATE UNIQUE INDEX grar_group_subject_uidx
-  ON profiles.group_remote_application_roles (permission_group_id, remote_application_id)
-  WHERE deleted_at IS NULL;
 CREATE INDEX grar_remote_application_idx
-  ON profiles.group_remote_application_roles (remote_application_id)
-  WHERE deleted_at IS NULL;
-CREATE INDEX grar_group_idx
-  ON profiles.group_remote_application_roles (permission_group_id)
-  WHERE deleted_at IS NULL;
+  ON profiles.group_remote_application_roles (remote_application_id);
 
 CREATE TABLE profiles.group_custom_roles (
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
@@ -432,6 +413,8 @@ CREATE TABLE profiles.group_invite_links (
 CREATE INDEX group_invite_links_group_idx
   ON profiles.group_invite_links (permission_group_id)
   WHERE revoked_at IS NULL;
+CREATE INDEX group_invite_links_terminal_idx
+  ON profiles.group_invite_links (LEAST(redeemed_at, revoked_at, expires_at), id);
 
 CREATE TABLE profiles.account_registration_invites (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -452,6 +435,8 @@ CREATE TABLE profiles.account_registration_invites (
 CREATE INDEX account_registration_invites_email_idx
   ON profiles.account_registration_invites (email, expires_at)
   WHERE revoked_at IS NULL AND consumed_at IS NULL;
+CREATE INDEX account_registration_invites_terminal_idx
+  ON profiles.account_registration_invites (LEAST(consumed_at, revoked_at, expires_at), id);
 
 -- API keys
 CREATE TABLE profiles.api_keys (
@@ -474,6 +459,8 @@ CREATE TABLE profiles.api_keys (
 );
 CREATE INDEX api_keys_group_idx
   ON profiles.api_keys (permission_group_id);
+CREATE INDEX api_keys_terminal_idx
+  ON profiles.api_keys (LEAST(revoked_at, expires_at), id);
 COMMENT ON COLUMN profiles.api_keys.role IS
   'The single catalog/custom role this API key holds within its permission-group.';
 

@@ -180,7 +180,8 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 
 // ListAPIKeys returns metadata for every API key of the permission-group
 // addressed by (persona, instanceSlug), including revoked/expired ones. The
-// secret is never returned.
+// secret is never returned. Terminal keys are retained for 90 days and removed
+// by CleanupExpiredAuthState in bounded batches.
 func (s *Client) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

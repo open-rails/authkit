@@ -28,7 +28,7 @@ func (s *Client) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
 	if err != nil {
 		return RBACDriftReport{}, err
 	}
-	userRoles, err := s.driftAssignedRoles(ctx, "group_user_roles", "r.deleted_at IS NULL")
+	userRoles, err := s.driftAssignedRoles(ctx, "group_user_roles", "true")
 	if err != nil {
 		return RBACDriftReport{}, err
 	}

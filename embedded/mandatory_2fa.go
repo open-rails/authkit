@@ -165,8 +165,7 @@ func (s *Client) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 		`SELECT a.permission_group_id::text, g.persona, a.role
 		   FROM profiles.group_user_roles a
 		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
-		  WHERE a.user_id = $1::uuid
-		    AND a.deleted_at IS NULL`,
+		  WHERE a.user_id = $1::uuid`,
 		userID)
 	if err != nil {
 		return false, err
@@ -261,8 +260,7 @@ func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
 		   FROM profiles.group_user_roles a
 		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
-		  WHERE a.user_id = $1::uuid
-		    AND a.deleted_at IS NULL`,
+		  WHERE a.user_id = $1::uuid`,
 		userID)
 	if err != nil {
 		return nil, err
@@ -316,12 +314,10 @@ func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 
 	for _, r := range removals {
 		if _, err := q.Exec(ctx,
-			`UPDATE profiles.group_user_roles
-			    SET deleted_at = now(), updated_at = now()
+			`DELETE FROM profiles.group_user_roles
 			  WHERE permission_group_id = $1::uuid
 			    AND user_id = $2::uuid
-			    AND role = $3
-			    AND deleted_at IS NULL`,
+			    AND role = $3`,
 			r.PermissionGroupID, userID, r.Role); err != nil {
 			return nil, err
 		}

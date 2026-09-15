@@ -290,7 +290,7 @@ func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM profiles.group_user_roles
-		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND deleted_at IS NULL)`,
+		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3)`,
 		groupID, userID, role).Scan(&exists)
 	return exists, err
 }
