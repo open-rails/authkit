@@ -319,10 +319,17 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				} else {
 					require.ErrorIs(t, <-done, tc.want)
 				}
+				switch tc.name {
+				case "target_promotion":
+					require.Equal(t, OwnerRoleName, role(root, target))
+				case "custom_role_redefinition":
+					require.Equal(t, authkit.Role("auditor"), role(customGID, customTarget))
+				case "actor_revocation":
+					require.Empty(t, role(root, manager))
+				case "ban_expiry_after_transaction_start":
+					require.Equal(t, authkit.Role("reader"), role(root, peer))
+				}
 			})
 		}
-		require.Equal(t, OwnerRoleName, role(root, target))
-		require.Equal(t, authkit.Role("auditor"), role(customGID, customTarget))
-		require.Empty(t, role(root, manager))
 	})
 }
