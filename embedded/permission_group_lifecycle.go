@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -18,4 +19,41 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 		return ErrGroupNotFound
 	}
 	return err
+}
+
+// withLockedGroup gives role definitions and grants one lifecycle boundary.
+// Authorization stays in the existing caller checks, using this bound store.
+func (s *Client) withLockedGroup(ctx context.Context, groupID string, apply func(*PermissionGroupStore) error) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
+		return err
+	}
+	if err := apply(st); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// A role must exist when a durable reference is created. Catalog definitions
+// are immutable configuration; custom definitions are read under the group lock.
+func (s *Client) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) error {
+	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
+		return nil
+	}
+	resolver, err := st.CustomRolesFor(ctx, []string{groupID})
+	if err != nil {
+		return err
+	}
+	if _, ok := resolver(groupID, role); !ok {
+		return authkit.ErrUnknownRole
+	}
+	return nil
 }

@@ -26,8 +26,6 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
@@ -72,15 +70,7 @@ func (s *Client) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 	}
 
 	// Resolve the actor's effective grants in this group (additive walk-up union).
-	asg, err := st.WalkAssignments(ctx, gid, authkit.UserSubject(actorUserID))
-	if err != nil {
-		return err
-	}
-	ids := make([]string, 0, len(asg))
-	for _, a := range asg {
-		ids = append(ids, a.PermissionGroupID)
-	}
-	resolver, err := st.CustomRolesFor(ctx, ids)
+	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)
 	if err != nil {
 		return err
 	}
@@ -135,15 +125,7 @@ func (s *Client) authorizeCustomRoleChange(ctx context.Context, st *PermissionGr
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
-	asg, err := st.WalkAssignments(ctx, gid, authkit.UserSubject(actorUserID))
-	if err != nil {
-		return err
-	}
-	ids := make([]string, 0, len(asg))
-	for _, a := range asg {
-		ids = append(ids, a.PermissionGroupID)
-	}
-	resolver, err := st.CustomRolesFor(ctx, ids)
+	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)
 	if err != nil {
 		return err
 	}
@@ -174,13 +156,15 @@ func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, grou
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
-		return err
-	}
-	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, group.Persona, subject, role); err != nil {
-		return err
-	}
-	return st.AssignRole(ctx, gid, subject, role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
+			return err
+		}
+		if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, group.Persona, subject, role); err != nil {
+			return err
+		}
+		return st.AssignRole(ctx, gid, subject, role)
+	})
 }
 
 // UnassignGroupRoleAs is the actor-aware UnassignGroupRole. Revoking is gated the

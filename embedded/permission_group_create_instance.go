@@ -210,8 +210,10 @@ func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 	if strings.TrimSpace(ra.PermissionGroupID) != strings.TrimSpace(gid) {
 		return ErrRemoteApplicationNotFound
 	}
-	if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
-		return err
-	}
-	return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(ra.ID), role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
+			return err
+		}
+		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(ra.ID), role)
+	})
 }

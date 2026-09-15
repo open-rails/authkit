@@ -332,12 +332,17 @@ func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, su
 	if err != nil {
 		return err
 	}
-	if checkMFA {
-		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, group.Persona, subject, role); err != nil {
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.requireDefinedGroupRole(ctx, st, gid, group.Persona, role); err != nil {
 			return err
 		}
-	}
-	return st.AssignRole(ctx, gid, subject, role)
+		if checkMFA {
+			if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, group.Persona, subject, role); err != nil {
+				return err
+			}
+		}
+		return st.AssignRole(ctx, gid, subject, role)
+	})
 }
 
 // UnassignGroupRole revokes a subject's role in a group.
@@ -357,7 +362,7 @@ type DeletePermissionGroupOptions = authkit.DeletePermissionGroupOptions
 // api keys, and remote applications cascade). Delete-time naming rule (#264
 // ruling 5): by DEFAULT the slug is TOMBSTONED to the group uuid forever —
 // fail-safe, published references can never be re-claimed. Passing
-// ReleaseSlug frees the name instead; that is safe ONLY for names nothing
+// ReleaseSlug frees every deleted canonical name instead; that is safe ONLY for names nothing
 // ever referenced, and the judgment is the host's. authkit itself never
 // deletes a group — dormancy policy is entirely host-side.
 func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupRef, opts DeletePermissionGroupOptions) error {
@@ -501,19 +506,21 @@ func (s *Client) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 	if err != nil {
 		return err
 	}
-	oldGrants, _, err := st.CustomRole(ctx, gid, role)
-	if err != nil {
-		return err
-	}
-	if err := s.authorizeCustomRoleChange(ctx, st, sch, persona, gid, actorUserID, oldGrants, permissions); err != nil {
-		return err
-	}
-	return st.UpsertCustomRole(ctx, gid, def)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		oldGrants, _, err := st.CustomRole(ctx, gid, role)
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeCustomRoleChange(ctx, st, sch, persona, gid, actorUserID, oldGrants, permissions); err != nil {
+			return err
+		}
+		return st.UpsertCustomRole(ctx, gid, def)
+	})
 }
 
 // DeleteGroupCustomRole removes a custom role from a group, acting as
-// actorUserID. #247 SECURITY: deleting a role is a DEFERRED REVOKE from every
-// subject currently holding it, gated by the same capability + no-escalation
+// actorUserID. Deletion retires every stored reference in one transaction,
+// gated by the existing capability + no-escalation
 // rule as DefineGroupCustomRole (covering the role's stored grants; a
 // not-yet-defined role has nothing to revoke, so only the capability check
 // applies).
@@ -524,14 +531,16 @@ func (s *Client) DeleteGroupCustomRole(ctx context.Context, actorUserID string, 
 	if err != nil {
 		return err
 	}
-	oldGrants, _, err := st.CustomRole(ctx, gid, role)
-	if err != nil {
-		return err
-	}
-	if err := s.authorizeCustomRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, oldGrants, nil); err != nil {
-		return err
-	}
-	return st.DeleteCustomRole(ctx, gid, role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		oldGrants, _, err := st.CustomRole(ctx, gid, role)
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeCustomRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, oldGrants, nil); err != nil {
+			return err
+		}
+		return st.DeleteCustomRole(ctx, gid, role)
+	})
 }
 
 func (s *Client) groupStoreFor(q db.DBTX) *PermissionGroupStore {

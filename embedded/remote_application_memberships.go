@@ -64,7 +64,12 @@ func (s *Client) AssignRemoteApplicationRole(ctx context.Context, appID string, 
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 	}
-	return s.groupStore().AssignRole(ctx, gid, authkit.RemoteAppSubject(strings.TrimSpace(appID)), role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
+			return err
+		}
+		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(strings.TrimSpace(appID)), role)
+	})
 }
 
 // remoteApplicationRoles returns the roles a remote_application holds in its
@@ -124,25 +129,9 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	}
 	out.PermissionGroupID = gid
 	out.AuthorityIssuer = s.cfg.Token.Issuer
-	st := s.groupStore()
-	asg, err := st.WalkAssignments(ctx, gid, authkit.RemoteAppSubject(appID))
+	out.Permissions, err = s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), authkit.RemoteAppSubject(appID), gid)
 	if err != nil {
 		return authkit.RemoteApplicationAuthority{}, err
-	}
-	out.Permissions = []string{}
-	if len(asg) == 0 {
-		return out, nil
-	}
-	ids := make([]string, 0, len(asg))
-	for _, a := range asg {
-		ids = append(ids, a.PermissionGroupID)
-	}
-	resolver, err := st.CustomRolesFor(ctx, ids)
-	if err != nil {
-		return authkit.RemoteApplicationAuthority{}, err
-	}
-	if perms := s.groupSchemaOrDefault().ResolveGrants(asg, resolver); perms != nil {
-		out.Permissions = perms
 	}
 	return out, nil
 }
