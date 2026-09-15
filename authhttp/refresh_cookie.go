@@ -4,9 +4,8 @@ package authhttp
 // a JSON body field, so an injected script cannot read the durable credential.
 //
 // Opt-in per mount (MountOptions.RefreshCookie). A host that does not opt in
-// sees byte-identical behaviour: nothing here runs without the mount-resolved
-// policy in the request context, and the consume sites still read the body
-// first.
+// keeps refresh tokens in JSON bodies. The mount-resolved request policy selects
+// exactly one transport; there is no mixed-mode fallback.
 //
 // What this does NOT fix: script running in a live tab can still CALL the
 // refresh route and mint access tokens. The cookie removes theft-and-replay
@@ -80,7 +79,6 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 		c.MaxAge = int(d.Seconds())
 	}
 	http.SetCookie(w, c)
-	s.clearLegacyRefreshCookie(w, r)
 }
 
 // clearRefreshCookie expires the cookie.
@@ -104,140 +102,58 @@ func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	s.clearLegacyRefreshCookie(w, r)
 }
 
-// legacyRefreshCookiePath is the pre-v0.98 anchor: the cookie used to live at
-// the mount's API prefix before it was narrowed to <apiPrefix>/token. A jar
-// that crossed that upgrade holds BOTH cookies, which the duplicate gate below
-// rightly refuses — so every response that touches the refresh cookie also
-// tombstones the legacy path until jars have converged. Empty when the current
-// policy has no distinct parent path.
-func legacyRefreshCookiePath(policy refreshCookiePolicy) string {
-	legacy := strings.TrimSuffix(policy.path, "/token")
-	if legacy == policy.path {
-		return ""
-	}
-	if legacy == "" {
-		legacy = "/"
-	}
-	return legacy
-}
-
-// clearLegacyRefreshCookie expires the pre-v0.98 cookie at the old Path.
-// Attribute-for-attribute identical to the legacy setter (HttpOnly, Secure,
-// Lax) — anything else and the browser keeps the original next to the
-// tombstone.
-func (s *Service) clearLegacyRefreshCookie(w http.ResponseWriter, r *http.Request) {
-	policy, ok := refreshCookieEnabled(r)
-	if !ok {
-		return
-	}
-	legacy := legacyRefreshCookiePath(policy)
-	if legacy == "" {
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshCookieName,
-		Value:    "",
-		Path:     legacy,
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   s.cookieSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
-// hasDuplicateRefreshCookies reports whether the request carries more than one
-// refresh cookie — either a legacy-path migration leftover or a planted sibling
-// cookie. Consumers refuse the request either way; migration callers use this
-// to also emit the legacy tombstone so honest jars converge.
-func (s *Service) hasDuplicateRefreshCookies(r *http.Request) bool {
-	n := 0
-	for _, c := range r.Cookies() {
-		if c.Name == RefreshCookieName {
-			n++
-		}
-	}
-	return n > 1
-}
-
-// refreshTokenFromRequest resolves the refresh credential for a consuming
-// route: the request body wins, the cookie is the fallback.
-//
-// Body-first is deliberate. A client that still holds a body token is mid
-// migration and its token is the one the server last rotated; preferring the
-// cookie there would spend a credential the client does not know was spent.
-//
-// Duplicate cookies fail CLOSED. `r.Cookie` returns the first match, and the
-// browser orders longest-Path-first, so a sibling host that can set
-// Domain=<parent> plants a cookie that shadows the victim's host-only one and
-// the session silently becomes the attacker's. Two values is never legitimate.
+// refreshTokenFromRequest follows the mount's declared transport. Cookie mounts
+// reject body tokens and ambiguous cookies; native mounts require a body token.
 func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string, bool) {
-	if t := strings.TrimSpace(body); t != "" {
-		return t, true
+	body = strings.TrimSpace(body)
+	if _, cookies := refreshCookieEnabled(r); !cookies {
+		return body, body != ""
 	}
-	if _, ok := refreshCookieEnabled(r); !ok {
+	if body != "" || !s.cookieOriginAllowed(r) {
 		return "", false
 	}
 	var found string
+	seen := false
 	for _, c := range r.Cookies() {
 		if c.Name != RefreshCookieName {
 			continue
 		}
-		if found != "" {
+		if seen {
 			return "", false
 		}
+		seen = true
 		found = strings.TrimSpace(c.Value)
 	}
-	if found == "" {
-		return "", false
-	}
-	// A cookie-sourced credential is CSRF-relevant in a way a body token is
-	// not, so it also has to survive the origin gate.
-	if !s.cookieOriginAllowed(r) {
-		return "", false
-	}
-	return found, true
+	return found, found != ""
 }
 
-// cookieOriginAllowed reports whether a cookie-sourced credential may be
-// honored. SameSite=Lax already blocks the cross-site POST; this is the belt
-// for clients and proxies that strip it.
-//
-// The test is Origin's HOST against the host the request was addressed to, or
-// the configured Frontend.BaseURL's. Both are needed and neither alone is
-// enough: r.Host covers a deployment reached by an alias or by 127.0.0.1 when
-// BaseURL says localhost, and the configured host covers a proxy that rewrites
-// Host. HOST, not full origin, because a TLS-terminating proxy leaves r.TLS nil
-// and a scheme comparison would then reject every real production request while
-// the browser correctly reports https. X-Forwarded-* is never consulted — it is
-// attacker-settable and would let a cross-site request declare itself
-// same-origin.
-//
-// A browser will not let a cross-site page forge Origin, and an off-browser
-// caller that forges both does not hold the victim's cookie, so this is a sound
-// same-origin test rather than a guess.
-//
-// Absent Origin is allowed: same-origin top-level navigations and non-browser
-// callers legitimately omit it, and refusing them breaks flows this change
-// exists to preserve. Present-and-mismatched is refused.
+// cookieOriginAllowed guards cookie consumption and session establishment.
+// Browser metadata can only narrow the declared deployment/request origin.
+// Non-browser clients may omit Origin; opaque origins and cross-site requests
+// cannot establish cookie sessions. Forwarded origin headers are never trusted.
 func (s *Service) cookieOriginAllowed(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+	case "", "same-origin", "none":
+	default:
+		return false
+	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" || strings.EqualFold(origin, "null") {
+	if origin == "" {
 		return true
 	}
 	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
-	if strings.EqualFold(u.Host, r.Host) {
+	scheme := "http"
+	if s.cookieSecure(r) {
+		scheme = "https"
+	}
+	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
 	configured, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
-	if !ok {
-		return false
-	}
-	cu, err := url.Parse(configured)
-	return err == nil && cu.Host != "" && strings.EqualFold(u.Host, cu.Host)
+	return ok && strings.EqualFold(origin, configured)
 }

@@ -34,7 +34,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	}
 
 	out, err := s.svc.PasswordLogin(r.Context(), embedded.PasswordLoginInput{
-		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: remoteIP(r),
+		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
 		writeError(w, err)

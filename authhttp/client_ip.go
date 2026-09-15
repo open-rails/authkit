@@ -136,3 +136,10 @@ func isPublicAddr(a netip.Addr) bool {
 	}
 	return true
 }
+
+func (s *Service) requestIP(r *http.Request) string {
+	if s.clientIP != nil {
+		return s.clientIP(r)
+	}
+	return remoteIP(r)
+}

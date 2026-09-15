@@ -19,25 +19,13 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	// ak#271: the credential is the body's when the client still holds one,
-	// otherwise the HttpOnly cookie. A cookie-only client sends an empty
-	// refresh_token and must NOT be answered with a 400 — that is the steady
-	// state after the migration, not a malformed request.
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
-		// Still fail closed on ambiguity (a planted sibling cookie must never
-		// pick the session), but when the ambiguity is two refresh cookies —
-		// the pre-v0.98 legacy Path next to the current one — tombstone the
-		// legacy path with the refusal so an honest jar converges and the
-		// client's retry succeeds.
-		if s.hasDuplicateRefreshCookies(r) {
-			s.clearLegacyRefreshCookie(w, r)
-		}
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
 	ua := r.UserAgent()
-	ip := parseIP(remoteIP(r))
+	ip := parseIP(s.requestIP(r))
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), refreshToken, ua, ip)
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {

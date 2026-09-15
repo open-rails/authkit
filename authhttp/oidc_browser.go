@@ -204,7 +204,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
 		},
 		Link: link, AccountInviteToken: sd.AccountInviteToken,
-		Event: "oidc_login", UserAgent: r.UserAgent(), IP: remoteIP(r),
+		Event: "oidc_login", UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
 		status, code := wireCode(err)

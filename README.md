@@ -141,11 +141,22 @@ authorized scope.
 
 `MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
 every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie
-(`authkit_rt`) path-scoped to the mount's `POST /token`, which takes the
-body's `refresh_token` when present and the cookie otherwise. `DELETE /logout`
+(`authkit_rt`) path-scoped to the mount's `POST /token`, which requires the
+cookie and rejects body refresh tokens. Native mounts require body tokens and
+never consume refresh cookies. `DELETE /logout`
 and a refresh failing with `user_banned` clear it; an unknown-token `401`
-never does. A cookie-sourced refresh refuses a mismatched `Origin`. The SPA and
-the mount must share an origin. Off by default.
+never does. The SPA and mount must share an origin. Cookie-mode JSON mutations
+reject cross-origin, opaque-origin and cross-site requests before consuming
+credentials. Omitted `Origin` remains valid for non-browser clients unless fetch
+metadata indicates another site. Origin comparison uses the deployment scheme
+and request host or configured frontend origin; forwarded origin headers are
+never trusted. Browser OIDC callbacks retain their state-cookie binding.
+Cookie mode is off by default.
+
+Mounted JSON API bodies require `Content-Type: application/json` (parameters such
+as `charset=utf-8` are allowed), including when cookie mode is off. Empty-body
+routes retain their existing behavior. JSON clients using body tokens continue
+to work across origins when the host allows them.
 
 ## Browser OIDC
 
@@ -190,7 +201,12 @@ Pass it in `authhttp.Config.Documents`; `MountHandler` then serves
 `GET|HEAD /.well-known/authkit/documents/{digest}` to the remote applications
 pinned in `Config.Documents.Readers` (by id, proven domain or root-registered
 issuer — never slug). Receivers use `documents.NewResolver` and
-`verify.Verifier.VerifyDocument`.
+`verify.Verifier.VerifyDocument`. The resolver guards nil/default transports
+against private and reserved destinations, including current DNS answers.
+`ResolverOptions.AllowHTTP` is the existing development opt-in for local HTTP
+and private destinations. An explicit custom transport retains the host's network
+policy; resolver timeouts, redirect bounds, response caps and verification still
+apply.
 
 `POST /api/v1/delegated/token` mounts when `Config.Delegated.Audiences` is set
 and requires the one host seam:

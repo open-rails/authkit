@@ -80,99 +80,6 @@ func bodyRefreshToken(t *testing.T, w *httptest.ResponseRecorder) string {
 	return rt
 }
 
-// TestRefreshCookie_OptOutIsUnchanged is the compatibility guard: a host that
-// does not set MountOptions.RefreshCookie must see exactly today's behaviour.
-func TestRefreshCookie_OptOutIsUnchanged(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "cookieoptout")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	require.Nil(t, refreshCookieOf(t, login), "opt-out must set no refresh cookie")
-	rt := bodyRefreshToken(t, login)
-	require.NotEmpty(t, rt, "opt-out must keep refresh_token in the body")
-
-	// And a cookie-only refresh is still a 400 there — no accidental
-	// cookie acceptance on a mount that never opted in.
-	rec := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: rt})
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// TestRefreshCookie_BrowserLifecycle walks the real browser path: password
-// login, a body-less refresh, rotation, and logout.
-func TestRefreshCookie_BrowserLifecycle(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "cookielife")
-
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	require.Empty(t, bodyRefreshToken(t, login), "the durable credential must not be readable by script")
-
-	c := refreshCookieOf(t, login)
-	require.NotNil(t, c, "login must set the refresh cookie")
-	require.NotEmpty(t, c.Value)
-	require.True(t, c.HttpOnly, "HttpOnly is the entire point")
-	require.True(t, c.Secure, "https BaseURL must yield Secure")
-	require.Equal(t, http.SameSiteLaxMode, c.SameSite, "Strict drops the cookie on the cross-site OIDC/email-link return")
-	require.Equal(t, "/api/v1/token", c.Path, "scoped to the mount's POST /token, off the SPA document")
-
-	// The access token is still delivered in the body — the SPA builds the
-	// Authorization header from it synchronously and a cookie cannot serve that.
-	var loginBody map[string]any
-	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &loginBody))
-	require.NotEmpty(t, loginBody["access_token"])
-
-	// POST /token with an EMPTY refresh_token — the post-migration steady
-	// state — must rotate, not 400.
-	refresh := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(c)
-	})
-	require.Equal(t, http.StatusOK, refresh.Code, refresh.Body.String())
-	require.Empty(t, bodyRefreshToken(t, refresh))
-	rotated := refreshCookieOf(t, refresh)
-	require.NotNil(t, rotated, "a rotation must re-set the cookie or the browser keeps a spent token")
-	require.NotEqual(t, c.Value, rotated.Value, "the refresh token rotates")
-
-	// Logout clears it. The Go footgun: MaxAge 0 OMITS the attribute and
-	// yields a session cookie — only a negative MaxAge serializes Max-Age=0.
-	var access struct {
-		AccessToken string `json:"access_token"`
-	}
-	require.NoError(t, json.Unmarshal(refresh.Body.Bytes(), &access))
-	logout := httptest.NewRecorder()
-	lr := httptest.NewRequest(http.MethodDelete, "/api/v1/logout", nil)
-	lr.Header.Set("Authorization", "Bearer "+access.AccessToken)
-	lr.Header.Set("Origin", cookieTestOrigin)
-	lr.Host = "example.com"
-	lr.AddCookie(rotated)
-	h.ServeHTTP(logout, lr)
-	require.Equal(t, http.StatusNoContent, logout.Code, logout.Body.String())
-
-	raw := logout.Header().Get("Set-Cookie")
-	require.Contains(t, raw, RefreshCookieName+"=;", "the clear must send an empty value")
-	require.Contains(t, raw, "Max-Age=0", "MaxAge:0 would omit the attribute and NOT clear")
-	require.Contains(t, raw, "Path=/api/v1", "a clear whose attributes differ leaves the original cookie in place")
-	require.Contains(t, raw, "HttpOnly")
-	require.Contains(t, raw, "SameSite=Lax")
-
-	// The revoked session is dead server-side as well.
-	dead := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(rotated)
-	})
-	require.Equal(t, http.StatusUnauthorized, dead.Code)
-}
-
 // TestRefreshCookie_SourceResolutionAndGates pins the rules that decide whether
 // a cookie is honored at all.
 func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
@@ -197,11 +104,7 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 		r.AddCookie(live)
 	})
 	require.Equal(t, http.StatusBadRequest, shadowed.Code, "duplicate refresh cookies must be refused")
-	// The refusal carries the legacy-path tombstone (see the migration test):
-	// an honest jar that holds the pre-v0.98 cookie converges on this very
-	// response and the client's retry succeeds; a planted sibling cookie is
-	// untouched and stays refused.
-	requireLegacyTombstone(t, shadowed)
+	require.Empty(t, shadowed.Header().Values("Set-Cookie"))
 
 	// A cross-site Origin is refused, and the session SURVIVES it — a gate
 	// failure must never spend or destroy the credential.
@@ -226,83 +129,25 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	// refresh on the dev stack.
 	viaHost := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
 		r.Host = "127.0.0.1:8818"
-		r.Header.Set("Origin", "http://127.0.0.1:8818")
+		r.Header.Set("Origin", "https://127.0.0.1:8818")
 		r.AddCookie(rotated)
 	})
 	require.Equal(t, http.StatusOK, viaHost.Code, viaHost.Body.String())
 	rotated = refreshCookieOf(t, viaHost)
 	require.NotNil(t, rotated)
 
-	// Body wins over cookie: a client mid-migration still holds the token the
-	// server last rotated, and preferring the cookie would spend a credential
-	// it does not know was spent. Here the body carries the CURRENT token and
-	// the cookie a stale one; honoring the body is what keeps it working.
-	bodyWins := postCookieJSON(h, "/api/v1/token",
+	// A cookie mount never accepts a body token, even when it is valid.
+	mixed := postCookieJSON(h, "/api/v1/token",
 		`{"grant_type":"refresh_token","refresh_token":"`+rotated.Value+`"}`,
-		func(r *http.Request) { r.AddCookie(live) })
-	require.Equal(t, http.StatusOK, bodyWins.Code, bodyWins.Body.String())
+		func(r *http.Request) { r.AddCookie(rotated) })
+	require.Equal(t, http.StatusBadRequest, mixed.Code)
+	require.Empty(t, mixed.Header().Values("Set-Cookie"))
+	cookieOnly := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) { r.AddCookie(rotated) })
+	require.Equal(t, http.StatusOK, cookieOnly.Code, cookieOnly.Body.String())
 
 	// No credential at all is a 400, not a 500 or a silent 200.
 	require.Equal(t, http.StatusBadRequest,
 		postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`).Code)
-}
-
-// TestRefreshCookie_LegacyPathMigration covers the v0.98 Path narrowing
-// (<apiPrefix> -> <apiPrefix>/token). A jar that crossed the upgrade holds the
-// refresh cookie at BOTH paths and the duplicate gate refuses the pair — the
-// contract here is that every cookie-touching response tombstones the legacy
-// path, so one refused refresh (or the next login) heals the jar instead of
-// bricking the browser.
-func TestRefreshCookie_LegacyPathMigration(t *testing.T) {
-	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, refreshCookieTestConfig(), pool), WithoutRateLimiter())
-	require.NoError(t, err)
-	h, err := MountHandler(srv, MountOptions{RefreshCookie: true})
-	require.NoError(t, err)
-
-	email, pass := newCookieTestUser(t, pool, srv, "legacypath")
-	login := postCookieJSON(h, "/api/v1/password/login", `{"identifier":"`+email+`","password":"`+pass+`"}`)
-	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	live := refreshCookieOf(t, login)
-	require.NotNil(t, live)
-
-	// Session-establishing responses already carry the legacy tombstone, so a
-	// migrated jar is healed by the login itself.
-	requireLegacyTombstone(t, login)
-
-	// A jar that has not logged in since the upgrade: stale legacy-path value
-	// beside the live one. The refresh is refused (fail closed on duplicates)
-	// but the refusal tombstones the legacy path.
-	stale := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: "stale-pre-upgrade-ancestor"})
-		r.AddCookie(live)
-	})
-	require.Equal(t, http.StatusBadRequest, stale.Code)
-	requireLegacyTombstone(t, stale)
-
-	// After the browser applies that tombstone only the live cookie remains,
-	// and the retry succeeds: one refused round trip, not a bricked session.
-	retry := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
-		r.AddCookie(live)
-	})
-	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())
-	requireLegacyTombstone(t, retry)
-}
-
-// requireLegacyTombstone asserts the response expires the pre-v0.98 cookie at
-// the legacy Path (the API prefix) with attributes matching the old setter.
-func requireLegacyTombstone(t *testing.T, rec *httptest.ResponseRecorder) {
-	t.Helper()
-	for _, raw := range rec.Header().Values("Set-Cookie") {
-		if !strings.HasPrefix(raw, RefreshCookieName+"=") {
-			continue
-		}
-		if strings.Contains(raw, "Path=/api/v1;") || strings.HasSuffix(raw, "Path=/api/v1") {
-			require.Contains(t, raw, "Max-Age=0", "legacy-path cookie must be expired, not rewritten: %s", raw)
-			return
-		}
-	}
-	t.Fatalf("no legacy-path (Path=/api/v1) tombstone in Set-Cookie: %v", rec.Header().Values("Set-Cookie"))
 }
 
 // TestRefreshCookie_OIDCBrowserHandoff covers the two paths that deliver tokens

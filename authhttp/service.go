@@ -139,11 +139,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if s == nil || s.rl == nil {
 		return RateLimitResult{Allowed: true}
 	}
-	ipFn := s.clientIP
-	if ipFn == nil {
-		ipFn = DefaultClientIP()
-	}
-	ip := ipFn(r)
+	ip := s.requestIP(r)
 	if strings.TrimSpace(ip) == "" {
 		return RateLimitResult{Allowed: true}
 	}

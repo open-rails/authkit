@@ -75,7 +75,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), nil)
+	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
 			s.send2FAEnrollmentRequired(w, r, result.UserID)
@@ -85,7 +85,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	ua := r.UserAgent()
-	ip := remoteIP(r)
+	ip := s.requestIP(r)
 	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
 	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(result.AccessToken, result.RefreshToken, result.ExpiresAt))
 }
