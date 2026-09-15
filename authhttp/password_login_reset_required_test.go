@@ -3,7 +3,6 @@ package authhttp
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -30,7 +29,8 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := newServer(newServerClient(t, cfg, pool))
+	sender := &captureEmailSender{}
+	svc, err := newServer(newServerClient(t, cfg, pool, withEmailSender(sender)))
 	require.NoError(t, err)
 
 	coreSvc := svc.svc
@@ -55,12 +55,24 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 		_, err := pool.Exec(ctx, `UPDATE profiles.user_passwords SET password_hash=$2, hash_algo=$3 WHERE user_id=$1`, u.ID, stored.hash, stored.algo)
 		require.NoError(t, err)
 		for _, identifier := range []string{email, username} {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"identifier":"`+identifier+`","password":"whatever"}`))
-			r.Header.Set("Content-Type", "application/json")
-			svc.apiHandler().ServeHTTP(w, r)
+			w := serveJSON(svc, http.MethodPost, "/password/login", `{"identifier":"`+identifier+`","password":"whatever"}`)
 			require.Equal(t, http.StatusUnauthorized, w.Code)
 			require.Equal(t, stored.reset, strings.Contains(w.Body.String(), `"password_reset_required"`), w.Body.String())
 		}
+		if stored.reset {
+			require.ErrorIs(t, coreSvc.CheckUserPassword(ctx, u.ID, "whatever"), embedded.ErrPasswordResetRequired)
+			require.ErrorIs(t, coreSvc.ChangePassword(ctx, u.ID, "whatever", "Replacement-password-12345", nil), embedded.ErrPasswordResetRequired)
+		}
 	}
+	// Recover through the public reset operation, including the delivery token;
+	// a direct hash upsert would not prove that recovery clears the condition.
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired, nil))
+	w := serveJSON(svc, http.MethodPost, "/password/reset/request", `{"identifier":"`+email+`"}`)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	w = serveJSON(svc, http.MethodPost, "/password/reset/confirm", `{"token":"`+sender.passwordResetToken(t)+`","new_password":"Recovered-password-12345"}`)
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	w = serveJSON(svc, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"Recovered-password-12345"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireTokenResponse(t, w)
+	require.NoError(t, coreSvc.CheckUserPassword(ctx, u.ID, "Recovered-password-12345"))
 }
