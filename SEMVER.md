@@ -3,7 +3,7 @@
 What an embedding application may depend on, and therefore what forces a
 version bump. Module `github.com/open-rails/authkit` · Go 1.26 · Postgres 18+.
 
-> **Status:** pre-1.0 (`v0.98.x`). Nothing is frozen until `v1.0.0`; until
+> **Status:** pre-1.0. Nothing is frozen until `v1.0.0`; until
 > then breaking changes ship as MINOR bumps with a migration note, and
 > [§9](#9-pre-10-freeze-list) lists what shrinks first.
 
@@ -24,6 +24,11 @@ version bump. Module `github.com/open-rails/authkit` · Go 1.26 · Postgres 18+.
 A consumer is conforming when it only compiles against the Go API, calls the
 documented routes, parses the documented wire shapes and runs the published
 migrations.
+
+Compatibility does not require accepting credentials, origins, signatures or
+grants that violate the documented security rules. Correcting such acceptance
+is a security fix. Changes to valid workflows, supported algorithms or documented
+limits still require the version bump described above.
 
 ### 1.1 The four planes
 
@@ -81,9 +86,12 @@ adapters.
 
 ### 3.2 Rules
 
-- **Hold `authkit.Client`.** It is the covered host contract. `*embedded.Client`
-  also exposes transport-driven flows, in-process ceremonies and infra
-  accessors; those engine-only methods may change in MINOR.
+- **Use `*embedded.Client` or a consumer-owned interface.** The constructor,
+  configuration, trusted host operations, bootstrap/import, document store and
+  passkey ceremonies documented in README and the host compile fixtures are
+  covered. `authkit.Client` is a convenient subset, not the stability boundary.
+  Methods used only to compose AuthKit's transport are implementation seams;
+  an exported helper alone does not establish a supported host workflow.
 - **`Client` membership.** Adding a method is MAJOR (fakes implement it). A
   method belongs only when a server calls it in-process; browser flows belong
   to the HTTP layer. Lifecycle pairs stay together (`MintAPIKeyWithOptions` ⇒
@@ -101,6 +109,22 @@ adapters.
 - **Verify-only build graph.** Root and `verify` import no Postgres, Redis or
   engine package (`deps_guard_test.go`).
 - **No API returns a private key or PEM.**
+
+**Caller authority.** Trusted host commands accept identities already selected
+and authorized by the host. A host must authenticate the caller, authorize the
+operation and retain the resolved immutable IDs before calling them. `*As`
+methods additionally check the actor's mutation authority; they do not replace
+the host's operation-level authorization. `Genesis()` is for explicitly trusted
+bootstrap/import/provisioning, never for forwarding an untrusted role request.
+The host owns this boundary even when it obtains the client through an interface.
+
+**Concrete host families.** In addition to `authkit.Client`: `New`/`NewWithKeys`,
+`Config`/`Deps`, `Genesis`, manifest loading/parsing, document publication via
+`DocumentStore`, and the passkey begin/finish/list/rename/delete operations are
+supported. AuthKit keeps the signer/key-source extension points in `jwtkit`:
+document signing and host-managed keys consume them directly. Their external
+types are part of the compile contract; upstream changes cannot silently break
+an otherwise compatible AuthKit release.
 
 ## 4. Plane B — HTTP route surface
 
@@ -237,8 +261,13 @@ and surface `password_reset_required`. Minimum length 8.
 - Tables live in `Config.Schema` (default `profiles`; `^[a-z_][a-z0-9_]*$`,
   ≤63 bytes). Postgres 18+ (native `uuidv7()`); raising the floor is MAJOR.
 - The interface is the Go API and routes, not SQL. Covered invariants:
-  deterministic UUIDv5 role ids, the `legacy-reset-required` hash-algo value,
-  the owner-namespace states, the seeded restricted names.
+  immutable user/group UUIDs, the `legacy-reset-required` hash-algo value,
+  owner-namespace states and seeded restricted names. Roles are scoped names;
+  no role UUID contract exists.
+- Pre-v1 databases are disposable. The fresh `1000_v1_schema.up.sql` baseline
+  replaces old AuthKit histories; no data or migration compatibility is offered
+  for those histories. `authkitmigrate.Migrate(ctx) error` establishes readiness;
+  `Validate` checks exact installed migration identity and content.
 
 ### 6.2 Keys & environment
 
@@ -273,9 +302,9 @@ Default rate limits: `authhttp.DefaultRateLimits()`.
 - `*_test.go` and test-only helpers (`authtest` IS covered).
 - Error `message` strings, log lines, metrics names.
 - Table/column layout beyond §6.1; timing; ordering of unordered collections.
-- Anything marked **Experimental** or **Deprecated**.
-- The `501 not_implemented` answer on the custom-role define/delete routes.
-- Third-party types in signatures (`pgxpool`, `gin`, `redis`, `river`).
+- Anything marked **Experimental**. Deprecation alone does not remove an
+  existing compatibility promise.
+- Third-party behavior beyond the types required by supported signatures.
 
 ## 8. Enforcement
 
@@ -295,8 +324,7 @@ published migration files.
 
 ## 9. Pre-1.0 freeze list
 
-1. **`jwtkit` surface.** Decide which signer and key-source types are for
-   consumers; move the rest behind `internal/`.
-2. **Custom-role define/delete routes.** Wire them or drop them from the
-   generated table; `501` is not a v1 answer.
-3. **Plane A diff and migration checksums in CI** (§8).
+1. Finish the tracked registration/MFA and role-lifecycle repairs and qualify
+   current consumer workflows against the coordinated release.
+2. Establish Go/wire/migration compatibility checks (§8) and freeze their
+   baseline when the owner approves v1. The current baseline remains a candidate.

@@ -35,6 +35,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -60,6 +62,23 @@ jobs:
       # compose stack or a renamed env var cannot go green by skipping.
       - name: Run Go tests (skips fail)
         run: task test-ci
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          package_json_file: authhttp/testdata/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Install browser workflow dependencies
+        working-directory: authhttp/testdata
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Browser cookie session workflow
+        run: task test-browser
+
+      - name: Go API and migration compatibility
+        run: scripts/check-compatibility.sh
 
   # EXPLAIN-gated query plans over a seeded scratch database. Too slow for every
   # push (it seeds up to 1M users), so it runs weekly and on demand only.

@@ -13,6 +13,7 @@ import (
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authkitmigrate"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
 )
@@ -93,4 +94,20 @@ func readmeLiveness(srv *authhttp.Service, client authkit.Client) (gin.HandlerFu
 	return requiredLive, err
 }
 
-var _ = []any{readmeMigrate, setupAuth, readmeDelegation, readmeLiveness}
+// Concrete host seams are covered even though they are outside authkit.Client.
+// These functions compile as an ordinary consumer with GOWORK=off; they are not
+// executed against a fake engine. Authorization belongs to the calling host.
+func hostProvision(ctx context.Context, client *embedded.Client, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	return client.Genesis().AssignGroupRole(ctx, group, subject, role)
+}
+
+func hostDocuments(client *embedded.Client) documents.Store {
+	return client.DocumentStore()
+}
+
+func hostPasskeyRegistration(ctx context.Context, client *embedded.Client, userID string, credential []byte) (embedded.Passkey, error) {
+	if _, err := client.BeginPasskeyRegistration(ctx, userID); err != nil {
+		return embedded.Passkey{}, err
+	}
+	return client.FinishPasskeyRegistration(ctx, userID, credential)
+}

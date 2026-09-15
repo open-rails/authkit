@@ -5,12 +5,15 @@ import (
 	"time"
 )
 
-// Client is the contract hosts hold: the in-process operations a host calls
+// Client is a convenient host interface: the in-process operations a host calls
 // on the engine, one flat interface grounded in what the consumers actually
 // use (ak#289). *embedded.Client implements it. Infra accessors (Postgres,
 // JWKS, Config, Schema), the browser-flow methods the authhttp transport
 // drives, the passkey ceremonies and the unchecked Genesis() seam are
 // deliberately OFF this interface — they stay on the concrete *embedded.Client.
+// Documented concrete host operations remain covered by SEMVER.md; membership
+// in this interface is not the stability boundary. Hosts may use smaller local
+// interfaces for their own dependencies.
 // Adding a method is MAJOR: consumers implement it in fakes.
 //
 //	c, err := embedded.New(cfg, deps)
