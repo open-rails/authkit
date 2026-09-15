@@ -29,7 +29,8 @@ func (s *Client) CanOnGroup(ctx context.Context, subject authkit.Subject, groupI
 
 // DeleteGroupInstanceByID is the trusted host's lifecycle primitive. The host
 // authorizes deletion before calling it; retries always target the captured UUID.
-// ReleaseSlug releases the current name only, preserving earlier reservations.
+// The entire descendant subtree is deleted. ReleaseSlug applies to every
+// deleted canonical name, preserving earlier alias reservations.
 func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error {
 	if err := s.requirePG(); err != nil {
 		return err

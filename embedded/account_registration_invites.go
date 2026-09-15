@@ -104,11 +104,6 @@ func (s *Client) createAccountRegistrationInvite(ctx context.Context, req Create
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
 		}
-		// AK2-AUTHZ-1: a deferred role grant must pass the same no-escalation check
-		// every grant surface uses (mirrors CreateGroupInviteLink's mint gate).
-		if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, invitedBy, role); err != nil {
-			return AccountRegistrationInviteCreated{}, err
-		}
 		groupID = &gid
 	} else if requireRootInvitePermission {
 		ok, err := s.Can(ctx, authkit.UserSubject(invitedBy), authkit.RootGroup(), PermRootUsersInvite)
@@ -131,13 +126,26 @@ func (s *Client) createAccountRegistrationInvite(ctx context.Context, req Create
 	if carriesRole {
 		roleParam = &role
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
-	err := q.QueryRow(ctx,
-		`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
+	insert := func(q db.DBTX) error {
+		return q.QueryRow(ctx,
+			`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
 		 VALUES ($1, $2::uuid, $3, $4, $5, $6)
 		 RETURNING id::text`,
-		email, invitedBy, codeHash, expiresAt, groupID, roleParam).Scan(&id)
+			email, invitedBy, codeHash, expiresAt, groupID, roleParam).Scan(&id)
+
+	}
+	var err error
+	if groupID != nil {
+		err = s.withLockedGroup(ctx, *groupID, func(st *PermissionGroupStore) error {
+			if err := s.authorizeRoleChange(ctx, st, s.groupSchemaOrDefault(), persona, *groupID, invitedBy, role); err != nil {
+				return err
+			}
+			return insert(st.q)
+		})
+	} else {
+		err = insert(db.ForSchema(s.pg, s.dbSchema()))
+	}
 	if err != nil {
 		return AccountRegistrationInviteCreated{}, err
 	}

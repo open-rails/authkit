@@ -83,14 +83,14 @@ func (s *Client) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGro
 // set within a permission-group of persona: a catalog role from the schema
 // (core.Config), or a per-group custom role from group_custom_roles. The role —
 // not any snapshot — is the source of truth, so resolution repeats at use time.
-func (s *Client) effectiveGroupRolePermissions(ctx context.Context, groupID string, persona authkit.Persona, role authkit.Role) ([]string, error) {
+func (s *Client) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	if def, ok := sch.Role(persona, role); ok {
 		perms := append([]string(nil), def.Permissions...)
 		return perms, nil
 	}
 	// Not a catalog role: look for a per-group custom role.
-	resolver, err := s.groupStore().CustomRolesFor(ctx, []string{groupID})
+	resolver, err := st.CustomRolesFor(ctx, []string{groupID})
 	if err != nil {
 		return nil, err
 	}
@@ -108,8 +108,7 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 		return APIKey{}, "", err
 	}
 	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -121,27 +120,6 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 	if role == "" {
 		return APIKey{}, "", authkit.ErrInvalidRole
 	}
-	// The role must be valid for the group's persona: a catalog role, any role
-	// for custom-enabled personas, or an existing group custom role.
-	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
-		if _, ok, cerr := s.lookupGroupCustomRole(ctx, gid, role); cerr != nil {
-			return APIKey{}, "", cerr
-		} else if !ok {
-			return APIKey{}, "", authkit.ErrUnknownRole
-		}
-	}
-	// Resolve the role's effective permissions for the returned view.
-	permissions, err := s.effectiveGroupRolePermissions(ctx, gid, persona, role)
-	if err != nil {
-		return APIKey{}, "", err
-	}
-	if permissions == nil {
-		permissions = []string{}
-	}
-	if err := s.authorizeAPIKeyRoleGrant(ctx, st, persona, gid, strings.TrimSpace(opts.CreatedBy), role); err != nil {
-		return APIKey{}, "", err
-	}
-
 	now := time.Now().UTC()
 	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
@@ -153,74 +131,51 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 			expiresAt = &capAt
 		}
 	}
-
 	secret, err := randBase62(apiKeySecretLen)
 	if err != nil {
 		return APIKey{}, "", err
 	}
 	secretHash := sha256Raw(secret)
-
-	var createdByArg *string
-	if v := strings.TrimSpace(opts.CreatedBy); v != "" {
-		createdByArg = &v
-	}
-
-	// key_id is unique; retry a few times on the (astronomically unlikely)
-	// collision rather than failing the request.
-	var out APIKey
 	for attempt := 0; attempt < 5; attempt++ {
 		keyID, err := randBase62(apiKeyKeyIDLen)
 		if err != nil {
 			return APIKey{}, "", err
 		}
-		tx, err := s.pg.Begin(ctx)
+		var out APIKey
+		err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+			if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
+				return err
+			}
+			permissions, err := s.effectiveGroupRolePermissions(ctx, st, gid, persona, role)
+			if err != nil {
+				return err
+			}
+			if permissions == nil {
+				permissions = []string{}
+			}
+			if err := s.authorizeAPIKeyRoleGrant(ctx, st, persona, gid, strings.TrimSpace(opts.CreatedBy), role); err != nil {
+				return err
+			}
+			var id string
+			var createdAt time.Time
+			err = st.q.QueryRow(ctx, `INSERT INTO profiles.api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
+   VALUES($1::uuid,$2,$3,$4,$5,$6,$7) RETURNING id::text,created_at`, gid, keyID, secretHash, name, role, nullable(strings.TrimSpace(opts.CreatedBy)), expiresAt).Scan(&id, &createdAt)
+			if err != nil {
+				return err
+			}
+			out = APIKey{ID: id, KeyID: keyID, Name: name, Role: role, Permissions: permissions, CreatedBy: strings.TrimSpace(opts.CreatedBy), CreatedAt: createdAt, ExpiresAt: expiresAt}
+			return nil
+		})
 		if err != nil {
-			return APIKey{}, "", err
-		}
-		q := db.ForSchema(tx, s.dbSchema())
-		var id string
-		var createdAt time.Time
-		err = q.QueryRow(ctx,
-			`INSERT INTO profiles.api_keys
-			   (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
-			 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
-			 RETURNING id::text, created_at`,
-			gid, keyID, secretHash, name, role, createdByArg, expiresAt).Scan(&id, &createdAt)
-		if err != nil {
-			_ = tx.Rollback(ctx)
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "key_id") {
-				continue // key_id collision; regenerate
+				continue
 			}
 			return APIKey{}, "", err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return APIKey{}, "", err
-		}
-		out = APIKey{
-			ID:          id,
-			KeyID:       keyID,
-			Name:        name,
-			Role:        role,
-			Permissions: permissions,
-			CreatedBy:   strings.TrimSpace(opts.CreatedBy),
-			CreatedAt:   createdAt,
-			ExpiresAt:   expiresAt,
 		}
 		return out, FormatAPIKey(s.cfg.APIKeys.Prefix, keyID, secret), nil
 	}
 	return APIKey{}, "", errors.New("key_id_generation_failed")
-}
-
-// lookupGroupCustomRole reports whether role is an existing per-group custom
-// role and returns its permissions.
-func (s *Client) lookupGroupCustomRole(ctx context.Context, groupID string, role authkit.Role) ([]string, bool, error) {
-	resolver, err := s.groupStore().CustomRolesFor(ctx, []string{groupID})
-	if err != nil {
-		return nil, false, err
-	}
-	perms, ok := resolver(groupID, role)
-	return perms, ok, nil
 }
 
 // ListAPIKeys returns metadata for every API key of the permission-group
@@ -306,22 +261,24 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var (
-		id           string
-		secretHash   []byte
-		role         authkit.Role
-		expiresAt    *time.Time
-		revokedAt    *time.Time
-		groupID      string
-		persona      authkit.Persona
-		instanceSlug string
+		id                string
+		secretHash        []byte
+		role              authkit.Role
+		expiresAt         *time.Time
+		revokedAt         *time.Time
+		groupID           string
+		persona           authkit.Persona
+		instanceSlug      string
+		customPermissions []string
 	)
 	err := q.QueryRow(ctx,
 		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
-		        pg.id::text, pg.persona, COALESCE(pg.instance_slug, '')
+		        pg.id::text, pg.persona, COALESCE(pg.instance_slug, ''), r.permissions
 		 FROM profiles.api_keys t
 		 JOIN profiles.permission_groups pg ON pg.id = t.permission_group_id
+ LEFT JOIN profiles.group_custom_roles r ON r.permission_group_id=t.permission_group_id AND r.role=t.role
 		 WHERE t.key_id = $1`, keyID).
-		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug)
+		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug, &customPermissions)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ResolvedAPIKey{}, ErrInvalidAccessToken
@@ -340,10 +297,10 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	}
 
 	s.touchAccessTokenAsync(id)
-	// Resolve the key's role to its effective permission set AT VERIFY TIME (#111).
-	gotPerms, err := s.effectiveGroupRolePermissions(ctx, groupID, persona, role)
-	if err != nil {
-		return ResolvedAPIKey{}, err
+	// Key and custom definition were read in the same statement snapshot.
+	gotPerms := customPermissions
+	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
+		gotPerms = append([]string(nil), def.Permissions...)
 	}
 	if gotPerms == nil {
 		gotPerms = []string{}
@@ -386,7 +343,7 @@ func (s *Client) loadAPIKeyPermissions(ctx context.Context, groupID string, pers
 		perms, ok := byRole[role]
 		if !ok {
 			var err error
-			perms, err = s.effectiveGroupRolePermissions(ctx, groupID, persona, role)
+			perms, err = s.effectiveGroupRolePermissions(ctx, s.groupStore(), groupID, persona, role)
 			if err != nil {
 				return err
 			}

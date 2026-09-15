@@ -104,54 +104,35 @@ func (s *Client) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvit
 		return GroupInviteLinkCreated{}, authkit.ErrInvalidInvite
 	}
 	group := authkit.GroupRef{Persona: authkit.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
-	persona := group.Persona
-	st := s.groupStore()
 	sch := s.groupSchemaOrDefault()
-	if !s.validRoleForPersona(sch, persona, role) {
-		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
+	if !s.validRoleForPersona(sch, group.Persona, role) {
+		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, authkit.ErrRoleNotAssignable)
 	}
-	gid, err := s.resolveGroupID(ctx, st, group)
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
-	// AK2-AUTHZ-1: an invite link is a DEFERRED role grant, so the MINT must pass
-	// the same no-escalation check every other grant surface uses (member
-	// add/role-change via AssignGroupRoleAs, API-key mint via authorizeAPIKeyRoleGrant).
-	// The minter (invited_by — the authenticated caller, never request-supplied)
-	// must hold members:manage in this group AND already hold every permission the
-	// invited role confers; otherwise a holder of only members-management authority
-	// could mint (and then redeem) an `owner` invite to escalate. The gate is on
-	// MINT because the redeemer is not the granting authority — the redeemer's own
-	// grants are irrelevant to what the link is allowed to confer.
-	if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, invitedBy, role); err != nil {
-		return GroupInviteLinkCreated{}, err
-	}
-
 	ttl := req.ExpiresIn
 	if ttl <= 0 {
 		ttl = defaultGroupInviteTTL
 	}
-	// #247: clamp to the 30d ceiling — never reject, just cap (mirrors
-	// APIKeysConfig.MaxTTL's mint-time capping).
 	if ttl > maxGroupInviteTTL {
 		ttl = maxGroupInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-
 	code := RandB64(32)
-	codeHash := sha256Hex(code)
-	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
-	err = q.QueryRow(ctx,
-		`INSERT INTO profiles.group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
-		 VALUES ($1::uuid, $2, $3::uuid, $4, $5)
-		 RETURNING id::text`,
-		gid, role, invitedBy, codeHash, expiresAt).Scan(&id)
+	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, invitedBy, role); err != nil {
+			return err
+		}
+		return st.q.QueryRow(ctx, `INSERT INTO profiles.group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
+  VALUES($1::uuid,$2,$3::uuid,$4,$5) RETURNING id::text`, gid, role, invitedBy, sha256Hex(code), expiresAt).Scan(&id)
+	})
 	if err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
-	created := GroupInviteLinkCreated{ID: id, Code: code, URL: s.inviteURL(code)}
-	return created, nil
+	return GroupInviteLinkCreated{ID: id, Code: code, URL: s.inviteURL(code)}, nil
 }
 
 // ListGroupInviteLinks lists the group's invite links (active and inactive),
@@ -242,7 +223,18 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 
-	var linkID, groupID, instanceSlug string
+	var groupID string
+	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, ErrInviteLinkNotFound
+	}
+	if err != nil {
+		return zero, err
+	}
+	if err := lockPermissionGroup(ctx, q, groupID); err != nil {
+		return zero, err
+	}
+	var linkID, instanceSlug string
 	var persona authkit.Persona
 	var role authkit.Role
 	var redeemedAt, expiresAt, revokedAt *time.Time
@@ -251,9 +243,9 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		        l.redeemed_at, l.expires_at, l.revoked_at
 		 FROM profiles.group_invite_links l
 		 JOIN profiles.permission_groups g ON g.id = l.permission_group_id
-		 WHERE l.code_hash = $1
+		 WHERE l.code_hash = $1 AND l.permission_group_id=$2::uuid
 		 FOR UPDATE OF l`,
-		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &redeemedAt, &expiresAt, &revokedAt)
+		codeHash, groupID).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &redeemedAt, &expiresAt, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return zero, ErrInviteLinkNotFound
 	}

@@ -338,6 +338,8 @@ type CreatePermissionGroupRequest struct {
 // to the old group now resolves to the new owner (#308). authkit never
 // deletes a group on its own.
 type DeletePermissionGroupOptions struct {
+	// ReleaseSlug applies to every canonical name in the deleted subtree;
+	// prior aliases retain their original expiry.
 	ReleaseSlug bool
 }
 

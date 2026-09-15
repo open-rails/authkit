@@ -124,12 +124,13 @@ func (st *PermissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID
 	return err
 }
 
-// DeleteGroup reserves the final canonical name forever unless explicitly
-// released. Existing aliases keep the promises made by their individual renames.
+// DeleteGroup deletes the whole subtree in the caller's transaction. It reserves
+// every final canonical name unless explicitly released; prior aliases keep
+// their existing deadlines. Parent locks block new FK children while each next
+// level is read from a fresh statement snapshot and locked against renames.
 func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
 	var persona authkit.Persona
-	var slug *string
-	err := st.q.QueryRow(ctx, `SELECT persona,instance_slug FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &slug)
+	err := st.q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrGroupNotFound
 	}
@@ -139,8 +140,35 @@ func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 	if persona == RootPersona {
 		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}
-	if !opts.ReleaseSlug && slug != nil {
-		if _, err = st.q.Exec(ctx, `UPDATE profiles.name_claims SET canonical=false,expires_at=NULL WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND owner_id=$3::uuid AND canonical`, persona, *slug, groupID); err != nil {
+	ids, frontier := []string{groupID}, []string{groupID}
+	seen := map[string]bool{groupID: true}
+	for len(frontier) > 0 {
+		rows, err := st.q.Query(ctx, `SELECT id::text FROM profiles.permission_groups WHERE parent_id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, frontier)
+		if err != nil {
+			return err
+		}
+		var next []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+				next = append(next, id)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		frontier = next
+	}
+	if !opts.ReleaseSlug {
+		if _, err := st.q.Exec(ctx, `UPDATE profiles.name_claims SET canonical=false,expires_at=NULL WHERE owner_kind='group' AND owner_id=ANY($1::uuid[]) AND canonical`, ids); err != nil {
 			return err
 		}
 	}
@@ -237,66 +265,59 @@ func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // exactly the []GroupAssignment that GroupSchema.ResolveGrants/Can consume. This
 // is the additive walk-up made concrete.
 func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject authkit.Subject) ([]GroupAssignment, error) {
-	table, subjectColumn, err := groupRoleTable(subject.Kind)
+	assignments, _, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, false)
+	return assignments, err
+}
+
+// Memberships and their mutable custom definitions come from one MVCC snapshot.
+// A delete/recreate cannot combine a retired membership with the replacement
+// role's permissions. Include all definitions on assigned groups, preserving
+// the existing authorization resolver's scope for target-role checks.
+func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject authkit.Subject, definitions bool) ([]GroupAssignment, CustomRoleResolver, error) {
+	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rows, err := st.q.Query(ctx,
-		fmt.Sprintf(`WITH RECURSIVE chain AS (
-			SELECT id, persona, parent_id FROM profiles.permission_groups
-			WHERE id = $1::uuid
-			UNION ALL
-			SELECT p.id, p.persona, p.parent_id FROM profiles.permission_groups p
-			JOIN chain c ON p.id = c.parent_id
-		)
-		SELECT c.id::text, c.persona, a.role
-		FROM chain c
-		LEFT JOIN %s a
-		  ON a.permission_group_id = c.id AND a.%s = $2::uuid AND a.deleted_at IS NULL
-		ORDER BY c.id`, table, subjectColumn),
-		groupID, subject.ID)
+	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH RECURSIVE chain AS (
+ SELECT id,persona,parent_id FROM profiles.permission_groups WHERE id=$1::uuid
+ UNION ALL SELECT p.id,p.persona,p.parent_id FROM profiles.permission_groups p JOIN chain c ON p.id=c.parent_id)
+ SELECT c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
+ JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid AND a.deleted_at IS NULL
+ LEFT JOIN profiles.group_custom_roles r ON r.permission_group_id=c.id AND $3
+ ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-
-	// #247: at most one live role per (group, subject) — enforced by the
-	// partial unique index — so the join yields at most one row per group.
-	type acc struct {
-		typ  authkit.Persona
-		role *string
+	type key struct {
+		group string
+		role  authkit.Role
 	}
-	byGroup := map[string]*acc{}
-	var order []string
+	custom := map[key][]string{}
+	seen := map[string]bool{}
+	var assignments []GroupAssignment
 	for rows.Next() {
-		var gid string
-		var gtype authkit.Persona
+		var assignment GroupAssignment
 		var role *string
-		if err := rows.Scan(&gid, &gtype, &role); err != nil {
-			return nil, err
+		var permissions []string
+		if err := rows.Scan(&assignment.PermissionGroupID, &assignment.Persona, &assignment.Role, &role, &permissions); err != nil {
+			return nil, nil, err
 		}
-		a, ok := byGroup[gid]
-		if !ok {
-			a = &acc{typ: gtype}
-			byGroup[gid] = a
-			order = append(order, gid)
+		if !seen[assignment.PermissionGroupID] {
+			seen[assignment.PermissionGroupID] = true
+			assignments = append(assignments, assignment)
 		}
 		if role != nil {
-			a.role = role
+			custom[key{assignment.PermissionGroupID, authkit.Role(*role)}] = permissions
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []GroupAssignment
-	for _, gid := range order {
-		a := byGroup[gid]
-		if a.role == nil {
-			continue // an ancestor where the subject holds nothing contributes no grants
-		}
-		out = append(out, GroupAssignment{Persona: a.typ, PermissionGroupID: gid, Role: authkit.Role(*a.role)})
-	}
-	return out, nil
+	return assignments, func(group string, role authkit.Role) ([]string, bool) {
+		p, ok := custom[key{group, role}]
+		return p, ok
+	}, nil
 }
 
 // RootRolesForUsers returns, for each user id, the role slugs directly assigned on
@@ -342,12 +363,14 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	if err != nil {
 		return err
 	}
-	_, err = st.q.Exec(ctx,
-		fmt.Sprintf(`INSERT INTO %s (permission_group_id, %s, role)
-		 VALUES ($1::uuid, $2::uuid, $3)
-		 ON CONFLICT (permission_group_id, %s) WHERE deleted_at IS NULL
-		 DO UPDATE SET role = EXCLUDED.role, updated_at = now()`, table, subjectColumn, subjectColumn),
-		groupID, subject.ID, role)
+	tag, err := st.q.Exec(ctx, fmt.Sprintf(`WITH locked AS MATERIALIZED (SELECT id FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE)
+ INSERT INTO %s (permission_group_id, %s, role)
+ SELECT id, $2::uuid, $3 FROM locked
+ ON CONFLICT (permission_group_id, %s) WHERE deleted_at IS NULL
+ DO UPDATE SET role=EXCLUDED.role, updated_at=now()`, table, subjectColumn, subjectColumn), groupID, subject.ID, role)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrGroupNotFound
+	}
 	return err
 }
 
@@ -398,12 +421,13 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // capability is set; the caller enforces that + validates each grant pattern
 // against the group's persona.
 func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authkit.CustomRoleDef) error {
-	_, err := st.q.Exec(ctx,
-		`INSERT INTO profiles.group_custom_roles (permission_group_id, role, permissions, requires_mfa)
-		 VALUES ($1::uuid, $2, $3, $4)
-		 ON CONFLICT (permission_group_id, role)
-		 DO UPDATE SET permissions = EXCLUDED.permissions, requires_mfa = EXCLUDED.requires_mfa, updated_at = now()`,
-		groupID, def.Role, def.Permissions, def.RequiresMFA)
+	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE)
+ INSERT INTO profiles.group_custom_roles(permission_group_id,role,permissions,requires_mfa)
+ SELECT id,$2,$3,$4 FROM locked
+ ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,requires_mfa=EXCLUDED.requires_mfa,updated_at=now()`, groupID, def.Role, def.Permissions, def.RequiresMFA)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrGroupNotFound
+	}
 	return err
 }
 
@@ -465,22 +489,11 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 // action on a persona-RT resource reached from an ancestor of persona LT, the perm is
 // `LT:RT:<action>`).
 func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
-	asg, err := st.WalkAssignments(ctx, groupID, subject)
+	assignments, resolver, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, true)
 	if err != nil {
 		return false, err
 	}
-	if len(asg) == 0 {
-		return false, nil
-	}
-	ids := make([]string, 0, len(asg))
-	for _, a := range asg {
-		ids = append(ids, a.PermissionGroupID)
-	}
-	resolver, err := st.CustomRolesFor(ctx, ids)
-	if err != nil {
-		return false, err
-	}
-	return schema.Can(asg, resolver, perm), nil
+	return schema.Can(assignments, resolver, perm), nil
 }
 
 // GrantsOnGroup returns the de-duplicated UNION of grant PATTERNS the subject
@@ -492,22 +505,11 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 // permission-introspection endpoint (authkit/doujins #421). An empty assignment
 // set returns an empty (non-nil) slice.
 func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupID string) ([]string, error) {
-	asg, err := st.WalkAssignments(ctx, groupID, subject)
+	assignments, resolver, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, true)
 	if err != nil {
 		return nil, err
 	}
-	if len(asg) == 0 {
-		return []string{}, nil
-	}
-	ids := make([]string, 0, len(asg))
-	for _, a := range asg {
-		ids = append(ids, a.PermissionGroupID)
-	}
-	resolver, err := st.CustomRolesFor(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	grants := schema.ResolveGrants(asg, resolver)
+	grants := schema.ResolveGrants(assignments, resolver)
 	if grants == nil {
 		grants = []string{}
 	}
@@ -595,12 +597,23 @@ func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID s
 	return g, nil
 }
 
-// DeleteCustomRole removes a per-group custom role (and its permissions).
+// DeleteCustomRole retires a definition and every reference to it. The caller
+// must hold the group lifecycle lock in a transaction. An absent definition is
+// a no-op, so a catalog role cannot accidentally lose its assignments here.
 func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID string, role authkit.Role) error {
-	_, err := st.q.Exec(ctx,
-		`DELETE FROM profiles.group_custom_roles WHERE permission_group_id = $1::uuid AND role = $2`,
-		groupID, role)
-	return err
+	var exists bool
+	if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2)`, groupID, role).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	for _, table := range []string{"group_user_roles", "group_remote_application_roles", "api_keys", "group_invite_links", "account_registration_invites", "group_custom_roles"} {
+		if _, err := st.q.Exec(ctx, "DELETE FROM profiles."+table+" WHERE permission_group_id=$1::uuid AND role=$2", groupID, role); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SearchGroupInstances searches canonical names only. Former names are addresses,
