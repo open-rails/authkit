@@ -96,6 +96,9 @@ func (s *Client) enable2FA(ctx context.Context, userID, method string, phoneNumb
 		if _, err := s.loadLoginProof(ctx, userID, proof.nonce); err != nil {
 			return nil, err
 		}
+		if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+			return nil, err
+		}
 	} else if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err
 	}

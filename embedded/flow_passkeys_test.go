@@ -122,7 +122,7 @@ func TestPasskeyVerificationProvesIdentityWithoutSession(t *testing.T) {
 		response := authn.Assert(t, assertion, 1)
 		verified, err := c.FinishDiscoverablePasskeyVerification(ctx, response)
 		require.NoError(t, err)
-		require.Equal(t, VerifiedPasskey{UserID: user.ID, PasskeyID: created.ID, CredentialID: b64(authn.CredentialID), BackupEligible: true, BackupState: true}, verified)
+		require.Equal(t, VerifiedPasskey{credentialVersion: 1, UserID: user.ID, PasskeyID: created.ID, CredentialID: b64(authn.CredentialID), BackupEligible: true, BackupState: true}, verified)
 		require.Zero(t, sessionCount(t, ctx, pool, user.ID))
 		var lastUsed *time.Time
 		require.NoError(t, pool.QueryRow(ctx, `SELECT last_used_at FROM profiles.user_passkeys WHERE id=$1::uuid`, created.ID).Scan(&lastUsed))

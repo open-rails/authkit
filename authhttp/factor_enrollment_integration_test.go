@@ -112,4 +112,24 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 	}
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, tokens.AccessToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	// Revocation after setup invalidates the source grant before any factor write.
+	revokedID := mustPasswordUser(t, oldSrv, "revoked-enrollment")
+	w = login(t, oldSrv, "revoked-enrollment", revokedID)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
+	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
+	enrollment := requireEnrollmentToken(t, w)
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, enrollment)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var pending struct {
+		Secret string `json:"secret"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pending))
+	require.NoError(t, srv.svc.RevokeAllSessions(t.Context(), revokedID, nil))
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", fmt.Sprintf(`{"method":"totp","code":%q}`, testTOTPCode(t, pending.Secret, time.Now().Unix()/30)), enrollment)
+	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+	factors, err := srv.svc.List2FAFactors(t.Context(), revokedID)
+	require.NoError(t, err)
+	require.Empty(t, factors, "source revocation must reject before factor persistence")
+
 }

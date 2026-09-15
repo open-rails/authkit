@@ -244,7 +244,7 @@ Token taxonomy:
 
 Step-up updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
 
-Authentication continuation:
+## Authentication continuation
 
 - Password login, contact verification, passwordless login, and provider callbacks
   use the same first-factor decision: session, MFA challenge, or restricted

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -320,6 +321,9 @@ func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrol
 	if version.CredentialVersion != proof.Version {
 		return ctx, jwt.ErrTokenUnverifiable
 	}
+	if err := s.validateLoginProofSource(ctx, db.ForSchema(s.pg, s.dbSchema()), proof); err != nil {
+		return ctx, err
+	}
 	if !independentFactor(proof, TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
 		return ctx, ErrInvalidTwoFAMethod
 	}
@@ -348,6 +352,9 @@ func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 	q := db.New(source)
 	if proof.ProviderIssuer != "" {
 		linked, err := q.UserProviderByIssuerAny(ctx, db.UserProviderByIssuerAnyParams{UserID: proof.Input.UserID, Issuer: proof.ProviderIssuer})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return jwt.ErrTokenUnverifiable
+		}
 		if err != nil {
 			return err
 		}
@@ -366,6 +373,9 @@ func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 	}
 	if proof.SessionID != "" {
 		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return jwt.ErrTokenUnverifiable
+		}
 		return err
 	}
 	return nil

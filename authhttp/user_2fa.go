@@ -1,6 +1,8 @@
 package authhttp
 
 import (
+	"errors"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"strings"
 	"time"
@@ -122,7 +124,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
 	})
 	if err != nil {
-		writeError(w, err)
+		if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
+			unauthorized(w, authkit.CodeInvalidChallenge)
+		} else {
+			writeError(w, err)
+		}
 		return
 	}
 	switch out.Kind {
