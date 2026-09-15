@@ -64,7 +64,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.Len(t, creation.PublicKey.ExcludeCredentials, 1)
 	require.Equal(t, base64.RawURLEncoding.EncodeToString(authn.CredentialID), creation.PublicKey.ExcludeCredentials[0].ID)
 
-	for _, body := range []string{`{"identifier":"does-not-exist@example.com"}`, `{"identifier":"` + *user.Email + `"}`, `{"`, `[]`} {
+	for _, body := range []string{`{"identifier":"does-not-exist@example.com"}`, `{"identifier":"` + *user.Email + `"}`, `{"`, `[]`, `null`} {
 		w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", body)
 		require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	}

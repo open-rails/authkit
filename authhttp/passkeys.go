@@ -50,8 +50,8 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 
 func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
-		var req struct{}
-		if err := decodeJSON(r, &req); err != nil {
+		var req map[string]json.RawMessage
+		if err := decodeJSON(r, &req); err != nil || req == nil || len(req) != 0 {
 			badRequest(w, authkit.CodeInvalidRequest)
 			return
 		}
