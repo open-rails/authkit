@@ -13,7 +13,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authkitmigrate"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -63,8 +62,6 @@ func deviceKeyTestServer(t *testing.T, engineOpts ...coreOpt) (*Service, *captur
 func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...coreOpt) (*Service, *captureEmailSender) {
 	t.Helper()
 	pool := testdb.Pool(t)
-	_, err := authkitmigrate.New(pool, nil).Migrate(context.Background())
-	require.NoError(t, err)
 	sender := &captureEmailSender{}
 	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
 	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
@@ -533,8 +530,6 @@ func TestDeviceKeyEnrollmentConcurrentFinishAcceptsOnce(t *testing.T) {
 func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
 	ctx := context.Background()
 	basePool := testdb.Pool(t)
-	_, err := authkitmigrate.New(basePool, nil).Migrate(ctx)
-	require.NoError(t, err)
 
 	config, err := pgxpool.ParseConfig(testdb.URL(t))
 	require.NoError(t, err)

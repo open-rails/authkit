@@ -16,7 +16,7 @@ func TestGroupDirectoryReusesAliasesAndCustomSchema(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
 	const schema = "directory_custom"
-	_, err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: schema}).Migrate(ctx)
+	err := authkitmigrate.New(pg.Pool, &authkitmigrate.Config{Schema: schema}).Migrate(ctx)
 	require.NoError(t, err)
 	client, err := embedded.New(embedded.Config{Ephemeral: embedded.EphemeralConfig{AllowMemory: true}, Schema: schema, Keys: embedded.KeysConfig{VerifyOnly: true}, Token: embedded.TokenConfig{Issuer: "https://auth.test", IssuedAudiences: []string{"test"}}, RBAC: []embedded.PersonaDef{{Name: "merchant", Parent: authkit.RootPersona}}}, embedded.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)

@@ -82,9 +82,9 @@ func TestFSForSchemaRendersDDL(t *testing.T) {
 			t.Errorf("%s: rendered DDL still references the default schema", name)
 		}
 	}
-	first := rendered["0001_auth_schema.up.sql"]
+	first := rendered["1000_v1_schema.up.sql"]
 	if first == "" {
-		t.Fatal("0001_auth_schema.up.sql missing from rendered FS")
+		t.Fatal("1000_v1_schema.up.sql missing from rendered FS")
 	}
 	for _, want := range []string{
 		"CREATE SCHEMA IF NOT EXISTS openrails_auth;",
@@ -92,7 +92,7 @@ func TestFSForSchemaRendersDDL(t *testing.T) {
 		"openrails_auth.trg_permission_group_containment(",
 	} {
 		if !strings.Contains(first, want) {
-			t.Errorf("rendered 0001_auth_schema.up.sql missing %q", want)
+			t.Errorf("rendered 1000_v1_schema.up.sql missing %q", want)
 		}
 	}
 }

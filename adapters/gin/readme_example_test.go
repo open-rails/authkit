@@ -21,8 +21,7 @@ import (
 // from the API. Keep them byte-for-byte in sync.
 
 func readmeMigrate(ctx context.Context, pool *pgxpool.Pool) error {
-	res, err := authkitmigrate.New(pool, nil).Migrate(ctx) // &authkitmigrate.Config{Schema: "…"} for a non-default schema
-	_ = res
+	err := authkitmigrate.New(pool, nil).Migrate(ctx) // &authkitmigrate.Config{Schema: "…"} for a non-default schema
 	return err
 }
 

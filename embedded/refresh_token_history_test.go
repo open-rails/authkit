@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/testdb"
-	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,27 +103,4 @@ func TestRefreshTokenHistory_Cleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_token_history WHERE session_id=ANY($1::uuid[])`, append(ids, sid)).Scan(&n))
 	require.Zero(t, n)
-}
-
-func TestRefreshTokenHistory_CutoverRevokesExistingSessions(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	ctx := context.Background()
-	// Restore the prior session shape in this disposable, test-owned database.
-	_, err := pg.Pool.Exec(ctx, `DROP TABLE profiles.refresh_token_history;
- ALTER TABLE profiles.refresh_sessions ADD COLUMN previous_token_hash bytea`)
-	require.NoError(t, err)
-	var uid, sid string
-	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid))
-	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO profiles.refresh_sessions(id,family_id,user_id,issuer,current_token_hash,previous_token_hash)
- VALUES(uuidv7(),uuidv7(),$1::uuid,'https://migration.example',$2,$3) RETURNING id::text`, uid, []byte("current"), []byte("previous")).Scan(&sid))
-	migration, err := pgmigrations.FS.ReadFile("0012_refresh_token_history.up.sql")
-	require.NoError(t, err)
-	_, err = pg.Pool.Exec(ctx, string(migration))
-	require.NoError(t, err)
-	var revoked bool
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM profiles.refresh_sessions WHERE id=$1::uuid`, sid).Scan(&revoked))
-	require.True(t, revoked, "incomplete pre-change histories require reauthentication")
-	var oldColumn bool
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='profiles' AND table_name='refresh_sessions' AND column_name='previous_token_hash')`).Scan(&oldColumn))
-	require.False(t, oldColumn)
 }

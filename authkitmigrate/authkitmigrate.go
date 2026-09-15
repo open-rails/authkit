@@ -1,14 +1,6 @@
-// Package authkitmigrate applies AuthKit's embedded Postgres migrations from
-// host code, mirroring rivermigrate's shape:
-//
-//	migrator := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: cfg.Schema})
-//	res, err := migrator.Migrate(ctx)
-//
-// It is up-only (AuthKit ships no down migrations) and idempotent: tracking is
-// name-based in public.migrations under the canonical "authkit" app key via
-// migratekit, advisory-locked so concurrent replicas are safe. A non-default
-// schema is stamped into the tracking rows, so multiple apps may embed AuthKit
-// in the same database under different schemas without colliding.
+// Package authkitmigrate installs AuthKit's schema using the host's PostgreSQL
+// connection configuration. Migrate is idempotent and returns only an error;
+// Validate requires exact identity and content of every installed migration.
 package authkitmigrate
 
 import (
@@ -16,7 +8,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -34,8 +25,6 @@ const trackingApp = "authkit"
 // defaultSchema mirrors internal/db.DefaultSchema and the schema the embedded
 // DDL is authored against.
 const defaultSchema = "profiles"
-
-var schemaNameRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // Config configures a Migrator.
 type Config struct {
@@ -60,47 +49,52 @@ func New(pool *pgxpool.Pool, config *Config) *Migrator {
 	return m
 }
 
-// MigrateResult reports what a Migrate call did.
-type MigrateResult struct {
-	// Applied is the migration names applied by THIS call, in order; empty
-	// when the database was already current.
-	Applied []string
-}
-
-// Migrate applies all pending AuthKit migrations and reports what it applied.
-func (m *Migrator) Migrate(ctx context.Context) (*MigrateResult, error) {
+// Migrate applies the fresh baseline and pending migrations. Earlier prerelease
+// schemas or unknown/drifted ledger identities are refused without deleting data.
+func (m *Migrator) Migrate(ctx context.Context) error {
 	p, ms, db, err := m.open()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer db.Close()
-
 	if err := setup(ctx, p); err != nil {
-		return nil, fmt.Errorf("authkitmigrate: ensure tracking table: %w", err)
+		return fmt.Errorf("authkitmigrate: ensure tracking table: %w", err)
 	}
-	before, err := p.Applied(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authkitmigrate: read applied migrations: %w", err)
+	if err := validateLedger(ctx, p, ms, false); err != nil {
+		return err
 	}
 	if err := p.ApplyMigrations(ctx, ms); err != nil {
-		return nil, fmt.Errorf("authkitmigrate: apply migrations: %w", err)
+		return fmt.Errorf("authkitmigrate: apply migrations: %w", err)
 	}
-	after, err := p.Applied(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authkitmigrate: read applied migrations: %w", err)
-	}
+	return validateLedger(ctx, p, ms, true)
+}
 
-	seen := make(map[string]bool, len(before))
-	for _, name := range before {
-		seen[name] = true
+// Validate the actual filename and digest, not just a reused numeric prefix.
+// A fresh database may have no records; startup validation also requires every
+// expected migration. migratekit continues to own locking and atomic apply.
+func validateLedger(ctx context.Context, p *migratekit.Postgres, ms []migratekit.Migration, complete bool) error {
+	records, err := p.AppliedRecords(ctx)
+	if err != nil {
+		return fmt.Errorf("authkitmigrate: schema ledger unavailable; migrate a fresh AuthKit schema: %w", err)
 	}
-	res := &MigrateResult{}
-	for _, name := range after {
-		if !seen[name] {
-			res.Applied = append(res.Applied, name)
+	expected := make(map[string]migratekit.Migration, len(ms))
+	for _, migration := range ms {
+		expected[migratekit.Prefix(migration.Name)] = migration
+	}
+	for key, record := range records {
+		migration, known := expected[key]
+		if !known || record.Filename != migration.Name || record.Digest != migratekit.ContentDigest(migration.Content) || record.SemanticDigest != migratekit.SemanticContentDigest(migration.Content) || record.Status != migratekit.StatusApplied {
+			return fmt.Errorf("authkitmigrate: unsupported schema ledger entry %q; use a fresh AuthKit schema and reset only its scoped migration ledger", key)
 		}
 	}
-	return res, nil
+	if complete {
+		for key, migration := range expected {
+			if _, ok := records[key]; !ok {
+				return fmt.Errorf("authkitmigrate: required migration %s is not applied", migration.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // setupAttempts bounds the Setup retry loop; a loser that keeps colliding
@@ -145,15 +139,15 @@ func isConcurrentDDL(err error) bool {
 	return false
 }
 
-// Validate returns nil when every AuthKit migration has been applied, and an
-// error naming the pending ones otherwise. Intended for host startup checks.
+// Validate requires every current migration with exact identity, digests and
+// applied status. It performs no migration or repair.
 func (m *Migrator) Validate(ctx context.Context) error {
 	p, ms, db, err := m.open()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	return p.ValidateAllApplied(ctx, ms)
+	return validateLedger(ctx, p, ms, true)
 }
 
 // open builds the migratekit migrator over dedicated sessions opened from the
@@ -162,15 +156,16 @@ func (m *Migrator) Validate(ctx context.Context) error {
 // never be released back into the host's pool (#302). migratekit pins one
 // session for the advisory lock and applies on another, so two are needed.
 // The default schema deliberately uses NO WithSchema so tracking rows keep the
-// historical schema-less stamp existing deployments already have.
+// canonical schema-less stamp shared with default raw-FS runners.
 func (m *Migrator) open() (*migratekit.Postgres, []migratekit.Migration, *sql.DB, error) {
 	if m == nil || m.pool == nil {
 		return nil, nil, nil, fmt.Errorf("authkitmigrate: a non-nil *pgxpool.Pool is required")
 	}
-	if m.schema != "" && (len(m.schema) > 63 || !schemaNameRE.MatchString(m.schema)) {
-		return nil, nil, nil, fmt.Errorf("authkitmigrate: invalid schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", m.schema)
+	fsys, err := migrations.FSForSchema(m.schema)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	ms, err := migratekit.LoadFromFS(migrations.FS)
+	ms, err := migratekit.LoadFromFS(fsys)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("authkitmigrate: load embedded migrations: %w", err)
 	}

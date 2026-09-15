@@ -35,7 +35,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: *schema}).Migrate(ctx); err != nil {
+	if err := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: *schema}).Migrate(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Print("AuthKit schema ready")
