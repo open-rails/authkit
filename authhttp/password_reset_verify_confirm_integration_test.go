@@ -229,6 +229,13 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	for range 2 {
+		_, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "before-reset", nil)
+		require.NoError(t, err)
+	}
+	before, err := srv.svc.ListUserSessions(ctx, user.ID)
+	require.NoError(t, err)
+	require.Len(t, before, 2)
 
 	w := serveJSON(srv, http.MethodPost, "/password/reset/request", `{"identifier":"`+email+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
@@ -237,6 +244,9 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 
 	w = serveJSON(srv, http.MethodPost, "/password/reset/confirm", `{"token":"`+token+`","new_password":"New-password-12345"}`)
 	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	after, err := srv.svc.ListUserSessions(ctx, user.ID)
+	require.NoError(t, err)
+	require.Empty(t, after, "recovery revokes every pre-reset session before a new login")
 
 	login, err := srv.svc.PasswordLogin(ctx, embedded.PasswordLoginInput{Identifier: email, Password: "New-password-12345"})
 	require.NoError(t, err)
