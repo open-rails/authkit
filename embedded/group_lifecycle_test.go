@@ -119,7 +119,10 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 		// FK KEY SHARE is compatible with the blocker, so this descendant commits
 		// after deletion began but before the child row can be locked/traversed.
-		create("leaf", "late-leaf", "fault-child")
+		// Public creation queues behind the authority lock. This direct store
+		// insertion still exercises the subtree traversal's FK race boundary.
+		_, err = svc.groupStore().CreateGroup(ctx, authkit.GroupRef{Persona: "leaf", Instance: "late-leaf"}, child)
+		require.NoError(t, err)
 		renamed := make(chan error, 1)
 		newName := "fault-child-renamed"
 		go func() {
@@ -232,6 +235,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		defer controller.Rollback(ctx)
 		q := db.ForSchema(controller, svc.dbSchema())
+		require.NoError(t, svc.lockAuthority(ctx, q))
 		require.NoError(t, lockPermissionGroup(ctx, q, gid))
 		writers := []func() error{
 			func() error { return svc.AssignGroupRoleAs(ctx, owner.ID, group, authkit.UserSubject(member.ID), role) },
@@ -255,7 +259,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}
 		require.Eventually(t, func() bool {
 			var n int
-			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT id::text FROM profiles.permission_groups WHERE id=%'`).Scan(&n)
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock%'`).Scan(&n)
 			return err == nil && n == len(writers)
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, svc.groupStoreFor(q).DeleteCustomRole(ctx, gid, role))

@@ -216,12 +216,15 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	}
 	codeHash := sha256Hex(code)
 
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return zero, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return zero, err
+	}
 
 	var groupID string
 	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
@@ -267,10 +270,7 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		if redeemedAt != nil {
 			return zero, ErrInviteLinkNotFound
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, groupID, persona, authkit.UserSubject(redeemerUserID), role); err != nil {
-			return zero, err
-		}
-		if err := NewPermissionGroupStore(q).AssignRole(ctx, groupID, authkit.UserSubject(redeemerUserID), role); err != nil {
+		if err := s.assignInvitedRole(ctx, NewPermissionGroupStore(q), groupID, persona, redeemerUserID, role); err != nil {
 			return zero, err
 		}
 		if _, err := q.Exec(ctx,

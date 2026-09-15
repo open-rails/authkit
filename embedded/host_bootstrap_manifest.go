@@ -130,7 +130,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 			}
 		}
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -141,6 +141,9 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		}
 	}()
 	raw := db.ForSchema(tx, s.dbSchema())
+	if err = s.lockAuthority(ctx, raw); err != nil {
+		return result, err
+	}
 	if _, err = raw.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.bootstrap."+s.dbSchema()); err != nil {
 		return result, err
 	}
@@ -162,7 +165,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		return result, err
 	}
 	for _, app := range manifest.RemoteApplications {
-		if err = s.applyBootstrapRemoteApplication(ctx, q, groups, rootID, app); err != nil {
+		if err = s.applyBootstrapRemoteApplication(ctx, groups, rootID, app); err != nil {
 			return result, err
 		}
 		result.RemoteApplications++
@@ -212,6 +215,11 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		// Existing owners are never displaced by seed-if-absent owner entries.
 		// Bootstrap is the one role seed that bypasses MFA enrollment.
 		if role != OwnerRoleName || owners == 0 {
+			if role != OwnerRoleName {
+				if err = s.refuseOwnerLoss(ctx, groups, rootID, authkit.UserSubject(applied.ID)); err != nil {
+					return result, err
+				}
+			}
 			if err = groups.AssignRole(ctx, rootID, authkit.UserSubject(applied.ID), role); err != nil {
 				return result, err
 			}
@@ -286,8 +294,8 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 	return nil
 }
 
-func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, q *db.Queries, groups *PermissionGroupStore, rootID string, app BootstrapManifestRemoteApplication) error {
-	ra, err := s.upsertRemoteApplication(ctx, q, RemoteApplication{
+func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, groups *PermissionGroupStore, rootID string, app BootstrapManifestRemoteApplication) error {
+	ra, err := s.upsertRemoteApplication(ctx, groups, RemoteApplication{
 		Slug:              strings.TrimSpace(app.Slug),
 		PermissionGroupID: rootID,
 		Issuer:            strings.TrimSpace(app.Issuer),
@@ -301,6 +309,11 @@ func (s *Client) applyBootstrapRemoteApplication(ctx context.Context, q *db.Quer
 	role := normalizeRootRoleSlug(authkit.Role(app.RootRole))
 	if role == "" {
 		return nil
+	}
+	if role != OwnerRoleName {
+		if err := s.refuseOwnerLoss(ctx, groups, rootID, authkit.RemoteAppSubject(ra.ID)); err != nil {
+			return err
+		}
 	}
 	return groups.AssignRole(ctx, rootID, authkit.RemoteAppSubject(ra.ID), role)
 }

@@ -17,8 +17,8 @@ const (
 )
 
 // NamingConfig is deployment-wide policy for users and group instances. Pointers
-// distinguish omission (defaults) from explicit false/zero. Durations use Go's
-// time.Duration in embedded configuration; the standalone boundary parses text.
+// distinguish omission (defaults) from explicit false/zero. Durations use Go
+// time.Duration in embedded configuration.
 type NamingConfig struct {
 	Enabled        *bool                     `json:"enabled,omitempty" koanf:"enabled"`
 	RenameInterval *time.Duration            `json:"rename_interval,omitempty" koanf:"rename_interval"`

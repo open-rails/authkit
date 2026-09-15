@@ -220,10 +220,17 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplicati
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	return s.upsertRemoteApplication(ctx, s.q, in)
+	var out *RemoteApplication
+	err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+		var err error
+		out, err = s.upsertRemoteApplication(ctx, st, in)
+		return err
+	})
+	return out, err
 }
 
-func (s *Client) upsertRemoteApplication(ctx context.Context, q *db.Queries, in RemoteApplication) (*RemoteApplication, error) {
+func (s *Client) upsertRemoteApplication(ctx context.Context, st *PermissionGroupStore, in RemoteApplication) (*RemoteApplication, error) {
+	q := db.New(st.q)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	issuer := strings.TrimSpace(in.Issuer)
 	jwksURI := strings.TrimSpace(in.JWKSURI)
@@ -271,6 +278,12 @@ func (s *Client) upsertRemoteApplication(ctx context.Context, q *db.Queries, in 
 		return nil, fmt.Errorf("look up remote application issuer: %w", err)
 	}
 
+	if err == nil && existing.Enabled && !in.Enabled {
+		// q is transaction-bound both here and during bootstrap reconciliation.
+		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(existing.ID)); err != nil {
+			return nil, err
+		}
+	}
 	row, err := q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:              slug,
 		PermissionGroupID: groupID,
@@ -424,12 +437,19 @@ func (s *Client) DeleteRemoteApplication(ctx context.Context, issuer string) err
 	if issuer == "" {
 		return ErrInvalidRemoteApplication
 	}
-	n, err := s.q.RemoteApplicationDelete(ctx, issuer)
-	if err != nil {
+	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+		q := db.New(st.q)
+		app, err := q.RemoteApplicationByIssuer(ctx, issuer)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRemoteApplicationNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(app.ID)); err != nil {
+			return err
+		}
+		_, err = q.RemoteApplicationDelete(ctx, issuer)
 		return err
-	}
-	if n == 0 {
-		return ErrRemoteApplicationNotFound
-	}
-	return nil
+	})
 }

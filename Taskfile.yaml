@@ -90,9 +90,10 @@ tasks:
             ] | map(. + "/memory", . + "/redis")) + [
               "TestNativeCredentialWorkflow/memory/passkey", "TestNativeCredentialWorkflow/memory/device_key",
               "TestNativeCredentialWorkflow/redis/passkey", "TestNativeCredentialWorkflow/redis/device_key",
-              "TestDelegatedTokenRoute_CertificateBoundEndToEnd", "TestDelegatedTokenRoute_KIDRotationReconciliation"
+              "TestDelegatedTokenRoute_CertificateBoundEndToEnd", "TestDelegatedTokenRoute_KIDRotationReconciliation",
+              "TestRoleOwnerHTTPWorkflow"
             ]),
-            embedded: ["TestBootstrapWorkflow", "TestGroupLifecycleWorkflow"],
+            embedded: ["TestBootstrapWorkflow", "TestGroupLifecycleWorkflow", "TestRoleOwnerWorkflow"],
             authkitmigrate: ["TestFreshSchemaWorkflow"]
           } | to_entries |
           [ .[] | .key as $package | .value[] | . as $test |

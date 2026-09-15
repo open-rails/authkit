@@ -115,12 +115,15 @@ func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermission
 		return "", err
 	}
 
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return "", err
+	}
 
 	parentID := ""
 	if req.Persona != RootPersona {
@@ -323,6 +326,7 @@ func (s *Client) AssignGroupRoleGenesis(ctx context.Context, group authkit.Group
 }
 
 func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role, checkMFA bool) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, ErrRoleNotAssignable)
@@ -341,18 +345,40 @@ func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, su
 				return err
 			}
 		}
+		old, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if old != role {
+			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+				return err
+			}
+		}
 		return st.AssignRole(ctx, gid, subject, role)
 	})
 }
 
 // UnassignGroupRole revokes a subject's role in a group.
 func (s *Client) UnassignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
 		return err
 	}
-	return st.UnassignRole(ctx, gid, subject, role)
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		current, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if current != role {
+			return nil
+		}
+		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+			return err
+		}
+		return st.UnassignRole(ctx, gid, subject, role)
+	})
 }
 
 // DeletePermissionGroupOptions controls the delete-time naming rule (#264).
@@ -374,12 +400,15 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 	if group.IsRoot() {
 		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
 	gid, bound, err := st.requestGroupID(ctx, group)
 	if !bound {
 		gid, err = st.GroupByLiveInstanceSlug(ctx, group)
@@ -387,7 +416,7 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 	if err != nil {
 		return err
 	}
-	if err := st.DeleteGroup(ctx, gid, opts); err != nil {
+	if err := s.deleteGroupTx(ctx, st, gid, opts); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

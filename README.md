@@ -144,6 +144,7 @@ authorized scope.
 - `docs/api-endpoints.md` — generated route table plus wire notes; CI fails
   when stale.
 - `docs/naming-policy.md` — user/group naming, renames and aliases.
+- [docs/ownership.md](docs/ownership.md) — role replacement and final-owner protection.
 - `SEMVER.md` — what the version contract covers.
 - `SECURITY.md` — reporting and the CI gates.
 

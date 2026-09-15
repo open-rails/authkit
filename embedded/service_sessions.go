@@ -558,6 +558,10 @@ func (s *Client) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID
 }
 
 func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
+	return s.revokeAllSessions(ctx, "", userID, keepSessionID)
+}
+
+func (s *Client) revokeAllSessions(ctx context.Context, actorUserID, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -566,11 +570,20 @@ func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessi
 		v := string(SessionRevokeReasonUserRevokeAll)
 		reason = &v
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if actorUserID != "" {
+		st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+		if err := s.lockAuthority(ctx, st.q); err != nil {
+			return err
+		}
+		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, userID); err != nil {
+			return err
+		}
+	}
 	q := s.qtx(tx)
 	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
 		return nil

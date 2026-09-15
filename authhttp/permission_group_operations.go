@@ -143,6 +143,7 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, grou
 
 // groupMemberRole assigns or replaces the user's single role in the group.
 func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, userID string, role authkit.Role) {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	if userID == "" || role == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
@@ -478,6 +479,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 // route, gated <persona>:credentials:manage by the generated route table. The
 // :app slug must resolve to an application controlled by the addressed group.
 func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, appSlug string, role authkit.Role) {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	if appSlug == "" || role == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return

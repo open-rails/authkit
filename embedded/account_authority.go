@@ -16,16 +16,25 @@ import (
 	authkit "github.com/open-rails/authkit"
 )
 
-func (s *Client) authorizeAccountAuthority(ctx context.Context, actorUserID, targetUserID string) error {
+func (s *Client) authorizeAccountAuthorityOn(ctx context.Context, st *PermissionGroupStore, actorUserID, targetUserID string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	targetUserID = strings.TrimSpace(targetUserID)
 	if actorUserID == "" || targetUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
-	if actorUserID == targetUserID || s.pg == nil {
+	if s.pg == nil {
 		return nil
 	}
-	st := s.groupStore()
+	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	if err != nil {
+		return err
+	}
+	if !live {
+		return ErrInsufficientRoleAuthority
+	}
+	if actorUserID == targetUserID {
+		return nil
+	}
 	gid, err := st.RootGroupID(ctx)
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
@@ -53,24 +62,24 @@ func (s *Client) authorizeAccountAuthority(ctx context.Context, actorUserID, tar
 
 // SoftDeleteUserAs is the actor-aware SoftDeleteUser.
 func (s *Client) SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
-	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
-		return err
+	if strings.TrimSpace(actorUserID) == "" {
+		return ErrInsufficientRoleAuthority
 	}
-	return s.SoftDeleteUser(ctx, userID)
+	return s.softDeleteUser(ctx, actorUserID, userID)
 }
 
 // HardDeleteUserAs is the actor-aware HardDeleteUser.
 func (s *Client) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
-	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
-		return err
+	if strings.TrimSpace(actorUserID) == "" {
+		return ErrInsufficientRoleAuthority
 	}
-	return s.HardDeleteUser(ctx, userID)
+	return s.adminDeleteUser(ctx, actorUserID, userID)
 }
 
 // AdminRevokeUserSessionsAs is the actor-aware AdminRevokeUserSessions.
 func (s *Client) AdminRevokeUserSessionsAs(ctx context.Context, actorUserID, userID string) error {
-	if err := s.authorizeAccountAuthority(ctx, actorUserID, userID); err != nil {
-		return err
+	if strings.TrimSpace(actorUserID) == "" {
+		return ErrInsufficientRoleAuthority
 	}
-	return s.AdminRevokeUserSessions(ctx, userID)
+	return s.revokeAllSessions(ctx, actorUserID, userID, nil)
 }

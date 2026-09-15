@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -51,14 +52,21 @@ func (s *Client) PatchUserMetadata(ctx context.Context, userID string, patch map
 	if err != nil {
 		return err
 	}
-	n, err := s.q.UserMetadataPatch(ctx, db.UserMetadataPatchParams{ID: userID, Patch: raw})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrUserNotFound
-	}
-	return nil
+	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+		if metadataMarksReserved(raw) {
+			if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
+				return err
+			}
+		}
+		n, err := db.New(st.q).UserMetadataPatch(ctx, db.UserMetadataPatchParams{ID: userID, Patch: raw})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrUserNotFound
+		}
+		return nil
+	})
 }
 
 // IsUserReserved reports whether a user is a reserved, non-loginable placeholder
@@ -81,4 +89,14 @@ func (s *Client) IsUserReserved(ctx context.Context, userID string) (bool, error
 		return false, err
 	}
 	return reserved, nil
+}
+
+// Inspect the exact normalized JSON written to PostgreSQL, including values
+// supplied through json.RawMessage or a host's custom JSON marshaler.
+func metadataMarksReserved(raw []byte) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	return strings.TrimSpace(string(fields["reserved"])) == "true"
 }

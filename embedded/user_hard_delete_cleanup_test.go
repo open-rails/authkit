@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	authkit "github.com/open-rails/authkit"
 	"testing"
 
 	"github.com/open-rails/authkit/internal/testdb"
@@ -67,6 +68,9 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 		t.Fatalf("precondition: owner should hold an assignment")
 	}
 
+	if err := svc.AssignGroupRoleAs(ctx, owner, authkit.GroupRef{Persona: "org", Instance: "acme"}, authkit.UserSubject(invitee), OwnerRoleName); err != nil {
+		t.Fatalf("add replacement owner: %v", err)
+	}
 	// The hard delete must SUCCEED and clear the owner's group assignments.
 	if err := svc.AdminDeleteUser(ctx, owner); err != nil {
 		t.Fatalf("AdminDeleteUser: %v", err)

@@ -26,7 +26,7 @@ func (s *Client) registerAccount(ctx context.Context, in accountRegistration) (r
 	if err := s.requirePG(); err != nil {
 		return registeredAccount{}, err
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return registeredAccount{}, err
 	}

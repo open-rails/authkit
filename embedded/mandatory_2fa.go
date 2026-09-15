@@ -3,7 +3,6 @@ package embedded
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -296,21 +295,15 @@ func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 			removals = append(removals, r)
 		}
 	}
-	// Never orphan a group: refuse the whole disable outright if it would strip
-	// the owner role from a group's LAST owner, rather than silently keeping the
-	// role (2FA stays on) or silently stripping it (group left ownerless). The
-	// caller must add another owner before disabling their own 2FA.
 	st := NewPermissionGroupStore(q)
-	for _, r := range removals {
-		if r.Role != OwnerRoleName {
-			continue
-		}
-		n, err := st.OwnerCount(ctx, r.PermissionGroupID)
-		if err != nil {
+	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
 			return nil, err
 		}
-		if n <= 1 {
-			return nil, fmt.Errorf("disable 2fa: sole owner of %s group: %w", r.Persona, ErrCannotRemoveLastAdminRole)
+	}
+	for _, r := range removals {
+		if err := s.refuseOwnerLoss(ctx, st, r.PermissionGroupID, authkit.UserSubject(userID)); err != nil {
+			return nil, err
 		}
 	}
 

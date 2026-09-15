@@ -68,6 +68,15 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 	_, err = client.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors)
 	require.NoError(t, err)
 
+	recovery, err := client.CreateUser(ctx, fmt.Sprintf("genesis-recovery-%d@example.com", suffix), fmt.Sprintf("genesis-recovery-%d", suffix))
+	require.NoError(t, err)
+	_, err = client.Enable2FA(ctx, recovery.ID, "email", nil, AllowAdditionalFactors)
+	require.NoError(t, err)
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(recovery.ID), authkit.OwnerRole))
+	t.Cleanup(func() {
+		_, _ = client.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=ANY($1::uuid[])`, []string{user.ID, recovery.ID})
+	})
+
 	// Genesis().AssignGroupRole grants with NO actor check; RemoveRoleBySlug
 	// revokes the same way.
 	require.NoError(t, client.Genesis().AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), authkit.OwnerRole))

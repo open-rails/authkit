@@ -167,12 +167,15 @@ func (s *Client) Disable2FAWithRemovedRoles(ctx context.Context, userID string) 
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return nil, err
+	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err
@@ -197,12 +200,15 @@ func (s *Client) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, f
 	if strings.TrimSpace(factorID) == "" {
 		return nil, fmt.Errorf("factor id required")
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
+	if err := s.lockAuthority(ctx, q); err != nil {
+		return nil, err
+	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return nil, err

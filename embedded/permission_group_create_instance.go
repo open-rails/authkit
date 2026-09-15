@@ -188,6 +188,7 @@ func (s *Client) subjectMemberOfGroup(ctx context.Context, userID string, group 
 // permission the role confers (no-escalation), so nobody can grant an
 // application authority above their own.
 func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -213,6 +214,19 @@ func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
 		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
 			return err
+		}
+		subject := authkit.RemoteAppSubject(ra.ID)
+		old, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if old != "" && old != role {
+			if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), old); err != nil {
+				return err
+			}
+			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+				return err
+			}
 		}
 		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(ra.ID), role)
 	})

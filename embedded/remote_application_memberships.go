@@ -68,6 +68,16 @@ func (s *Client) AssignRemoteApplicationRole(ctx context.Context, appID string, 
 		if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
 			return err
 		}
+		subject := authkit.RemoteAppSubject(strings.TrimSpace(appID))
+		old, err := st.directRole(ctx, gid, subject)
+		if err != nil {
+			return err
+		}
+		if old != role {
+			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
+				return err
+			}
+		}
 		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(strings.TrimSpace(appID)), role)
 	})
 }
