@@ -145,9 +145,16 @@ func mapKeys[V any](values map[string]V) []string {
 	return keys
 }
 
-func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
+func TestNativeCredentialWorkflow(t *testing.T) {
+	forEachStore(t, func(t *testing.T, store ephemeralStore) {
+		t.Run("passkey", func(t *testing.T) { testPasskeyFullCeremonyAndAssurance(t, store) })
+		t.Run("device_key", func(t *testing.T) { testDeviceKeyLifecycle(t, store) })
+	})
+}
+
+func testDeviceKeyLifecycle(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t)
+	srv, sender := deviceKeyTestServer(t, store.engineOpts()...)
 	pool := srv.svc.Postgres()
 	email := uniqueEmail("device-key")
 	publicKey, privateKey := newDeviceKey(t)
@@ -230,19 +237,7 @@ func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
 		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
-}
-
-func TestDeviceKeyLoginBeginDoesNotRevealKnownKey(t *testing.T) {
-	srv, sender := deviceKeyTestServer(t)
-	email := uniqueEmail("device-key-enum")
-	publicKey, privateKey := newDeviceKey(t)
-	enrolled := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
-	user, err := srv.svc.GetUserByEmail(context.Background(), email)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1`, user.ID)
-	})
-
+	require.Empty(t, sender.deviceKeyNotices(), "new accounts have no existing owner to notify")
 	knownStatus, knownRaw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
 	unknownStatus, unknownRaw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": "018f6f74-9f0c-7b27-8000-000000000001"})
 	require.Equal(t, http.StatusAccepted, knownStatus)
@@ -255,63 +250,17 @@ func TestDeviceKeyLoginBeginDoesNotRevealKnownKey(t *testing.T) {
 	require.False(t, known.ExpiresAt.IsZero())
 	require.False(t, unknown.ExpiresAt.IsZero())
 
-	status, _ := postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
+	status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": unknown.ChallengeID,
 		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, unknown.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
-}
-
-func TestDeviceKeyEmailEnrollmentAddsIndependentMachineToExistingAccount(t *testing.T) {
-	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t)
-	email := uniqueEmail("device-key-second")
-	firstPublic, firstPrivate := newDeviceKey(t)
-	first := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, firstPublic), firstPrivate)
+	first, firstPrivate := enrolled, privateKey
 	secondPublic, secondPrivate := newDeviceKey(t)
 	second := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
-
-	firstClaims := unverifiedAccessClaims(t, first.AccessToken)
-	secondClaims := unverifiedAccessClaims(t, second.AccessToken)
-	require.Equal(t, firstClaims["sub"], secondClaims["sub"])
+	require.Equal(t, claims["sub"], unverifiedAccessClaims(t, second.AccessToken)["sub"])
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
-
-	user, err := srv.svc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
-	var keys int
-	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&keys))
-	require.Equal(t, 2, keys)
-}
-
-func loginDeviceKey(t *testing.T, srv *Service, id string, privateKey ed25519.PrivateKey) deviceKeyTokenBody {
-	t.Helper()
-	status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": id})
-	require.Equal(t, http.StatusAccepted, status, string(raw))
-	var challenge deviceKeyChallengeBody
-	require.NoError(t, json.Unmarshal(raw, &challenge))
-	status, raw = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
-		"challenge_id": challenge.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
-	})
-	require.Equal(t, http.StatusOK, status, string(raw))
-	var token deviceKeyTokenBody
-	require.NoError(t, json.Unmarshal(raw, &token))
-	return token
-}
-
-func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
-	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t)
-	email := uniqueEmail("device-key-management")
-	firstPublic, firstPrivate := newDeviceKey(t)
-	first := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, firstPublic), firstPrivate)
-	secondPublic, secondPrivate := newDeviceKey(t)
-	second := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
-	user, err := srv.svc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
-
+	require.Equal(t, []string{email}, sender.deviceKeyNotices(), "an independent machine notifies the existing owner")
 	listed := serveAuthJSON(srv, http.MethodGet, "/device-keys", "", second.AccessToken)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	var list struct {
@@ -329,7 +278,7 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	require.Equal(t, 1, current)
 
 	// An ordinary device-key token is not a recovery-root proof.
-	loggedIn := loginDeviceKey(t, srv, second.DeviceKey.ID, secondPrivate)
+	loggedIn = loginDeviceKey(t, srv, second.DeviceKey.ID, secondPrivate)
 	refused := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, loggedIn.AccessToken)
 	require.Equal(t, http.StatusForbidden, refused.Code, refused.Body.String())
 
@@ -347,7 +296,7 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	require.Equal(t, 1, live)
 
 	// The replaced machine can no longer mint a token; the kept machine can.
-	status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": first.DeviceKey.ID})
+	status, raw = postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": first.DeviceKey.ID})
 	require.Equal(t, http.StatusAccepted, status, string(raw))
 	var firstChallenge deviceKeyChallengeBody
 	require.NoError(t, json.Unmarshal(raw, &firstChallenge))
@@ -376,6 +325,22 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 		"signature":     signDeviceChallenge(t, secondPrivate, testDeviceEnrollmentDomain, reenroll.Challenge),
 	})
 	require.Equal(t, http.StatusBadRequest, status)
+}
+
+func loginDeviceKey(t *testing.T, srv *Service, id string, privateKey ed25519.PrivateKey) deviceKeyTokenBody {
+	t.Helper()
+	status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": id})
+	require.Equal(t, http.StatusAccepted, status, string(raw))
+	var challenge deviceKeyChallengeBody
+	require.NoError(t, json.Unmarshal(raw, &challenge))
+	status, raw = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
+		"challenge_id": challenge.ChallengeID,
+		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
+	})
+	require.Equal(t, http.StatusOK, status, string(raw))
+	var token deviceKeyTokenBody
+	require.NoError(t, json.Unmarshal(raw, &token))
+	return token
 }
 
 func TestDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T) {

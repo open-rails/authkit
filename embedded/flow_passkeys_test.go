@@ -171,6 +171,11 @@ func TestPasskeyVerificationProvesIdentityWithoutSession(t *testing.T) {
 		_, err = c.FinishDiscoverablePasskeyVerification(ctx, noUV.Assert(t, assertion, 5))
 		require.Error(t, err)
 
+		assertion, err = c.BeginPasskeyLogin(ctx)
+		require.NoError(t, err)
+		_, err = c.FinishPasskeyLogin(ctx, noUV.Assert(t, assertion, 5), "test", nil)
+		require.ErrorIs(t, err, ErrPasskeyUserVerificationRequired)
+
 		wrongRP := *authn
 		assertion, err = c.BeginDiscoverablePasskeyVerification(ctx)
 		require.NoError(t, err)

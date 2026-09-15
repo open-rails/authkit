@@ -81,6 +81,27 @@ tasks:
           exit 1
         fi
         echo "skip gate: 0 skipped, $(jq -r 'select(.Action == "pass" and .Test != null) | .Test' .reports/go-test.json | wc -l) passed"
+        jq -ser '
+          . as $events |
+          {
+            authhttp: (([
+              "TestAccountAdmissionWorkflow", "TestAuthenticationContinuationWorkflow",
+              "TestProviderAuthenticationWorkflow", "TestFactorManagementWorkflow"
+            ] | map(. + "/memory", . + "/redis")) + [
+              "TestNativeCredentialWorkflow/memory/passkey", "TestNativeCredentialWorkflow/memory/device_key",
+              "TestNativeCredentialWorkflow/redis/passkey", "TestNativeCredentialWorkflow/redis/device_key",
+              "TestDelegatedTokenRoute_CertificateBoundEndToEnd", "TestDelegatedTokenRoute_KIDRotationReconciliation"
+            ]),
+            embedded: ["TestBootstrapWorkflow", "TestGroupLifecycleWorkflow"],
+            authkitmigrate: ["TestFreshSchemaWorkflow"]
+          } | to_entries |
+          [ .[] | .key as $package | .value[] | . as $test |
+            select(any($events[]; .Action == "pass" and
+              .Package == ("github.com/open-rails/authkit/" + $package) and
+              .Test == $test) | not) | ($package + "/" + $test) ] |
+          if length == 0 then "workflow gate: all required lifecycle suites ran"
+          else error("missing required workflows: " + join(", ")) end
+        ' .reports/go-test.json
 
   test-fast:
     desc: Fast DB-free smoke (race detector, no Postgres). DB-backed tests skip.
