@@ -1,0 +1,14 @@
+{
+  "error": {
+    "type": "authorization_error",
+    "code": "2fa_required",
+    "metadata": {
+      "user_id": "$string",
+      "challenge": "$string",
+      "method": "totp",
+      "verification_id": "",
+      "default_factor": { "id": "$string", "method": "totp" },
+      "available_factors": "$array"
+    }
+  }
+}

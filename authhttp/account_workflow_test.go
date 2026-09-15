@@ -351,6 +351,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				link := f.deliveredLink(f.email.verificationURL(t), path, "email")
 				first := f.expect(403, f.post(confirm, map[string]any{"token": link}))
 				require.Equal(t, "2fa_enrollment_required", first.Error.Code)
+				assertWireGolden(t, "mfa-enrollment", json.RawMessage(first.raw))
 				grant := first.Error.Metadata.TokenSet
 				require.NotEmpty(t, grant.AccessToken)
 				require.Empty(t, grant.RefreshToken)
@@ -374,6 +375,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				}
 				require.Equal(t, "2fa_required", second.Error.Code)
 				require.Equal(t, "totp", second.Error.Metadata.Method)
+				assertWireGolden(t, "mfa-challenge", json.RawMessage(second.raw))
 				wrong := map[string]any{"user_id": second.Error.Metadata.UserID, "challenge": second.Error.Metadata.Challenge + "x", "code": enabled.BackupCodes[0], "backup_code": true}
 				f.expect(401, f.post("/2fa/verify", wrong))
 				wrong["challenge"] = second.Error.Metadata.Challenge
