@@ -879,10 +879,10 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 		}
 	}
 	if isDPoPRequest(r) && confirmationKind != jwtkit.JWKThumbprintMember {
-		return Claims{}, ErrSenderProofRequired
+		return Claims{}, errDPoPProofRequired
 	}
 	if confirmationKind == jwtkit.JWKThumbprintMember && (!isDPoPRequest(r) || v.dpopRequestURL == nil || v.dpopReplay == nil) {
-		return Claims{}, ErrSenderProofRequired
+		return Claims{}, errDPoPProofRequired
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
@@ -997,7 +997,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
 				return Claims{}, authkit.E(authkit.CodeInternalError, authkit.WithCause(err))
 			}
-			return Claims{}, ErrSenderProofRequired
+			return Claims{}, errDPoPProofRequired
 		}
 	}
 	return cl, nil

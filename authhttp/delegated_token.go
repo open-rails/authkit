@@ -107,6 +107,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
 				serverErr(w, authkit.CodeInternalError)
 			} else {
+				w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
 				unauthorized(w, authkit.CodeSenderProofRequired)
 			}
 			return

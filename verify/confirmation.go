@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -19,6 +20,7 @@ var (
 	// without its certificate: no TLS peer, a different leaf, or a token-only
 	// verification detached from its request.
 	ErrSenderProofRequired = authkit.E(authkit.CodeSenderProofRequired)
+	errDPoPProofRequired   = fmt.Errorf("DPoP: %w", ErrSenderProofRequired)
 	// ErrInvalidConfirmation rejects a `cnf` claim that is not exactly
 	// {"x5t#S256": <unpadded base64url sha256>} or {"jkt": <same format>}.
 	ErrInvalidConfirmation = authkit.E(authkit.CodeInvalidConfirmation)

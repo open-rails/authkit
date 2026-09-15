@@ -65,6 +65,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		browserKey := testdpop.Key(t)
 		target := cfg.Token.Issuer + "/api/v1/delegated/token"
 		body := `{"requested_grant":{"permissions":["root:all"]},"audiences":["platform"],"ttl_seconds":1}`
+		var lastChallenge string
 		post := func(body, token, proof string, headers map[string]string) (int, []byte) {
 			req, err := http.NewRequest("POST", issuer.URL+"/api/v1/delegated/token", strings.NewReader(body))
 			require.NoError(t, err)
@@ -83,6 +84,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			resp, err := issuer.Client().Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
+			lastChallenge = resp.Header.Get("WWW-Authenticate")
 			raw, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			return resp.StatusCode, raw
@@ -110,6 +112,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		require.NotEmpty(t, claims["documents"])
 		status, _ = post(body, session.AccessToken, proof, nil)
 		require.Equal(t, 401, status)
+		require.Equal(t, `DPoP error="invalid_dpop_proof", algs="ES256"`, lastChallenge)
 		status, _ = post(body, session.AccessToken, "", nil)
 		require.Equal(t, 400, status)
 		status, _ = post(body, "", testdpop.Proof(t, browserKey, "POST", target, "", nil), nil)
@@ -143,7 +146,12 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		var resource *httptest.Server
 		verifier := verify.NewVerifier(verify.WithDPoP(engine.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 		require.NoError(t, verifier.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
-		resource = httptest.NewTLSServer(resourceHandler(verifier))
+		resourceMux := http.NewServeMux()
+		resourceMux.Handle("/", resourceHandler(verifier))
+		live, err := verify.RequiredLive(verifier.WithLiveness(engine))
+		require.NoError(t, err)
+		resourceMux.Handle("/live", live(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })))
+		resource = httptest.NewTLSServer(resourceMux)
 		t.Cleanup(resource.Close)
 		call := func(scheme, token, proof, path string) int {
 			req, err := http.NewRequest("GET", resource.URL+path, nil)
@@ -154,6 +162,9 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			}
 			resp, err := resource.Client().Do(req)
 			require.NoError(t, err)
+			if resp.StatusCode == 401 {
+				require.Equal(t, `DPoP error="invalid_dpop_proof", algs="ES256"`, resp.Header.Get("WWW-Authenticate"))
+			}
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			return resp.StatusCode
@@ -162,6 +173,8 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			return testdpop.Proof(t, browserKey, "GET", resource.URL+"/tasks", token, nil)
 		}
 		require.Equal(t, 200, call("DPoP", minted.Token, resourceProof(minted.Token), "/tasks?cursor=next"))
+		require.Equal(t, 401, call("DPoP", minted.Token, resourceProof(minted.Token), "/live"))
+		require.Equal(t, 200, call("DPoP", minted.Token, testdpop.Proof(t, browserKey, "GET", resource.URL+"/live", minted.Token, nil), "/live"))
 		require.Equal(t, 401, call("Bearer", minted.Token, resourceProof(minted.Token), "/tasks"))
 		require.Equal(t, 401, call("DPoP", minted.Token, "", "/tasks"))
 		require.Equal(t, 401, call("DPoP", minted.Token, resourceProof("other-token"), "/tasks"))
@@ -228,6 +241,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			status, raw := post(body, session.AccessToken, mintProof, nil)
 			require.Equal(t, 500, status, string(raw))
 			require.Contains(t, string(raw), "internal_error")
+			require.Empty(t, lastChallenge)
 			v := verify.NewVerifier(verify.WithDPoP(broken.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 			require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 			req := httptest.NewRequest("GET", resource.URL+"/tasks", nil)
@@ -236,6 +250,10 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			_, err = v.VerifyRequest(req)
 			require.Error(t, err)
 			require.Equal(t, authkit.CodeInternalError, authkit.AsError(err).Code)
+			rejected := httptest.NewRecorder()
+			verify.Required(v)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("storage outage admitted request") })).ServeHTTP(rejected, req)
+			require.Equal(t, 500, rejected.Code)
+			require.Empty(t, rejected.Header().Get("WWW-Authenticate"))
 			require.NoError(t, store.rdb.Do(ctx, "ACL", "SETUSER", name, "+eval", "+evalsha").Err())
 			status, raw = post(body, session.AccessToken, mintProof, nil)
 			require.Equal(t, 200, status, string(raw))

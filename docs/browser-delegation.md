@@ -58,7 +58,11 @@ This profile does not require server nonces. Proof replay claims persist for
 all remaining accepted timestamp time, rounded up (at most 121 seconds).
 Reusing a proof, even concurrently, is refused. Backend failure fails closed
 as an operational `internal_error`; it is never converted to an invalid proof
-or a non-atomic fallback.
+or a non-atomic fallback. AuthKit's mint and `verify.Required`/`RequiredLive` HTTP responses
+include `WWW-Authenticate: DPoP error="invalid_dpop_proof", algs="ES256"`
+on proof rejection, while preserving its usual JSON error envelope. A replay
+store failure returns a server error without an invalid-proof challenge.
+Standalone verifier APIs return errors; their hosts own HTTP challenge headers.
 
 ## Direct resource requests
 
@@ -91,7 +95,8 @@ forwarding headers. This configuration affects proof matching, not routing.
 
 CORS policy remains host-owned. Allow the approved browser origin and the
 `Authorization`, `DPoP` and `Content-Type` request headers for supported methods;
-preflight must not require an access token. Successful sender proof does not
+preflight must not require an access token. Expose `WWW-Authenticate` through
+`Access-Control-Expose-Headers` so the browser can inspect challenges. Successful sender proof does not
 replace issuer eligibility, audience, stored permission ceilings, signed
 document validation, or per-resource authorization.
 

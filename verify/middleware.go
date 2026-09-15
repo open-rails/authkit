@@ -2,6 +2,7 @@ package verify
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -74,6 +75,13 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	return cl, nil
 }
 
+func writeRequestError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errDPoPProofRequired) || (isDPoPRequest(r) && errors.Is(err, ErrSenderProofRequired)) {
+		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
+	}
+	authkit.WriteError(w, unauthorizedError(err))
+}
+
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
 // Gin hosts: use the gin-native authkitgin.Required (adapters/gin) instead of hand-wrapping this.
 func Required(v *Verifier) func(http.Handler) http.Handler {
@@ -81,7 +89,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := v.VerifyRequest(r)
 			if err != nil {
-				authkit.WriteError(w, unauthorizedError(err))
+				writeRequestError(w, r, err)
 				return
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))
