@@ -5,7 +5,7 @@
     "metadata": {
       "user_id": "$string",
       "requires_2fa_enrollment": true,
-      "allowed_methods": "$array",
+      "allowed_methods": "$strings",
       "token_set": {
         "access_token": "$string",
         "token_type": "Bearer",

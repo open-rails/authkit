@@ -86,12 +86,28 @@ func assertWireGolden(t *testing.T, name string, value any) {
 			case "$number":
 				require.IsType(t, float64(0), got, path)
 				require.Greater(t, got.(float64), float64(0), path)
-			case "$array":
+			case "$strings":
 				require.IsType(t, []any{}, got, path)
 				require.NotEmpty(t, got, path)
+				for _, item := range got.([]any) {
+					match("$string", item, path+"[]")
+				}
 			default:
 				require.Equal(t, want, got, path)
 			}
+		case []any:
+			// A single object is an item schema; scalar arrays pin exact values.
+			if len(want) == 1 {
+				if _, object := want[0].(map[string]any); object {
+					require.IsType(t, []any{}, got, path)
+					require.NotEmpty(t, got, path)
+					for _, item := range got.([]any) {
+						match(want[0], item, path+"[]")
+					}
+					return
+				}
+			}
+			require.Equal(t, want, got, path)
 		default:
 			require.Equal(t, want, got, path)
 		}

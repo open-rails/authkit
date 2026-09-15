@@ -60,6 +60,12 @@ export GOWORK=off GOFLAGS=-mod=readonly
 for directory in . adapters/gin adapters/riverjobs; do
   name=${directory//\//_}
   module=$(cd "$root/$directory" && go list -m)
+  # GOWORK=off alone does not disable module-local replacements.
+  (cd "$root/$directory" && go mod edit -json) | python3 -c '
+import json, sys
+for replacement in json.load(sys.stdin).get("Replace", []) or []:
+    raise SystemExit("module replacement defeats release validation: " + replacement["Old"]["Path"])
+'
   # A historical module may need its indirect graph normalized by the current
   # Go toolchain. This writes only the extracted report copy, never a checkout.
   (cd "$report/base/$directory" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/$name.export" "$module")

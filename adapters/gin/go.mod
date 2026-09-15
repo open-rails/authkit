@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/open-rails/authkit v0.99.3-0.20260915010227-87a40dc74a0c
+	github.com/open-rails/authkit v0.99.3-0.20260915013709-abfa8425d09d
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
 )
@@ -73,5 +73,3 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/open-rails/authkit => ../..

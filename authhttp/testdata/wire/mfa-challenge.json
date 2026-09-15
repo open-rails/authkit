@@ -8,7 +8,7 @@
       "method": "totp",
       "verification_id": "$text",
       "default_factor": { "id": "$string", "method": "totp" },
-      "available_factors": "$array"
+      "available_factors": [{ "id": "$string", "method": "$string" }]
     }
   }
 }

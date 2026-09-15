@@ -178,7 +178,7 @@ The catalog is `authkit.Codes()` (root `errors.go`), pinned by
 `errors_test.go` and `authhttp/error_catalog_integration_test.go`. A code's
 string and status are frozen; removing one is MAJOR, adding one is MINOR
 (clients must tolerate unknown codes). Compare against `authkit.Code*`
-constants.
+values.
 
 ### 5.3 Success shapes
 

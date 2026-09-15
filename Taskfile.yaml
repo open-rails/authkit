@@ -98,8 +98,12 @@ tasks:
       AUTHKIT_TEST_REQUIRE_DB: '1'
     cmds:
       - |
+        set -o pipefail
+        mkdir -p .reports
         AUTHKIT_PLAYWRIGHT_MODULE="${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}" \
-          go test -race -tags browser ./authhttp -run '^TestCookieLoginBrowserTwoSites$' -count=1 -v
+          go test -race -tags browser ./authhttp -run '^TestCookieLoginBrowserTwoSites$' -count=1 -json \
+          | tee .reports/browser-test.json | jq -rj 'select(.Action == "output") | .Output'
+        jq -se 'any(.[]; .Action == "pass" and .Test == "TestCookieLoginBrowserTwoSites")' .reports/browser-test.json
 
   test-query-contracts:
     desc: Run semantic query-contract tests against a migrated scratch Postgres

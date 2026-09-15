@@ -48,12 +48,13 @@ type flowResponse struct {
 	Error       struct {
 		Code     string `json:"code"`
 		Metadata struct {
-			UserID         string           `json:"user_id"`
-			Challenge      string           `json:"challenge"`
-			Method         string           `json:"method"`
-			TokenSet       authkit.TokenSet `json:"token_set"`
-			AllowedMethods []string         `json:"allowed_methods"`
-			BackupCodes    []string         `json:"backup_codes"`
+			UserID           string                    `json:"user_id"`
+			Challenge        string                    `json:"challenge"`
+			Method           string                    `json:"method"`
+			TokenSet         authkit.TokenSet          `json:"token_set"`
+			AllowedMethods   []string                  `json:"allowed_methods"`
+			AvailableFactors []twoFactorFactorResponse `json:"available_factors"`
+			BackupCodes      []string                  `json:"backup_codes"`
 		} `json:"metadata"`
 	} `json:"error"`
 }
@@ -356,6 +357,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				require.NotEmpty(t, grant.AccessToken)
 				require.Empty(t, grant.RefreshToken)
 				require.NotContains(t, first.Error.Metadata.AllowedMethods, "email", "two proofs sent to one mailbox are one factor")
+				require.Contains(t, first.Error.Metadata.AllowedMethods, "totp")
 				require.ElementsMatch(t, []any{"email"}, unverifiedAccessClaims(t, grant.AccessToken)["amr"])
 				denied := f.request("GET", "/me", grant.AccessToken, nil)
 				require.GreaterOrEqual(t, denied.status, 400, denied.raw)
@@ -376,6 +378,11 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				require.Equal(t, "2fa_required", second.Error.Code)
 				require.Equal(t, "totp", second.Error.Metadata.Method)
 				assertWireGolden(t, "mfa-challenge", json.RawMessage(second.raw))
+				methods := make([]string, 0, len(second.Error.Metadata.AvailableFactors))
+				for _, factor := range second.Error.Metadata.AvailableFactors {
+					methods = append(methods, factor.Method)
+				}
+				require.Contains(t, methods, "totp")
 				wrong := map[string]any{"user_id": second.Error.Metadata.UserID, "challenge": second.Error.Metadata.Challenge + "x", "code": enabled.BackupCodes[0], "backup_code": true}
 				f.expect(401, f.post("/2fa/verify", wrong))
 				wrong["challenge"] = second.Error.Metadata.Challenge
