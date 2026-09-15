@@ -570,7 +570,7 @@ func (s *Client) revokeAllSessions(ctx context.Context, actorUserID, userID stri
 		v := string(SessionRevokeReasonUserRevokeAll)
 		reason = &v
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

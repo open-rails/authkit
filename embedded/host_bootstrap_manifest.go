@@ -130,7 +130,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 			}
 		}
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return result, err
 	}

@@ -273,7 +273,7 @@ func (s *Client) consumeAccountRegistrationInvite(ctx context.Context, _ string,
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

@@ -18,11 +18,17 @@ func (s *Client) lockAuthority(ctx context.Context, q db.DBTX) error {
 	return err
 }
 
+// Authority reads after a queued lock must use a new statement snapshot even
+// when a host configures its pool with a stronger default isolation level.
+func (s *Client) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) {
+	return s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+}
+
 func (s *Client) withAuthorityMutation(ctx context.Context, apply func(*PermissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}
@@ -54,7 +60,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 	var query string
 	switch subject.Kind {
 	case SubjectKindUser:
-		query = `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=now()))`
+		query = `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
 	case SubjectKindRemoteApp:
 		query = `SELECT EXISTS(SELECT 1 FROM profiles.remote_applications WHERE id=$1::uuid AND enabled)`
 	default:
@@ -91,7 +97,7 @@ func (s *Client) requireRemainingOwner(ctx context.Context, st *PermissionGroupS
 	err := st.q.QueryRow(ctx, `SELECT EXISTS(
  SELECT 1 FROM profiles.group_user_roles r JOIN profiles.users u ON u.id=r.user_id
  WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='user' AND u.id=$3::uuid)
- AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=now())
+ AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())
  AND (NOT $4 OR EXISTS(SELECT 1 FROM profiles.mfa_settings m WHERE m.user_id=u.id AND m.enabled
  AND EXISTS(SELECT 1 FROM profiles.mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL

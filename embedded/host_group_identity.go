@@ -35,7 +35,7 @@ func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

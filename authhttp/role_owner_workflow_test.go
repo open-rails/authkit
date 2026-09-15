@@ -35,6 +35,9 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	}
 	require.Equal(t, http.StatusForbidden, assign(managerToken, owner, "member"))
 	require.Equal(t, http.StatusConflict, assign(token, owner, "member"))
+	w = serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/members/"+owner+"/roles/%20owner%20", "", token)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"role":"owner"`)
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	requireErrorCode(t, w.Body.String(), string(authkit.CodeCannotRemoveLastOwner))

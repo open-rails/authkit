@@ -283,7 +283,7 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 	if userID == "" {
 		return nil, ErrUserNotFound
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +402,7 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 		t := until.UTC()
 		untilPtr = &t
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}
@@ -446,7 +446,7 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if s.pg == nil {
 		return nil
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

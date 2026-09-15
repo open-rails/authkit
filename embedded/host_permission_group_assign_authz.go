@@ -168,6 +168,7 @@ func (s *Client) authorizeCustomRoleChange(ctx context.Context, st *PermissionGr
 // callers (HTTP role-management endpoints) use this; genesis paths (bootstrap,
 // migration) keep using the unchecked AssignGroupRole.
 func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, ErrRoleNotAssignable)
@@ -204,6 +205,7 @@ func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, grou
 // same way (you cannot strip a role whose authority you do not hold — e.g. a
 // non-owner cannot remove an owner).
 func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)

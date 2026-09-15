@@ -115,7 +115,7 @@ func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermission
 		return "", err
 	}
 
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -326,6 +326,7 @@ func (s *Client) AssignGroupRoleGenesis(ctx context.Context, group authkit.Group
 }
 
 func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role, checkMFA bool) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, ErrRoleNotAssignable)
@@ -359,6 +360,7 @@ func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, su
 
 // UnassignGroupRole revokes a subject's role in a group.
 func (s *Client) UnassignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	role = authkit.Role(strings.TrimSpace(string(role)))
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
@@ -398,7 +400,7 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 	if group.IsRoot() {
 		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

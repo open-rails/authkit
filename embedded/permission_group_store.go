@@ -401,7 +401,7 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
     (SELECT count(*) FROM profiles.group_user_roles r JOIN profiles.users u ON u.id=r.user_id
      WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND u.deleted_at IS NULL
      AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
-     AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=now()))
+     AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp()))
     + (SELECT count(*) FROM profiles.group_remote_application_roles r JOIN profiles.remote_applications a ON a.id=r.remote_application_id
        WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND a.enabled)`, groupID).Scan(&n)
 	return n, err

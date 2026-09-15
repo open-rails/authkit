@@ -279,7 +279,7 @@ func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) er
 	if s.pg == nil {
 		return nil
 	}
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
 	}

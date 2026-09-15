@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -21,10 +22,15 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	config := pg.Pool.Config()
+	config.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	hostPool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(hostPool.Close)
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly}, RBAC: []PersonaDef{
 		{Name: RootPersona, Roles: []RoleDef{{Name: "manager", Permissions: []string{"root:members:manage", "root:credentials:manage", "root:users:ban"}}, {Name: "reader", Permissions: []string{"root:users:ban"}}}},
 		{Name: "org", Parent: RootPersona, Capabilities: PersonaCapabilities{CustomRoles: true}, Catalog: []string{"org:records:read", "org:records:write", "org:members:manage", "org:credentials:manage"}, Roles: []RoleDef{{Name: "reader", Permissions: []string{"org:records:read"}}, {Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}}}},
-	}}, Keyset{}, WithPostgres(pg.Pool))
+	}}, Keyset{}, WithPostgres(hostPool))
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	root, err := svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
@@ -48,6 +54,10 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, svc.RemoveRoleBySlugAs(ctx, owner, owner, OwnerRoleName), ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.AssignRoleBySlugAs(ctx, owner, owner, "reader"), ErrCannotRemoveLastAdminRole)
 		require.NoError(t, svc.AssignRoleBySlugAs(ctx, owner, owner, OwnerRoleName))
+		require.NoError(t, svc.AssignGroupRoleAs(ctx, owner, authkit.RootGroup(), authkit.UserSubject(owner), " owner "))
+		require.NoError(t, svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(owner), " owner "))
+		require.ErrorIs(t, svc.UnassignGroupRoleAs(ctx, owner, authkit.RootGroup(), authkit.UserSubject(owner), " owner "), ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(owner), " owner "), ErrCannotRemoveLastAdminRole)
 		require.NoError(t, svc.RemoveRoleBySlugAs(ctx, owner, owner, "reader")) // absent assignment
 		require.NoError(t, svc.AssignRoleBySlugAs(ctx, owner, peer, OwnerRoleName))
 		require.NoError(t, svc.AssignRoleBySlugAs(ctx, owner, peer, "reader"))
@@ -87,6 +97,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		g, gid := group("app-life", human)
 		a := app(gid)
 		require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, human, g, a.Slug, OwnerRoleName))
+		require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, human, g, a.Slug, " owner "))
 		bounded := user()
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, g, authkit.UserSubject(bounded), "manager"))
 		require.ErrorIs(t, svc.AssignRemoteApplicationRoleAs(ctx, bounded, g, a.Slug, "reader"), ErrRoleAssignmentEscalation)
@@ -188,7 +199,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = TwoFactorOptional
 					cfg.RBAC = []PersonaDef{{Name: "org", Parent: RootPersona, Roles: []RoleDef{{Name: OwnerRoleName, Permissions: []string{"org:*"}, RequiresMFA: true}}}}
-					raceSvc = mustNewWithKeys(t, cfg, Keyset{}, WithPostgres(pg.Pool))
+					raceSvc = mustNewWithKeys(t, cfg, Keyset{}, WithPostgres(hostPool))
 					_, err := raceSvc.Enable2FA(ctx, one, "email", nil, AllowAdditionalFactors)
 					require.NoError(t, err)
 					_, err = raceSvc.Enable2FA(ctx, two, "email", nil, AllowAdditionalFactors)
@@ -259,6 +270,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, customGroup, authkit.UserSubject(customActor), "manager"))
 		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, customGroup, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:read"}}))
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, customGroup, authkit.UserSubject(customTarget), "auditor"))
+		expiringActor := user()
+		require.NoError(t, svc.AssignRoleBySlugAs(ctx, owner, expiringActor, "manager"))
 		for _, tc := range []struct {
 			name   string
 			run    func() error
@@ -273,6 +286,10 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			}, func(st *PermissionGroupStore) error {
 				return st.UpsertCustomRole(ctx, customGID, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, ErrRoleAssignmentEscalation},
+			{"ban_expiry_after_transaction_start", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
+				_, err := st.q.Exec(ctx, `UPDATE profiles.users SET banned_at=statement_timestamp(),banned_until=statement_timestamp() WHERE id=$1::uuid`, expiringActor)
+				return err
+			}, nil},
 			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *PermissionGroupStore) error {
 				return st.UnassignSubject(ctx, root, authkit.UserSubject(manager))
 			}, ErrInsufficientRoleAuthority},
@@ -297,7 +314,11 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				}
 				require.NoError(t, tc.mutate(NewPermissionGroupStore(raw)))
 				require.NoError(t, tx.Commit(ctx))
-				require.ErrorIs(t, <-done, tc.want)
+				if tc.want == nil {
+					require.NoError(t, <-done)
+				} else {
+					require.ErrorIs(t, <-done, tc.want)
+				}
 			})
 		}
 		require.Equal(t, OwnerRoleName, role(root, target))

@@ -216,7 +216,7 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	}
 	codeHash := sha256Hex(code)
 
-	tx, err := s.pg.Begin(ctx)
+	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return zero, err
 	}
