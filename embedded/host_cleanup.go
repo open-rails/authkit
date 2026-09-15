@@ -2,15 +2,15 @@ package embedded
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// inviteRetention is how long dead invite rows (expired, consumed/redeemed,
-// declined, or revoked) are kept for audit before the cleanup sweep purges them
-// (#235). Pending, unexpired rows are never touched.
-const inviteRetention = 90 * 24 * time.Hour
+// terminalRetention keeps revoked/expired keys and invitations available for
+// host inspection for 90 days. Live credentials have no cleanup deadline.
+const terminalRetention = 90 * 24 * time.Hour
 
 // sessionsGCBatchSize bounds one dead-session DELETE (#325): never an
 // unbounded statement, same rule as session_events (#245).
@@ -39,7 +39,7 @@ func (s *Client) gcDeadSessions(ctx context.Context, batchSize int64) (int, erro
 // otherwise) and expires automatically by TTL, so no database sweep is needed
 // for it. The postgres sweep covers revoked/expired refresh sessions and their
 // consumed-token history,
-// long-dead invite rows (retained inviteRetention past their terminal moment),
+// terminal keys/invites (retained terminalRetention after their first terminal event),
 // and session-event history past Config.SessionEventRetention (#245).
 func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
@@ -56,15 +56,20 @@ func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 		return err
 	}
 
-	cutoff := time.Now().UTC().Add(-inviteRetention)
+	cutoff := time.Now().UTC().Add(-terminalRetention)
 	q := db.ForSchema(s.pg, s.dbSchema())
-	for _, stmt := range []string{
-		`DELETE FROM profiles.group_invite_links
-		  WHERE redeemed_at < $1 OR revoked_at < $1 OR expires_at < $1`,
-		`DELETE FROM profiles.account_registration_invites
-		  WHERE consumed_at < $1 OR revoked_at < $1 OR expires_at < $1`,
+	for _, target := range []struct{ table, terminal string }{
+		{"group_invite_links", "LEAST(redeemed_at, revoked_at, expires_at)"},
+		{"account_registration_invites", "LEAST(consumed_at, revoked_at, expires_at)"},
+		{"api_keys", "LEAST(revoked_at, expires_at)"},
 	} {
-		if _, err := q.Exec(ctx, stmt, cutoff); err != nil {
+		// Table/expressions are fixed above. Lock only this batch; another worker
+		// can make progress without waiting, and each call has bounded work.
+		stmt := fmt.Sprintf(`WITH batch AS (
+ SELECT id FROM profiles.%s WHERE %s < $1 ORDER BY %s, id
+ LIMIT $2 FOR UPDATE SKIP LOCKED)
+ DELETE FROM profiles.%s WHERE id IN (SELECT id FROM batch)`, target.table, target.terminal, target.terminal, target.table)
+		if _, err := q.Exec(ctx, stmt, cutoff, sessionsGCBatchSize); err != nil {
 			return err
 		}
 	}
