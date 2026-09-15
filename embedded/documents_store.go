@@ -12,7 +12,7 @@ import (
 )
 
 // DocumentStore returns the engine-owned documents.Store over the
-// signed_documents table (migration 0005). Digest immutability is enforced by
+// signed_documents table. Digest immutability is enforced by
 // the guarded upsert: an existing digest only ever accepts a compact-JWS
 // replacement for the SAME type + payload bytes.
 func (s *Client) DocumentStore() documents.Store {

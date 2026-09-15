@@ -9,8 +9,12 @@ from the original site, checks cookie deletion and refuses the revoked token.
 No existing browser profile is opened. The isolated browser context accepts the
 test server's generated TLS certificate; production transport policy is unchanged.
 
-Use an installed Playwright module and browser; no Node dependency is added to
-the Go module. From the repository root:
+Install the pinned browser test dependencies with `pnpm --dir authhttp/testdata
+install --frozen-lockfile`, then `pnpm --dir authhttp/testdata exec playwright
+install chromium`. `task test-browser` runs the workflow, and regular CI runs it
+after the Go suites. No Node dependency is added to the Go module.
+
+To use an existing Playwright module/browser from the repository root:
 
 ```sh
 AUTHKIT_TEST_DATABASE_URL='postgres://.../isolated_test_db?sslmode=disable' \
@@ -21,5 +25,5 @@ go test -tags browser ./authhttp -run '^TestCookieLoginBrowserTwoSites$' -count=
 ```
 
 Omit `AUTHKIT_BROWSER_EXECUTABLE` to use Playwright's installed Chromium.
-The test is behind the `browser` build tag because regular Go CI has no browser
-or Playwright installation; requesting the tag without those dependencies fails.
+The test is behind the `browser` build tag so ordinary Go-only consumers do not
+need Playwright. Requesting the tag without its dependencies fails.

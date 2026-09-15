@@ -1,0 +1,5 @@
+{
+  "typ": "access+jwt",
+  "alg": "$string",
+  "kid": "$string"
+}

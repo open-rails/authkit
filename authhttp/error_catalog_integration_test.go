@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,14 +18,18 @@ import (
 // internal_error on the wire; param and metadata ride on the error itself.
 func TestErrorCatalogThroughWriter(t *testing.T) {
 	t.Parallel()
+	statuses := make(map[string]int)
+	types := make(map[string]string)
 	for _, code := range authkit.Codes() {
 		status, message, ok := authkit.DescribeCode(code)
 		require.True(t, ok, code)
 		w := httptest.NewRecorder()
 		writeError(w, fmt.Errorf("wrapped: %w", authkit.E(code)))
+		statuses[code.String()] = w.Code
 		require.Equal(t, status, w.Code, code)
 		var env authkit.ErrorEnvelope
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env), code)
+		types[fmt.Sprint(w.Code)] = env.Error.Type
 		require.Equal(t, authkit.ErrorTypeForStatus(status), env.Error.Type, code)
 		require.NotEmpty(t, env.Error.Message, code)
 		if status == http.StatusInternalServerError {
@@ -34,6 +39,17 @@ func TestErrorCatalogThroughWriter(t *testing.T) {
 		require.Equal(t, code.String(), env.Error.Code)
 		require.Equal(t, message, env.Error.Message, code)
 	}
+	data, err := os.ReadFile("testdata/wire/error-statuses.json")
+	require.NoError(t, err)
+	var frozen map[string]int
+	require.NoError(t, json.Unmarshal(data, &frozen))
+	for code, status := range statuses {
+		expected, known := frozen[code]
+		require.True(t, known, "record the default status for new code %s", code)
+		require.Equal(t, expected, status, code)
+	}
+	require.Equal(t, len(frozen), len(statuses), "a published error code was removed")
+	assertWireGolden(t, "error-types", types)
 
 	w := httptest.NewRecorder()
 	writeError(w, authkit.E(authkit.CodeInvalidEmail, authkit.WithMeta("hint", "x")))

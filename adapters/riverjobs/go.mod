@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/open-rails/authkit v0.99.1
+	github.com/open-rails/authkit v0.99.3-0.20260915013709-abfa8425d09d
 	github.com/riverqueue/river v0.47.0
 )
 
@@ -52,5 +52,3 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/open-rails/authkit => ../..

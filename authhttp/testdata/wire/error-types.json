@@ -1,0 +1,13 @@
+{
+  "400": "invalid_request_error",
+  "401": "authentication_error",
+  "403": "authorization_error",
+  "404": "invalid_request_error",
+  "409": "invalid_request_error",
+  "410": "invalid_request_error",
+  "429": "rate_limit_error",
+  "500": "api_error",
+  "501": "api_error",
+  "502": "api_error",
+  "503": "api_error"
+}
