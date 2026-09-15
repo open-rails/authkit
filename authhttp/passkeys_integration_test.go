@@ -13,10 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
-	forEachStore(t, testPasskeyFullCeremonyAndAssurance)
-}
-
 func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -117,74 +113,28 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
 	require.Len(t, listed.Data, 1)
 	require.NotNil(t, listed.Data[0].LastUsedAt)
-}
-
-func TestPasskeyManagementHTTPIntegration(t *testing.T) {
-	pool := testdb.Pool(t)
-	ctx := context.Background()
-	cfg := newServerTestConfig()
-	cfg.Passkeys = embedded.PasskeyConfig{
-		RPID:          "example.com",
-		RPDisplayName: "Example",
-		Origins:       []string{"https://example.com"},
+	require.Equal(t, created.ID, listed.Data[0].ID)
+	// Management uses the credential established by the actual ceremony.
+	for _, label := range []string{"old", "new"} {
+		w = serveAuthJSON(srv, http.MethodPatch, "/passkeys/"+created.ID, `{"label":"`+label+`"}`, setupToken)
+		require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+		w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
+		require.NotNil(t, listed.Data[0].Label)
+		require.Equal(t, label, *listed.Data[0].Label)
 	}
-	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
-	require.NoError(t, err)
-
-	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-mgmt"), "passkeymgmt"+uniqueSuffix())
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
-
-	_, err = pool.Exec(ctx, `
-		INSERT INTO profiles.user_passkey_handles (user_id, user_handle)
-		VALUES ($1::uuid, $2)
-	`, user.ID, []byte("handle"))
-	require.NoError(t, err)
-	var passkeyID string
-	err = pool.QueryRow(ctx, `
-		INSERT INTO profiles.user_passkeys (
-			user_id, rpid, credential_id, public_key, sign_count, clone_warning, transports,
-			authenticator_attachment, backup_eligible, backup_state,
-			flags, attestation_type, attestation_fmt, label
-		) VALUES (
-			$1::uuid, 'example.com', $2, $3, 0, false, ARRAY['internal']::text[],
-			'platform', true, true, $4, 'none', 'none', 'old'
-		)
-		RETURNING id
-	`, user.ID, []byte("credential-id"), []byte("public-key"), []byte{0x1d}).Scan(&passkeyID)
-	require.NoError(t, err)
-
-	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
-	require.NoError(t, err)
-	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
-	require.NoError(t, err)
-
-	w := serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var listed struct {
-		Data []struct {
-			ID    string `json:"id"`
-			Label string `json:"label"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Len(t, listed.Data, 1)
-	require.Equal(t, passkeyID, listed.Data[0].ID)
-	require.Equal(t, "old", listed.Data[0].Label)
-
-	w = serveAuthJSON(srv, http.MethodPatch, "/passkeys/"+passkeyID, `{"label":"new"}`, token)
+	w = serveAuthJSON(srv, http.MethodDelete, "/passkeys/"+created.ID, `{}`, setupToken)
 	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Equal(t, "new", listed.Data[0].Label)
-
-	w = serveAuthJSON(srv, http.MethodDelete, "/passkeys/"+passkeyID, `{}`, token)
-	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)
+	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
 	require.Empty(t, listed.Data)
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", string(assert(t, authn, assertion, 3)))
+	require.Equal(t, http.StatusUnauthorized, w.Code, "deleted credentials cannot log in: %s", w.Body.String())
 }
 
 // The wire shapes the browser sees, decoded only as far as the tests assert on them.

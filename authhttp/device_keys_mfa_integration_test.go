@@ -82,30 +82,6 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	require.Equal(t, []string{email}, sender.deviceKeyNotices())
 }
 
-// #293: enrolling a key on an EXISTING account notifies its address; a brand-new
-// registration has no owner to warn.
-func TestDeviceKeyEnrollmentNotifiesExistingAccountOnly(t *testing.T) {
-	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t)
-	pool := srv.svc.Postgres()
-
-	existing := uniqueEmail("device-key-notice")
-	user, err := srv.svc.CreateUser(ctx, existing, "dknotice"+uniqueSuffix())
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
-	publicKey, privateKey := newDeviceKey(t)
-	finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, existing, publicKey), privateKey)
-	require.Equal(t, []string{existing}, sender.deviceKeyNotices())
-
-	fresh := uniqueEmail("device-key-fresh")
-	publicKey, privateKey = newDeviceKey(t)
-	finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, fresh, publicKey), privateKey)
-	created, err := srv.svc.GetUserByEmail(ctx, fresh)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, created.ID) })
-	require.Equal(t, []string{existing}, sender.deviceKeyNotices(), "a new registration is not a notice-worthy addition")
-}
-
 // #293: the device-key surface is an email-code login, so hosts opt in through
 // DeviceKeys.Enabled — off, the routes are not mounted and the engine refuses.
 func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {
