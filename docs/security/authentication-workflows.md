@@ -59,3 +59,7 @@ with/without delivery shares one database in `TestOptionalRegistrationWorkflow`.
 Focused cryptographic, forced-code-collision, atomic storage, TTL, query-contract,
 contact-mutation and credential-rollback regressions remain where they establish
 invariants that a normal workflow cannot force reliably.
+
+The final consolidation extends these workflows through native-credential
+management and factor management. Every removed fixture's unique assertions
+are recorded below before deletion; fault and concurrency tests stay separate.
