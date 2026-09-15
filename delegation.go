@@ -12,8 +12,8 @@ import (
 var ErrDelegationRefused = E(CodeDelegationRefused)
 
 // DelegationRequest is what POST /delegated/token asks the host to authorize
-// (ak#277). Audiences and TTL are already clamped; the certificate is parsed
-// and validated; RequestedGrant is the client's opaque, host-schema object that
+// (ak#277). Audiences and TTL are already clamped; the certificate or DPoP
+// sender proof is validated; RequestedGrant is the client's opaque, host-schema object that
 // AuthKit never copies into the token.
 type DelegationRequest struct {
 	UserID                        string

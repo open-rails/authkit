@@ -26,6 +26,11 @@ func TestNormalizeDelegatedConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "DPoP without audiences is dead config",
+			in:      DelegatedConfig{AllowDPoP: true},
+			wantErr: true,
+		},
+		{
 			name: "audiences only takes all defaults",
 			in:   DelegatedConfig{Audiences: []string{" tensorhub.net ", "tensorhub.net", ""}},
 			want: DelegatedConfig{

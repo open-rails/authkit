@@ -18,7 +18,7 @@ import (
 // published documents.
 type Config struct {
 	// DPoPRequestURL returns the externally visible delegation endpoint URL when
-	// a proxy rewrites its path. Nil uses Config.Token.Issuer's origin and the
+	// a proxy rewrites its path. Nil uses embedded.Config.Token.Issuer's origin and the
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 

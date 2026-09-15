@@ -1,8 +1,8 @@
 package authhttp
 
 // ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic —
-// audience-subset clamp, TTL clamp, delegate-certificate validation and RFC
-// 8705 `cnf.x5t#S256` binding, document stamping from the wired
+// audience-subset clamp, TTL clamp, RFC 8705 certificate or RFC 9449 DPoP
+// sender binding, document stamping from the wired
 // DocumentProviders, and post-mint signing-KID reconciliation. The host owns
 // exactly one decision: the DelegationAuthorizer's grant, which is the
 // complete authority signed. Client input never becomes authority directly.

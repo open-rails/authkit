@@ -35,18 +35,6 @@ func forbidden(w http.ResponseWriter, code authkit.Code) {
 	authkit.WriteError(w, authkit.E(code, authkit.WithStatus(http.StatusForbidden)))
 }
 
-// bearerToken extracts the token from an "Authorization: Bearer <token>" header.
-func bearerToken(authorization string) string {
-	if authorization == "" {
-		return ""
-	}
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-		return parts[1]
-	}
-	return ""
-}
-
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS
 // fetches (the WithHTTPClient override, or the default timeout-bounded client).
 func (v *Verifier) HTTPClient() *http.Client { return v.httpClient }

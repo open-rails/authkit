@@ -1,0 +1,12 @@
+{
+  "iss": "$string",
+  "iat": "$number",
+  "exp": "$number",
+  "jti": "$string",
+  "delegated_sub": "$string",
+  "aud": ["platform"],
+  "permissions": ["resource:read"],
+  "attributes": {"tenant": "cozy"},
+  "documents": {"example.policy/v1": "$string"},
+  "cnf": {"jkt": "$string"}
+}

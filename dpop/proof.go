@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -68,8 +67,8 @@ func VerifyRequest(r *http.Request, requestURL, accessToken string, expected *[3
 	if xe != nil || ye != nil || len(xb) != 32 || len(yb) != 32 {
 		return zero, ErrInvalidProof
 	}
-	key := &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(xb), Y: new(big.Int).SetBytes(yb)}
-	if !key.Curve.IsOnCurve(key.X, key.Y) {
+	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, xb...), yb...))
+	if err != nil {
 		return zero, ErrInvalidProof
 	}
 	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
@@ -119,7 +118,9 @@ func VerifyRequest(r *http.Request, requestURL, accessToken string, expected *[3
 		return zero, ErrReplayUnavailable
 	}
 	replayKey := sha256.Sum256(append(thumbprint[:], []byte(jti)...))
-	ttl := time.Unix(iat+61, 0).Sub(now)
+	// Round up to whole seconds so millisecond-resolution stores cannot expire
+	// a replay claim just before the last accepted fractional second.
+	ttl := time.Duration(iat+61-now.Unix()) * time.Second
 	claimed, err := replay(r.Context(), base64.RawURLEncoding.EncodeToString(replayKey[:]), ttl)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %w", ErrReplayUnavailable, err)

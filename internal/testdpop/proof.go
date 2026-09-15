@@ -29,8 +29,10 @@ func Proof(t testing.TB, key *ecdsa.PrivateKey, method, target, accessToken stri
 		"htm": method, "htu": target, "iat": time.Now().Unix(), "jti": uuid.NewString(),
 		"ath": base64.RawURLEncoding.EncodeToString(hash[:]),
 	})
+	public, err := key.PublicKey.Bytes()
+	require.NoError(t, err)
 	token.Header["typ"] = "dpop+jwt"
-	token.Header["jwk"] = map[string]any{"kty": "EC", "crv": "P-256", "x": base64.RawURLEncoding.EncodeToString(key.X.FillBytes(make([]byte, 32))), "y": base64.RawURLEncoding.EncodeToString(key.Y.FillBytes(make([]byte, 32)))}
+	token.Header["jwk"] = map[string]any{"kty": "EC", "crv": "P-256", "x": base64.RawURLEncoding.EncodeToString(public[1:33]), "y": base64.RawURLEncoding.EncodeToString(public[33:])}
 	if change != nil {
 		change(token)
 	}

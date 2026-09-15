@@ -240,6 +240,14 @@ terminate TLS on the resource server with
 `tls.Config{ClientAuth: tls.RequestClientCert}` or stricter; anything else
 fails `sender_proof_required`.
 
+Browser clients can use the same route without client certificates when the
+issuer enables `Config.Delegated.AllowDPoP`. A validated DPoP proof binds the
+result to a browser key as `cnf.jkt`; direct resource calls use the `DPoP`
+authorization scheme and a fresh proof for each request. The host authorizer
+still decides every permission and must handle the JWK binding with a nil
+`DelegateCertificate`. See [browser delegation](docs/browser-delegation.md) for
+the exact wire profile, receiver configuration and browser key lifecycle.
+
 ## Application self-registration
 
 `Config.Applications = ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}`

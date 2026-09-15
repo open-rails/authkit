@@ -55,6 +55,12 @@ func TestProofValidationWorkflow(t *testing.T) {
 	request.Header.Set("DPoP", testdpop.Proof(t, testdpop.Key(t), "POST", target, "access-token", nil))
 	_, err = dpop.VerifyRequest(request, target, "access-token", &thumbprint, guard)
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
+	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", "HTTPS://API.EXAMPLE:443/tasks", "access-token", nil))
+	_, err = dpop.VerifyRequest(request, target, "access-token", &thumbprint, guard)
+	require.NoError(t, err)
+	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target+"/a%2Fb", "access-token", nil))
+	_, err = dpop.VerifyRequest(request, target+"/a/b", "access-token", &thumbprint, guard)
+	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	for _, malformed := range []string{"", "a.b.c.d", strings.Repeat("x", 4097), good + ", " + good,
 		base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"dpop+jwt","typ":"dpop+jwt","alg":"ES256","jwk":{}}`)) + ".e30.AA"} {
 		request.Header.Set("DPoP", malformed)
