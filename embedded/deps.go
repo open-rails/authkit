@@ -21,6 +21,8 @@ type Deps struct {
 	// Redis backs the ephemeral store, namespaced by Ephemeral.KeyPrefix
 	// (#307). Nil selects the per-process memory store, which construction
 	// refuses unless Config.Ephemeral.AllowMemory is set (#305).
+	// Redis-compatible servers must provide atomic Lua execution (EVAL/EVALSHA)
+	// for conditional proof claims and counters, as well as atomic GETDEL.
 	Redis *redis.Client
 	// EphemeralStore is a host-supplied store; mutually exclusive with Redis.
 	EphemeralStore EphemeralStore

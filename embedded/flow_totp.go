@@ -86,15 +86,21 @@ func (s *Client) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string
 	}
 	var pending totpEnrollmentData
 	raw, ok, err := s.ephemReadJSON(ctx, keyTOTPEnrollment+userID, &pending)
-	if err != nil || !ok || len(pending.SealedSecret) == 0 {
+	if err != nil {
+		return nil, err
+	}
+	if !ok || len(pending.SealedSecret) == 0 {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	secret, err := s.decryptTOTPSecret(pending.SealedSecret)
 	if err != nil {
-		return nil, jwt.ErrTokenUnverifiable
+		return nil, err
 	}
 	step, validStep, err := matchingTOTPStep(secret, code, time.Now())
-	if err != nil || !validStep {
+	if err != nil {
+		return nil, err
+	}
+	if !validStep {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimProof(ctx, keyTOTPEnrollment+userID, raw); err != nil {
@@ -255,7 +261,7 @@ func (s *Client) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, cod
 			return false, err
 		}
 		if uid != userID {
-			return false, fmt.Errorf("user_id mismatch")
+			return false, jwt.ErrTokenUnverifiable
 		}
 		return true, nil
 	}

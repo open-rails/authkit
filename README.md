@@ -19,6 +19,12 @@ external identity, application delegation boundaries, and key rotation.
 See [authentication workflows](docs/security/authentication-workflows.md) for
 first-factor continuations, atomic registration, and workflow test coverage.
 
+Redis-compatible stores must support atomic `GETDEL` and atomic Lua
+(`EVAL`/`EVALSHA`); proof claims and counters depend on those guarantees.
+For Garnet, enable both `--lua true` and `--lua-transaction-mode true`.
+Garnet's [configuration reference](https://microsoft.github.io/garnet/docs/getting-started/configuration)
+describes the transaction mode that locks script keys for execution.
+
 ## Migrations
 
 ```go

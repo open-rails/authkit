@@ -12,6 +12,8 @@ import (
 	"math/big"
 	"strings"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	authkit "github.com/open-rails/authkit"
 )
 
@@ -123,7 +125,10 @@ func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 			return s.startPhoneTwoFactorSetup(ctx, in.UserID, p)
 		}
 		valid, err := s.VerifyPhone2FASetupCode(ctx, in.UserID, p, code)
-		if err != nil || !valid {
+		if err != nil {
+			return TwoFactorEnrollOutcome{}, enrollmentProofError("verify_sms_setup", err)
+		}
+		if !valid {
 			return TwoFactorEnrollOutcome{}, ErrInvalidCode
 		}
 		phone = &p
@@ -137,10 +142,7 @@ func (s *Client) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 		}
 		backupCodes, err := s.EnableTOTP2FA(ctx, TOTPEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode})
 		if err != nil {
-			if errors.Is(err, ErrTwoFAFactorExists) {
-				return TwoFactorEnrollOutcome{}, err
-			}
-			return TwoFactorEnrollOutcome{}, ErrInvalidCode
+			return TwoFactorEnrollOutcome{}, enrollmentProofError("enable_totp", err)
 		}
 		return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes})
 	}
@@ -177,4 +179,16 @@ func (s *Client) startPhoneTwoFactorSetup(ctx context.Context, userID, phone str
 		return TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", ErrTwoFASetupCodeSendFailed, err))
 	}
 	return TwoFactorEnrollOutcome{Kind: TwoFactorEnrollCodeSent, Method: "sms"}, nil
+}
+
+// Only a rejected proof is an invalid code. Store and persistence failures must
+// retain their cause so the transport reports and logs an operational failure.
+func enrollmentProofError(stage string, err error) error {
+	if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
+		return ErrInvalidCode
+	}
+	if known := authkit.AsError(err); known != nil && known.Status < 500 {
+		return err
+	}
+	return stageErr(stage, fmt.Errorf("%w: %w", ErrTwoFAEnableFailed, err))
 }
