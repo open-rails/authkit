@@ -3,6 +3,7 @@
 Group assignments are current state: at most one row per group and subject.
 Replacing a role updates that row; revoking it deletes the row. The old soft
 deletion column retained incomplete, unread history and is removed before v1.
+The unused creation/update timestamps are removed from assignments too.
 Security-event retention is separate; assignment rows are not an audit log.
 
 API keys and invitations keep terminal metadata for 90 days after the first
