@@ -79,7 +79,6 @@ remote applications, and group role assignments.
 | POST | `{api}/passkeys/login/begin` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/passkeys/login/finish` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/password/login` | auth | public | `auth_password_login` |  |
-| GET | `{api}/password/reset/confirm` | auth | public |  |  |
 | POST | `{api}/password/reset/confirm` | auth | public | `auth_pwd_reset_confirm` |  |
 | POST | `{api}/password/reset/request` | auth | public | `auth_pwd_reset_request` |  |
 | POST | `{api}/passwordless/confirm` | auth | public | `auth_passwordless_confirm` | Registration.PasswordlessLogin |
@@ -116,7 +115,6 @@ remote applications, and group role assignments.
 | GET | `{api}/user/sessions` | account | required | `auth_sessions_list` |  |
 | DELETE | `{api}/user/sessions/{id}` | account | required | `auth_sessions_revoke` |  |
 | PATCH | `{api}/user/username` | account | required | `auth_user_update_username` |  |
-| GET | `{api}/verify/confirm` | account | public |  |  |
 | POST | `{api}/verify/confirm` | account | optional | `auth_verify_confirm` |  |
 | POST | `{api}/verify/request` | account | optional | `auth_verify_request` |  |
 | GET | `{api}/device-keys` | device_keys | required | `auth_device_keys_manage` | DeviceKeys.Enabled |
@@ -246,11 +244,54 @@ Token taxonomy:
 
 Step-up updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
 
+Authentication continuation:
+
+- Password login, contact verification, passwordless login, and provider callbacks
+  use the same first-factor decision: session, MFA challenge, or restricted
+  enrollment. Confirming an email/SMS proof does not bypass MFA.
+- `403 2fa_required` carries `error.metadata` with `user_id`, `challenge`,
+  `method`, `verification_id`, `default_factor`, and `available_factors`.
+  Submit `{user_id, challenge, code, factor_id?, backup_code?}` to `POST /2fa/verify`;
+  success returns a flat `TokenSet`. Use `POST /2fa/challenge` with the same
+  `user_id`, `challenge` and chosen `factor_id` to resend/select a factor.
+- `403 2fa_enrollment_required` includes `user_id`, `allowed_methods`, and
+  `token_set` containing an enrollment-only access token with no refresh token.
+  Use it only to enroll at `POST /user/2fa`; it does not authorize normal account
+  use or factor management. Verified SMS/TOTP enrollment returns
+  `{enabled, method, backup_codes?, token_set}` with the completed session.
+  Email enrollment first returns `2fa_required` with the new backup codes;
+  the user must complete the delivered email challenge.
+- AMR records the actual proofs (`pwd`, `email`, `sms`, `oauth`, `totp`,
+  `backup_code`). An email/SMS first factor cannot use that same channel again
+  as its second factor. A usable different factor or unused backup code is
+  required; otherwise that passwordless attempt fails closed.
+- Challenges are single-use, account/version/issuer bound, and expire after ten
+  minutes from the first factor. A new first factor replaces the account's
+  pending login continuation. Recovery, provider unlink, and source-session
+  revocation cannot leave an earlier continuation usable.
+- Browser provider callbacks use the same fields in the frontend URL fragment
+  (objects/arrays are JSON encoded). Enrollment uses `enrollment_token` and
+  `enrollment_expires_in`; popup results carry native objects/arrays.
+
 Passwordless login:
-- Disabled by default. Enable with `Registration.PasswordlessLogin`; enable unknown-contact account creation with `Registration.PasswordlessAutoRegistration` while native registration remains open.
-- `POST /passwordless/start` always answers `202` (empty body) for valid input when the feature is enabled. Unknown contacts only receive a challenge when auto-registration is enabled.
-- Confirmed existing contacts are marked verified and receive sessions with `amr=email` or `amr=sms`. Auto-created users get a generated username, verified email/phone, and no password row until they set a password later.
-- Magic links use `Frontend.PasswordlessPath`; absolute or protocol-relative `return_to` values are dropped.
+
+- Enable `Registration.PasswordlessLogin`; unknown-contact signup additionally
+  needs `PasswordlessAutoRegistration`. Under InviteOnly, email and SMS both
+  require an unbound `account_invite_token` at start, consumed with creation of
+  the account and any invitation role in one transaction. Existing contacts can
+  still authenticate without an invitation.
+- `POST /passwordless/start` returns `202` for an eligible request. With automatic
+  signup disabled, unknown contacts receive the same response without delivery.
+- Code and link are alternate representations of one proof: only one may finish.
+  Resending invalidates previous representations. Confirm returns
+  `{token_set, return_to?}` for an issued session or the continuation above.
+  Automatic signup creates no password row.
+- Verification, reset, and passwordless links target the configured frontend
+  landing path directly with `#status=ready&channel=...&token=...`.
+  The frontend parses the fragment and POSTs the token to the confirm endpoint.
+  Verification/reset use `email|phone`; passwordless uses `email|sms`.
+  Absolute or protocol-relative `return_to` values are dropped. There are no
+  GET confirmation bridges. Invitation links carry `#account_invite_token=...`.
 
 Passkeys:
 - Configure `embedded.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;
@@ -260,10 +301,10 @@ Passkeys:
   `navigator.credentials.create()` to `/passkeys/register/finish`.
 - Management routes are authenticated: `GET /passkeys`, `PATCH /passkeys/:id`
   with `{ "label": "..." }`, and `DELETE /passkeys/:id`.
-- Login sessions require WebAuthn user verification and mint normal
-  access/refresh tokens with MFA assurance claims. Passkeys do not satisfy
-  `RoleDef.RequiresMFA` enrollment requirements unless that policy is explicitly
-  extended later.
+- Login begins with an empty body or `{}` at `POST /passkeys/login/begin`;
+  assertions are discoverable and accept no identifier. A verified UV assertion
+  mints `swk,mfa` assurance and satisfies both Required mode and an already-held
+  MFA-required role without an unrelated traditional-factor enrollment.
 - Frontends should use `navigator.credentials.create({ publicKey })` and
   `navigator.credentials.get({ publicKey })`; for conditional UI, render the
   username input with `autocomplete="username webauthn"` and call

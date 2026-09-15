@@ -31,7 +31,7 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "victim@example.com", "victim", "argon2id$hash", 0, "")
+	code, err := svc.issuePendingEmailRegistration(ctx, "victim@example.com", "victim", "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 	}
 
 	// A correct code paired with the WRONG email must be rejected...
-	if _, err := svc.ConfirmPendingRegistration(ctx, "attacker@example.com", code); err == nil {
+	if _, err := svc.ConfirmVerification(ctx, VerificationInput{Identifier: "attacker@example.com", Code: code}); err == nil {
 		t.Fatal("a code confirmed against a different email must be rejected (global-collision takeover)")
 	}
 	// ...and must NOT consume the legitimate owner's still-valid code.
@@ -49,12 +49,12 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 	}
 
 	// A wrong code for the right email is rejected too.
-	if _, err := svc.ConfirmPendingRegistration(ctx, "victim@example.com", "000000"); err == nil {
+	if _, err := svc.ConfirmVerification(ctx, VerificationInput{Identifier: "victim@example.com", Code: "000000"}); err == nil {
 		t.Fatal("a wrong code must be rejected")
 	}
 
 	// An empty email is rejected outright.
-	if _, err := svc.ConfirmPendingRegistration(ctx, "", code); err == nil {
+	if _, err := svc.ConfirmVerification(ctx, VerificationInput{Identifier: "", Code: code}); err == nil {
 		t.Fatal("an empty email must be rejected")
 	}
 }
@@ -63,7 +63,7 @@ func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
-	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
+	if _, err := svc.issuePendingEmailRegistration(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
 	if !pendingEmailRegistrationExists(svc, "user@example.com") {
@@ -89,7 +89,7 @@ func TestClearEmailVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	svc := newEmailVerifyTestService(t)
 	ctx := context.Background()
 
-	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
+	if _, err := svc.issuePendingEmailRegistration(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
 

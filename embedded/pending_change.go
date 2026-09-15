@@ -111,9 +111,6 @@ func (rec pendingChange) key() string {
 // link pointer and (register kinds) the username index. Any prior record on the
 // same identity or username is cleared first so a re-request supersedes it.
 func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -124,6 +121,9 @@ func (s *Client) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	if rec.Kind.isRegister() {
 		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
 	} else {
+		if err := s.requirePG(); err != nil {
+			return err
+		}
 		version, err := s.q.UserCredentialVersion(ctx, rec.UserID)
 		if err != nil {
 			return err
@@ -283,14 +283,7 @@ func (s *Client) deletePendingChangeByUser(ctx context.Context, kind PendingChan
 // finalizePendingChange dispatches to the per-kind finalizer that completes the
 // deferred change and returns the affected user's ID.
 func (s *Client) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
-	if rec.Kind.isRegister() {
-		ctx = contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken)
-	}
 	switch rec.Kind {
-	case KindRegisterEmail:
-		return s.finalizeRegisterEmail(ctx, rec)
-	case KindRegisterPhone:
-		return s.finalizeRegisterPhone(ctx, rec)
 	case KindChangeEmail:
 		return s.finalizeChangeEmail(ctx, rec, keepSessionID)
 	case KindChangePhone:

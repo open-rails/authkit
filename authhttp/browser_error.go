@@ -198,6 +198,7 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 
 // Browser and JSON callbacks present the same engine-produced continuation.
 func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out embedded.LoginOutcome, provider string, sd oidckit.StateData) {
+	out.ReturnTo = sd.ReturnTo
 	if wantsJSONResponse(r) {
 		s.writeLoginContinuation(w, r, out, nil)
 		return

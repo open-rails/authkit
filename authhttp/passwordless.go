@@ -61,7 +61,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	result, err := s.svc.PasswordlessLogin(r.Context(), embedded.PasswordlessLoginInput{Identifier: identifier, Code: strings.TrimSpace(req.Code), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: remoteIP(r)})
+	result, err := s.svc.PasswordlessLogin(r.Context(), embedded.PasswordlessLoginInput{Identifier: identifier, Code: strings.TrimSpace(req.Code), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):

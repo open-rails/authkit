@@ -65,7 +65,7 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	ctx := context.Background()
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "test@example.com", "tester", "argon2id$hash", 0, "")
+	code, err := svc.issuePendingEmailRegistration(ctx, "test@example.com", "tester", "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration failed: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired, AllowMissingSenders: true}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	ctx := context.Background()
-	code, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, "+15551234567", "tester", "argon2id$hash", "")
+	code, err := svc.issuePendingPhoneRegistration(ctx, "+15551234567", "tester", "argon2id$hash", "")
 	if err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration failed: %v", err)
 	}

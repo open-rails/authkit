@@ -472,42 +472,6 @@ func (s *Client) verifyStepUpForFactor(ctx context.Context, userID, sessionID, c
 	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
 }
 
-// Create2FAChallenge creates a short-lived challenge to prove password verification before 2FA.
-func (s *Client) Create2FAChallenge(ctx context.Context, userID string) (string, error) {
-	if !s.useEphemeralStore() {
-		return "", fmt.Errorf("ephemeral store not configured")
-	}
-	challenge := RandB64(32)
-	hash := sha256Hex(challenge)
-	if err := s.storeMFAChallenge(ctx, userID, hash, 10*time.Minute); err != nil {
-		return "", err
-	}
-	return challenge, nil
-}
-
-// Verify2FAChallenge verifies the challenge created during the password step.
-func (s *Client) Verify2FAChallenge(ctx context.Context, userID, challenge string) (bool, error) {
-	if strings.TrimSpace(challenge) == "" {
-		return false, nil
-	}
-	if !s.useEphemeralStore() {
-		return false, fmt.Errorf("ephemeral store not configured")
-	}
-	stored, ok, err := s.getMFAChallenge(ctx, userID)
-	if err != nil || !ok {
-		return false, err
-	}
-	return SecretEqual(stored, sha256Hex(challenge)), nil
-}
-
-// Clear2FAChallenge removes the stored challenge after successful 2FA verification.
-func (s *Client) Clear2FAChallenge(ctx context.Context, userID string) error {
-	if !s.useEphemeralStore() {
-		return fmt.Errorf("ephemeral store not configured")
-	}
-	return s.deleteMFAChallenge(ctx, userID)
-}
-
 // Verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
 func (s *Client) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {

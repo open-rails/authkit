@@ -70,7 +70,7 @@ func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInpu
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: version.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
 	out.Created = created
 	if err == nil && created {
 		s.SendWelcome(ctx, userID)
@@ -120,6 +120,9 @@ func (s *Client) ResolveExternalIdentity(ctx context.Context, in ExternalLoginIn
 		if u, err := s.GetUserByEmail(ctx, accountEmail); err == nil && u != nil {
 			return "", false, ErrAccountExistsLinkRequired
 		}
+	}
+	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {
+		return "", false, ErrRegistrationDisabled
 	}
 	username := s.DeriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
 	u, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})

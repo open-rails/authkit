@@ -4,33 +4,12 @@ import (
 	"net/http"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // Session-establishing responses (#313): every route hands out the same
 // authkit.TokenSet — as the whole body (writeTokenSet) or under "token_set"
 // beside route-specific fields (writeTokenSetWith). The refresh token rides in
 // the body unless the mount opted into the HttpOnly cookie (ak#271).
-
-func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, userID string, method string) error {
-	tokens, err := s.createTokensForUser(r, userID, method)
-	if err != nil {
-		return err
-	}
-	s.writeTokenSet(w, r, http.StatusOK, tokens)
-	return nil
-}
-
-func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authkit.TokenSet, error) {
-	session, err := s.svc.IssueLoginSession(r.Context(), embedded.LoginSessionInput{
-		UserID: userID, AuthMethods: authMethodsForSessionMethod(method), Event: method,
-		UserAgent: r.UserAgent(), IP: s.requestIP(r),
-	})
-	if err != nil {
-		return authkit.TokenSet{}, err
-	}
-	return session.TokenSet(), nil
-}
 
 // deliverRefreshToken routes the refresh token to whichever transport this
 // mount declared: with MountOptions.RefreshCookie on it moves to an HttpOnly
@@ -59,15 +38,4 @@ func (s *Service) writeTokenSetWith(w http.ResponseWriter, r *http.Request, stat
 		body[k] = v
 	}
 	writeJSON(w, status, body)
-}
-
-func authMethodsForSessionMethod(method string) []string {
-	switch method {
-	case "email_verification", "passwordless_email":
-		return []string{"email"}
-	case "phone_verification", "passwordless_sms":
-		return []string{"sms"}
-	default:
-		return []string{"pwd"}
-	}
 }

@@ -32,12 +32,6 @@ func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo stri
 	})
 }
 
-// email verification tokens
-type emailVerifyToken struct {
-	UserID string
-	Email  *string
-}
-
 func validatePasswordHashForStorage(hash, algo string) error {
 	if algo == HashAlgoLegacyResetRequired {
 		return nil

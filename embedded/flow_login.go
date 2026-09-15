@@ -142,21 +142,13 @@ func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 		u, err = s.getUserByEmail(ctx, identifier)
 		if err != nil || u == nil {
 			// No account: a pending (unverified) email registration whose password
-			// matches is re-sent, or completed when verification is optional.
-			out, recovered := s.recoverPendingLogin(ctx, in, KindRegisterEmail, identifier, requiresVerification)
-			if !recovered {
-				return out.LoginOutcome, nil
-			}
-			u = out.user
+			// matches is re-sent.
+			return s.recoverPendingLogin(ctx, in, KindRegisterEmail, identifier)
 		}
 	case strings.HasPrefix(identifier, "+"):
 		u, err = s.getUserByPhone(ctx, identifier)
 		if err != nil || u == nil {
-			out, recovered := s.recoverPendingLogin(ctx, in, KindRegisterPhone, identifier, requiresVerification)
-			if !recovered {
-				return out.LoginOutcome, nil
-			}
-			u = out.user
+			return s.recoverPendingLogin(ctx, in, KindRegisterPhone, identifier)
 		}
 	default:
 		u, err = s.getUserByUsername(ctx, identifier)
@@ -215,60 +207,35 @@ func (s *Client) loginFailed(ctx context.Context, in PasswordLoginInput, userID,
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
 }
 
-// pendingRecovery is the internal result of a pending-registration recovery:
-// either a resolved user to continue with, or the outcome to return.
-type pendingRecovery struct {
-	LoginOutcome
-	user *User
-}
-
-func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string, requiresVerification bool) (pendingRecovery, bool) {
+// recoverPendingLogin resends the same pending signup after checking its password.
+func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string) (LoginOutcome, error) {
 	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
-	if err != nil || !ok {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
+	if err != nil {
+		return LoginOutcome{}, err
+	}
+	if !ok {
+		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
 	}
 	valid, err := password.VerifyArgon2id(pending.PasswordHash, in.Password)
 	if err != nil || !valid {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
+		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
 	}
-	ctx = contextWithAccountRegistrationInviteToken(ctx, pending.AccountInviteToken)
+	if _, err := s.ResendRegistration(ctx, identifier); err != nil {
+		return LoginOutcome{}, err
+	}
 	channel := "email"
-	var user *User
-	if kind == KindRegisterEmail {
-		_, err = s.CreatePendingRegistrationWithLanguage(ctx, identifier, pending.Username, pending.PasswordHash, 0, pending.PreferredLanguage)
-		if err == nil && !requiresVerification {
-			user, err = s.getUserByEmail(ctx, identifier)
-		}
-	} else {
+	if kind == KindRegisterPhone {
 		channel = "phone"
-		_, err = s.CreatePendingPhoneRegistrationWithLanguage(ctx, identifier, pending.Username, pending.PasswordHash, pending.PreferredLanguage)
-		if err == nil && !requiresVerification {
-			user, err = s.getUserByPhone(ctx, identifier)
-		}
 	}
-	if err != nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	if requiresVerification {
-		return pendingRecovery{LoginOutcome: LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: identifier, Channel: channel}}}, false
-	}
-	if user == nil {
-		return pendingRecovery{LoginOutcome: s.rejectLogin(ctx, in, "", ErrInvalidCredentials)}, false
-	}
-	return pendingRecovery{user: user}, true
+	return LoginOutcome{Kind: LoginVerificationRequired, Verification: &VerificationRequired{Identifier: identifier, Channel: channel}}, nil
 }
-
-// verificationCutoff: accounts created before it predate verification and are
-// never parked on it.
-var verificationCutoff = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired.
 func (s *Client) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
-	recent := u.CreatedAt.After(verificationCutoff)
-	needsEmail := recent && !u.EmailVerified && u.Email != nil
-	needsPhone := recent && !u.PhoneVerified && u.PhoneNumber != nil
+	needsEmail := !u.EmailVerified && u.Email != nil
+	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {
 		return LoginOutcome{}, false, nil
 	}

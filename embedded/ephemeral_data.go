@@ -167,28 +167,6 @@ func (s *Client) consumePhoneVerification(ctx context.Context, purpose, phone, c
 	return data.UserID, nil
 }
 
-// consumePhoneVerificationByLink redeems the 256-bit link token: the pointer is
-// consumed atomically (single-use), then the record it names must still carry
-// that link hash. Returns (userID, phone).
-func (s *Client) consumePhoneVerificationByLink(ctx context.Context, purpose, linkHash string) (string, string, error) {
-	key, ok := s.consumeLink(ctx, keyPhoneVerifyLink+linkHash)
-	if !ok {
-		return "", "", jwt.ErrTokenUnverifiable
-	}
-	var data phoneVerificationData
-	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
-	if err != nil {
-		return "", "", err
-	}
-	if !ok || data.ID == "" || data.Version <= 0 || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !SecretEqual(data.LinkHash, linkHash) {
-		return "", "", jwt.ErrTokenUnverifiable
-	}
-	if err := s.claimProof(ctx, key, raw); err != nil {
-		return "", "", err
-	}
-	return data.UserID, data.Phone, nil
-}
-
 // storeEmailVerification issues one verification record per user, superseding
 // any outstanding one.
 func (s *Client) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
@@ -218,51 +196,6 @@ func (s *Client) deleteEmailVerification(ctx context.Context, userID string) {
 	if ok && s.claimProof(ctx, key, raw) == nil && data.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyEmailVerifyLink+data.LinkHash)
 	}
-}
-
-// consumeEmailVerificationCode checks a typed code against the user's outstanding
-// record; the record must have been issued for the supplied address. A wrong
-// code leaves the record intact; the per-email attempt cap bounds guessing.
-func (s *Client) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
-	var data emailVerifyData
-	raw, ok, err := s.ephemReadJSON(ctx, keyEmailVerify+userID, &data)
-	if err != nil {
-		return err
-	}
-	if !ok || data.ID == "" || data.Version <= 0 || !SecretEqual(data.CodeHash, codeHash) {
-		return jwt.ErrTokenUnverifiable
-	}
-	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
-		return jwt.ErrTokenInvalidClaims
-	}
-	if err := s.claimProof(ctx, keyEmailVerify+userID, raw); err != nil {
-		return err
-	}
-	if data.LinkHash != "" {
-		_ = s.ephemDel(ctx, keyEmailVerifyLink+data.LinkHash)
-	}
-	return nil
-}
-
-// consumeEmailVerificationByLink redeems the 256-bit link token (single-use
-// pointer consume, then the record must still carry that link hash).
-func (s *Client) consumeEmailVerificationByLink(ctx context.Context, linkHash string) (*emailVerifyToken, error) {
-	key, ok := s.consumeLink(ctx, keyEmailVerifyLink+linkHash)
-	if !ok {
-		return nil, jwt.ErrTokenUnverifiable
-	}
-	var data emailVerifyData
-	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || data.ID == "" || data.Version <= 0 || !SecretEqual(data.LinkHash, linkHash) {
-		return nil, jwt.ErrTokenUnverifiable
-	}
-	if err := s.claimProof(ctx, key, raw); err != nil {
-		return nil, err
-	}
-	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
 }
 
 // RecordFailedEmailVerifyCode increments the per-email failed-attempt counter for
@@ -438,18 +371,6 @@ func (s *Client) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, co
 		return false, nil
 	}
 	return true, nil
-}
-
-func (s *Client) storeMFAChallenge(ctx context.Context, userID, challengeHash string, ttl time.Duration) error {
-	return s.ephemSetString(ctx, keyTwoFactorChallenge+userID, challengeHash, ttl)
-}
-
-func (s *Client) getMFAChallenge(ctx context.Context, userID string) (string, bool, error) {
-	return s.ephemGetString(ctx, keyTwoFactorChallenge+userID)
-}
-
-func (s *Client) deleteMFAChallenge(ctx context.Context, userID string) error {
-	return s.ephemDel(ctx, keyTwoFactorChallenge+userID)
 }
 
 func (s *Client) storePasskeyCeremony(ctx context.Context, challenge string, data passkeyCeremonyData, ttl time.Duration) error {

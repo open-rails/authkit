@@ -56,16 +56,9 @@ func (s *Service) emailChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
-		resendPending: func(ctx context.Context, id string) (bool, error) {
-			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
-			if err != nil || p == nil {
-				return false, nil
-			}
-			_, err = s.svc.CreatePendingRegistrationWithLanguage(ctx, id, p.Username, p.PasswordHash, 0, p.PreferredLanguage)
-			return true, err
-		},
-		getUser:    s.svc.GetUserByEmail,
-		isVerified: func(u *embedded.User) bool { return u.EmailVerified },
+		resendPending: s.svc.ResendRegistration,
+		getUser:       s.svc.GetUserByEmail,
+		isVerified:    func(u *embedded.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -90,16 +83,9 @@ func (s *Service) phoneChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
-		resendPending: func(ctx context.Context, id string) (bool, error) {
-			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
-			if err != nil || p == nil {
-				return false, nil
-			}
-			_, err = s.svc.CreatePendingPhoneRegistrationWithLanguage(ctx, id, p.Username, p.PasswordHash, p.PreferredLanguage)
-			return true, err
-		},
-		getUser:    s.svc.GetUserByPhone,
-		isVerified: func(u *embedded.User) bool { return u.PhoneVerified },
+		resendPending: s.svc.ResendRegistration,
+		getUser:       s.svc.GetUserByPhone,
+		isVerified:    func(u *embedded.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err

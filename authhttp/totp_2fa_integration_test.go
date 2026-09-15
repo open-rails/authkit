@@ -80,7 +80,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
-	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
+	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 }
 
 func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {

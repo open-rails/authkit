@@ -85,7 +85,7 @@ func (s *Client) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string
 		return nil, Err2FAMethodUnavailable
 	}
 	var pending totpEnrollmentData
-	ok, err := s.ephemGetJSON(ctx, keyTOTPEnrollment+userID, &pending)
+	raw, ok, err := s.ephemReadJSON(ctx, keyTOTPEnrollment+userID, &pending)
 	if err != nil || !ok || len(pending.SealedSecret) == 0 {
 		return nil, jwt.ErrTokenUnverifiable
 	}
@@ -97,12 +97,14 @@ func (s *Client) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string
 	if err != nil || !validStep {
 		return nil, jwt.ErrTokenUnverifiable
 	}
+	if err := s.claimProof(ctx, keyTOTPEnrollment+userID, raw); err != nil {
+		return nil, err
+	}
 	codes, err := s.enable2FA(ctx, userID, "totp", nil, pending.SealedSecret, &step, makeDefault, mode)
 
 	if err != nil {
 		return nil, err
 	}
-	_ = s.ephemDel(ctx, keyTOTPEnrollment+userID)
 	return codes, nil
 }
 

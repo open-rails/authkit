@@ -104,7 +104,8 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 	require.Equal(t, true, claims["2fa_enrollment"])
 	require.Empty(t, claims["sid"])
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, tokens.AccessToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Equal(t, "email", requireTwoFARequired(t, w).Method)
 	for _, body := range []string{`{"method":"email"}`, `{"method":"totp"}`, `{"default":true,"factor_id":"anything"}`} {
 		w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", body, tokens.AccessToken)
 		require.Equal(t, http.StatusConflict, w.Code, w.Body.String())

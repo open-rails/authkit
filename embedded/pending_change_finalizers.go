@@ -8,14 +8,6 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-func (s *Client) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (string, error) {
-	return s.createEmailRegistrationUser(ctx, rec.Target, rec.Username, rec.PasswordHash, true, rec.PreferredLanguage)
-}
-
-func (s *Client) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
-	return s.createPhoneRegistrationUser(ctx, rec.Target, rec.Username, rec.PasswordHash, true, rec.PreferredLanguage)
-}
-
 // finalizeChangeEmail applies a verified email change to an existing user,
 // revokes every other session and tells the previous address.
 func (s *Client) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {

@@ -62,6 +62,11 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {
 		return RegisterOutcome{}, ErrRegistrationDisabled
 	}
+	language, err := NormalizePreferredLanguage(in.PreferredLanguage)
+	if err != nil {
+		return RegisterOutcome{}, err
+	}
+	in.PreferredLanguage = language
 	identifier := strings.TrimSpace(in.Identifier)
 	username := strings.TrimSpace(in.Username)
 	if identifier == "" || username == "" {
@@ -105,7 +110,7 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 		}
 		out := RegisterOutcome{Username: username, Phone: &phone}
 		if requiresVerification {
-			if _, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, username, phc, in.PreferredLanguage); err != nil {
+			if _, err := s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage); err != nil {
 				return RegisterOutcome{}, registrationErr("send_phone_verification", err)
 			}
 			out.Kind = RegisterVerifyPhone
@@ -140,7 +145,7 @@ func (s *Client) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	}
 	out := RegisterOutcome{Username: username, Email: &email}
 	if requiresVerification {
-		if _, err := s.CreatePendingRegistrationWithLanguage(ctx, email, username, phc, 0, in.PreferredLanguage); err != nil {
+		if _, err := s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage); err != nil {
 			return RegisterOutcome{}, registrationErr("send_email_verification", err)
 		}
 		out.Kind = RegisterVerifyEmail

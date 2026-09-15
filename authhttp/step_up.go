@@ -216,6 +216,10 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 }
 
 func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, map[string]any) {
+	if claims.TwoFAEnrollment {
+		forbidden(w, authkit.CodeForbidden)
+		return false, nil
+	}
 	if verify.SensitiveClaims(claims) {
 		return true, nil
 	}

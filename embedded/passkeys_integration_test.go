@@ -50,7 +50,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 	}
 
 	authn.UserVerified = false
-	assertion, err := svc.BeginPasskeyLogin(ctx, "")
+	assertion, err := svc.BeginPasskeyLogin(ctx)
 	if err != nil {
 		t.Fatalf("begin login: %v", err)
 	}

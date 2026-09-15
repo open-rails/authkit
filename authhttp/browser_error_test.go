@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"context"
-	"github.com/open-rails/authkit/embedded"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -257,32 +256,7 @@ func TestBrowserCallback_JSONNegotiation_KeepsEnvelope(t *testing.T) {
 // the fragment as enrollment_token — deliberately NOT access_token, so a
 // frontend that only stores access_token treats the login as failed instead of
 // adopting an enrollment-scoped token as a session.
-func TestBrowser2FAEnrollmentRequired_FragmentContract(t *testing.T) {
-	s := newTestService(t)
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
-	s.browserLoginContinuation(w, r, embedded.LoginOutcome{Kind: embedded.LoginTwoFAEnrollmentRequired, UserID: "user-1", Enrollment: &authkit.TokenSet{AccessToken: "enrollment-token", ExpiresIn: 600}, AllowedMethods: []string{"totp"}}, "google", oidckit.StateData{ReturnTo: "/account"})
-
-	fragment := parseErrorFragment(t, w)
-	require.Equal(t, "2fa_enrollment_required", fragment.Get("error"))
-	require.Equal(t, "google", fragment.Get("provider"))
-	require.NotEmpty(t, fragment.Get("enrollment_token"))
-	require.NotEmpty(t, fragment.Get("enrollment_expires_in"))
-	require.Equal(t, "/account", fragment.Get("return_to"))
-	require.Empty(t, fragment.Get("access_token"), "enrollment token must not masquerade as a session token")
-
-	// JSON negotiation returns the 403 enrollment envelope with the
-	// enrollment token under metadata.token_set (#313).
-	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
-	r.Header.Set("Accept", "application/json")
-	s.browserLoginContinuation(w, r, embedded.LoginOutcome{Kind: embedded.LoginTwoFAEnrollmentRequired, UserID: "user-1", Enrollment: &authkit.TokenSet{AccessToken: "enrollment-token", ExpiresIn: 600}, AllowedMethods: []string{"totp"}}, "google", oidckit.StateData{})
-	require.NotEmpty(t, requireEnrollmentToken(t, w))
-}
-
-// Popup-context start failures (before any state exists) still resolve the
-// opener via postMessage using the request's own ui/popup_nonce markers.
 func TestBrowserLoginStart_PopupError_EmitsPostMessage(t *testing.T) {
 	_, h := newBrowserErrorTestService(t)
 

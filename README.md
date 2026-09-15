@@ -16,6 +16,8 @@ applications normally call `authkitmigrate` during their own startup.
 
 See [verification trust and key ownership](docs/verification.md) for local versus
 external identity, application delegation boundaries, and key rotation.
+See [authentication workflows](docs/security/authentication-workflows.md) for
+first-factor continuations, atomic registration, and workflow test coverage.
 
 ## Migrations
 

@@ -374,6 +374,10 @@ func (s *Client) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 }
 
 func (s *Client) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *User, mfa MFAStatus, in LoginSessionInput) (IssuedSession, *time.Time, []string, error) {
+	now := time.Now().UTC()
+	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
+		return IssuedSession{}, nil, nil, err
+	}
 	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, user.ID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods)
 	if err != nil {
 		return IssuedSession{}, nil, nil, err
@@ -402,11 +406,12 @@ func (s *Client) lockLoginAccount(ctx context.Context, q *db.Queries, userID str
 	if err != nil {
 		return nil, err
 	}
-	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
-		return nil, jwt.ErrTokenUnverifiable
-	}
+
 	if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
 		return nil, ErrUserBanned
+	}
+	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
+		return nil, jwt.ErrTokenUnverifiable
 	}
 	reserved, err := q.UserIsReserved(ctx, userID)
 	if err != nil {

@@ -91,7 +91,7 @@ func (s *Client) ConfirmVerification(ctx context.Context, in VerificationInput) 
 		} else {
 			s.ClearPhoneVerifyCodeAttempts(ctx, rec.Target)
 		}
-		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Contact: rec.Target, Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
+		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
 	}
 	if in.Token == "" {
 		if strings.Contains(in.Identifier, "@") {

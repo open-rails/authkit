@@ -160,7 +160,10 @@ func (s *Client) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInpu
 	var err error
 	if in.Token != "" && in.Code == "" {
 		hash := sha256Hex(in.Token)
-		key, found := s.consumeLink(ctx, keyPasswordlessLink+hash)
+		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
+		if lookupErr != nil {
+			return LoginOutcome{}, lookupErr
+		}
 		if !found {
 			return LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
@@ -171,6 +174,13 @@ func (s *Client) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInpu
 		if !ok || !SecretEqual(rec.LinkHash, hash) {
 			return LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
+		if in.Identifier != "" {
+			channel, identifier, err := normalizePasswordlessIdentifier(in.Identifier)
+			if err != nil || channel != rec.Channel || identifier != rec.Identifier {
+				return LoginOutcome{}, jwt.ErrTokenInvalidClaims
+			}
+		}
+
 	} else if in.Token == "" && in.Identifier != "" && in.Code != "" {
 		channel, identifier, e := normalizePasswordlessIdentifier(in.Identifier)
 		if e != nil {
@@ -196,7 +206,7 @@ func (s *Client) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInpu
 	if rec.Channel == PasswordlessChannelSMS {
 		method = "sms"
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Contact: rec.Identifier, ReturnTo: rec.ReturnTo, Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
 	return out, err
 }
 

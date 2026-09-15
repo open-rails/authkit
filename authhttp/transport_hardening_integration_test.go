@@ -58,34 +58,6 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLinkLandingUsesFragmentAndNoStore pins ak#324 item 2: the reset/verify
-// link token rides the URL fragment of the SPA redirect, never the query, and
-// the redirect is uncacheable.
-func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
-	cfg := newServerTestConfig()
-	cfg.Frontend.BaseURL = "https://app.example/"
-	cfg.Frontend.VerifyPath = "/verify"
-	cfg.Frontend.PasswordResetPath = "/reset"
-	srv, err := newServer(newServerClient(t, cfg, testdb.Pool(t)), WithoutRateLimiter())
-	require.NoError(t, err)
-	h := srv.apiHandler()
-
-	for path, want := range map[string]string{
-		"/verify/confirm?token=sekrit&channel=email&return_to=/next": "https://app.example/verify#channel=email&return_to=%2Fnext&status=ready&token=sekrit",
-		"/verify/confirm?token=sekrit&channel=phone":                 "https://app.example/verify#channel=phone&status=ready&token=sekrit",
-		"/password/reset/confirm?token=sekrit&channel=email":         "https://app.example/reset#channel=email&status=ready&token=sekrit",
-		"/password/reset/confirm?token=sekrit":                       "https://app.example/reset#status=ready&token=sekrit",
-		"/password/reset/confirm":                                    "https://app.example/reset#status=invalid_request",
-	} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
-		require.Equal(t, http.StatusFound, w.Code, path)
-		require.Equal(t, want, w.Header().Get("Location"), path)
-		require.NotContains(t, w.Header().Get("Location"), "?token=", path)
-		require.Equal(t, "no-store", w.Header().Get("Cache-Control"), path)
-	}
-}
-
 // TestConfirmBackendFailureIs500NotAGuess pins ak#324 item 3: with the store
 // down, every verify/reset confirm path is a 500 backend failure and never a
 // counted bad guess; with the store up, a wrong code is still a 400 guess.

@@ -15,13 +15,15 @@ import (
 // account bounds state; the nonce and exact-value claim distinguish issuances.
 type loginProof struct {
 	SessionID       string `json:"session_id,omitempty"`
+	ProviderIssuer  string `json:"provider_issuer,omitempty"`
+	ProviderSubject string `json:"provider_subject,omitempty"`
+	PasskeyID       string `json:"passkey_id,omitempty"`
 	nonce           string
 	ReturnTo        string            `json:"return_to,omitempty"`
 	Input           LoginSessionInput `json:"input"`
 	Version         int64             `json:"version"`
 	Issuer          string            `json:"issuer"`
 	AuthenticatedAt time.Time         `json:"authenticated_at"`
-	Contact         string            `json:"contact,omitempty"`
 	NonceHash       string            `json:"nonce_hash"`
 	Enrollment      bool              `json:"enrollment"`
 	expected        []byte
@@ -45,7 +47,7 @@ func (s *Client) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	if err != nil {
 		return proof, err
 	}
-	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !SecretEqual(proof.NonceHash, sha256Hex(nonce)) || proof.AuthenticatedAt.IsZero() || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
+	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !SecretEqual(proof.NonceHash, sha256Hex(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
@@ -84,7 +86,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	if err := s.validateProofSession(ctx, q, proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
@@ -126,7 +128,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 		} else {
 			out.Kind = LoginTwoFAEnrollmentRequired
 			for _, method := range s.TwoFactorAllowedMethods() {
-				if independentFactor(proof, TwoFactorFactor{Method: method, PhoneNumber: nullable(proof.Contact)}) {
+				if independentFactor(proof, TwoFactorFactor{Method: method}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
@@ -207,6 +209,9 @@ func (s *Client) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+		return nil, err
+	}
 	settings, err := s.get2FASettings(ctx, q, userID)
 	if err != nil {
 		return nil, err
@@ -231,7 +236,7 @@ func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	if err := s.validateProofSession(ctx, q, proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	proof, err = s.loadLoginProof(ctx, in.UserID, in.Challenge)
@@ -339,12 +344,31 @@ func (s *Client) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrol
 	return out, nil
 }
 
-func (s *Client) validateProofSession(ctx context.Context, q *db.Queries, proof loginProof) error {
-	if proof.SessionID == "" {
-		return nil
+func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, proof loginProof) error {
+	q := db.New(source)
+	if proof.ProviderIssuer != "" {
+		linked, err := q.UserProviderByIssuerAny(ctx, db.UserProviderByIssuerAnyParams{UserID: proof.Input.UserID, Issuer: proof.ProviderIssuer})
+		if err != nil {
+			return err
+		}
+		if linked.VerifiedAt == nil || linked.Subject != proof.ProviderSubject {
+			return jwt.ErrTokenUnverifiable
+		}
 	}
-	_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
-	return err
+	if proof.PasskeyID != "" {
+		var exists bool
+		if err := source.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, proof.PasskeyID, proof.Input.UserID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return jwt.ErrTokenUnverifiable
+		}
+	}
+	if proof.SessionID != "" {
+		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
+		return err
+	}
+	return nil
 }
 
 // ContinueRefreshMFA is called only after validating the refresh credential.

@@ -30,7 +30,7 @@ func TestRecordFailedPhoneVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	ctx := context.Background()
 	const phone = "+14155550123"
 
-	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser", "argon2id$hash", ""); err != nil {
+	if _, err := svc.issuePendingPhoneRegistration(ctx, phone, "capuser", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration: %v", err)
 	}
 	if !pendingPhoneRegistrationExists(svc, phone) {
@@ -57,7 +57,7 @@ func TestClearPhoneVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	ctx := context.Background()
 	const phone = "+14155550124"
 
-	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser2", "argon2id$hash", ""); err != nil {
+	if _, err := svc.issuePendingPhoneRegistration(ctx, phone, "capuser2", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration: %v", err)
 	}
 
