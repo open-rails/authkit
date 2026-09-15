@@ -111,3 +111,7 @@ func hostPasskeyRegistration(ctx context.Context, client *embedded.Client, userI
 	}
 	return client.FinishPasskeyRegistration(ctx, userID, credential)
 }
+
+// Keep the compile-only examples reachable to static analysis without executing
+// snippets that require host-owned configuration, credentials and database state.
+var _ = []any{readmeMigrate, setupAuth, readmeDelegation, readmeLiveness, hostProvision, hostDocuments, hostPasskeyRegistration}
