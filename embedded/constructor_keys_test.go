@@ -10,10 +10,49 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit/jwtkit"
 )
+
+func TestTwoFactorModeConstruction(t *testing.T) {
+	constructors := map[string]func(Config) (*Client, error){
+		"New":         func(cfg Config) (*Client, error) { return New(cfg, Deps{}) },
+		"NewWithKeys": func(cfg Config) (*Client, error) { return NewWithKeys(cfg, Keyset{}, Deps{}) },
+	}
+	for name, construct := range constructors {
+		t.Run(name, func(t *testing.T) {
+			for _, mode := range []TwoFactorMode{"", TwoFactorDisabled, TwoFactorOptional, TwoFactorRequired, "requried", "Required", " required ", "unknown"} {
+				t.Run(string(mode), func(t *testing.T) {
+					cfg := minimalKeysTestConfig()
+					cfg.Keys.VerifyOnly = true
+					cfg.Ephemeral.AllowMemory = true
+					cfg.Registration.AllowMissingSenders = true
+					cfg.TwoFactor = TwoFactorConfig{Mode: mode, TOTPSecretKey: make([]byte, 32)}
+					client, err := construct(cfg)
+					valid := mode == "" || mode == TwoFactorDisabled || mode == TwoFactorOptional || mode == TwoFactorRequired
+					if !valid {
+						if err == nil || client != nil || !strings.Contains(err.Error(), "TwoFactor.Mode") {
+							t.Fatalf("invalid mode %q must fail construction, client=%v error=%v", mode, client != nil, err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := mode
+					if want == "" {
+						want = TwoFactorOptional
+					}
+					if client.Config().TwoFactor.Mode != want || client.TwoFactorEnabled() != (want != TwoFactorDisabled) || client.requireMFAEnrollment() != (want == TwoFactorRequired) {
+						t.Fatalf("mode %q did not retain its configured policy", mode)
+					}
+				})
+			}
+		})
+	}
+}
 
 func minimalKeysTestConfig() Config {
 	return Config{

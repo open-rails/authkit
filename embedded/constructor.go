@@ -141,7 +141,13 @@ func normalizeConfig(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 
-	cfg.TwoFactor.Mode = normalizeTwoFactorMode(cfg.TwoFactor.Mode)
+	switch cfg.TwoFactor.Mode {
+	case "":
+		cfg.TwoFactor.Mode = TwoFactorOptional
+	case TwoFactorDisabled, TwoFactorOptional, TwoFactorRequired:
+	default:
+		return Config{}, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", cfg.TwoFactor.Mode)
+	}
 	cfg.TwoFactor.Methods = append([]TwoFactorMethod(nil), cfg.TwoFactor.Methods...)
 
 	// Passkey RP identity derives from the BaseURL origin. A non-empty BaseURL
@@ -424,7 +430,7 @@ func (s *Client) PublicNativeUserRegistrationEnabled() bool {
 // requireMFAEnrollment reports whether every user must enroll a second factor
 // before establishing/refreshing a session (TwoFactor.Mode == "required").
 func (s *Client) requireMFAEnrollment() bool {
-	return normalizeTwoFactorMode(s.cfg.TwoFactor.Mode) == TwoFactorRequired
+	return s.cfg.TwoFactor.Mode == TwoFactorRequired
 }
 
 func isWellFormattedURL(raw string) bool {
