@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/open-rails/authkit v0.99.3-0.20260915013709-abfa8425d09d
+	github.com/open-rails/authkit v0.100.0
 	github.com/riverqueue/river v0.47.0
 )
 

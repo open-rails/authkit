@@ -3,8 +3,9 @@
 `scripts/check-compatibility.sh [release-or-commit]` compares the current source
 with an explicit baseline. Before v1, `base-ref` is a reviewed candidate; the
 owner's hard cut permits updating it while the contract is being finalized.
-The v1 release must replace it with the released tag, and later releases compare
-against the last supported release. Updating a candidate does not declare v1.
+The current baseline is the published `v0.100.0` pre-v1 release. The v1 release
+will advance it to the v1 tag; later releases compare against the last supported
+release. Updating a pre-v1 baseline does not declare v1.
 
 The script rejects changed/removed published migrations and additions below the
 baseline's final number, removed/changed route rows, and weakening of published
