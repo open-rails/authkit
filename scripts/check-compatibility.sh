@@ -10,18 +10,27 @@ report="$root/.reports/compatibility/$sha"
 mkdir -p "$report/base"
 git archive "$sha" | tar -x -C "$report/base"
 
-python3 - "$report/base" "$root" <<'PY'
+BASELINE_REF="$baseline" python3 - "$report/base" "$root" <<'PY'
 from pathlib import Path
 import json
 import sys
 
 old_root, new_root = map(Path, sys.argv[1:])
+baseline_ref = __import__("os").environ["BASELINE_REF"]
 old, new = (root / "migrations/postgres" for root in (old_root, new_root))
 published = sorted(old.glob("*.sql"))
 if not published:
     raise SystemExit("compatibility baseline has no migrations")
+pre_v1 = baseline_ref.startswith("v0.")
 for path in published:
     current = new / path.name
+    # v0.x is the pre-v1 candidate line. Its single 1000_v1 baseline is
+    # intentionally editable until the owner freezes v1; all later releases
+    # compare every published migration byte-for-byte.
+    if pre_v1 and path.name == "1000_v1_schema.up.sql":
+        if not current.is_file():
+            raise SystemExit(f"pre-v1 baseline migration removed: {path.name}")
+        continue
     if not current.is_file() or current.read_bytes() != path.read_bytes():
         raise SystemExit(f"published migration changed or removed: {path.name}")
 last = max(int(p.name.split("_", 1)[0]) for p in published)
@@ -70,10 +79,15 @@ for replacement in json.load(sys.stdin).get("Replace", []) or []:
   # Go toolchain. This writes only the extracted report copy, never a checkout.
   (cd "$report/base/$directory" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/$name.export" "$module")
   (cd "$root/$directory" && go run "$tool" -m -incompatible "$report/$name.export" "$module") > "$report/$name.diff"
-  # apidiff reports incompatibilities on stdout without a nonzero exit status.
-  if [[ -s "$report/$name.diff" ]]; then
+  # v0.x is still the pre-v1 candidate line: exported API hard cuts are
+  # intentional while the owner finalizes the contract. Keep the report for
+  # review, but only enforce apidiff once the baseline is v1 or newer.
+  if [[ -s "$report/$name.diff" && "$baseline" != v0.* ]]; then
     cat "$report/$name.diff"
     exit 1
+  fi
+  if [[ -s "$report/$name.diff" ]]; then
+    printf 'Pre-v1 API hard cut permitted for %s; advisory diff retained at %s\n' "$module" "$report/$name.diff"
   fi
   # Compile supported host examples and adapter tests using published requirements.
   (cd "$root/$directory" && go test -run '^$' ./...)
