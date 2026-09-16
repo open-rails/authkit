@@ -469,7 +469,7 @@ func (q *Queries) UserPasswordInsert(ctx context.Context, arg UserPasswordInsert
 }
 
 const userPasswordRehash = `-- name: UserPasswordRehash :exec
-UPDATE profiles.user_passwords SET password_hash = $1, hash_algo = 'argon2id', hash_params = NULL
+UPDATE profiles.user_passwords SET password_hash = $1, hash_algo = 'argon2id'
 WHERE user_id = $2 AND password_hash = $3
 `
 
@@ -486,43 +486,36 @@ func (q *Queries) UserPasswordRehash(ctx context.Context, arg UserPasswordRehash
 }
 
 const userPasswordRow = `-- name: UserPasswordRow :one
-SELECT password_hash, hash_algo, COALESCE(hash_params, '{}'::jsonb)::jsonb AS hash_params
+SELECT password_hash, hash_algo
 FROM profiles.user_passwords WHERE user_id = $1
 `
 
 type UserPasswordRowRow struct {
 	PasswordHash string
 	HashAlgo     string
-	HashParams   []byte
 }
 
 func (q *Queries) UserPasswordRow(ctx context.Context, userID string) (UserPasswordRowRow, error) {
 	row := q.db.QueryRow(ctx, userPasswordRow, userID)
 	var i UserPasswordRowRow
-	err := row.Scan(&i.PasswordHash, &i.HashAlgo, &i.HashParams)
+	err := row.Scan(&i.PasswordHash, &i.HashAlgo)
 	return i, err
 }
 
 const userPasswordUpsert = `-- name: UserPasswordUpsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo, hash_params)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, hash_params = EXCLUDED.hash_params, password_updated_at = NOW()
+INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, password_updated_at = NOW()
 `
 
 type UserPasswordUpsertParams struct {
 	UserID       string
 	PasswordHash string
 	HashAlgo     string
-	HashParams   []byte
 }
 
 func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsertParams) error {
-	_, err := q.db.Exec(ctx, userPasswordUpsert,
-		arg.UserID,
-		arg.PasswordHash,
-		arg.HashAlgo,
-		arg.HashParams,
-	)
+	_, err := q.db.Exec(ctx, userPasswordUpsert, arg.UserID, arg.PasswordHash, arg.HashAlgo)
 	return err
 }
 

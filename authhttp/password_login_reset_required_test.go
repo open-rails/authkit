@@ -38,7 +38,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	u, err := coreSvc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
-	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired, nil))
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired))
 	good, err := password.HashArgon2id("Known-password-123")
 	require.NoError(t, err)
 	for _, stored := range []struct {
@@ -66,7 +66,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	}
 	// Recover through the public reset operation, including the delivery token;
 	// a direct hash upsert would not prove that recovery clears the condition.
-	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired, nil))
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "reset-required", embedded.HashAlgoLegacyResetRequired))
 	w := serveJSON(svc, http.MethodPost, "/password/reset/request", `{"identifier":"`+email+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	w = serveJSON(svc, http.MethodPost, "/password/reset/confirm", `{"token":"`+sender.passwordResetToken(t)+`","new_password":"Recovered-password-12345"}`)

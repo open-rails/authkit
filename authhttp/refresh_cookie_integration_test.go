@@ -45,7 +45,7 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *Service, prefix st
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	return email, pass
 }
 

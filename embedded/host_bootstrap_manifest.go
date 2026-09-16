@@ -2,7 +2,6 @@ package embedded
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -326,7 +325,7 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 			return err
 		}
 	}
-	if strings.TrimSpace(p.Hash) != "" || strings.TrimSpace(p.HashAlgo) != "" || len(p.HashParams) > 0 {
+	if strings.TrimSpace(p.Hash) != "" || strings.TrimSpace(p.HashAlgo) != "" {
 		modes++
 		if strings.TrimSpace(p.Hash) == "" || strings.TrimSpace(p.HashAlgo) == "" {
 			return ErrInvalidBootstrapManifest
@@ -428,7 +427,6 @@ func prepareBootstrapPassword(p BootstrapUserPassword) (out db.UserPasswordUpser
 		out.PasswordHash, out.HashAlgo = "reset-required", HashAlgoLegacyResetRequired
 	} else {
 		out.PasswordHash, out.HashAlgo = strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)
-		out.HashParams, err = json.Marshal(p.HashParams)
 	}
 	return out, err
 }

@@ -424,7 +424,7 @@ func createPasswordUserAccessToken(t *testing.T, pool *pgxpool.Pool, srv *Servic
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})

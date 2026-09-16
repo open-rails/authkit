@@ -71,7 +71,7 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)

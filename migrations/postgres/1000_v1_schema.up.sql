@@ -110,7 +110,6 @@ CREATE TABLE profiles.user_passwords (
   user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
   password_hash text NOT NULL,
   hash_algo text NOT NULL DEFAULT 'argon2id',
-  hash_params jsonb,
   password_updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -152,8 +151,6 @@ CREATE TABLE profiles.user_passkeys (
   aaguid bytea,
   transports text[] NOT NULL DEFAULT '{}',
   authenticator_attachment text NOT NULL DEFAULT '',
-  backup_eligible boolean NOT NULL DEFAULT false,
-  backup_state boolean NOT NULL DEFAULT false,
   flags bytea NOT NULL DEFAULT '\x00',
   attestation_type text NOT NULL DEFAULT '',
   attestation_fmt text NOT NULL DEFAULT '',

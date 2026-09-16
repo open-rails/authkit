@@ -89,7 +89,7 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 
 	// Issue the session + token BEFORE enrolling 2FA: with the default Optional
 	// policy, minting a password-only session for an already-enrolled user is

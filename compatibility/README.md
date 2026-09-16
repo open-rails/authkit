@@ -7,12 +7,20 @@ The current baseline is the published `v0.100.0` pre-v1 release. The v1 release
 will advance it to the v1 tag; later releases compare against the last supported
 release. Updating a pre-v1 baseline does not declare v1.
 
-The script rejects changed/removed published migrations and additions below the
-baseline's final number, removed/changed route rows, and weakening of published
-wire fixtures. New routes and additive wire fields are allowed. It uses Go's pinned `apidiff` to compare exported APIs
+For a `v0.x` baseline, the unpublished `1000_v1_schema.up.sql` candidate may
+change or be rewritten as part of the pre-v1 hard cut; it may not be removed.
+Once the baseline is v1 (or any later release), every published migration is
+byte-for-byte protected. The script rejects changed/removed protected migrations
+and additions below the baseline's final number, removed/changed route rows, and
+weakening of published wire fixtures. New routes and additive wire fields are allowed. It uses Go's pinned `apidiff` to compare exported APIs
 of the root and both adapter modules, then compiles each module's tests/examples
 with `GOWORK=off`. Adapter requirements must resolve through their published
 Go module versions; a workspace replacement cannot conceal incompatible pins.
+
+The same pre-v1 rule applies to exported API changes: `apidiff` output is kept as
+an advisory report for a `v0.x` baseline, while it becomes a failing gate once the
+baseline advances to v1. This permits the coordinated hard cut of an API and its
+fresh schema before the first stable release without weakening post-v1 guarantees.
 
 The Go comparison deliberately flags more exported surface than the documented
 host contract. A helper-only diagnostic still needs review; it does not silently
