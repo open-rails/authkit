@@ -136,7 +136,7 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	})
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
 	return user.ID
 }
 

@@ -103,7 +103,7 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	// Age the session past the fresh-auth window so the password path runs.

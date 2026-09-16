@@ -42,7 +42,7 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 		require.NoError(t, err)
 		hash, err := password.HashArgon2id(plain)
 		require.NoError(t, err)
-		require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+		require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 		if strings.Contains(email, "attacker") {
 			attackerID = user.ID
 		}

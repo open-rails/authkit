@@ -459,7 +459,7 @@ func passkeyAccountUser(id uuid.UUID) passkeyUser {
 }
 
 func (s *Client) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, backup_eligible, backup_state, label, created_at, last_used_at
+	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
 FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
@@ -468,8 +468,13 @@ FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL 
 	var out []Passkey
 	for rows.Next() {
 		var p Passkey
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &p.BackupEligible, &p.BackupState, &p.Label, &p.CreatedAt, &p.LastUsedAt); err != nil {
+		var flags []byte
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &flags, &p.Label, &p.CreatedAt, &p.LastUsedAt); err != nil {
 			return nil, err
+		}
+		if len(flags) > 0 {
+			parsed := webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
+			p.BackupEligible, p.BackupState = parsed.BackupEligible, parsed.BackupState
 		}
 		out = append(out, p)
 	}
@@ -576,7 +581,7 @@ func (s *Client) passkeyHandle(ctx context.Context, userID string, create bool) 
 }
 
 func (s *Client) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, flags, attestation_type, attestation_fmt
+	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt
 FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
@@ -599,18 +604,18 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 		transports                             []string
 		attachment, attType, attFmt            string
 		signCount                              int64
-		clone, be, bs                          bool
+		clone                                  bool
 	)
-	if err := row.Scan(&credentialID, &publicKey, &signCount, &clone, &aaguid, &transports, &attachment, &be, &bs, &flags, &attType, &attFmt); err != nil {
+	if err := row.Scan(&credentialID, &publicKey, &signCount, &clone, &aaguid, &transports, &attachment, &flags, &attType, &attFmt); err != nil {
 		return webauthn.Credential{}, err
 	}
 	var transport []protocol.AuthenticatorTransport
 	for _, t := range transports {
 		transport = append(transport, protocol.AuthenticatorTransport(t))
 	}
-	// UserPresent/UserVerified are derived from flags (#235); the bool columns
-	// only backstop legacy rows with an empty flags byte.
-	credFlags := webauthn.CredentialFlags{BackupEligible: be, BackupState: bs}
+	// UserPresent/UserVerified and backup state are derived from the persisted
+	// authenticator flags byte (#235).
+	credFlags := webauthn.CredentialFlags{}
 	if len(flags) > 0 {
 		credFlags = webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
 	}
@@ -632,23 +637,27 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 
 func (s *Client) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
 	var p Passkey
+	var flags []byte
 	err := q.QueryRow(ctx, `INSERT INTO profiles.user_passkeys
-(user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, flags, attestation_type, attestation_fmt, label)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-RETURNING id, user_id, transports, authenticator_attachment, backup_eligible, backup_state, label, created_at, last_used_at`,
+(user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+RETURNING id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at`,
 		userID, s.cfg.Passkeys.RPID, cred.ID, cred.PublicKey, int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, nullBytes(cred.Authenticator.AAGUID),
-		transportStrings(cred.Transport), string(cred.Authenticator.Attachment), cred.Flags.BackupEligible, cred.Flags.BackupState,
-		[]byte{byte(cred.Flags.ProtocolValue())}, cred.AttestationType, cred.AttestationFormat, label,
-	).Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &p.BackupEligible, &p.BackupState, &p.Label, &p.CreatedAt, &p.LastUsedAt)
+		transportStrings(cred.Transport), string(cred.Authenticator.Attachment), []byte{byte(cred.Flags.ProtocolValue())}, cred.AttestationType, cred.AttestationFormat, label,
+	).Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &flags, &p.Label, &p.CreatedAt, &p.LastUsedAt)
+	if len(flags) > 0 {
+		parsed := webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
+		p.BackupEligible, p.BackupState = parsed.BackupEligible, parsed.BackupState
+	}
 	return p, err
 }
 
 func (s *Client) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
 	var id string
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `UPDATE profiles.user_passkeys
-SET sign_count=$1, clone_warning=$2, backup_state=$3, flags=$4, last_used_at=NOW()
-WHERE user_id=$5 AND rpid=$6 AND credential_id=$7 AND deleted_at IS NULL RETURNING id`,
-		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, cred.Flags.BackupState, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)
+SET sign_count=$1, clone_warning=$2, flags=$3, last_used_at=NOW()
+WHERE user_id=$4 AND rpid=$5 AND credential_id=$6 AND deleted_at IS NULL RETURNING id`,
+		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrPasskeyNotFound
 	}

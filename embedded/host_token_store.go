@@ -13,22 +13,22 @@ import (
 
 // setPasswordSet removed; presence of password is inferred from profiles.user_passwords
 
-func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo string, params []byte, err error) {
+func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo string, err error) {
 	if s.pg == nil {
-		return "", "", nil, nil
+		return "", "", nil
 	}
 	row, err := s.q.UserPasswordRow(ctx, userID)
-	return row.PasswordHash, row.HashAlgo, row.HashParams, err
+	return row.PasswordHash, row.HashAlgo, err
 }
 
 // UpsertPasswordHash replaces a precomputed password hash and invalidates all
 // sessions and recovery grants. Intended for trusted host import/maintenance.
-func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
+func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error {
 	if err := validatePasswordHashForStorage(hash, algo); err != nil {
 		return err
 	}
 	return s.mutateCredentials(ctx, userID, nil, SessionRevokeReasonAdminSetPassword, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
-		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
+		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo})
 	})
 }
 

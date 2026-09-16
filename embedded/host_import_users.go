@@ -264,15 +264,15 @@ func (s *Client) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow)
 // was just created.
 func (s *Client) bulkInsertPasswordHashes(ctx context.Context, rows []preparedImportRow) error {
 	var b strings.Builder
-	b.WriteString("INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo, hash_params) VALUES ")
-	args := make([]any, 0, len(rows)*4)
+	b.WriteString("INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo) VALUES ")
+	args := make([]any, 0, len(rows)*3)
 	for i, r := range rows {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		n := i * 4
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d)", n+1, n+2, n+3, n+4)
-		args = append(args, r.id, r.in.PasswordHash, r.in.HashAlgo, r.in.HashParams)
+		n := i * 3
+		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d)", n+1, n+2, n+3)
+		args = append(args, r.id, r.in.PasswordHash, r.in.HashAlgo)
 	}
 	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
 	_, err := s.pg.Exec(ctx, db.RewriteSQL(b.String(), s.dbSchema()), args...)

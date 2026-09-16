@@ -160,7 +160,7 @@ func TestV1AuditLocalHTTPVerifierFollowsKeyRotation(t *testing.T) {
 	require.NoError(t, err)
 	hash, err := password.HashArgon2id("rotation-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	h, err := MountHandler(srv, MountOptions{APIPrefix: "/api/v1"})
 	require.NoError(t, err)
 	login := func() string {

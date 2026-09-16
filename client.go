@@ -50,7 +50,7 @@ type Client interface {
 	// callers fail closed; unknown ids are absent and a gate treats that as a
 	// denial.
 	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]UserLiveness, error)
-	UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error
+	UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error
 
 	// --- admin directory ---
 	AdminGetUser(ctx context.Context, id string) (*AdminUser, error)

@@ -25,8 +25,8 @@ func TestImportedPasswordHashValidation(t *testing.T) {
 	require.ErrorIs(t, svc.CheckUserPassword(ctx, uid, "any"), ErrPasswordResetRequired)
 	good, err := password.HashArgon2id("Known-password-123")
 	require.NoError(t, err)
-	require.NoError(t, svc.UpsertPasswordHash(ctx, uid, good, "argon2id", nil))
-	require.ErrorIs(t, svc.UpsertPasswordHash(ctx, uid, unsafe, "argon2id", nil), password.ErrInvalidHash)
+	require.NoError(t, svc.UpsertPasswordHash(ctx, uid, good, "argon2id"))
+	require.ErrorIs(t, svc.UpsertPasswordHash(ctx, uid, unsafe, "argon2id"), password.ErrInvalidHash)
 	require.NoError(t, svc.CheckUserPassword(ctx, uid, "Known-password-123"))
 	// Older/corrupt stored rows bypassed today's importer. They should use the
 	// existing recovery outcome, never panic or compute the rejected work.

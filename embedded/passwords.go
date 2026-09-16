@@ -25,7 +25,7 @@ func (s *Client) authenticatePassword(ctx context.Context, u *User, pass string)
 	if err != nil {
 		return 0, err
 	}
-	hash, algo, _, err := s.getPasswordHash(ctx, u.ID)
+	hash, algo, err := s.getPasswordHash(ctx, u.ID)
 	if err != nil {
 		return 0, errOrUnauthorized(err)
 	}
@@ -52,7 +52,7 @@ func (s *Client) CheckUserPassword(ctx context.Context, userID, pass string) err
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
 		return errOrUnauthorized(nil)
 	}
-	hash, algo, _, err := s.getPasswordHash(ctx, userID)
+	hash, algo, err := s.getPasswordHash(ctx, userID)
 	if err != nil {
 		return errOrUnauthorized(err)
 	}

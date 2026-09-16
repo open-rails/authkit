@@ -116,13 +116,13 @@ UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified =
 UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserPasswordRow :one
-SELECT password_hash, hash_algo, COALESCE(hash_params, '{}'::jsonb)::jsonb AS hash_params
+SELECT password_hash, hash_algo
 FROM profiles.user_passwords WHERE user_id = $1;
 
 -- name: UserPasswordUpsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo, hash_params)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, hash_params = EXCLUDED.hash_params, password_updated_at = NOW();
+INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, password_updated_at = NOW();
 
 -- name: UserDeleteHard :exec
 DELETE FROM profiles.users WHERE id = $1;
@@ -157,5 +157,5 @@ UPDATE profiles.users SET credential_version = credential_version + 1 WHERE id =
 
 -- name: UserPasswordRehash :exec
 -- Opportunistic rehash cannot overwrite a password changed after verification.
-UPDATE profiles.user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id', hash_params = NULL
+UPDATE profiles.user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id'
 WHERE user_id = sqlc.arg(user_id) AND password_hash = sqlc.arg(old_hash);

@@ -79,11 +79,10 @@ type BootstrapManifestRemoteApplication struct {
 }
 
 type BootstrapUserPassword struct {
-	Plaintext     string         `json:"plaintext" yaml:"plaintext"`
-	Hash          string         `json:"hash" yaml:"hash"`
-	HashAlgo      string         `json:"hash_algo" yaml:"hash_algo"`
-	HashParams    map[string]any `json:"hash_params" yaml:"hash_params"`
-	ResetRequired bool           `json:"reset_required" yaml:"reset_required"`
+	Plaintext     string `json:"plaintext" yaml:"plaintext"`
+	Hash          string `json:"hash" yaml:"hash"`
+	HashAlgo      string `json:"hash_algo" yaml:"hash_algo"`
+	ResetRequired bool   `json:"reset_required" yaml:"reset_required"`
 	// Enforce makes the password DESIRED-STATE (#89): re-asserted on every
 	// reconcile. Default false = SEED-ONCE — the password is applied only when
 	// the user is first created, so a password rotated out of band (via the
@@ -427,7 +426,6 @@ type ImportUserInput struct {
 	// re-validate the hash, matching single-row UpsertPasswordHash.
 	PasswordHash string
 	HashAlgo     string
-	HashParams   []byte
 }
 
 type AdminUser struct {
