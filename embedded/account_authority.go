@@ -76,10 +76,10 @@ func (s *Client) HardDeleteUserAs(ctx context.Context, actorUserID, userID strin
 	return s.adminDeleteUser(ctx, actorUserID, userID)
 }
 
-// AdminRevokeUserSessionsAs is the actor-aware AdminRevokeUserSessions.
-func (s *Client) AdminRevokeUserSessionsAs(ctx context.Context, actorUserID, userID string) error {
+// AdminRevokeAccountSessionsAs is the actor-aware AdminRevokeAccountSessions.
+func (s *Client) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
 	if strings.TrimSpace(actorUserID) == "" {
-		return ErrInsufficientRoleAuthority
+		return authkit.AccountSessionRevocation{}, ErrInsufficientRoleAuthority
 	}
-	return s.revokeAllSessions(ctx, actorUserID, userID, nil)
+	return s.revokeAccountSessions(ctx, actorUserID, userID)
 }

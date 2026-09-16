@@ -62,7 +62,7 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevokeAll)
-	if err := s.svc.RevokeAllSessions(ctx, cl.UserID, nil); err != nil {
+	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, nil); err != nil {
 		serverErr(w, authkit.CodeFailedToRevokeAll)
 		return
 	}

@@ -91,22 +91,14 @@ func (s *Client) applyContactChange(ctx context.Context, rec pendingChange, keep
 	if err := apply(q); err != nil {
 		return err
 	}
-	var revoked []string
-	if keepSessionID != nil && *keepSessionID != "" {
-		revoked, err = q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
-	} else {
-		revoked, err = q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	}
+	revoked, err := revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	reason := string(SessionRevokeReasonContactChange)
-	for _, sid := range revoked {
-		s.logSessionRevoked(ctx, userID, sid, &reason)
-	}
+	s.logRevokedSessions(ctx, userID, revoked, string(SessionRevokeReasonContactChange))
 	return nil
 }
 

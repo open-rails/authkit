@@ -108,7 +108,7 @@ func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(
 			require.NoError(t, err)
 			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
-			require.NoError(t, srv.svc.RevokeAllSessions(ctx, uid, nil))
+			require.NoError(t, srv.svc.RevokeIssuerSessions(ctx, uid, nil))
 			identity := providerTestIdentity{Subject: "audit-revoked-link-" + uniqueSuffix()}
 			callback := completeSecurityProviderCallback(t, srv, provider, start, identity)
 			owner, _, linkErr := srv.svc.GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)

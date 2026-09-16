@@ -113,6 +113,20 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"refresh_sessions"}, ForbidSort: true,
 		},
 		{
+			// Account-wide revocation fans out over the fat user's sessions on every
+			// account issuer through the (user_id, issuer, last_used_at) index.
+			Name: "sessions_revoke_account", MaxExecutionMS: 75, MaxSharedReadBlocks: 64,
+			SQL:           db.QueryText["SessionsRevokeAll"],
+			Args:          []any{perfUserID(perfFatUser), []string{perfIssuer, "https://sibling.example"}, nil},
+			ForbidSeqScan: []string{"refresh_sessions"},
+		},
+		{
+			Name: "sessions_count_outside_issuers", MaxExecutionMS: 75, MaxSharedReadBlocks: 64,
+			SQL:           db.QueryText["SessionsCountActiveOutsideIssuers"],
+			Args:          []any{perfUserID(perfFatUser), []string{"https://sibling.example"}},
+			ForbidSeqScan: []string{"refresh_sessions"},
+		},
+		{
 			// Indexed by refresh_sessions_family_active (migration 002); was a full
 			// seq scan before.
 			Name: "session_revoke_family", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,

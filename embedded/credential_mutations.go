@@ -31,16 +31,14 @@ func (s *Client) mutateCredentials(ctx context.Context, userID string, keepSessi
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	r := string(reason)
-	for _, sid := range revoked {
-		s.logSessionRevoked(ctx, userID, sid, &r)
-	}
+	s.logRevokedSessions(ctx, userID, revoked, string(reason))
 	return nil
 }
 
 // mutateCredentialsTx is shared by credential flows and transactional host bootstrap.
-// The caller owns commit/rollback and logs returned session IDs only after commit.
-func (s *Client) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepSessionID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]string, error) {
+// Credentials are account-wide, so sessions on every account issuer are revoked.
+// The caller owns commit/rollback and logs returned sessions only after commit.
+func (s *Client) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepSessionID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]revokedSession, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -51,16 +49,7 @@ func (s *Client) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID 
 	if err := q.UserAdvanceCredentialVersion(ctx, userID); err != nil {
 		return nil, err
 	}
-	var revoked []string
-	if keepSessionID != nil && *keepSessionID != "" {
-		revoked, err = q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
-	} else {
-		revoked, err = q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	}
-	if err != nil {
-		return nil, err
-	}
-	return revoked, nil
+	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
 }
 
 func (s *Client) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason SessionRevokeReason) error {

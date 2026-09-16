@@ -8,6 +8,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -557,11 +558,9 @@ func (s *Client) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID
 	return nil
 }
 
-func (s *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
-	return s.revokeAllSessions(ctx, "", userID, keepSessionID)
-}
-
-func (s *Client) revokeAllSessions(ctx context.Context, actorUserID, userID string, keepSessionID *string) error {
+// RevokeIssuerSessions revokes the user's refresh sessions on this issuer only,
+// optionally keeping one: a user's own "sign out my other sessions" here.
+func (s *Client) RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -575,37 +574,129 @@ func (s *Client) revokeAllSessions(ctx context.Context, actorUserID, userID stri
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if actorUserID != "" {
-		st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
-		if err := s.lockAuthority(ctx, st.q); err != nil {
-			return err
-		}
-		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, userID); err != nil {
-			return err
-		}
-	}
 	q := s.qtx(tx)
 	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	var ids []string
-	if keepSessionID != nil && *keepSessionID != "" {
-		ids, err = q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
-	} else {
-		ids, err = q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	}
+	revoked, err := revokeSessionsTx(ctx, q, userID, []string{s.cfg.Token.Issuer}, keepSessionID)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, sid := range ids {
-		s.logSessionRevoked(ctx, userID, sid, reason)
-	}
+	s.logRevokedSessions(ctx, userID, revoked, *reason)
 	return nil
+}
+
+// AdminRevokeAccountSessions is the unchecked account-wide emergency revoke;
+// hosts authorize the actor. See AdminRevokeAccountSessionsAs.
+func (s *Client) AdminRevokeAccountSessions(ctx context.Context, userID string) (authkit.AccountSessionRevocation, error) {
+	return s.revokeAccountSessions(ctx, "", userID)
+}
+
+// revokeAccountSessions revokes refresh sessions on every account issuer and
+// all device keys in one transaction under the account lock, so nothing that
+// can mint a new access token survives. Issued access tokens expire on TTL.
+func (s *Client) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
+	issuers := s.accountIssuers()
+	out := authkit.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
+	for _, issuer := range issuers {
+		out.RevokedSessions[issuer] = 0
+	}
+	if err := s.requirePG(); err != nil {
+		return out, err
+	}
+	userID = strings.TrimSpace(userID)
+	reason := string(SessionRevokeReasonAdminRevokeAll)
+	if r := sessionRevokeReasonFromContext(ctx); r != nil {
+		reason = *r
+	}
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback(ctx)
+	if actorUserID != "" {
+		st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+		if err := s.lockAuthority(ctx, st.q); err != nil {
+			return out, err
+		}
+		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, userID); err != nil {
+			return out, err
+		}
+	}
+	q := s.qtx(tx)
+	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
+		return out, ErrUserNotFound
+	} else if err != nil {
+		return out, err
+	}
+	revoked, err := revokeSessionsTx(ctx, q, userID, issuers, nil)
+	if err != nil {
+		return out, err
+	}
+	keys, err := s.revokeAllDeviceKeys(ctx, tx, userID)
+	if err != nil {
+		return out, err
+	}
+	unlisted, err := q.SessionsCountActiveOutsideIssuers(ctx, db.SessionsCountActiveOutsideIssuersParams{UserID: userID, Issuers: issuers})
+	if err != nil {
+		return out, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return out, err
+	}
+	for _, r := range revoked {
+		out.RevokedSessions[r.Issuer]++
+	}
+	out.RevokedDeviceKeys = int(keys)
+	out.UnlistedIssuerSessions = int(unlisted)
+	s.logRevokedSessions(ctx, userID, revoked, reason)
+	s.logSessionEvent(ctx, AuthSessionEvent{
+		Issuer: s.cfg.Token.Issuer,
+		UserID: userID,
+		Event:  SessionEventAccountSessionsRevoked,
+		Reason: &reason,
+	})
+	return out, nil
+}
+
+// accountIssuers is the normalized account-level revocation scope (a copy).
+func (s *Client) accountIssuers() []string {
+	if len(s.cfg.Token.AccountIssuers) == 0 {
+		return []string{s.cfg.Token.Issuer}
+	}
+	return slices.Clone(s.cfg.Token.AccountIssuers)
+}
+
+// revokedSession identifies a revoked session for post-commit audit.
+type revokedSession struct{ ID, Issuer string }
+
+// revokeSessionsTx is the one bulk revocation. issuers is the scope: this
+// issuer for session-level actions, accountIssuers() for account-level ones.
+func revokeSessionsTx(ctx context.Context, q *db.Queries, userID string, issuers []string, keepSessionID *string) ([]revokedSession, error) {
+	if keepSessionID != nil && *keepSessionID == "" {
+		keepSessionID = nil
+	}
+	rows, err := q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuers: issuers, KeepSessionID: keepSessionID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]revokedSession, len(rows))
+	for i, r := range rows {
+		out[i] = revokedSession{ID: r.ID, Issuer: r.Issuer}
+	}
+	return out, nil
+}
+
+// logRevokedSessions records each revocation under the session's own issuer.
+func (s *Client) logRevokedSessions(ctx context.Context, userID string, revoked []revokedSession, reason string) {
+	for _, r := range revoked {
+		s.logSessionEvent(ctx, AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: SessionEventRevoked, Reason: &reason})
+	}
 }
 
 // enforceSessionLimitTx evicts the oldest sessions so that inserting one more keeps
@@ -690,8 +781,4 @@ func ipText(ip net.IP) *string {
 	}
 	v := ip.String()
 	return &v
-}
-
-func (s *Client) AdminRevokeUserSessions(ctx context.Context, userID string) error {
-	return s.RevokeAllSessions(ctx, userID, nil)
 }

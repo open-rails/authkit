@@ -9,8 +9,6 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit/embedded"
 )
 
 // adminUserListOptionsFromQuery parses the admin directory query params:
@@ -239,12 +237,10 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	if err := s.svc.AdminRevokeUserSessionsAs(
-		embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonAdminRevokeAll),
-		actor, userID,
-	); err != nil {
+	result, err := s.svc.AdminRevokeAccountSessionsAs(r.Context(), actor, userID)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	noContent(w)
+	writeJSON(w, http.StatusOK, result)
 }

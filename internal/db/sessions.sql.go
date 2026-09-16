@@ -349,6 +349,26 @@ func (q *Queries) SessionsCountActive(ctx context.Context, arg SessionsCountActi
 	return count, err
 }
 
+const sessionsCountActiveOutsideIssuers = `-- name: SessionsCountActiveOutsideIssuers :one
+SELECT count(*) FROM profiles.refresh_sessions
+WHERE user_id = $1 AND NOT (issuer = ANY($2::text[]))
+  AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+`
+
+type SessionsCountActiveOutsideIssuersParams struct {
+	UserID  string
+	Issuers []string
+}
+
+// Live sessions an account-wide revocation could not reach: issuers missing
+// from the configured account issuer set.
+func (q *Queries) SessionsCountActiveOutsideIssuers(ctx context.Context, arg SessionsCountActiveOutsideIssuersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, sessionsCountActiveOutsideIssuers, arg.UserID, arg.Issuers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const sessionsDeleteRevokedOrExpiredBatch = `-- name: SessionsDeleteRevokedOrExpiredBatch :execrows
 DELETE FROM profiles.refresh_sessions
 WHERE ctid = ANY(ARRAY(
@@ -467,60 +487,38 @@ func (q *Queries) SessionsListByUser(ctx context.Context, arg SessionsListByUser
 
 const sessionsRevokeAll = `-- name: SessionsRevokeAll :many
 UPDATE profiles.refresh_sessions SET revoked_at = now()
-WHERE user_id = $1 AND issuer = $2 AND revoked_at IS NULL
-RETURNING id::text
+WHERE user_id = $1 AND issuer = ANY($2::text[])
+  AND ($3::uuid IS NULL OR id <> $3::uuid)
+  AND revoked_at IS NULL
+RETURNING id::text, issuer
 `
 
 type SessionsRevokeAllParams struct {
-	UserID string
-	Issuer string
+	UserID        string
+	Issuers       []string
+	KeepSessionID *string
 }
 
-func (q *Queries) SessionsRevokeAll(ctx context.Context, arg SessionsRevokeAllParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, sessionsRevokeAll, arg.UserID, arg.Issuer)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sessionsRevokeAllExcept = `-- name: SessionsRevokeAllExcept :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
-WHERE user_id = $1 AND issuer = $2 AND id <> $3 AND revoked_at IS NULL
-RETURNING id::text
-`
-
-type SessionsRevokeAllExceptParams struct {
-	UserID string
-	Issuer string
+type SessionsRevokeAllRow struct {
 	ID     string
+	Issuer string
 }
 
-func (q *Queries) SessionsRevokeAllExcept(ctx context.Context, arg SessionsRevokeAllExceptParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, sessionsRevokeAllExcept, arg.UserID, arg.Issuer, arg.ID)
+// issuers is the revocation scope: this issuer alone, or every account issuer.
+// keep_session_id (optional) survives, e.g. the session changing the password.
+func (q *Queries) SessionsRevokeAll(ctx context.Context, arg SessionsRevokeAllParams) ([]SessionsRevokeAllRow, error) {
+	rows, err := q.db.Query(ctx, sessionsRevokeAll, arg.UserID, arg.Issuers, arg.KeepSessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items []SessionsRevokeAllRow
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var i SessionsRevokeAllRow
+		if err := rows.Scan(&i.ID, &i.Issuer); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

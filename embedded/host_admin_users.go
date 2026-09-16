@@ -302,7 +302,7 @@ func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) er
 	} else if err != nil {
 		return err
 	}
-	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: id, Issuer: s.cfg.Token.Issuer})
+	revoked, err := revokeSessionsTx(ctx, qtx, id, s.accountIssuers(), nil)
 	if err != nil {
 		return err
 	}
@@ -316,6 +316,6 @@ func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) er
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logSessionsRevoked(ctx, id, sessionIDs, SessionRevokeReasonHardDeleted)
+	s.logRevokedSessions(ctx, id, revoked, string(SessionRevokeReasonHardDeleted))
 	return nil
 }

@@ -305,3 +305,25 @@ It denies banned, deleted, reserved and unknown accounts on the next request
 and hands the handler fresh `Username`/`Email`/`EmailVerified`. Fail-closed:
 one `UserLivenessByIDs` read per request, no cache, a lookup error denies;
 without `WithLiveness` construction returns `verify.ErrLivenessUnconfigured`.
+
+## Sessions across issuers
+
+Deployments sharing one account schema under different issuers (separate site
+logins, shared accounts) each set `Token.AccountIssuers` to the same issuer set.
+
+| Operation | Refresh sessions revoked on |
+| --- | --- |
+| `DELETE /logout`, `DELETE /user/sessions[/{id}]`, `RevokeIssuerSessions`, session-cap eviction, refresh reuse | this issuer |
+| `AdminRevokeAccountSessions[As]` (`POST /admin/users/{user_id}/sessions/revoke`), password change/reset/admin set, contact change, ban, deletion | every account issuer |
+
+The emergency revoke also revokes device keys and returns
+`authkit.AccountSessionRevocation`: covered issuers, per-issuer counts, and live
+sessions left under unlisted issuers (nonzero means incomplete configuration).
+Each revoked session is recorded under its own issuer, plus one
+`account_sessions_revoked` event.
+
+Revocation stops refresh and step-up re-authentication at once. It does not
+recall issued access tokens: `verify.Required` accepts them until `exp`
+(`AccessTokenDuration`), and `RequiredLive`/`AllowLive` check account liveness
+and live permissions, not sessions. To cut privileged access immediately, also
+ban the account or remove its roles.
