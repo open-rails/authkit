@@ -185,6 +185,14 @@ type TokenConfig struct {
 	// the default of 30s; any negative value disables the window and restores
 	// strictly single-use rotation.
 	RefreshRotationGrace time.Duration
+	// AccountIssuers lists every issuer whose deployment shares this account
+	// store (same database schema), e.g. two sites with separate logins over
+	// one set of accounts. Account-level revocations — admin emergency revoke,
+	// password/contact changes, ban and deletion — cover refresh sessions on
+	// all of them. Logout and a user's own session management stay on Issuer.
+	// Issuer is always included; empty means Issuer alone. Every deployment
+	// sharing the store should configure the same set.
+	AccountIssuers []string
 }
 
 // FrontendConfig describes host-owned frontend routes.

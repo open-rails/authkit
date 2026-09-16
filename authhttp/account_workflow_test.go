@@ -482,7 +482,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 		needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 		require.Equal(t, "2fa_required", needed.Error.Code)
 		completionBody := map[string]any{"user_id": refreshUser.ID, "challenge": needed.Error.Metadata.Challenge, "code": f.email.lastLoginCode()}
-		completed = f.completeWhileRevoking(refreshUser.ID, func() flowResponse { return f.post("/2fa/verify", completionBody) }, func(ctx context.Context) error { return f.service.svc.RevokeAllSessions(ctx, refreshUser.ID, nil) })
+		completed = f.completeWhileRevoking(refreshUser.ID, func() flowResponse { return f.post("/2fa/verify", completionBody) }, func(ctx context.Context) error { return f.service.svc.RevokeIssuerSessions(ctx, refreshUser.ID, nil) })
 		f.expect(200, completed)
 		var live int
 		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1::uuid AND revoked_at IS NULL`, refreshUser.ID).Scan(&live))

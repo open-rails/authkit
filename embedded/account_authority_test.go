@@ -55,7 +55,7 @@ func TestAccountAuthority_NoEscalation_DB(t *testing.T) {
 	if err := svc.SoftDeleteUserAs(ctx, operator, owner); !errors.Is(err, ErrAccountAuthorityEscalation) {
 		t.Fatalf("operator soft-delete owner: want ErrAccountAuthorityEscalation, got %v", err)
 	}
-	if err := svc.AdminRevokeUserSessionsAs(ctx, operator, owner); !errors.Is(err, ErrAccountAuthorityEscalation) {
+	if _, err := svc.AdminRevokeAccountSessionsAs(ctx, operator, owner); !errors.Is(err, ErrAccountAuthorityEscalation) {
 		t.Fatalf("operator revoke owner sessions: want ErrAccountAuthorityEscalation, got %v", err)
 	}
 	if err := svc.BanUser(ctx, member, nil, nil, ""); !errors.Is(err, ErrInsufficientRoleAuthority) {

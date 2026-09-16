@@ -420,14 +420,14 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
 		return err
 	}
-	sessionIDs, err := s.revokeCredentialsTx(ctx, tx, userID)
+	revoked, err := s.revokeCredentialsTx(ctx, tx, userID)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logSessionsRevoked(ctx, userID, sessionIDs, SessionRevokeReasonBanned)
+	s.logRevokedSessions(ctx, userID, revoked, string(SessionRevokeReasonBanned))
 	return nil
 }
 
@@ -468,7 +468,7 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	} else if err != nil {
 		return err
 	}
-	sessionIDs, err := s.revokeCredentialsTx(ctx, tx, id)
+	revoked, err := s.revokeCredentialsTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -478,28 +478,21 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logSessionsRevoked(ctx, id, sessionIDs, SessionRevokeReasonSoftDeleted)
+	s.logRevokedSessions(ctx, id, revoked, string(SessionRevokeReasonSoftDeleted))
 	return nil
 }
 
-// revokeCredentialsTx revokes every refresh session and device key of userID
-// inside tx, returning the revoked session ids for post-commit audit logging.
-func (s *Client) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]string, error) {
-	ids, err := s.qtx(tx).SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+// revokeCredentialsTx revokes every refresh session (all account issuers) and
+// device key of userID inside tx, returning sessions for post-commit audit.
+func (s *Client) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]revokedSession, error) {
+	revoked, err := revokeSessionsTx(ctx, s.qtx(tx), userID, s.accountIssuers(), nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.revokeAllDeviceKeys(ctx, tx, userID); err != nil {
+	if _, err := s.revokeAllDeviceKeys(ctx, tx, userID); err != nil {
 		return nil, err
 	}
-	return ids, nil
-}
-
-func (s *Client) logSessionsRevoked(ctx context.Context, userID string, sessionIDs []string, reason SessionRevokeReason) {
-	r := string(reason)
-	for _, sid := range sessionIDs {
-		s.logSessionRevoked(ctx, userID, sid, &r)
-	}
+	return revoked, nil
 }
 
 // RenameAuthority is internal: ordinary account changes obey the site policy;

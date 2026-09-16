@@ -33,7 +33,8 @@ AuthKit returns stable error codes — the `authkit.Code` catalog, enumerated by
 (`{access_token, token_type, expires_in, refresh_token?}`) alone, or under `token_set` beside
 route fields (registration `{next_action, user, token_set?}`, step-up `{token_set, fresh_auth}`,
 device keys `{token_set, device_key}`, passwordless/SIWS/OIDC-json extras). Lists are
-`{object:"list", data:[...], next_cursor?}`. Mutations with nothing to return answer `204`;
+`{object:"list", data:[...], next_cursor?}`. `POST {api}/admin/users/{user_id}/sessions/revoke` returns
+`authkit.AccountSessionRevocation` (see the README). Mutations with nothing to return answer `204`;
 anti-enumeration sends answer `202` with an empty body. Pending challenges are `403` error
 envelopes (`2fa_required`, `2fa_enrollment_required`, `verification_required`) with the
 challenge in `metadata`. `GET /me` returns `authkit.UserProfile`.

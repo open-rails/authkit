@@ -11,6 +11,9 @@ const (
 	SessionEventPasswordChange   SessionEventType = "password_changed"
 	SessionEventPasswordRecovery SessionEventType = "password_recovery"
 	SessionEventFailed           SessionEventType = "session_failed"
+	// SessionEventAccountSessionsRevoked records one account-wide emergency
+	// revoke (no session id); each revoked session has its own revoked event.
+	SessionEventAccountSessionsRevoked SessionEventType = "account_sessions_revoked"
 )
 
 // SessionRevokeReason identifies why a session (or set of sessions) was revoked.

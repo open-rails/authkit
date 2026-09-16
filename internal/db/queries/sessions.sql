@@ -98,15 +98,21 @@ UPDATE profiles.refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND user_id = $2 AND issuer = $3 AND revoked_at IS NULL
 RETURNING id::text;
 
--- name: SessionsRevokeAllExcept :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
-WHERE user_id = $1 AND issuer = $2 AND id <> $3 AND revoked_at IS NULL
-RETURNING id::text;
-
 -- name: SessionsRevokeAll :many
+-- issuers is the revocation scope: this issuer alone, or every account issuer.
+-- keep_session_id (optional) survives, e.g. the session changing the password.
 UPDATE profiles.refresh_sessions SET revoked_at = now()
-WHERE user_id = $1 AND issuer = $2 AND revoked_at IS NULL
-RETURNING id::text;
+WHERE user_id = sqlc.arg(user_id) AND issuer = ANY(sqlc.arg(issuers)::text[])
+  AND (sqlc.narg(keep_session_id)::uuid IS NULL OR id <> sqlc.narg(keep_session_id)::uuid)
+  AND revoked_at IS NULL
+RETURNING id::text, issuer;
+
+-- name: SessionsCountActiveOutsideIssuers :one
+-- Live sessions an account-wide revocation could not reach: issuers missing
+-- from the configured account issuer set.
+SELECT count(*) FROM profiles.refresh_sessions
+WHERE user_id = sqlc.arg(user_id) AND NOT (issuer = ANY(sqlc.arg(issuers)::text[]))
+  AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionsCountActive :one
 SELECT count(*) FROM profiles.refresh_sessions

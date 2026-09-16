@@ -5,6 +5,7 @@ import (
 	stdlog "log"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -84,6 +85,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.Frontend.InvitePath, err = normalizeFrontendPath("FrontendInvitePath", cfg.Frontend.InvitePath, defaultFrontendInvitePath); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.Token.AccountIssuers, err = normalizeAccountIssuers(cfg.Token.Issuer, cfg.Token.AccountIssuers); err != nil {
 		return Config{}, err
 	}
 
@@ -446,4 +451,20 @@ func isWellFormattedURL(raw string) bool {
 		return false
 	}
 	return true
+}
+
+// normalizeAccountIssuers returns issuer followed by the other configured
+// account issuers, trimmed and deduplicated. Blank entries are refused.
+func normalizeAccountIssuers(issuer string, configured []string) ([]string, error) {
+	out := []string{issuer}
+	for _, raw := range configured {
+		candidate := strings.TrimSpace(raw)
+		if candidate == "" {
+			return nil, fmt.Errorf("authkit: Token.AccountIssuers contains a blank issuer")
+		}
+		if !slices.Contains(out, candidate) {
+			out = append(out, candidate)
+		}
+	}
+	return out, nil
 }

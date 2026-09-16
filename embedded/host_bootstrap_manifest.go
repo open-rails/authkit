@@ -176,7 +176,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 	}
 	type revokedSessions struct {
 		userID string
-		ids    []string
+		ids    []revokedSession
 	}
 	var revocations []revokedSessions
 	for i, user := range manifest.Users {
@@ -229,7 +229,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		return result, err
 	}
 	for _, revoke := range revocations {
-		s.logSessionsRevoked(ctx, revoke.userID, revoke.ids, SessionRevokeReasonAdminSetPassword)
+		s.logRevokedSessions(ctx, revoke.userID, revoke.ids, string(SessionRevokeReasonAdminSetPassword))
 	}
 	s.logRBACDrift(ctx)
 	return result, nil
@@ -431,7 +431,7 @@ func prepareBootstrapPassword(p BootstrapUserPassword) (out db.UserPasswordUpser
 	return out, err
 }
 
-func (s *Client) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, userID string, p BootstrapUserPassword, prepared db.UserPasswordUpsertParams) (bool, []string, error) {
+func (s *Client) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, userID string, p BootstrapUserPassword, prepared db.UserPasswordUpsertParams) (bool, []revokedSession, error) {
 	// Use the same lock order as every credential mutation, including the no-op
 	// comparison, so another password change cannot slip between read and write.
 	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); err != nil {

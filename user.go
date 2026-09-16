@@ -120,6 +120,21 @@ type UserLiveness struct {
 	AvatarURL     string // "" if unset
 }
 
+// AccountSessionRevocation reports an account-wide emergency revocation across
+// the configured account issuers (TokenConfig.AccountIssuers). Issued access
+// tokens are not revoked; they stay valid until they expire.
+type AccountSessionRevocation struct {
+	// Issuers is the exact issuer scope covered, this deployment's first.
+	Issuers []string `json:"issuers"`
+	// RevokedSessions counts revoked refresh sessions per covered issuer.
+	RevokedSessions map[string]int `json:"revoked_sessions"`
+	// RevokedDeviceKeys counts revoked device keys; they are not issuer-bound.
+	RevokedDeviceKeys int `json:"revoked_device_keys"`
+	// UnlistedIssuerSessions counts live sessions left under issuers outside
+	// Issuers; nonzero means the account issuer configuration is incomplete.
+	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
+}
+
 // Session is a sanitized session view (no tokens). Part of the wire contract.
 type Session struct {
 	ID                  string

@@ -55,7 +55,9 @@ type Client interface {
 	// --- admin directory ---
 	AdminGetUser(ctx context.Context, id string) (*AdminUser, error)
 	AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error)
-	AdminRevokeUserSessions(ctx context.Context, userID string) error
+	// AdminRevokeAccountSessions revokes the user's refresh sessions on every
+	// account issuer plus device keys. Unchecked: the host authorizes the actor.
+	AdminRevokeAccountSessions(ctx context.Context, userID string) (AccountSessionRevocation, error)
 	AdminSetPassword(ctx context.Context, userID, new string) error
 	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
 	UnbanUser(ctx context.Context, userID string) error

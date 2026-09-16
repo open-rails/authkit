@@ -26,4 +26,7 @@ var QueryText = map[string]string{
 	// Batched GC sweep; gated since migration 013 added the dead/expires partial
 	// indexes (#325).
 	"SessionsDeleteRevokedOrExpiredBatch": sessionsDeleteRevokedOrExpiredBatch,
+	// Account-wide revocation scope (issuer arrays over the user/issuer index).
+	"SessionsRevokeAll":                 sessionsRevokeAll,
+	"SessionsCountActiveOutsideIssuers": sessionsCountActiveOutsideIssuers,
 }

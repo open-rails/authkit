@@ -508,11 +508,12 @@ func (s *Client) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 	return tx.Commit(ctx)
 }
 
-// revokeAllDeviceKeys revokes every live key of userID on q (ban / soft delete).
-func (s *Client) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) error {
-	_, err := db.ForSchema(q, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
+// revokeAllDeviceKeys revokes every live key of userID on q and returns the
+// count (ban, soft delete, account emergency revoke).
+func (s *Client) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) (int64, error) {
+	tag, err := db.ForSchema(q, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
 		WHERE user_id=$1 AND revoked_at IS NULL`, userID)
-	return err
+	return tag.RowsAffected(), err
 }
 
 // RevokeOtherDeviceKeys atomically revokes every key except the live key that

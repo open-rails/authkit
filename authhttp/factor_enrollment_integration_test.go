@@ -236,7 +236,7 @@ func TestRefreshEnrollmentTokenCanOnlyAddFirstFactor(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pending))
 				if scenario == "revoked" {
-					require.NoError(t, srv.svc.RevokeAllSessions(t.Context(), userID, nil))
+					require.NoError(t, srv.svc.RevokeIssuerSessions(t.Context(), userID, nil))
 				}
 				w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", fmt.Sprintf(`{"method":"totp","code":%q}`, testTOTPCode(t, pending.Secret, time.Now().Unix()/30)), grant)
 				if scenario == "revoked" {
