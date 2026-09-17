@@ -16,3 +16,6 @@ authkit
 
 plans
 agents/audits
+
+# Agent lane marker (worktree-local)
+.worktree-owner.md

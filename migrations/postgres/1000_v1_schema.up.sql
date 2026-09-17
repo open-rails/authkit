@@ -6,6 +6,8 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'profiles' AND c.relname IN (
+      'account_erasure_acknowledgements',
+      'account_erasure_obligations',
       'account_registration_invites',
       'api_keys',
       'bootstrap_applies',
@@ -480,6 +482,40 @@ CREATE INDEX session_events_user_occurred_idx
 
 CREATE INDEX session_events_occurred_idx
     ON profiles.session_events (occurred_at);
+
+-- Cross-site erasure handoff: one obligation per deleted account, one
+-- acknowledgement per configured account issuer (Token.AccountIssuers). Purge
+-- selects only fully acknowledged accounts; the obligation carries the
+-- identifiers hosts key on and outlives the users row until every issuer
+-- acknowledged. Only open obligations are stored: a settled one is deleted.
+CREATE TABLE profiles.account_erasure_obligations (
+  user_id       uuid PRIMARY KEY,
+  email         public.citext,
+  username      public.citext,
+  phone_number  text,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  purged_at     timestamptz,
+  -- Recomputed from the acknowledgements below under the obligation's row
+  -- lock, so the purge sweep reads readiness from one index instead of an
+  -- anti-join over the whole backlog.
+  pending_sites integer NOT NULL DEFAULT 0
+);
+CREATE INDEX account_erasure_obligations_purgeable_idx
+  ON profiles.account_erasure_obligations (created_at, user_id)
+  WHERE purged_at IS NULL AND pending_sites = 0;
+
+-- obligation_created_at is an immutable copy of the obligation's key, so one
+-- site's pending listing is an index-ordered keyset page.
+CREATE TABLE profiles.account_erasure_acknowledgements (
+  user_id               uuid NOT NULL REFERENCES profiles.account_erasure_obligations(user_id) ON DELETE CASCADE,
+  issuer                text NOT NULL,
+  obligation_created_at timestamptz NOT NULL,
+  acknowledged_at       timestamptz,
+  PRIMARY KEY (user_id, issuer)
+);
+CREATE INDEX account_erasure_acknowledgements_pending_idx
+  ON profiles.account_erasure_acknowledgements (issuer, obligation_created_at, user_id)
+  WHERE acknowledged_at IS NULL;
 
 -- Signed documents
 CREATE TABLE profiles.signed_documents (

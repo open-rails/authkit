@@ -133,13 +133,6 @@ UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified =
 -- name: UserApplyPhoneChange :exec
 UPDATE profiles.users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1;
 
--- name: UsersPurgeCandidates :many
-SELECT id::text
-FROM profiles.users
-WHERE deleted_at IS NOT NULL AND deleted_at < sqlc.arg(cutoff)
-ORDER BY deleted_at ASC
-LIMIT sqlc.arg(max_rows)::bigint;
-
 -- name: UserUsernameExists :one
 SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));
 

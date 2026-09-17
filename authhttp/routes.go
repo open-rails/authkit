@@ -171,6 +171,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
+		{Method: http.MethodGet, Path: "/admin/erasure/backlog", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootResourcesRead, Handler: rootPermission(embedded.PermRootResourcesRead, s.handleAdminErasureBacklogGET)},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only
