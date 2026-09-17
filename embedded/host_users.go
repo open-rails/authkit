@@ -475,6 +475,9 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
 		return err
 	}
+	if err := s.raiseErasureObligationTx(ctx, s.qtx(tx), id); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}

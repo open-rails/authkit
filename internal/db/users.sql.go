@@ -703,36 +703,3 @@ func (q *Queries) UserUsernameExists(ctx context.Context, arg UserUsernameExists
 	err := row.Scan(&exists)
 	return exists, err
 }
-
-const usersPurgeCandidates = `-- name: UsersPurgeCandidates :many
-SELECT id::text
-FROM profiles.users
-WHERE deleted_at IS NOT NULL AND deleted_at < $1
-ORDER BY deleted_at ASC
-LIMIT $2::bigint
-`
-
-type UsersPurgeCandidatesParams struct {
-	Cutoff  *time.Time
-	MaxRows int64
-}
-
-func (q *Queries) UsersPurgeCandidates(ctx context.Context, arg UsersPurgeCandidatesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, usersPurgeCandidates, arg.Cutoff, arg.MaxRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}

@@ -20,9 +20,10 @@ import (
 
 const (
 	perfIssuer  = "https://perf.example"
-	perfFatUser = 1   // a non-soft-deleted user given many sessions (fan-out).
-	perfFat     = 200 // active sessions on the fat user.
-	perfIssuers = 5   // distinct IdP issuers provider links are spread across.
+	perfSibling = "https://perf-sibling.example" // second account issuer owed erasure acknowledgements
+	perfFatUser = 1                              // a non-soft-deleted user given many sessions (fan-out).
+	perfFat     = 200                            // active sessions on the fat user.
+	perfIssuers = 5                              // distinct IdP issuers provider links are spread across.
 )
 
 // TestQueryPerformance is the scaling gate: it bulk-seeds the growable tables,
@@ -152,12 +153,19 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"user_providers"},
 		},
 		{
-			// Bounded by the partial users_deleted_at_idx (touches only deleted rows),
-			// then top-N sorts the LIMIT page — the planner's correct choice for a
-			// small eligible set, so no ForbidSort here. Gated for no full scan.
-			Name: "users_purge_candidates", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,
-			SQL: db.QueryText["UsersPurgeCandidates"], Args: []any{time.Now().UTC(), int64(100)},
-			ForbidSeqScan: []string{"users"},
+			// Purge sweep: index-ordered page over settled obligations only, so a
+			// large unacknowledged backlog is never walked. ForbidSort asserts it.
+			Name: "erasure_purge_candidates", MaxExecutionMS: 50, MaxSharedReadBlocks: 32,
+			SQL: db.QueryText["ErasurePurgeCandidates"], Args: []any{time.Now().UTC(), int64(100)},
+			ForbidSeqScan: []string{"account_erasure_obligations"}, ForbidSort: true,
+		},
+		{
+			// One site's pending obligations: index-ordered keyset page over the
+			// partial (issuer, obligation_created_at, user_id) index.
+			Name: "erasure_obligations_pending", MaxExecutionMS: 50, MaxSharedReadBlocks: 32,
+			SQL:           db.QueryText["ErasureObligationsPendingForIssuer"],
+			Args:          []any{perfSibling, time.Time{}, "00000000-0000-0000-0000-000000000000", int64(100)},
+			ForbidSeqScan: []string{"account_erasure_acknowledgements", "account_erasure_obligations"}, ForbidSort: true,
 		},
 		{
 			// RAW exception: group-role authorization is dynamic SQL built in
@@ -254,8 +262,8 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 		t.Fatalf("insert root group: %v", err)
 	}
 
-	// 2% of users soft-deleted in the past, so UsersPurgeCandidates has rows to
-	// walk via the partial users_deleted_at_idx.
+	// 2% of users soft-deleted in the past, so the erasure ledger below and
+	// the admin listings face real soft-deleted rows.
 	copyUsers := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {
 		var deletedAt any
 		if i%50 == 0 {
@@ -270,6 +278,41 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "users"},
 		[]string{"id", "email", "username", "email_verified", "created_at", "updated_at", "deleted_at"}, copyUsers); err != nil || int(n) != scale {
 		t.Fatalf("copy users n=%d err=%v", n, err)
+	}
+
+	// Every soft-deleted user owes an erasure obligation to two issuers; every
+	// other one still awaits the sibling's acknowledgement, so the purge sweep
+	// and the pending listing both face a real backlog.
+	deleted := (scale + 49) / 50
+	pending := func(k int) int {
+		if k%2 == 1 {
+			return 1 // sibling has not acknowledged
+		}
+		return 0
+	}
+	copyObligations := pgx.CopyFromSlice(deleted, func(k int) ([]any, error) {
+		i := k * 50
+		return []any{perfUserID(i), perfEmail(i), now.Add(-time.Duration(i+1) * time.Hour), pending(k)}, nil
+	})
+	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "account_erasure_obligations"},
+		[]string{"user_id", "email", "created_at", "pending_sites"}, copyObligations); err != nil || int(n) != deleted {
+		t.Fatalf("copy erasure obligations n=%d err=%v", n, err)
+	}
+	copyAcks := pgx.CopyFromSlice(deleted*2, func(j int) ([]any, error) {
+		k := j / 2
+		i, issuer := k*50, perfIssuer
+		var acknowledgedAt any = now
+		if j%2 == 1 {
+			issuer = perfSibling
+			if pending(k) == 1 {
+				acknowledgedAt = nil
+			}
+		}
+		return []any{perfUserID(i), issuer, now.Add(-time.Duration(i+1) * time.Hour), acknowledgedAt}, nil
+	})
+	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "account_erasure_acknowledgements"},
+		[]string{"user_id", "issuer", "obligation_created_at", "acknowledged_at"}, copyAcks); err != nil || int(n) != deleted*2 {
+		t.Fatalf("copy erasure acknowledgements n=%d err=%v", n, err)
 	}
 
 	// One active session and consumed-token history entry per user.

@@ -58,7 +58,12 @@ func (args PurgeDeletedUsersArgs) InsertOpts() river.InsertOpts {
 
 type BeforeUserHardDeleteFunc func(ctx context.Context, userID string) error
 
-// PurgeDeletedUsersWorker hard-deletes users that were soft-deleted more than RetentionDays ago.
+// PurgeDeletedUsersWorker hard-deletes users that were soft-deleted more than
+// RetentionDays ago AND whose erasure obligation every account issuer
+// acknowledged. In a fleet sharing one account store this job is unique, so
+// only the executing host's hook runs: the other sites receive the deletion
+// through their own authkit.AcceptErasureObligations pass, and the identity is
+// retained until they do.
 //
 // The host application may provide an optional BeforeUserHardDelete hook to delete/anonymize
 // app-domain data (likes/favorites/comments, etc.) before AuthKit deletes the user row.

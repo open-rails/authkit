@@ -271,6 +271,8 @@ func (s *Client) AdminGetUser(ctx context.Context, id string) (*AdminUser, error
 // and group_user_roles included, cascades on the row delete). A host table that
 // references profiles.users(id) without ON DELETE CASCADE aborts the whole
 // delete with ErrUserReferenced, so a user is never left half-deleted (#304).
+// The erasure obligation is raised (or kept) and outlives the row until every
+// account issuer acknowledged it.
 func (s *Client) AdminDeleteUser(ctx context.Context, id string) error {
 	return s.adminDeleteUser(ctx, "", id)
 }
@@ -306,11 +308,17 @@ func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) er
 	if err != nil {
 		return err
 	}
+	if err := s.raiseErasureObligationTx(ctx, qtx, id); err != nil {
+		return err
+	}
 	if err := qtx.UserDeleteHard(ctx, id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return fmt.Errorf("%w: %s.%s", ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
 		}
+		return err
+	}
+	if err := settleErasureObligationTx(ctx, qtx, id); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

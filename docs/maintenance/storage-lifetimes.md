@@ -11,6 +11,13 @@ not install `pgcrypto`, which none of its SQL uses. Hosts such as OpenRails that
 use that extension provision it in their own migrations. Existing extensions
 are never dropped by AuthKit.
 
+Erasure obligations are open state, not history: one row per deleted account
+plus one acknowledgement per account issuer, deleted once the identity is
+purged and every site acknowledged. An unacknowledged obligation is retained
+indefinitely — it is the only notice an offline site will get — and holds the
+account's identifiers (id, email, username, phone) past the hard delete.
+`ErasureBacklog` reports the per-site count and age bound.
+
 API keys and invitations keep terminal metadata for 90 days after the first
 expiry/revocation/redemption event. Cleanup removes at most 5,000 eligible rows
 per table per maintenance call, using indexed terminal timestamps. A later

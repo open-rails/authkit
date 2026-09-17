@@ -327,3 +327,39 @@ recall issued access tokens: `verify.Required` accepts them until `exp`
 (`AccessTokenDuration`), and `RequiredLive`/`AllowLive` check account liveness
 and live permissions, not sessions. To cut privileged access immediately, also
 ban the account or remove its roles.
+
+## Account erasure across sites
+
+Each site owns data keyed by the shared account, so deleting the account is a
+handoff, not one host's job. Deleting a user (soft or hard) raises one erasure
+obligation with one acknowledgement per `Token.AccountIssuers` entry — the
+deleting deployment's own set, unioned with any already recorded.
+
+```go
+// Each site drains its own obligations, e.g. from a scheduled job.
+res, err := authkit.AcceptErasureObligations(ctx, client, cfg.Token.Issuer, 500,
+    func(ctx context.Context, o authkit.ErasureObligation) error {
+        return myLedger.RecordErasure(ctx, o.UserID) // must COMMIT before returning nil
+    })
+```
+
+Acknowledging means **"durably accepted into my own ledger"**, not "erased".
+The hook must commit a row the site can replay later; returning nil without one
+discards the only notice the site will get. A failed accept leaves the
+obligation pending and never blocks the later pages.
+
+| | |
+| --- | --- |
+| `ListErasureObligations(ctx, site, after, limit)` | keyset page (`created_at`, `user_id`), oldest first; `next == ""` on the last page. Progresses past any backlog. |
+| `AcknowledgeErasure(ctx, site, userID)` | idempotent; a site the obligation does not require is a no-op. |
+| `ListUsersDeletedBefore(ctx, cutoff, limit)` | the purge-ready set: accounts deleted before `cutoff` that **every** required site acknowledged — not every soft-deleted account. |
+| `ErasureBacklog(ctx)` | per-site unacknowledged count and the oldest pending obligation (the age bound). |
+
+A site added to `AccountIssuers` later is only required for obligations raised
+after it is configured; back-fill its own ledger from the account store before
+adding it. The purge job (`adapters/riverjobs`) is fleet-unique, so only the
+executing host's `BeforeUserHardDelete` hook runs; the other sites are covered
+by their own acceptance pass. `ListUsersDeletedBefore` never offers an
+unacknowledged account, so an offline site retains the identity rather than
+losing the notice, and the obligation — user id, email, username, phone —
+outlives the hard delete until the last site acknowledges, then closes itself.
