@@ -35,7 +35,11 @@ jobs:
       redis:
         image: redis:7-alpine
         ports: ['6379:6379']
-        options: --health-cmd 'redis-cli ping' --health-interval 5s --health-timeout 5s --health-retries 10
+        # Keep the health command as a single executable.  The service
+        # container action passes this string through to `docker create`; a
+        # shell-quoted command is treated as part of the image reference by
+        # that parser and fails before the job starts.
+        options: --health-cmd redis-cli --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
