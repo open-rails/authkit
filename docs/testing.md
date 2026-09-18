@@ -12,11 +12,11 @@ pnpm --dir authhttp/testdata exec playwright install chromium
 ```
 
 `workflows` and `contracts` select either half of the command. CI has one
-workflow with those two jobs and no scheduled performance matrix. Go test
-results live in `.reports/`; a failing test, skipped test or missing principal
-workflow fails the run. Packages with no tests are compiled, not reported as
-skipped behavioral checks. Go modules are released through Git tags; this
-change adds no publishing machinery.
+workflow with those two qualification jobs plus a required security job and no
+scheduled performance matrix. Go test results live in `.reports/`; a failing
+test, skipped test or missing principal workflow fails the run. Packages with
+no tests are compiled, not reported as skipped behavioral checks. Go modules
+are released through Git tags; this change adds no publishing machinery.
 
 ## Six workflow groups
 

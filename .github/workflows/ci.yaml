@@ -76,3 +76,47 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: scripts/check.sh contracts
+
+  # Keep the security boundary explicit while avoiding four independent CI
+  # workflows.  The source-tree detector catches the injected build-config
+  # payload class; gosec and govulncheck cover Go analysis and known reachable
+  # dependency vulnerabilities; Trivy covers the full checkout for high and
+  # critical dependency, secret and misconfiguration findings.
+  security:
+    name: Required Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Scan tracked files and run detector self-test
+        run: |
+          scripts/scan-injected-code.sh --all
+          scripts/scan-injected-code.sh --self-test
+      - name: Install and run pinned gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          "$(go env GOPATH)/bin/gosec" -severity high -confidence medium github.com/open-rails/authkit/...
+      - name: Install and run pinned govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck github.com/open-rails/authkit/...
+      - name: Trivy filesystem security scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          scanners: vuln,secret,misconfig
+          skip-dirs: '**/.runtime'
