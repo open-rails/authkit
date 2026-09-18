@@ -86,6 +86,7 @@ jobs:
   security:
     name: Required Security
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -102,11 +103,11 @@ jobs:
       - name: Install and run pinned gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-          "$(go env GOPATH)/bin/gosec" -severity high -confidence medium github.com/open-rails/authkit/...
+          "$(go env GOPATH)/bin/gosec" -severity high -confidence medium ./...
       - name: Install and run pinned govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck github.com/open-rails/authkit/...
+          govulncheck ./...
       - name: Trivy filesystem security scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
