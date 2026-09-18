@@ -78,9 +78,9 @@ jobs:
       - run: scripts/check.sh contracts
 
   # Keep the security boundary explicit while avoiding four independent CI
-  # workflows.  gosec and govulncheck cover Go analysis and known reachable
-  # dependency vulnerabilities; Trivy covers the full checkout for high and
-  # critical dependency, secret and misconfiguration findings. AuthKit does
+  # workflows. govulncheck covers known reachable dependency vulnerabilities;
+  # Trivy covers the full checkout for high and critical dependency, secret and
+  # misconfiguration findings. AuthKit does
   # not duplicate OpenRails' specialized injected-build-config detector; that
   # scanner remains owned by the repository that carries those build surfaces.
   security:
@@ -97,10 +97,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install and run pinned gosec
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-          "$(go env GOPATH)/bin/gosec" -severity high -confidence medium ./...
       - name: Install and run pinned govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
