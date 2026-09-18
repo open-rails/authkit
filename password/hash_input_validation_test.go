@@ -3,10 +3,11 @@ package password
 import (
 	"encoding/base64"
 	"fmt"
-	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/bcrypt"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/stretchr/testify/require"
 )

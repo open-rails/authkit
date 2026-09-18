@@ -25,6 +25,7 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,22 +68,41 @@ func newAccountFlow(t *testing.T, pool *pgxpool.Pool, store ephemeralStore, cfg 
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
 	opts := append(store.engineOpts(), withEmailSender(f.email), withSMSSender(f.sms))
 	var err error
-	f.service, err = newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
+	f.service, err = New(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
 	require.NoError(t, err)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/oidc/", func(w http.ResponseWriter, r *http.Request) { f.service.oidcHandler().ServeHTTP(w, r) })
-	mux.Handle("/", f.service.apiHandler())
-	f.server = httptest.NewServer(mux)
-	f.server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	t.Cleanup(f.server.Close)
+	f.mount()
+	t.Cleanup(func() { f.server.Close() })
 	t.Cleanup(f.service.Close)
 	return f
 }
+
+func (f *accountFlow) mount() {
+	f.t.Helper()
+	if f.server != nil {
+		f.server.Close()
+	}
+	mounted, err := MountHandler(f.service, MountOptions{})
+	require.NoError(f.t, err)
+	f.server = httptest.NewServer(mounted)
+	f.server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+}
+
+// Long lifecycle tests share one client IP. Keep the real memory/Redis limiter
+// installed without turning repeated legitimate setup into a brute-force test.
+// TestWorkflowRateLimits separately proves the small configured boundary.
+func workflowHTTPConfig() Config {
+	limits := DefaultRateLimits()
+	for bucket := range limits {
+		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
+	}
+	return Config{DirectPeerIP: true, RateLimits: limits}
+}
+
 func (f *accountFlow) request(method, path, token string, body any) flowResponse {
 	f.t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(f.t, err)
-	req, err := http.NewRequest(method, f.server.URL+path, bytes.NewReader(data))
+	req, err := http.NewRequest(method, f.server.URL+DefaultAPIPrefix+path, bytes.NewReader(data))
 	require.NoError(f.t, err)
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
@@ -543,6 +563,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			t.Run(fmt.Sprint("oidc=", oidc), func(t *testing.T) {
 				f.t = t
 				provider := newSecurityTestProvider(t, f.service, oidc)
+				f.mount() // providers are configured before the public mount is built
 				verified := true
 				identity := providerTestIdentity{Subject: "provider-" + uniqueSuffix(), Email: uniqueEmail("provider-flow"), Verified: &verified}
 				first, fragment := f.providerLogin(provider, identity, "", true)
@@ -626,6 +647,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 		var failed flowResponse
 		if flow == "oidc" || flow == "oauth2" {
 			provider := newSecurityTestProvider(t, f.service, flow == "oidc")
+			f.mount()
 			verified := true
 			failed, _ = f.providerLogin(provider, providerTestIdentity{Subject: "rollback-" + uniqueSuffix(), Email: email, Verified: &verified}, invite.Code, false)
 		} else {

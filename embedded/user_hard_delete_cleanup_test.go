@@ -2,8 +2,9 @@ package embedded
 
 import (
 	"context"
-	authkit "github.com/open-rails/authkit"
 	"testing"
+
+	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/internal/testdb"
 )

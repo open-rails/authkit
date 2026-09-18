@@ -56,7 +56,7 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), WithoutRateLimiter())
+	srv, err := New(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), workflowHTTPConfig())
 	require.NoError(t, err)
 
 	idp := newFakeOIDCIdP(t, "state-client")

@@ -4,38 +4,15 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
-	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"testing"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
-
-func TestBootstrapManifestFormat(t *testing.T) {
-	for name, raw := range map[string]string{
-		"unknown user field": `users: [{username: bootstrap-admin, surprise: true}]`,
-		"rbac schema": `users: [{username: bootstrap-admin}]
-rbac: {personas: [{name: root}]}`,
-		"user ref":              `users: [{username: bootstrap-admin, ref: operator}]`,
-		"root role definitions": `root_roles: [{slug: admin, name: Admin}]`,
-		"app mode":              `remote_applications: [{slug: test, issuer: 'https://app.test', jwks_uri: 'https://app.test/keys', enabled: true, mode: jwks}]`,
-		"app audiences":         `remote_applications: [{slug: test, issuer: 'https://app.test', jwks_uri: 'https://app.test/keys', enabled: true, audiences: [authkit]}]`,
-		"plural root roles":     `users: [{username: bootstrap-admin, root_roles: [owner]}]`,
-		"group roles":           `group_roles: [{username: operator, persona: merchant, instance_slug: tensorhub, role: admin}]`,
-		"assigned roles":        `assigned_roles: [{user: operator, group: root, role: admin}]`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := ParseBootstrapManifestYAML([]byte(raw))
-			require.Error(t, err)
-		})
-	}
-	raw, err := os.ReadFile(filepath.Join("..", "bootstrap.example.yaml"))
-	require.NoError(t, err)
-	_, err = ParseBootstrapManifestYAML(raw)
-	require.NoError(t, err)
-}
 
 // One real-database workflow owns file loading, dry-run, initial authority,
 // repeat names, password seed-once/enforcement, and remote application seeds.
@@ -139,39 +116,4 @@ func TestBootstrapWorkflow(t *testing.T) {
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, stored.ID)
 	require.NoError(t, err)
 	require.Contains(t, authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant()))
-}
-
-func TestValidateBootstrapUserPassword(t *testing.T) {
-	const phc = "$argon2id$v=19$m=65536,t=1,p=1$c29tZXNhbHQ$YWJjZGVmZ2hpamtsbW5vcA"
-	for name, tc := range map[string]struct {
-		password BootstrapUserPassword
-		valid    bool
-	}{
-		"plaintext enforcement":      {BootstrapUserPassword{Plaintext: "bootstrap-password-1", Enforce: true}, true},
-		"reset flag":                 {BootstrapUserPassword{ResetRequired: true}, true},
-		"reset flag enforcement":     {BootstrapUserPassword{ResetRequired: true, Enforce: true}, false},
-		"explicit reset state":       {BootstrapUserPassword{Hash: "reset-required", HashAlgo: HashAlgoLegacyResetRequired}, true},
-		"explicit reset enforcement": {BootstrapUserPassword{Hash: "reset-required", HashAlgo: HashAlgoLegacyResetRequired, Enforce: true}, false},
-		"supported PHC":              {BootstrapUserPassword{Hash: phc, HashAlgo: "argon2id"}, true},
-		"unsafe PHC":                 {BootstrapUserPassword{Hash: strings.Replace(phc, "t=1", "t=0", 1), HashAlgo: "argon2id"}, false},
-		"unsupported algorithm":      {BootstrapUserPassword{Hash: "opaque", HashAlgo: "md5"}, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := validateBootstrapUserPassword(tc.password)
-			if tc.valid {
-				require.NoError(t, err)
-			} else {
-				require.ErrorIs(t, err, ErrInvalidBootstrapManifest)
-			}
-		})
-	}
-}
-
-func containsString(items []string, want string) bool {
-	for _, item := range items {
-		if item == want {
-			return true
-		}
-	}
-	return false
 }

@@ -1,0 +1,113 @@
+name: Validate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GOMAXPROCS: '2'
+  AUTHKIT_TEST_DATABASE_URL: postgres://admin:authkit_ci@127.0.0.1:5432/authkit_ci?sslmode=disable
+  AUTHKIT_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflows:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: authkit_ci
+          POSTGRES_DB: authkit_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        # Keep the health command as a single executable.  The service
+        # container action passes this string through to `docker create`; a
+        # shell-quoted command is treated as part of the image reference by
+        # that parser and fails before the job starts.
+        options: --health-cmd redis-cli --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          package_json_file: authhttp/testdata/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: pnpm --dir authhttp/testdata install --frozen-lockfile
+      - run: pnpm --dir authhttp/testdata exec playwright install --with-deps chromium
+      - run: scripts/check.sh workflows
+
+  contracts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: authkit_ci
+          POSTGRES_DB: authkit_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: scripts/check.sh contracts
+
+  # Keep the security boundary explicit while avoiding four independent CI
+  # workflows. govulncheck covers known reachable dependency vulnerabilities;
+  # Trivy covers the full checkout for high and critical dependency, secret and
+  # misconfiguration findings. AuthKit does
+  # not duplicate OpenRails' specialized injected-build-config detector; that
+  # scanner remains owned by the repository that carries those build surfaces.
+  security:
+    name: Required Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install and run pinned govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+      - name: Trivy filesystem security scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          scanners: vuln,secret,misconfig
+          skip-dirs: '**/.runtime'

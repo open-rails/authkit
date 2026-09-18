@@ -32,7 +32,7 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Frontend = embedded.FrontendConfig{BaseURL: victimURL}
 	core := newServerClient(t, cfg, pg.Pool, withRedis(testdb.ScratchRedis(t)))
-	srv, err := newServer(core, WithoutRateLimiter())
+	srv, err := New(core, Config{DirectPeerIP: true})
 	require.NoError(t, err)
 	defer srv.Close()
 	accounts := map[string]string{"browser-victim@example.test": "Victim-password-12345", "browser-attacker@example.test": "=Attack-password-12345"}

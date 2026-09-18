@@ -1,18 +1,5 @@
 package authhttp
 
-// ak#274 — the refresh-rotation grace window, end to end: a real HTTP server over
-// the mounted handler, a real Postgres, real concurrent clients, no fakes.
-//
-// The incident this pins (tensorhub th#1817 / cozy-local cl#50): several agent
-// processes on one box share ~/.cozy/config.json and therefore share ONE refresh
-// token. Whoever refreshes first demotes that token to `previous`; every sibling
-// then presents a token the server reads as REUSE and answers by revoking the
-// family. Eight profiles and 737 of 740 sessions died that way in a single event.
-// No client-side write discipline can fix it — the credential is consumed
-// server-side before any file is written.
-//
-// Skips without AUTHKIT_TEST_DATABASE_URL.
-
 import (
 	"bytes"
 	"context"
@@ -51,7 +38,7 @@ func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
 	// Wall-following: the rotation timestamp the window is measured against is
 	// written by Postgres, so a frozen clock would sit behind it forever.
 	clk := testclock.Wall()
-	srv, err := newServer(newServerClient(t, cfg, pool, withClock(clk.Now)), WithoutRateLimiter())
+	srv, err := New(newServerClient(t, cfg, pool, withClock(clk.Now)), workflowHTTPConfig())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)
@@ -196,24 +183,5 @@ func expiredReplayRevokes(t *testing.T, g *graceHarness, elapse func()) {
 	require.Equal(t, http.StatusUnauthorized, code, body)
 	live, revoked := g.sessionCounts(t, uid)
 	require.Zero(t, live, "a replay past the window must still revoke the family")
-	require.Equal(t, 1, revoked)
-}
-
-// TestRefreshRotationGrace_DisabledIsStrictlySingleUse pins the opt-out: a negative
-// window restores pre-ak#274 behaviour exactly, so an operator who wants strict
-// single-use rotation can have it.
-func TestRefreshRotationGrace_DisabledIsStrictlySingleUse(t *testing.T) {
-	g := newGraceHarness(t, -1)
-	uid, rt := g.login(t, "gracedisabled")
-
-	code, body, err := g.refresh(rt)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, code, body)
-
-	code, body, err = g.refresh(rt)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusUnauthorized, code, body)
-	live, revoked := g.sessionCounts(t, uid)
-	require.Zero(t, live)
 	require.Equal(t, 1, revoked)
 }

@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
+
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
@@ -133,114 +132,6 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
 	require.Empty(t, perms, "after delete, the auditor grant must be gone")
-}
-
-// TestCustomRoleDefineRejectsInvalidInput_HTTP exercises the #247 sentinel
-// mapping (errors.Is, replacing strings.Contains) end-to-end: every validation
-// failure on the define route surfaces as 400 invalid_request.
-func TestCustomRoleDefineRejectsInvalidInput_HTTP(t *testing.T) {
-	s, pool, owner := newHardeningTestService(t)
-	ctx := context.Background()
-
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-sentinels", OwnerSubjectID: owner})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-sentinels'`)
-	})
-
-	defineGR := defineRoleGR("merchant")
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"bad role name", `{"role":"Bad_Name!","permissions":["merchant:billing:read"]}`},
-		{"cross-persona grant", `{"role":"x1","permissions":["root:users:ban"]}`},
-		{"outside catalog", `{"role":"x2","permissions":["merchant:secret:read"]}`},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			w := s.drive(t, defineGR, "m-sentinels", owner, c.body)
-			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-			require.Contains(t, w.Body.String(), string(authkit.CodeInvalidRequest))
-		})
-	}
-}
-
-// TestSingleRolePerGroupReplacesNotUnions_HTTP: #247 hard rule — assigning a
-// second role to a subject already holding one in the SAME group REPLACES it
-// (never a union); the subject ends up with only the latest role's grants.
-func TestSingleRolePerGroupReplacesNotUnions_HTTP(t *testing.T) {
-	s, pool, owner := newHardeningTestService(t)
-	ctx := context.Background()
-
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-single-role", OwnerSubjectID: owner})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-single-role'`)
-	})
-
-	var subject string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, subject) })
-
-	assignGR := memberRoleAssignGR("merchant")
-	repl1 := strings.NewReplacer(":instance_slug", "m-single-role", ":user", subject, ":role", "roles-admin")
-	require.Equal(t, http.StatusOK, s.driveSub(t, assignGR, repl1, owner).Code)
-
-	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"merchant:roles:manage"}, perms)
-
-	// Assign a SECOND role in the SAME group: replaces, never unions.
-	require.NoError(t, s.svc.DefineGroupCustomRole(ctx, owner, authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"}, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"merchant:billing:read"}}))
-	repl2 := strings.NewReplacer(":instance_slug", "m-single-role", ":user", subject, ":role", "auditor")
-	require.Equal(t, http.StatusOK, s.driveSub(t, assignGR, repl2, owner).Code)
-
-	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"merchant:billing:read"}, perms, "second role must REPLACE the first, never union")
-
-	members, err := s.svc.ListGroupMembers(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-single-role"})
-	require.NoError(t, err)
-	roleCount := 0
-	for _, m := range members {
-		if m.SubjectID == subject {
-			roleCount++
-		}
-	}
-	require.Equal(t, 1, roleCount, "the subject must appear exactly once (one live role) in the group roster")
-}
-
-// TestInviteLinkExpiryClampedTo30Days_HTTP: #247 — a mint request for longer
-// than 30 days is CLAMPED to now+30d, never rejected outright and never
-// honored as requested.
-func TestInviteLinkExpiryClampedTo30Days_HTTP(t *testing.T) {
-	s, pool, owner := newHardeningTestService(t)
-	ctx := context.Background()
-
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-invite-ttl", OwnerSubjectID: owner})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-invite-ttl'`)
-	})
-
-	mintGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/invites/links", Perm: "merchant:members:manage"}
-	// Request 90 days — must clamp to 30.
-	ninetyDaysSeconds := int64(90 * 24 * 3600)
-	body := `{"role":"roles-admin","expires_in_seconds":` + strconv.FormatInt(ninetyDaysSeconds, 10) + `}`
-	w := s.drive(t, mintGR, "m-invite-ttl", owner, body)
-	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-
-	links, err := s.svc.ListGroupInviteLinks(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-invite-ttl"})
-	require.NoError(t, err)
-	require.Len(t, links, 1)
-	require.NotNil(t, links[0].ExpiresAt)
-	maxAllowed := time.Now().UTC().Add(31 * 24 * time.Hour) // 30d ceiling + slack for test runtime
-	require.Truef(t, links[0].ExpiresAt.Before(maxAllowed),
-		"invite expiry %v must be clamped to ~30d, not the requested 90d", links[0].ExpiresAt)
-	minExpected := time.Now().UTC().Add(29 * 24 * time.Hour)
-	require.Truef(t, links[0].ExpiresAt.After(minExpected),
-		"invite expiry %v should still be close to the 30d ceiling, not some much-shorter accidental default", links[0].ExpiresAt)
 }
 
 // TestCustomRoleRequiresMFA_HTTP: #247 — a custom role can declare

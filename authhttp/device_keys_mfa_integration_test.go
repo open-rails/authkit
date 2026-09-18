@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
 	"net/http"
 	"testing"
 	"time"
@@ -82,8 +83,6 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	require.Equal(t, []string{email}, sender.deviceKeyNotices())
 }
 
-// #293: the device-key surface is an email-code login, so hosts opt in through
-// DeviceKeys.Enabled — off, the routes are not mounted and the engine refuses.
 func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
