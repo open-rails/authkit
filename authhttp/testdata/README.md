@@ -11,7 +11,7 @@ test server's generated TLS certificate; production transport policy is unchange
 
 Install the pinned browser test dependencies with `pnpm --dir authhttp/testdata
 install --frozen-lockfile`, then `pnpm --dir authhttp/testdata exec playwright
-install chromium`. `task test-browser` runs the workflow, and regular CI runs it
+install chromium`. `scripts/check.sh workflows` runs the workflow, and regular CI runs it
 after the Go suites. No Node dependency is added to the Go module.
 
 To use an existing Playwright module/browser from the repository root:

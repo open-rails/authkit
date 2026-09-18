@@ -1,9 +1,5 @@
 package authkit
 
-// #291 pgx-free root contract (#138): the root package and verify/ are the
-// token-checking surface a verify-only service links. Neither may pull in the
-// Postgres driver or any internal engine package.
-
 import (
 	"os/exec"
 	"strings"

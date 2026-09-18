@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/open-rails/authkit/internal/testdb"
+
 	"github.com/stretchr/testify/require"
 )
 

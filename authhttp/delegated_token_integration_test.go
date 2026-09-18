@@ -1,13 +1,5 @@
 package authhttp
 
-// ak#261/#277 end-to-end over a real Postgres through the mounted handler and
-// a real mTLS resource server: the config-declared audience allowlist + TTL
-// clamps, the host-injected delegation authorizer, RFC 8705 certificate
-// binding (`cnf.x5t#S256`) proven against real TLS client certificates,
-// document-digest stamping from the wired providers (#260 pairing), and
-// post-mint signing-KID reconciliation across a live key rotation. Skips
-// without AUTHKIT_TEST_DATABASE_URL.
-
 import (
 	"context"
 	"crypto"

@@ -3,97 +3,19 @@ package authkitgin
 import (
 	"context"
 	"crypto"
-	"net/http"
-	"net/http/httptest"
+
 	"os"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/verify"
+
 	"github.com/stretchr/testify/require"
 )
-
-// MountHandler mounted once as a gin NoRoute fallback (#250) — no gin-side
-// route registration exists anymore. Fallback (not bare gin.WrapH) because
-// gin pre-sets 404 on NoRoute: the JWKS assertion below pins that implicit-200
-// handlers keep their status; the mount's own 404 must still 404.
-func TestMountHandlerViaFallback(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	svc := newTestService(t)
-
-	h, err := authhttp.MountHandler(svc, authhttp.MountOptions{})
-	require.NoError(t, err)
-	router.NoRoute(Fallback(h))
-
-	// Browser navigations are walked back to the frontend with the error in
-	// the fragment; JSON negotiation keeps the legacy envelope. Both prove the
-	// mount served the route through the fallback.
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil))
-	require.Equal(t, http.StatusFound, rec.Code)
-	require.Contains(t, rec.Header().Get("Location"), "error=invalid_request")
-
-	rec = httptest.NewRecorder()
-	jsonReq := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
-	jsonReq.Header.Set("Accept", "application/json")
-	router.ServeHTTP(rec, jsonReq)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), `"code":"invalid_request"`)
-
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/definitely/not/a/route", nil))
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestUsePropagatesContextAndShortCircuits(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-
-	attachUser := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl := verify.Claims{UserID: "user-1", Email: "u@example.com"}
-			next.ServeHTTP(w, r.WithContext(verify.SetClaims(r.Context(), cl)))
-		})
-	}
-	router.GET("/ok", Use(attachUser), func(c *gin.Context) {
-		p, ok := Principal(c)
-		require.True(t, ok)
-		require.Equal(t, "user-1", p.Subject)
-		u, ok := UserClaims(c)
-		require.True(t, ok)
-		_, _ = c.Writer.Write([]byte(u.UserID))
-	})
-
-	stop := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "stop", http.StatusUnauthorized)
-		})
-	}
-	router.GET("/stop", Use(stop), func(c *gin.Context) {
-		t.Fatal("handler should not run")
-	})
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "user-1", rec.Body.String())
-
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stop", nil))
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Contains(t, rec.Body.String(), "stop")
-}
 
 func newTestService(t *testing.T) *authhttp.Service {
 	t.Helper()

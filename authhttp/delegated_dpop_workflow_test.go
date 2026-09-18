@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/redis/go-redis/v9"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
@@ -18,7 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
-	"github.com/redis/go-redis/v9"
+
 	"github.com/stretchr/testify/require"
 )
 

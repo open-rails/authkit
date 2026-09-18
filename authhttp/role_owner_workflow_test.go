@@ -20,7 +20,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
 	_, err := client.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	srv, err := newServer(client, WithoutRateLimiter())
+	srv, err := New(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	owner, token := newInstanceTestUser(t, srv, "ownerflow")
 	manager, managerToken := newInstanceTestUser(t, srv, "managerflow")

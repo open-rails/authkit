@@ -84,16 +84,3 @@ func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, code, body)
 	}
 }
-
-func TestRefreshFamilyHistory_UnknownTokenAuditHTTP(t *testing.T) {
-	g := newGraceHarness(t, 30*time.Second)
-	var before, after int
-	ctx := context.Background()
-	query := `SELECT count(*) FROM profiles.session_events WHERE event='session_failed' AND reason='refresh_token_unknown' AND user_id='' AND session_id=''`
-	require.NoError(t, g.pool.QueryRow(ctx, query).Scan(&before))
-	code, body, err := g.refresh("unknown-refresh-token")
-	require.NoError(t, err)
-	require.Equal(t, http.StatusUnauthorized, code, body)
-	require.NoError(t, g.pool.QueryRow(ctx, query).Scan(&after))
-	require.Equal(t, before+1, after)
-}

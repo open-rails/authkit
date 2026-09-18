@@ -10,7 +10,7 @@ Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and
 `adapters/riverjobs` as separate modules so gin and river never enter the root
 `go.mod`.
 
-For local tests, run `task test-db-ready` then `task test`. The migration command
+For local tests, run `scripts/check.sh`. The migration command
 reads `AUTHKIT_DATABASE_URL` and accepts `--schema` for a non-default schema;
 applications normally call `authkitmigrate` during their own startup.
 

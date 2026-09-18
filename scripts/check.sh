@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# One local/CI entrypoint: real workflows, contract checks, or both.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+mode=${1:-all}
+case "$mode" in all|workflows|contracts) ;; *) echo 'usage: scripts/check.sh [all|workflows|contracts]' >&2; exit 2 ;; esac
+
+if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
+  docker compose up -d --wait postgres redis
+  export AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable'
+fi
+export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
+export AUTHKIT_TEST_REQUIRE_DB=1
+export SQLC_DATABASE_URL=$AUTHKIT_TEST_DATABASE_URL
+export GOMAXPROCS=${GOMAXPROCS:-2}
+AUTHKIT_DATABASE_URL=$AUTHKIT_TEST_DATABASE_URL go run ./cmd/authkit-migrate
+
+if [[ "$mode" != contracts ]]; then
+  mkdir -p .reports
+  go test -race -count=1 -p 1 -json github.com/open-rails/authkit/... \
+    | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
+  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}
+  go test -race -count=1 -tags browser ./authhttp -run '^TestCookieLoginBrowserTwoSites$' -json \
+    | tee .reports/browser-test.json | jq -rj 'select(.Output != null) | .Output'
+  python3 - <<'PY'
+import json
+from pathlib import Path
+events = [json.loads(line) for p in (Path('.reports/go-test.json'), Path('.reports/browser-test.json'))
+          for line in p.read_text().splitlines() if line.startswith('{')]
+bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
+       or (e.get('Action') == 'skip' and e.get('Test'))]
+if bad:
+    raise SystemExit(f'Unqualified workflows: {bad}')
+required = {
+    'authhttp': ('TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
+                 'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
+                 'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
+                 'TestWorkflowRateLimits'),
+    'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow', 'TestErasureHandoffAcrossSites'),
+    'authkitmigrate': ('TestFreshSchemaWorkflow',),
+}
+passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
+missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests
+           if (f'github.com/open-rails/authkit/{pkg}', name) not in passed]
+if missing:
+    raise SystemExit(f'Missing workflow passes: {missing}')
+print(f'Workflows qualified: {sum(bool(test) for _, test in passed)} test/subtest passes, zero skips')
+PY
+fi
+
+if [[ "$mode" != workflows ]]; then
+  go vet github.com/open-rails/authkit/...
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet
+  git diff --exit-code -- internal/db
+  test -z "$(git ls-files --others --exclude-standard -- internal/db)"
+  scripts/check-compatibility.sh
+fi

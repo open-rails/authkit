@@ -1,11 +1,5 @@
 package documents
 
-// ak#260 Service lifecycle mechanics over a fake store: publish
-// (sign->verify->persist->re-read->re-verify), digest-stable KID-rotation
-// repair, and the fail-loud invariants when the stored artifact drifts from
-// the process snapshot. The engine's Postgres store and the mounted route are
-// covered end-to-end in authhttp.
-
 import (
 	"context"
 	"crypto"

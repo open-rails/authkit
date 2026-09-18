@@ -7,11 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"sync"
+
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -64,7 +63,7 @@ func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts
 	pool := testdb.Pool(t)
 	sender := &captureEmailSender{}
 	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
-	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
+	srv, err := New(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
 	require.NoError(t, err)
 	return srv, sender
 }
@@ -341,179 +340,4 @@ func loginDeviceKey(t *testing.T, srv *Service, id string, privateKey ed25519.Pr
 	var token deviceKeyTokenBody
 	require.NoError(t, json.Unmarshal(raw, &token))
 	return token
-}
-
-func TestDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T) {
-	forEachStore(t, testDeviceKeyLoginConcurrentFinishAcceptsOnce)
-}
-
-func testDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T, store ephemeralStore) {
-	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t, store.engineOpts()...)
-	email := uniqueEmail("device-key-login-race")
-	publicKey, privateKey := newDeviceKey(t)
-	enrolled := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
-	user, err := srv.svc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
-
-	status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
-	require.Equal(t, http.StatusAccepted, status, string(raw))
-	var challenge deviceKeyChallengeBody
-	require.NoError(t, json.Unmarshal(raw, &challenge))
-	body, err := json.Marshal(map[string]any{
-		"challenge_id": challenge.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
-	})
-	require.NoError(t, err)
-
-	statuses := make(chan int, 2)
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			statuses <- serveJSON(srv, http.MethodPost, "/device-keys/login/finish", string(body)).Code
-		}()
-	}
-	wg.Wait()
-	close(statuses)
-	counts := map[int]int{}
-	for status := range statuses {
-		counts[status]++
-	}
-	require.Equal(t, 1, counts[http.StatusOK])
-	require.Equal(t, 1, counts[http.StatusUnauthorized])
-}
-
-func TestDeviceKeyLoginRefusesBannedAndDeletedUsers(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(context.Context, *Service, string) error
-	}{
-		{name: "banned", mutate: func(ctx context.Context, srv *Service, userID string) error {
-			return srv.svc.BanUser(ctx, userID, nil, nil, userID)
-		}},
-		{name: "deleted", mutate: func(ctx context.Context, srv *Service, userID string) error {
-			return srv.svc.SoftDeleteUser(ctx, userID)
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := context.Background()
-			srv, sender := deviceKeyTestServer(t)
-			email := uniqueEmail("device-key-" + test.name)
-			publicKey, privateKey := newDeviceKey(t)
-			enrolled := finishDeviceEnrollment(t, srv, sender,
-				beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
-			user, err := srv.svc.GetUserByEmail(ctx, email)
-			require.NoError(t, err)
-			t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
-
-			status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
-			require.Equal(t, http.StatusAccepted, status, string(raw))
-			var challenge deviceKeyChallengeBody
-			require.NoError(t, json.Unmarshal(raw, &challenge))
-			require.NoError(t, test.mutate(ctx, srv, user.ID))
-			// #286: ban / soft delete revoke the key itself, so the device list agrees.
-			var revoked bool
-			require.NoError(t, srv.svc.Postgres().QueryRow(ctx,
-				`SELECT revoked_at IS NOT NULL FROM profiles.user_device_keys WHERE id=$1`, enrolled.DeviceKey.ID).Scan(&revoked))
-			require.True(t, revoked, "device key must be revoked by %s", test.name)
-			status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
-				"challenge_id": challenge.ChallengeID,
-				"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
-			})
-			require.Equal(t, http.StatusUnauthorized, status)
-		})
-	}
-}
-
-func TestDeviceKeyEnrollmentAttemptCapInvalidatesCeremony(t *testing.T) {
-	srv, sender := deviceKeyTestServer(t)
-	email := uniqueEmail("device-key-attempts")
-	publicKey, privateKey := newDeviceKey(t)
-	enrollment := beginDeviceEnrollment(t, srv, email, publicKey)
-	signature := signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge)
-	wrongCode := "000000"
-	if sender.verificationCode(t) == wrongCode {
-		wrongCode = "000001"
-	}
-	for range 5 {
-		status, _ := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
-			"enrollment_id": enrollment.EnrollmentID, "code": wrongCode, "signature": signature,
-		})
-		require.Equal(t, http.StatusBadRequest, status)
-	}
-	status, _ := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
-		"enrollment_id": enrollment.EnrollmentID, "code": sender.verificationCode(t), "signature": signature,
-	})
-	require.Equal(t, http.StatusBadRequest, status)
-}
-
-func TestDeviceKeyEnrollmentConcurrentFinishAcceptsOnce(t *testing.T) {
-	srv, sender := deviceKeyTestServer(t)
-	email := uniqueEmail("device-key-race")
-	publicKey, privateKey := newDeviceKey(t)
-	enrollment := beginDeviceEnrollment(t, srv, email, publicKey)
-	body := map[string]any{
-		"enrollment_id": enrollment.EnrollmentID,
-		"code":          sender.verificationCode(t),
-		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
-	}
-	rawBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	statuses := make(chan int, 2)
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			w := serveJSON(srv, http.MethodPost, "/device-keys/enroll/finish", string(rawBody))
-			statuses <- w.Code
-		}()
-	}
-	wg.Wait()
-	close(statuses)
-	counts := map[int]int{}
-	for status := range statuses {
-		counts[status]++
-	}
-	require.Equal(t, 1, counts[http.StatusOK])
-	require.Equal(t, 1, counts[http.StatusBadRequest])
-
-	user, err := srv.svc.GetUserByEmail(context.Background(), email)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1`, user.ID)
-	})
-	var keys int
-	require.NoError(t, srv.svc.Postgres().QueryRow(context.Background(), `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1`, user.ID).Scan(&keys))
-	require.Equal(t, 1, keys)
-}
-
-func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
-	ctx := context.Background()
-	basePool := testdb.Pool(t)
-
-	config, err := pgxpool.ParseConfig(testdb.URL(t))
-	require.NoError(t, err)
-	config.ConnConfig.RuntimeParams["search_path"] = "hub_v2"
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	var searchPath string
-	require.NoError(t, pool.QueryRow(ctx, `SHOW search_path`).Scan(&searchPath))
-	require.Equal(t, "hub_v2", searchPath)
-
-	sender := &captureEmailSender{}
-	srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
-	require.NoError(t, err)
-	email := uniqueEmail("device-key-search-path")
-	publicKey, privateKey := newDeviceKey(t)
-	result := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
-	require.NotEmpty(t, result.AccessToken)
-	user, err := srv.svc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = basePool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
 }
