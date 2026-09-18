@@ -78,10 +78,11 @@ jobs:
       - run: scripts/check.sh contracts
 
   # Keep the security boundary explicit while avoiding four independent CI
-  # workflows.  The source-tree detector catches the injected build-config
-  # payload class; gosec and govulncheck cover Go analysis and known reachable
+  # workflows.  gosec and govulncheck cover Go analysis and known reachable
   # dependency vulnerabilities; Trivy covers the full checkout for high and
-  # critical dependency, secret and misconfiguration findings.
+  # critical dependency, secret and misconfiguration findings. AuthKit does
+  # not duplicate OpenRails' specialized injected-build-config detector; that
+  # scanner remains owned by the repository that carries those build surfaces.
   security:
     name: Required Security
     runs-on: ubuntu-latest
@@ -98,10 +99,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Scan tracked files and run detector self-test
-        run: |
-          scripts/scan-injected-code.sh --all
-          scripts/scan-injected-code.sh --self-test
       - name: Install and run pinned gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
