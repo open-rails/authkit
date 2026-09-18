@@ -142,6 +142,13 @@ func (s *Client) raiseErasureObligationTx(ctx context.Context, q *db.Queries, us
 	if err := q.ErasureObligationRecord(ctx, userID); err != nil {
 		return err
 	}
+	// Record's ON CONFLICT DO NOTHING does not lock an existing obligation.
+	// Serialize with acknowledgements before their child rows are inspected:
+	// an UPDATE that waits for the row lock already holds a statement snapshot
+	// and could otherwise restore a stale pending_sites count after an ACK.
+	if _, err := q.ErasureObligationLock(ctx, userID); err != nil {
+		return err
+	}
 	if err := q.ErasureAcknowledgementsRequire(ctx, db.ErasureAcknowledgementsRequireParams{UserID: userID, Issuers: s.accountIssuers()}); err != nil {
 		return err
 	}
