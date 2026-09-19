@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.103.0
+	github.com/open-rails/authkit v0.104.0
 	github.com/riverqueue/river v0.47.0
 )
 
@@ -24,7 +24,6 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/open-rails/migratekit v1.8.0 // indirect
