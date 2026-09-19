@@ -21,6 +21,7 @@ func Fallback(h http.Handler) fiber.Handler {
 		if err != nil {
 			return fiber.ErrBadRequest
 		}
+		c.Status(http.StatusOK)
 		w := newResponseWriter(c)
 		h.ServeHTTP(w, r.WithContext(c.Context()))
 		w.flushHeaders()
@@ -51,6 +52,8 @@ func RequiredLive(v *verify.Verifier) (fiber.Handler, error) {
 // downstream handlers. Context values and cancellation flow in both directions;
 // Fiber errors are returned to its error handler. Middleware must not retain the
 // converted request after returning. Streaming and hijacking are not supported.
+// This bridge is for authentication and context middleware, not request
+// rewriting or wrappers that intercept downstream response bodies.
 func Use(mw ...func(http.Handler) http.Handler) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		r, err := adaptor.ConvertRequest(c, true)
@@ -141,13 +144,20 @@ func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, reso
 // responseWriter writes directly into Fiber's response, so a downstream Fiber
 // handler's body and status are never overwritten by a buffered HTTP adapter.
 type responseWriter struct {
-	c           fiber.Ctx
-	header      http.Header
-	wroteHeader bool
+	c            fiber.Ctx
+	header       http.Header
+	originalKeys []string
+	wroteHeader  bool
 }
 
 func newResponseWriter(c fiber.Ctx) *responseWriter {
-	return &responseWriter{c: c, header: make(http.Header)}
+	w := &responseWriter{c: c, header: make(http.Header)}
+	for key, value := range c.Response().Header.All() {
+		name := string(key)
+		w.header.Add(name, string(value))
+		w.originalKeys = append(w.originalKeys, name)
+	}
+	return w
 }
 
 func (w *responseWriter) Header() http.Header { return w.header }
@@ -155,6 +165,9 @@ func (w *responseWriter) Header() http.Header { return w.header }
 func (w *responseWriter) flushHeaders() {
 	if w.wroteHeader {
 		return
+	}
+	for _, key := range w.originalKeys {
+		w.c.Response().Header.Del(key)
 	}
 	for key, values := range w.header {
 		w.c.Response().Header.Del(key)

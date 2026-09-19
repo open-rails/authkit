@@ -3,6 +3,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - "/"
+      - "/adapters/fiber"
       - "/adapters/gin"
       - "/adapters/riverjobs"
     schedule:

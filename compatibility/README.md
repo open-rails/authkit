@@ -13,9 +13,11 @@ Once the baseline is v1 (or any later release), every published migration is
 byte-for-byte protected. The script rejects changed/removed protected migrations
 and additions below the baseline's final number, removed/changed route rows, and
 weakening of published wire fixtures. New routes and additive wire fields are allowed. It uses Go's pinned `apidiff` to compare exported APIs
-of the root and both adapter modules, then compiles each module's tests/examples
+of the root and adapter modules, then compiles each module's tests/examples
 with `GOWORK=off`. Adapter requirements must resolve through their published
 Go module versions; a workspace replacement cannot conceal incompatible pins.
+An added module with no baseline is still compiled; API comparison starts once
+the baseline includes that module.
 
 The same pre-v1 rule applies to exported API changes: `apidiff` output is kept as
 an advisory report for a `v0.x` baseline, while it becomes a failing gate once the

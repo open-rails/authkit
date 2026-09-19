@@ -37,9 +37,9 @@ func Fallback(h http.Handler) gin.HandlerFunc {
 //	api := r.Group("/api", authkitgin.Required(verifier))
 func Required(v *verify.Verifier) gin.HandlerFunc { return Use(verify.Required(v)) }
 
-// Optional is the gin-native form of verify.Optional (#209): parses and stores
-// claims when a valid Bearer token is present, and passes through anonymously
-// otherwise. See Required for usage.
+// Optional is the gin-native form of verify.Optional (#209): passes through
+// anonymously when Authorization is absent and otherwise validates it. A
+// present invalid credential is rejected. See Required for usage.
 func Optional(v *verify.Verifier) gin.HandlerFunc { return Use(verify.Optional(v)) }
 
 // RequiredLive is the gin-native form of verify.RequiredLive (#267): Required

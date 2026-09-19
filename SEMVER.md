@@ -73,18 +73,18 @@ generated or canonical sources named below, not here.
 | `…/migrations/postgres` | `migrations` | Stable | Embedded migration source |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
-| `…/adapters/gin`, `…/adapters/riverjobs` | `authkitgin`, `riverjobs` | Provided | Own modules |
+| `…/adapters/gin`, `…/adapters/fiber`, `…/adapters/riverjobs` | `authkitgin`, `authkitfiber`, `riverjobs` | Provided | Own modules |
 | `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
 Renaming an import path or package name is MAJOR; adding a package is MINOR.
 `go doc` is the live enumeration; the compatibility comparison in §8 checks
 exported signatures as well as the documented host compile fixtures.
 
-**Nested modules.** `adapters/gin` and `adapters/riverjobs` are their own
-modules so gin and river never enter the root `go.mod`. Tags: `vX.Y.Z` (root),
-`adapters/gin/vX.Y.Z`, `adapters/riverjobs/vX.Y.Z`. Release order: tag the
-root, bump each nested `require github.com/open-rails/authkit` to it, tag the
-adapters.
+**Nested modules.** `adapters/gin`, `adapters/fiber` and `adapters/riverjobs`
+are their own modules so Gin, Fiber and River never enter the root `go.mod`.
+Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`,
+`adapters/riverjobs/vX.Y.Z`. Release order: tag the root, bump each nested
+`require github.com/open-rails/authkit` to it, tag the adapters.
 
 ### 3.2 Rules
 

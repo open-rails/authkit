@@ -75,7 +75,7 @@ PY
 
 tool=golang.org/x/exp/cmd/apidiff@v0.0.0-20260908205506-85c1c2202aba
 export GOWORK=off GOFLAGS=-mod=readonly
-for directory in . adapters/gin adapters/riverjobs; do
+for directory in . adapters/gin adapters/fiber adapters/riverjobs; do
   name=${directory//\//_}
   module=$(cd "$root/$directory" && go list -m)
   # GOWORK=off alone does not disable module-local replacements.
@@ -84,19 +84,23 @@ import json, sys
 for replacement in json.load(sys.stdin).get("Replace", []) or []:
     raise SystemExit("module replacement defeats release validation: " + replacement["Old"]["Path"])
 '
-  # A historical module may need its indirect graph normalized by the current
-  # Go toolchain. This writes only the extracted report copy, never a checkout.
-  (cd "$report/base/$directory" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/$name.export" "$module")
-  (cd "$root/$directory" && go run "$tool" -m -incompatible "$report/$name.export" "$module") > "$report/$name.diff"
-  # v0.x is still the pre-v1 candidate line: exported API hard cuts are
-  # intentional while the owner finalizes the contract. Keep the report for
-  # review, but only enforce apidiff once the baseline is v1 or newer.
-  if [[ -s "$report/$name.diff" && "$baseline" != v0.* ]]; then
-    cat "$report/$name.diff"
-    exit 1
-  fi
-  if [[ -s "$report/$name.diff" ]]; then
-    printf 'Pre-v1 API hard cut permitted for %s; advisory diff retained at %s\n' "$module" "$report/$name.diff"
+  if [[ -f "$report/base/$directory/go.mod" ]]; then
+    # A historical module may need its indirect graph normalized by the current
+    # Go toolchain. This writes only the extracted report copy, never a checkout.
+    (cd "$report/base/$directory" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/$name.export" "$module")
+    (cd "$root/$directory" && go run "$tool" -m -incompatible "$report/$name.export" "$module") > "$report/$name.diff"
+    # v0.x is still the pre-v1 candidate line: exported API hard cuts are
+    # intentional while the owner finalizes the contract. Keep the report for
+    # review, but only enforce apidiff once the baseline is v1 or newer.
+    if [[ -s "$report/$name.diff" && "$baseline" != v0.* ]]; then
+      cat "$report/$name.diff"
+      exit 1
+    fi
+    if [[ -s "$report/$name.diff" ]]; then
+      printf 'Pre-v1 API hard cut permitted for %s; advisory diff retained at %s\n' "$module" "$report/$name.diff"
+    fi
+  else
+    printf 'New module absent from compatibility baseline: %s\n' "$module"
   fi
   # Compile supported host examples and adapter tests using published requirements.
   (cd "$root/$directory" && go test -run '^$' ./...)

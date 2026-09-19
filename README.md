@@ -6,9 +6,9 @@ documents and delegated tokens, running in your process against your Postgres
 (18+) and Redis. Tests exercise the embedded HTTP handlers directly; migrations
 use the embedded SQL source with migratekit without starting a server.
 
-Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and
-`adapters/riverjobs` as separate modules so gin and river never enter the root
-`go.mod`.
+Modules: `github.com/open-rails/authkit`, plus `adapters/gin`, `adapters/fiber`
+and `adapters/riverjobs` as separate modules so Gin, Fiber and River never enter
+the root `go.mod`.
 
 For local tests, run `scripts/check.sh`. Applications normally call migratekit
 directly during startup with the embedded migration source.
@@ -131,19 +131,74 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 `account`, `device_keys`, `admin`, `permission_groups`, `browser_oidc`,
 `applications`, `delegated`, `documents`), `APIPrefix` anchors the API,
 `ExcludeRoutes` drops routes the host shadows, `Wrap` decorates every route.
-Non-gin hosts mount the handler like any `http.Handler`.
+Standard `net/http` routers, including Chi, mount the handler directly. Fiber
+hosts use the adapter shown below.
 
 ## Verification in a host
 
 `srv.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
 Redis, so a pure resource server depends on it alone.
-`verify.Required`/`Optional` and the `authkitgin` twins put `verify.Claims` in
-the request context. `RequirePermission` resolves the group name once and
+`verify.Required`/`Optional` and their `authkitgin` and `authkitfiber` equivalents
+put `verify.Claims` in the request context. `Optional` permits a missing
+credential but rejects a present invalid credential; it never downgrades an
+invalid token to anonymous access. `Required` accepts any supported principal,
+including machine principals, so user-only handlers must also check the result
+of `UserClaims` (or `claims.IsUser()` with `net/http`).
+
+`RequirePermission` resolves the group name once and
 authorizes the immutable UUID: a user is checked live against `GroupID`, a
 group-bound API key must match the scope, an unbound delegated token is
 authorized from its own `permissions`. `AuthorityIssuer` is this deployment's
 `Token.Issuer`; `verify.PermissionScopeFromContext` hands the handler the
 authorized scope.
+
+### Fiber v3
+
+Install the separate adapter module:
+
+```sh
+go get github.com/open-rails/authkit/adapters/fiber
+```
+
+The middleware and typed accessors mirror the Gin adapter. The same
+`authhttp.Service` and canonical `MountHandler` serve AuthKit's own routes:
+
+```go
+import (
+	"github.com/gofiber/fiber/v3"
+	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
+	"github.com/open-rails/authkit/authhttp"
+)
+
+func setupFiber(srv *authhttp.Service) (*fiber.App, error) {
+	mount, err := authhttp.MountHandler(srv, authhttp.MountOptions{})
+	if err != nil {
+		return nil, err
+	}
+	app := fiber.New()
+	app.Get("/api/viewer", authkitfiber.Optional(srv.Verifier()), func(c fiber.Ctx) error {
+		user, ok := authkitfiber.UserClaims(c)
+		return c.JSON(fiber.Map{"authenticated_user": ok, "user_id": user.UserID})
+	})
+	app.Get("/api/me", authkitfiber.Required(srv.Verifier()), func(c fiber.Ctx) error {
+		user, ok := authkitfiber.UserClaims(c)
+		if !ok {
+			return fiber.ErrUnauthorized
+		}
+		return c.JSON(fiber.Map{"user_id": user.UserID})
+	})
+	app.Use(authkitfiber.Fallback(mount)) // register last so host routes win
+	return app, nil
+}
+```
+
+`Claims(c)` returns all verified claims, `UserClaims(c)` returns only user
+claims, and `Principal(c)` exposes the authenticated principal. They read the
+standard context available through `c.Context()`, so downstream Go services can
+also use `verify.ClaimsFromContext(c.Context())`. `RequiredLive` adds the same
+live account checks as the Gin and `net/http` middleware; its constructor
+returns an error when the verifier has no liveness source. `RequirePermission`
+applies the same permission policy using a Fiber scope resolver.
 
 ## Surfaces
 
