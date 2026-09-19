@@ -6,6 +6,41 @@ and AuthKit account/permission lookups are reserved for that local namespace.
 Standalone verifiers use `IssuerOptions.IsLocal` only when the configured signer
 is authoritative for their local user IDs.
 
+## User claims: presence and freshness
+
+`verify.UserClaimsData` is the shared local-user projection. Read it with
+`verify.UserClaimsFromContext(ctx)` after authentication middleware. A successful
+result guarantees a nonempty local `UserID`; it does not guarantee the other
+fields are populated. The accessor performs no verification or database lookup
+and copies the `AMR` and `Entitlements` slices.
+
+| Fields | Ordinary `Required` / `Optional` | `RequiredLive` |
+| --- | --- | --- |
+| `UserID` | Verified local user ID | Same ID, plus live account eligibility checked |
+| `Email`, `EmailVerified`, `Username` | Only populated if present in verified claims; ordinary AuthKit access tokens omit them | Loaded from the account-liveness lookup for this request |
+| `SessionID` | Token's session ID, if supplied | Unchanged; this is not a session-revocation lookup |
+| `Entitlements` | Token-time snapshot, if supplied | Unchanged; no live entitlement lookup |
+| `AMR`, `ACR`, `AuthTime`, `MFAEnrolled` | Issuer's authentication/enrollment claims, if supplied | Unchanged; no assurance or enrollment refresh |
+
+An empty email/username does not establish that the account lacks that value.
+`EmailVerified == false` can mean the claim was absent. Empty session/assurance
+values and zero `AuthTime` similarly mean unavailable data. Sessionless
+credentials such as device-key tokens need not carry a `SessionID`.
+
+`AMR` describes authentication methods used, `ACR` the issuer's assurance class,
+and `AuthTime` when authentication occurred rather than when a token was
+refreshed. `MFAEnrolled` is enrollment information at token issuance, not proof
+that this authentication performed MFA; use the assurance/step-up checks.
+
+A snapshot can become stale: revoking an entitlement after a token was issued
+does not edit that signed token. Signature verification establishes who issued
+the claims, not that every claim still matches current database state. Where
+immediate changes matter, use the owning service's live authorization lookup.
+`RequiredLive` refreshes only the profile fields shown above, and the lookup's
+result describes that moment, not a guarantee against later concurrent changes.
+
+## Issuer trust
+
 The unused `IssuerOptions.RemoteApplicationSlug` option has been removed;
 application identity is always resolved from the store.
 
