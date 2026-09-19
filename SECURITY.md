@@ -14,51 +14,43 @@ boundaries, so every push and pull request runs the same gating pipeline.
 
 ## CI pipeline
 
-Four workflows in `.github/workflows/`, all triggered on `push` and
-`pull_request` to `master`/`main` and by `workflow_dispatch`; the three
-scanners also run on a weekly Monday schedule (06:00 / 07:00 / 08:00 UTC).
+The `Validate` workflow in `.github/workflows/ci.yaml` runs on pushes and pull
+requests to `master`, and through `workflow_dispatch`. It has three jobs:
 
-| workflow | jobs | gates? |
-|---|---|---|
-| `test.yaml` | `go test -race -p 1 ./...` against a real migrated Postgres (compose `issuer`) and a real Redis, then a skip gate; `sqlc generate` + `sqlc vet` + drift check on `internal/db` | yes |
-| `go-sast.yaml` | `go vet ./...`, `staticcheck ./...` (pinned version) | yes |
-| `codeql.yaml` | CodeQL for Go with `security-extended` + `security-and-quality` (SARIF to code scanning) | no (findings appear in the Security tab) |
-| `security.yaml` | `govulncheck ./...` (pinned version; call-graph aware), Trivy fs scan (`vuln,secret,misconfig`, HIGH+ fixable) | yes |
+| Job | Checks |
+|---|---|
+| `workflows` | Race-tested AuthKit and adapter workflows against PostgreSQL 18 and Redis, then the two-site Chrome cookie workflow. The event gate requires the retained workflows to pass with no skipped tests. |
+| `contracts` | Go vet, SQLC generation/vet and generated-code drift, published migration/route/wire/API contracts, and module-isolated adapter checks. Fiber additionally runs its race suite and vet against the published root dependency. |
+| `Required Security` | Pinned govulncheck for reachable dependency vulnerabilities, plus a Trivy filesystem scan for fixable HIGH/CRITICAL dependency, secret and configuration findings. |
 
-Hardening that applies to every workflow:
-
-- Every action is pinned to a commit SHA with a version comment; tools installed
-  with `go install` are pinned to a module version. Bump deliberately.
-- `.github/dependabot.yml` opens weekly bump PRs for Go modules (root and both
-  adapter modules; minor/patch grouped, majors separate), the SHA-pinned
-  actions, and the compose images. They merge like any other PR: the full
-  `tests` check and the other gates must pass, and nothing auto-approves them.
-- `step-security/harden-runner` (egress audit) is the first step of every job.
-- Permissions default to `contents: read`; `security-events: write` is granted
-  only to the CodeQL job that uploads SARIF.
-- No `pull_request_target`, no `continue-on-error`.
+Permissions default to `contents: read`. Actions and installed tools carry
+explicit version or commit pins. Dependabot proposes weekly updates for the
+root and all adapter Go modules and GitHub Actions; updates use the same checks.
+No job uses `pull_request_target` or `continue-on-error`.
 
 ### Tests must run, not skip
 
-DB-backed tests skip when `AUTHKIT_TEST_DATABASE_URL` / `AUTHKIT_TEST_REDIS_URL`
-are unset so a plain `go test` works offline. In CI that skip would hide a broken stack, so
-`task test` / `task test-ci` export `AUTHKIT_TEST_REQUIRE_DB=1`, which turns the
-skip into a failure (`internal/testdb`), and `task test-ci` fails the job if the
-JSON report records any skipped test at all. Opt-in probes use build tags
-(`-tags importbench`) rather than `t.Skip`.
+Ordinary offline `go test` may skip database-backed tests when their service
+URLs are absent. `scripts/check.sh` supplies the PostgreSQL/Redis configuration
+and sets `AUTHKIT_TEST_REQUIRE_DB=1`, turning missing database configuration
+into a failure. Its workflow event gate also rejects skipped tests or missing
+required workflow passes.
 
 ## Running locally
 
 ```bash
-task test                 # full suite against compose Postgres (task test-db-ready first)
-task test-fast            # DB-free smoke
-go vet ./... && go install honnef.co/go/tools/cmd/staticcheck@v0.8.1 && staticcheck ./...
-go install golang.org/x/vuln/cmd/govulncheck@v1.7.0 && govulncheck ./...
+pnpm --dir authhttp/testdata install --frozen-lockfile
+pnpm --dir authhttp/testdata exec playwright install --with-deps chromium
+scripts/check.sh all       # workflows and contracts; starts local compose services if needed
+scripts/check.sh contracts # contracts only
+
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+govulncheck ./...
 ```
 
-CodeQL can be reproduced with the
-[CodeQL CLI](https://docs.github.com/en/code-security/codeql-cli). Local scan
-output (`.reports/`, `*.sarif`) is gitignored.
+Set `AUTHKIT_TEST_DATABASE_URL` and `AUTHKIT_TEST_REDIS_URL` to use existing
+local services. `.reports/` is gitignored. Published-module verification uses
+`GOWORK=off` and rejects module replacements; see [compatibility checks](compatibility/README.md).
 
 ## Triage
 

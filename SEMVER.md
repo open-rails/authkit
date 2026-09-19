@@ -330,8 +330,8 @@ Mechanical today:
 4. **Build graph** — `TestRootAndVerifyArePgxFree`, `TestSharedLeavesAreStdlibOnly`.
 
 5. **Go API and migration compatibility** — `scripts/check-compatibility.sh`
-   compares all three modules against `compatibility/base-ref`, requires every
-   baseline migration to remain byte-identical, and compiles host examples with
+   compares the root and all adapter modules against `compatibility/base-ref`,
+   requires every baseline migration to remain byte-identical, and compiles host examples with
    `GOWORK=off`. The baseline is still a reviewed candidate before v1.
 6. **Wire and browser workflows** — `TestSessionWireWorkflow` reads maintained
    HTTP/JWT goldens while allowing additive fields. `task test-browser` runs the
