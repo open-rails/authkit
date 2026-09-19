@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mr-tron/base58 v1.3.0
-	github.com/open-rails/migratekit v1.0.1
+	github.com/open-rails/migratekit v1.0.2
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
 	github.com/zitadel/oidc/v3 v3.51.1
