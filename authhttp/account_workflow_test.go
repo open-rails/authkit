@@ -251,7 +251,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					f.session(tokens, method)
 					var uid string
 					var verified, hasPassword bool
-					require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT u.id::text, CASE WHEN $2 THEN u.phone_verified ELSE u.email_verified END, EXISTS(SELECT 1 FROM profiles.user_passwords p WHERE p.user_id=u.id) FROM profiles.users u WHERE CASE WHEN $2 THEN u.phone_number=$1 ELSE u.email=$1 END`, identifier, phone).Scan(&uid, &verified, &hasPassword))
+					require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT u.id::text, CASE WHEN $2 THEN u.phone_verified ELSE u.email_verified END, EXISTS(SELECT 1 FROM user_passwords p WHERE p.user_id=u.id) FROM users u WHERE CASE WHEN $2 THEN u.phone_number=$1 ELSE u.email=$1 END`, identifier, phone).Scan(&uid, &verified, &hasPassword))
 					require.True(t, verified)
 					require.Equal(t, !passwordless, hasPassword)
 					requireAccountInviteConsumed(t, pg.Pool, invite.ID, uid)
@@ -281,7 +281,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 			}
 			f.expect(202, f.post(start, payload))
 			code := f.email.verificationCode(t)
-			_, err = pg.Pool.Exec(ctx, `UPDATE profiles.account_registration_invites SET revoked_at=now() WHERE id=$1::uuid`, invite.ID)
+			_, err = pg.Pool.Exec(ctx, `UPDATE account_registration_invites SET revoked_at=now() WHERE id=$1::uuid`, invite.ID)
 			require.NoError(t, err)
 			confirm := "/verify/confirm"
 			if start == "/passwordless/start" {
@@ -290,7 +290,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 			reply := f.post(confirm, map[string]any{"identifier": email, "code": code})
 			require.GreaterOrEqual(t, reply.status, 400, reply.raw)
 			var count int
-			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE email=$1`, email).Scan(&count))
+			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE email=$1`, email).Scan(&count))
 			require.Zero(t, count)
 		}
 		for _, body := range []map[string]any{{"identifier": "not-an-identifier", "username": "validname", "password": "Correct-horse-battery-1"}, {"identifier": uniqueEmail("weak"), "username": "validname", "password": "short"}} {
@@ -505,7 +505,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 		completed = f.completeWhileRevoking(refreshUser.ID, func() flowResponse { return f.post("/2fa/verify", completionBody) }, func(ctx context.Context) error { return f.service.svc.RevokeIssuerSessions(ctx, refreshUser.ID, nil) })
 		f.expect(200, completed)
 		var live int
-		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1::uuid AND revoked_at IS NULL`, refreshUser.ID).Scan(&live))
+		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM refresh_sessions WHERE user_id=$1::uuid AND revoked_at IS NULL`, refreshUser.ID).Scan(&live))
 		require.Zero(t, live, "revoke-all cannot miss the derived session")
 
 	})
@@ -630,10 +630,10 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 
 func testRegistrationRollback(f *accountFlow, inviter string) {
 	t, pool, ctx := f.t, f.service.svc.Postgres(), f.t.Context()
-	_, err := pool.Exec(ctx, `CREATE FUNCTION profiles.registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON profiles.account_registration_invites FOR EACH ROW EXECUTE FUNCTION profiles.registration_failure()`)
+	_, err := pool.Exec(ctx, `CREATE FUNCTION registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON account_registration_invites FOR EACH ROW EXECUTE FUNCTION registration_failure()`)
 	require.NoError(t, err)
 	defer func() {
-		_, err := pool.Exec(ctx, `DROP TRIGGER registration_failure ON profiles.account_registration_invites; DROP FUNCTION profiles.registration_failure()`)
+		_, err := pool.Exec(ctx, `DROP TRIGGER registration_failure ON account_registration_invites; DROP FUNCTION registration_failure()`)
 		require.NoError(t, err)
 	}()
 	for _, flow := range []string{"email", "sms", "passwordless", "oidc", "oauth2"} {
@@ -669,7 +669,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 		}
 		require.GreaterOrEqual(t, failed.status, 400, flow+failed.raw)
 		var exists, consumed bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE email=$1 OR phone_number=$2),(SELECT consumed_at IS NOT NULL FROM profiles.account_registration_invites WHERE id=$3::uuid)`, email, identifier, invite.ID).Scan(&exists, &consumed))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 OR phone_number=$2),(SELECT consumed_at IS NOT NULL FROM account_registration_invites WHERE id=$3::uuid)`, email, identifier, invite.ID).Scan(&exists, &consumed))
 		require.False(t, exists, flow)
 		require.False(t, consumed, flow)
 	}
@@ -684,7 +684,7 @@ func testProofLifecycle(f *accountFlow) {
 			require.NoError(t, err)
 			if phone {
 				identifier = uniquePhone()
-				_, err = pool.Exec(ctx, `UPDATE profiles.users SET phone_number=$1,phone_verified=false WHERE id=$2::uuid`, identifier, user.ID)
+				_, err = pool.Exec(ctx, `UPDATE users SET phone_number=$1,phone_verified=false WHERE id=$2::uuid`, identifier, user.ID)
 				require.NoError(t, err)
 			}
 			start, confirm, path, channel, amr := "/verify/request", "/verify/confirm", "/verify", "email", "email"
@@ -760,7 +760,7 @@ func testProofLifecycle(f *accountFlow) {
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
-	_, err = lock.Exec(ctx, `SELECT id FROM profiles.users WHERE id=$1::uuid FOR UPDATE`, user.ID)
+	_, err = lock.Exec(ctx, `SELECT id FROM users WHERE id=$1::uuid FOR UPDATE`, user.ID)
 	require.NoError(t, err)
 	completed := make(chan flowResponse, 1)
 	go func() { completed <- f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": old}) }()
@@ -785,7 +785,7 @@ func testPausedPasswordRecovery(f *accountFlow) {
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
-	_, err = lock.Exec(ctx, `SELECT id FROM profiles.users WHERE id=$1::uuid FOR UPDATE`, user.ID)
+	_, err = lock.Exec(ctx, `SELECT id FROM users WHERE id=$1::uuid FOR UPDATE`, user.ID)
 	require.NoError(t, err)
 	changed := make(chan error, 1)
 	go func() { changed <- f.service.svc.AdminSetPassword(ctx, user.ID, "Replacement-password-12345") }()
@@ -806,6 +806,6 @@ func testPausedPasswordRecovery(f *accountFlow) {
 	require.NoError(t, <-changed)
 	f.expect(401, <-login)
 	var sessions int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1::uuid`, user.ID).Scan(&sessions))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM refresh_sessions WHERE user_id=$1::uuid`, user.ID).Scan(&sessions))
 	require.Zero(t, sessions, "a password check preceding completed recovery cannot mint a session")
 }

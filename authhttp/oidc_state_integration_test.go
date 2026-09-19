@@ -66,7 +66,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 	setTestProviders(srv, idp.Provider("custom", authprovider.WithPKCE(true)), other.Provider("other"))
 	h := srv.oidcHandler()
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT user_id FROM user_providers WHERE issuer=$1 AND subject=$2)`, idp.Server.URL, subject)
 	})
 	rejected := func(loc string, code authkit.Code) {
 		t.Helper()

@@ -44,7 +44,7 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, code, body)
 	var events int
-	require.NoError(t, g.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.session_events WHERE user_id=$1 AND event='session_revoked' AND reason='refresh_reuse_detected'`, uid).Scan(&events))
+	require.NoError(t, g.pool.QueryRow(ctx, `SELECT count(*) FROM session_events WHERE user_id=$1 AND event='session_revoked' AND reason='refresh_reuse_detected'`, uid).Scan(&events))
 	require.Equal(t, 1, events)
 }
 

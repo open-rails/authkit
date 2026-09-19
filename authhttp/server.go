@@ -177,7 +177,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 
 // probeMigrations fails fast at construction when AuthKit's migrations were
 // never run — a definitive "users table missing" beats a cryptic mid-request
-// `relation "profiles.users" does not exist`. Fail-open on probe errors
+// `relation "users" does not exist`. Fail-open on probe errors
 // (connectivity, permissions): those surface elsewhere; only a definitive
 // "table missing" fails construction.
 func probeMigrations(client *embedded.Client) error {

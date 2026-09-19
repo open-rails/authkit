@@ -75,7 +75,7 @@ func (g *graceHarness) login(t *testing.T, prefix string) (userID, refreshToken 
 	require.NotEmpty(t, rt)
 	var uid string
 	require.NoError(t, g.pool.QueryRow(context.Background(),
-		`SELECT id::text FROM profiles.users WHERE email = $1`, email).Scan(&uid))
+		`SELECT id::text FROM users WHERE email = $1`, email).Scan(&uid))
 	return uid, rt
 }
 
@@ -90,7 +90,7 @@ func (g *graceHarness) sessionCounts(t *testing.T, userID string) (live, revoked
 	require.NoError(t, g.pool.QueryRow(context.Background(), `
 		SELECT count(*) FILTER (WHERE revoked_at IS NULL),
 		       count(*) FILTER (WHERE revoked_at IS NOT NULL)
-		FROM profiles.refresh_sessions WHERE user_id = $1::uuid`, userID).Scan(&live, &revoked))
+		FROM refresh_sessions WHERE user_id = $1::uuid`, userID).Scan(&live, &revoked))
 	return live, revoked
 }
 

@@ -101,7 +101,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	bystanderA, bystanderB := login(siteA, bystanderEmail, bystanderPass), login(siteB, bystanderEmail, bystanderPass)
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
-	_, err = pool.Exec(ctx, `INSERT INTO profiles.user_device_keys (user_id, public_key) VALUES ($1, $2)`, victimID, key)
+	_, err = pool.Exec(ctx, `INSERT INTO user_device_keys (user_id, public_key) VALUES ($1, $2)`, victimID, key)
 	require.NoError(t, err)
 	victimB, victimC := login(siteB, victimEmail, victimPass), login(siteC, victimEmail, victimPass)
 	operator := login(siteA, operatorEmail, operatorPass)
@@ -130,7 +130,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	})
 
 	t.Run("audit records each session under its issuer", func(t *testing.T) {
-		rows, err := pool.Query(ctx, `SELECT issuer, event, session_id, reason FROM profiles.session_events
+		rows, err := pool.Query(ctx, `SELECT issuer, event, session_id, reason FROM session_events
 			WHERE user_id=$1 AND event IN ('session_revoked','account_sessions_revoked') ORDER BY id`, victimID)
 		require.NoError(t, err)
 		defer rows.Close()

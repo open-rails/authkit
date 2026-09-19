@@ -72,6 +72,6 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	require.NoError(t, err, string(output))
 	t.Log(strings.TrimSpace(string(output)))
 	var sessions int
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1`, attackerID).Scan(&sessions))
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, attackerID).Scan(&sessions))
 	require.Zero(t, sessions, "cross-site submissions cannot create even an unused attacker session")
 }

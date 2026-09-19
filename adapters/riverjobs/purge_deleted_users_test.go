@@ -54,20 +54,20 @@ func (f purgeFixture) deletedUser(tag string, deletedAt time.Time, issuers []str
 	ctx := context.Background()
 	id := uuid.NewString()
 	if _, err := f.pool.Exec(ctx, `
-		INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at, deleted_at)
+		INSERT INTO users (id, email, username, email_verified, created_at, updated_at, deleted_at)
 		VALUES ($1, $2, $3, true, now(), now(), $4)`, id, fmt.Sprintf("purge-%s@example.com", id), "purge_"+tag+"_"+id[:8], deletedAt); err != nil {
 		f.t.Fatalf("seed user %s: %v", tag, err)
 	}
 	f.t.Cleanup(func() {
-		_, _ = f.pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, id)
-		_, _ = f.pool.Exec(context.Background(), `DELETE FROM profiles.account_erasure_obligations WHERE user_id=$1::uuid`, id)
+		_, _ = f.pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, id)
+		_, _ = f.pool.Exec(context.Background(), `DELETE FROM account_erasure_obligations WHERE user_id=$1::uuid`, id)
 	})
-	if _, err := f.pool.Exec(ctx, `INSERT INTO profiles.account_erasure_obligations (user_id, email, created_at, pending_sites)
-		SELECT id, email, $2, $3 FROM profiles.users WHERE id=$1::uuid`, id, deletedAt, len(issuers)); err != nil {
+	if _, err := f.pool.Exec(ctx, `INSERT INTO account_erasure_obligations (user_id, email, created_at, pending_sites)
+		SELECT id, email, $2, $3 FROM users WHERE id=$1::uuid`, id, deletedAt, len(issuers)); err != nil {
 		f.t.Fatalf("seed obligation %s: %v", tag, err)
 	}
 	for _, issuer := range issuers {
-		if _, err := f.pool.Exec(ctx, `INSERT INTO profiles.account_erasure_acknowledgements (user_id, issuer, obligation_created_at) VALUES ($1::uuid, $2, $3)`, id, issuer, deletedAt); err != nil {
+		if _, err := f.pool.Exec(ctx, `INSERT INTO account_erasure_acknowledgements (user_id, issuer, obligation_created_at) VALUES ($1::uuid, $2, $3)`, id, issuer, deletedAt); err != nil {
 			f.t.Fatalf("seed acknowledgement %s: %v", tag, err)
 		}
 	}
@@ -79,11 +79,11 @@ func (f purgeFixture) deletedUser(tag string, deletedAt time.Time, issuers []str
 
 func (f purgeFixture) acknowledge(id, issuer string) {
 	f.t.Helper()
-	if _, err := f.pool.Exec(context.Background(), `UPDATE profiles.account_erasure_acknowledgements SET acknowledged_at=now() WHERE user_id=$1::uuid AND issuer=$2`, id, issuer); err != nil {
+	if _, err := f.pool.Exec(context.Background(), `UPDATE account_erasure_acknowledgements SET acknowledged_at=now() WHERE user_id=$1::uuid AND issuer=$2`, id, issuer); err != nil {
 		f.t.Fatalf("acknowledge %s: %v", issuer, err)
 	}
-	if _, err := f.pool.Exec(context.Background(), `UPDATE profiles.account_erasure_obligations o SET pending_sites=(
-		SELECT count(*) FROM profiles.account_erasure_acknowledgements a WHERE a.user_id=o.user_id AND a.acknowledged_at IS NULL)
+	if _, err := f.pool.Exec(context.Background(), `UPDATE account_erasure_obligations o SET pending_sites=(
+		SELECT count(*) FROM account_erasure_acknowledgements a WHERE a.user_id=o.user_id AND a.acknowledged_at IS NULL)
 		WHERE o.user_id=$1::uuid`, id); err != nil {
 		f.t.Fatalf("refresh pending: %v", err)
 	}
@@ -92,7 +92,7 @@ func (f purgeFixture) acknowledge(id, issuer string) {
 func (f purgeFixture) count(table, column, id string) int {
 	f.t.Helper()
 	var n int
-	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM profiles.`+table+` WHERE `+column+`=$1::uuid`, id).Scan(&n); err != nil {
+	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM `+table+` WHERE `+column+`=$1::uuid`, id).Scan(&n); err != nil {
 		f.t.Fatal(err)
 	}
 	return n
