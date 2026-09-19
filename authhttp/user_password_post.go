@@ -26,6 +26,9 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
+	if body.CurrentPassword != "" && s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
+		return
+	}
 	if err := embedded.ValidatePassword(body.NewPassword); err != nil {
 		writeError(w, err)
 		return
