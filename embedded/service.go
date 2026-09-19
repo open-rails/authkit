@@ -56,7 +56,7 @@ type EntitlementFilterProvider interface {
 	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
 }
 
-// HashAlgoLegacyResetRequired marks profiles.user_passwords rows migrated from
+// HashAlgoLegacyResetRequired marks user_passwords rows migrated from
 // legacy systems whose stored hashes can never verify (DES crypt, md5-crypt,
 // corrupted values). The raw legacy hash is preserved in password_hash for
 // forensics only; the sole way forward for these accounts is a password reset.

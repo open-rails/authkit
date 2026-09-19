@@ -23,7 +23,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			email := uniqueEmail("audit-old-reset")
 			u, err := srv.svc.CreateUser(ctx, email, "auditreset"+uniqueSuffix())
 			require.NoError(t, err)
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, u.ID) })
 			require.NoError(t, srv.svc.RequestPasswordReset(ctx, email, time.Hour, nil, nil))
 			stale := sender.passwordResetToken(t)
 			switch change {
@@ -68,11 +68,11 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				_, refresh, _, err := srv.svc.IssueRefreshSession(ctx, uid, "atomic", nil)
 				require.NoError(t, err)
 				var before, after int64
-				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM profiles.users WHERE id=$1`, uid).Scan(&before))
-				_, err = pool.Exec(ctx, `CREATE FUNCTION profiles.credential_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected credential failure'; END $$; CREATE TRIGGER credential_failure BEFORE UPDATE OF `+stage.columns+` ON profiles.`+stage.table+` FOR EACH ROW EXECUTE FUNCTION profiles.credential_failure()`)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM users WHERE id=$1`, uid).Scan(&before))
+				_, err = pool.Exec(ctx, `CREATE FUNCTION credential_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected credential failure'; END $$; CREATE TRIGGER credential_failure BEFORE UPDATE OF `+stage.columns+` ON `+stage.table+` FOR EACH ROW EXECUTE FUNCTION credential_failure()`)
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS credential_failure ON profiles.`+stage.table+`; DROP FUNCTION IF EXISTS profiles.credential_failure()`)
+					_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS credential_failure ON `+stage.table+`; DROP FUNCTION IF EXISTS credential_failure()`)
 				})
 				var changeErr error
 				switch method {
@@ -86,7 +86,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 					_, changeErr = srv.svc.ConfirmPasswordReset(ctx, reset, "Replacement-password-12345")
 				}
 				require.ErrorContains(t, changeErr, "injected credential failure")
-				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM profiles.users WHERE id=$1`, uid).Scan(&after))
+				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM users WHERE id=$1`, uid).Scan(&after))
 				require.Equal(t, before, after, "failed operation cannot invalidate grants")
 				require.NoError(t, srv.svc.CheckUserPassword(ctx, uid, "Correct-password-12345"))
 				require.Error(t, srv.svc.CheckUserPassword(ctx, uid, "Replacement-password-12345"))

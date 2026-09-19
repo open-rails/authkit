@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
@@ -54,7 +52,7 @@ func (s *Client) usernameAvailable(ctx context.Context, username string) bool {
 		return true
 	}
 	var taken bool
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, username, s.namingNow()).Scan(&taken)
+	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, username, s.namingNow()).Scan(&taken)
 	return err == nil && !taken
 }
 

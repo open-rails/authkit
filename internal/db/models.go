@@ -9,7 +9,7 @@ import (
 )
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings
-type ProfilesMfaFactor struct {
+type MfaFactor struct {
 	ID           string
 	UserID       string
 	Method       string
@@ -23,7 +23,7 @@ type ProfilesMfaFactor struct {
 }
 
 // Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.
-type ProfilesMfaSetting struct {
+type MfaSetting struct {
 	UserID  string
 	Enabled bool
 	// Hashed backup codes for account recovery

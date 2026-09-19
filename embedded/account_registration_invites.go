@@ -124,7 +124,7 @@ func (s *Client) createAccountRegistrationInvite(ctx context.Context, req Create
 	var id string
 	insert := func(q db.DBTX) error {
 		return q.QueryRow(ctx,
-			`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
+			`INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
 		 VALUES ($1, $2::uuid, $3, $4, $5, $6)
 		 RETURNING id::text`,
 			email, invitedBy, codeHash, expiresAt, groupID, roleParam).Scan(&id)
@@ -139,7 +139,7 @@ func (s *Client) createAccountRegistrationInvite(ctx context.Context, req Create
 			return insert(st.q)
 		})
 	} else {
-		err = insert(db.ForSchema(s.pg, s.dbSchema()))
+		err = insert(s.pg)
 	}
 	if err != nil {
 		return AccountRegistrationInviteCreated{}, err
@@ -185,11 +185,11 @@ func (s *Client) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(
-		   SELECT 1 FROM profiles.account_registration_invites
+		   SELECT 1 FROM account_registration_invites
 		   WHERE code_hash = $1 AND revoked_at IS NULL
 		     AND consumed_at IS NULL AND expires_at > now()
 		 )`,
@@ -216,12 +216,12 @@ func (s *Client) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 		return nil, nil
 	}
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if err := s.lockAuthority(ctx, q); err != nil {
 		return nil, err
 	}
 	var groupID *string
-	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
+	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAccountRegistrationInviteNotFound
 	}
@@ -234,8 +234,8 @@ func (s *Client) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 	}
 	var invite registrationInvite
-	err = db.ForSchema(tx, s.dbSchema()).QueryRow(ctx, `SELECT i.id::text,i.permission_group_id::text,i.role,g.persona
-FROM profiles.account_registration_invites i LEFT JOIN profiles.permission_groups g ON g.id=i.permission_group_id
+	err = tx.QueryRow(ctx, `SELECT i.id::text,i.permission_group_id::text,i.role,g.persona
+FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id=i.permission_group_id
 WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now()
 AND i.permission_group_id IS NOT DISTINCT FROM $2::uuid
 FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &invite.Role, &invite.Persona)
@@ -252,8 +252,8 @@ func (s *Client) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 	if invite == nil {
 		return nil
 	}
-	q := db.ForSchema(tx, s.dbSchema())
-	if _, err := q.Exec(ctx, `UPDATE profiles.account_registration_invites SET consumed_at=now(),consumed_by=$2::uuid,updated_at=now() WHERE id=$1::uuid`, invite.ID, userID); err != nil {
+	q := tx
+	if _, err := q.Exec(ctx, `UPDATE account_registration_invites SET consumed_at=now(),consumed_by=$2::uuid,updated_at=now() WHERE id=$1::uuid`, invite.ID, userID); err != nil {
 		return err
 	}
 	if invite.GroupID != nil && invite.Role != nil {

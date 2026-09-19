@@ -13,7 +13,6 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // ExternalIdentity is a provider-verified identity.
@@ -68,7 +67,7 @@ func (s *Client) CompleteExternalLogin(ctx context.Context, in ExternalLoginInpu
 	}
 	var version int64
 	var providerID string
-	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM profiles.users u JOIN profiles.user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, in.Identity.Issuer, in.Identity.Subject).Scan(&version, &providerID)
+	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, in.Identity.Issuer, in.Identity.Subject).Scan(&version, &providerID)
 	if err != nil {
 		return LoginOutcome{}, err
 	}

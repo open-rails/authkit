@@ -38,7 +38,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		sid := claims["sid"]
 		var beforeTime, afterTime time.Time
 		var beforeAMR, afterAMR []string
-		require.NoError(t, pool.QueryRow(ctx, `SELECT last_authenticated_at, auth_methods FROM profiles.refresh_sessions WHERE id=$1`, sid).Scan(&beforeTime, &beforeAMR))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT last_authenticated_at, auth_methods FROM refresh_sessions WHERE id=$1`, sid).Scan(&beforeTime, &beforeAMR))
 		pending := f.expect(200, f.request("POST", "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp"}))
 		require.NotEmpty(t, pending.Secret)
 		require.Contains(t, pending.raw, "otpauth://totp/")
@@ -76,7 +76,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		require.Len(t, enabled.BackupCodes, 10)
 		original, err := f.service.svc.Get2FASettings(ctx, userID)
 		require.NoError(t, err)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT last_authenticated_at, auth_methods FROM profiles.refresh_sessions WHERE id=$1`, sid).Scan(&afterTime, &afterAMR))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT last_authenticated_at, auth_methods FROM refresh_sessions WHERE id=$1`, sid).Scan(&afterTime, &afterAMR))
 		require.Equal(t, beforeTime, afterTime, "enrollment cannot refresh authentication")
 		require.Equal(t, beforeAMR, afterAMR, "enrollment cannot add MFA assurance")
 		require.NotContains(t, afterAMR, "mfa")
@@ -161,7 +161,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		f.session(tokens, "pwd", "totp", "otp", "mfa")
 		loginSID := unverifiedAccessClaims(t, tokens.AccessToken)["sid"]
 		var loginIP string
-		require.NoError(t, pool.QueryRow(ctx, `SELECT host(ip_addr) FROM profiles.refresh_sessions WHERE id=$1`, loginSID).Scan(&loginIP))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT host(ip_addr) FROM refresh_sessions WHERE id=$1`, loginSID).Scan(&loginIP))
 		require.Equal(t, "127.0.0.1", loginIP, "MFA completion records the actual HTTP client IP")
 		f.expect(401, f.post("/2fa/verify", proof))
 		challenge = f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": pass}))
@@ -169,7 +169,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		f.session(backup.TokenSet, "pwd", "backup_code", "otp", "mfa")
 
 		// Only age the real MFA session; never inject proof or reset TOTP replay state.
-		_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, loginSID)
+		_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, loginSID)
 		require.NoError(t, err)
 		staleMFA, _, err := f.service.svc.MintAccessToken(ctx, userID, map[string]any{"sid": loginSID})
 		require.NoError(t, err)

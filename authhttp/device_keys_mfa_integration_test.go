@@ -28,7 +28,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	email := uniqueEmail("device-key-mfa")
 	user, err := srv.svc.CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
@@ -78,7 +78,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	require.Equal(t, user.ID, claims["sub"])
 
 	var keys int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1::uuid AND revoked_at IS NULL`, user.ID).Scan(&keys))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1::uuid AND revoked_at IS NULL`, user.ID).Scan(&keys))
 	require.Equal(t, 1, keys)
 	require.Equal(t, []string{email}, sender.deviceKeyNotices())
 }

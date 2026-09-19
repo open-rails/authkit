@@ -1,11 +1,11 @@
 module github.com/open-rails/authkit/adapters/riverjobs
 
-go 1.26.6
+go 1.26.0
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.103.0
+	github.com/open-rails/authkit v0.105.0
 	github.com/riverqueue/river v0.47.0
 )
 
@@ -24,10 +24,9 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
-	github.com/open-rails/migratekit v1.8.0 // indirect
+	github.com/open-rails/migratekit v1.0.3 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/riverqueue/river/riverdriver v0.47.0 // indirect

@@ -14,10 +14,11 @@ import (
 // It uses AuthKit's existing store; it carries no signer, issuer or session state.
 type GroupDirectory struct {
 	store *PermissionGroupStore
+	pool  *pgxpool.Pool
 }
 
 // NewGroupDirectory creates a read-only view of an already migrated schema.
-// Empty schema selects profiles. Construction does not query, migrate, write or
+// Empty schema selects the default profiles namespace. Construction does not query, migrate, write or
 // start workers. Hosts remain responsible for authorizing any subsequent action.
 func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, error) {
 	if pool == nil {
@@ -30,7 +31,20 @@ func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, erro
 	if !db.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("authkit: invalid schema %q", schema)
 	}
-	return &GroupDirectory{store: NewPermissionGroupStore(db.ForSchema(pool, schema))}, nil
+	bound, err := schemaPool(pool, schema)
+	if err != nil {
+		return nil, err
+	}
+	return &GroupDirectory{store: NewPermissionGroupStore(bound), pool: bound}, nil
+}
+
+// Close releases the directory's schema-bound pool. The caller's pool passed
+// to NewGroupDirectory remains host-owned.
+func (d *GroupDirectory) Close() {
+	if d != nil && d.pool != nil {
+		d.pool.Close()
+		d.pool = nil
+	}
 }
 
 func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {

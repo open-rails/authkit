@@ -11,7 +11,7 @@ import (
 // token helpers. The tokens themselves live only in the ephemeral store; these
 // helpers fail closed (ErrTokenUnverifiable) when it is not configured.
 
-// setPasswordSet removed; presence of password is inferred from profiles.user_passwords
+// setPasswordSet removed; presence of password is inferred from user_passwords
 
 func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo string, err error) {
 	if s.pg == nil {

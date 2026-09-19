@@ -12,7 +12,7 @@ import (
 
 const providerLinkByIssuer = `-- name: ProviderLinkByIssuer :one
 SELECT user_id, email_at_provider
-FROM profiles.user_providers
+FROM user_providers
 WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL
 `
 
@@ -35,7 +35,7 @@ func (q *Queries) ProviderLinkByIssuer(ctx context.Context, arg ProviderLinkByIs
 
 const providerLinkByIssuerAny = `-- name: ProviderLinkByIssuerAny :one
 SELECT user_id, email_at_provider, verified_at
-FROM profiles.user_providers
+FROM user_providers
 WHERE issuer = $1 AND subject = $2
 `
 
@@ -58,7 +58,7 @@ func (q *Queries) ProviderLinkByIssuerAny(ctx context.Context, arg ProviderLinkB
 }
 
 const userHasPassword = `-- name: UserHasPassword :one
-SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id = $1)
+SELECT EXISTS(SELECT 1 FROM user_passwords WHERE user_id = $1)
 `
 
 func (q *Queries) UserHasPassword(ctx context.Context, userID string) (bool, error) {
@@ -70,7 +70,7 @@ func (q *Queries) UserHasPassword(ctx context.Context, userID string) (bool, err
 
 const userProviderByIssuerAny = `-- name: UserProviderByIssuerAny :one
 SELECT subject, verified_at
-FROM profiles.user_providers
+FROM user_providers
 WHERE user_id = $1 AND issuer = $2
 `
 
@@ -93,7 +93,7 @@ func (q *Queries) UserProviderByIssuerAny(ctx context.Context, arg UserProviderB
 
 const userProviderCountForUpdate = `-- name: UserProviderCountForUpdate :one
 SELECT count(*)::int AS n FROM (
-  SELECT 1 FROM profiles.user_providers
+  SELECT 1 FROM user_providers
   WHERE user_id = $1::uuid AND verified_at IS NOT NULL
   FOR UPDATE
 ) locked
@@ -110,7 +110,7 @@ func (q *Queries) UserProviderCountForUpdate(ctx context.Context, userID string)
 }
 
 const userProviderDeleteBySlug = `-- name: UserProviderDeleteBySlug :exec
-DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2
+DELETE FROM user_providers WHERE user_id = $1 AND provider_slug = $2
 `
 
 type UserProviderDeleteBySlugParams struct {
@@ -124,7 +124,7 @@ func (q *Queries) UserProviderDeleteBySlug(ctx context.Context, arg UserProvider
 }
 
 const userProviderImportUnverified = `-- name: UserProviderImportUnverified :one
-INSERT INTO profiles.user_providers (
+INSERT INTO user_providers (
   id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
 )
 VALUES ($1, $2, $3, $4, $5, $7::jsonb, $6, NULL)
@@ -166,7 +166,7 @@ const userProviderLinkExists = `-- name: UserProviderLinkExists :one
 
 SELECT EXISTS (
   SELECT 1
-  FROM profiles.user_providers
+  FROM user_providers
   WHERE user_id = $1::uuid
     AND issuer = $2
     AND provider_slug = $3
@@ -189,7 +189,7 @@ func (q *Queries) UserProviderLinkExists(ctx context.Context, arg UserProviderLi
 }
 
 const userProviderMergeProfile = `-- name: UserProviderMergeProfile :exec
-UPDATE profiles.user_providers
+UPDATE user_providers
 SET profile = COALESCE(profile, '{}'::jsonb) || $4::jsonb
 WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL
 `
@@ -212,7 +212,7 @@ func (q *Queries) UserProviderMergeProfile(ctx context.Context, arg UserProvider
 }
 
 const userProviderSetUsername = `-- name: UserProviderSetUsername :exec
-UPDATE profiles.user_providers SET profile = jsonb_build_object('username', $4::text)
+UPDATE user_providers SET profile = jsonb_build_object('username', $4::text)
 WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL
 `
 
@@ -235,7 +235,7 @@ func (q *Queries) UserProviderSetUsername(ctx context.Context, arg UserProviderS
 
 const userProviderSlugs = `-- name: UserProviderSlugs :many
 SELECT provider_slug::text AS provider_slug
-FROM profiles.user_providers
+FROM user_providers
 WHERE user_id = $1 AND provider_slug IS NOT NULL AND verified_at IS NOT NULL
 `
 
@@ -261,7 +261,7 @@ func (q *Queries) UserProviderSlugs(ctx context.Context, userID string) ([]strin
 
 const userProviderSlugsDistinct = `-- name: UserProviderSlugsDistinct :many
 SELECT DISTINCT provider_slug::text AS provider_slug
-FROM profiles.user_providers
+FROM user_providers
 WHERE user_id = $1::uuid
   AND provider_slug IS NOT NULL
   AND verified_at IS NOT NULL
@@ -290,7 +290,7 @@ func (q *Queries) UserProviderSlugsDistinct(ctx context.Context, userID string) 
 
 const userProviderSubjectProfileByIssuer = `-- name: UserProviderSubjectProfileByIssuer :one
 SELECT subject, created_at, verified_at, COALESCE(profile, '{}'::jsonb)::text AS profile
-FROM profiles.user_providers
+FROM user_providers
 WHERE user_id = $1 AND issuer = $2
 `
 
@@ -320,7 +320,7 @@ func (q *Queries) UserProviderSubjectProfileByIssuer(ctx context.Context, arg Us
 
 const userProviderUnverifiedForUpdate = `-- name: UserProviderUnverifiedForUpdate :one
 SELECT id
-FROM profiles.user_providers
+FROM user_providers
 WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NULL
 FOR UPDATE
 `
@@ -338,12 +338,12 @@ func (q *Queries) UserProviderUnverifiedForUpdate(ctx context.Context, arg UserP
 }
 
 const userProviderUpsertByIssuer = `-- name: UserProviderUpsertByIssuer :one
-INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
+INSERT INTO user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (issuer, subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
-    provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
-WHERE profiles.user_providers.user_id = EXCLUDED.user_id
+    provider_slug = COALESCE(EXCLUDED.provider_slug, user_providers.provider_slug)
+WHERE user_providers.user_id = EXCLUDED.user_id
 RETURNING id, user_id, verified_at
 `
 
@@ -377,7 +377,7 @@ func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProvid
 }
 
 const userProviderVerifyImported = `-- name: UserProviderVerifyImported :one
-UPDATE profiles.user_providers
+UPDATE user_providers
 SET verified_at = now(),
     profile = COALESCE(profile, '{}'::jsonb)
       || jsonb_build_object('verification_required', false)
@@ -400,7 +400,7 @@ func (q *Queries) UserProviderVerifyImported(ctx context.Context, arg UserProvid
 
 const userProvidersCount = `-- name: UserProvidersCount :one
 
-SELECT count(*) FROM profiles.user_providers WHERE user_id = $1 AND verified_at IS NOT NULL
+SELECT count(*) FROM user_providers WHERE user_id = $1 AND verified_at IS NOT NULL
 `
 
 // Provider-link queries (core/service.go).

@@ -81,7 +81,7 @@ func (f *accountFlow) completeWhileRevoking(userID string, complete func() flowR
 				t.Errorf("release session gate: %v", unlockErr)
 			}
 		}
-		_, dropErr := control.Exec(cleanup, "DROP TRIGGER IF EXISTS "+trigger+" ON profiles.refresh_sessions; DROP FUNCTION IF EXISTS "+function+"()")
+		_, dropErr := control.Exec(cleanup, "DROP TRIGGER IF EXISTS "+trigger+" ON refresh_sessions; DROP FUNCTION IF EXISTS "+function+"()")
 		if dropErr != nil {
 			t.Errorf("remove session gate: %v", dropErr)
 		}
@@ -95,7 +95,7 @@ BEGIN
 END $$`)
 	require.NoError(t, err)
 	// userID was canonicalized by PostgreSQL above; only this account is paused.
-	_, err = control.Exec(ctx, fmt.Sprintf("CREATE TRIGGER %s BEFORE INSERT ON profiles.refresh_sessions FOR EACH ROW EXECUTE FUNCTION %s('%s', '%d')", trigger, function, userID, pid))
+	_, err = control.Exec(ctx, fmt.Sprintf("CREATE TRIGGER %s BEFORE INSERT ON refresh_sessions FOR EACH ROW EXECUTE FUNCTION %s('%s', '%d')", trigger, function, userID, pid))
 	require.NoError(t, err)
 	_, err = control.Exec(ctx, `SELECT pg_advisory_lock($1::int, $2::int)`, gateNamespace, pid)
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func requireAccountInviteConsumed(t *testing.T, pool *pgxpool.Pool, inviteID, us
 	var consumed bool
 	require.NoError(t, pool.QueryRow(context.Background(),
 		`SELECT consumed_at IS NOT NULL AND consumed_by = $2::uuid
-		   FROM profiles.account_registration_invites WHERE id = $1::uuid`,
+		   FROM account_registration_invites WHERE id = $1::uuid`,
 		inviteID, userID).Scan(&consumed))
 	require.True(t, consumed)
 }
@@ -456,7 +456,7 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	user, err := srv.svc.CreateUser(context.Background(), email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
+		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
@@ -488,7 +488,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
@@ -953,7 +953,7 @@ func newInstanceTestUser(t *testing.T, srv *Service, prefix string) (id, token s
 	ctx := context.Background()
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	tok, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
@@ -1011,7 +1011,7 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *Service, prefix st
 	user, err := srv.svc.CreateUser(ctx, email, prefix+uniqueSuffix())
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
@@ -1027,14 +1027,14 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
+		_, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)
+	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)

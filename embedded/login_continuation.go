@@ -88,7 +88,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
@@ -105,7 +105,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	// providers. A verified UV passkey has already completed MFA itself.
 	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa")
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
-	gateErr := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), user.ID, proof.Input.AuthMethods, status, nil)
+	gateErr := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.Input.AuthMethods, status, nil)
 	if gateErr != nil && !errors.Is(gateErr, ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, ErrTwoFARequired) {
 		return LoginOutcome{}, gateErr
 	}
@@ -211,7 +211,7 @@ func (s *Client) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
 		return nil, err
 	}
 	settings, err := s.get2FASettings(ctx, q, userID)
@@ -238,7 +238,7 @@ func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	if err != nil {
 		return LoginOutcome{}, err
 	}
-	if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	proof, err = s.loadLoginProof(ctx, in.UserID, in.Challenge)
@@ -322,7 +322,7 @@ func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrol
 	if version.CredentialVersion != proof.Version {
 		return ctx, jwt.ErrTokenUnverifiable
 	}
-	if err := s.validateLoginProofSource(ctx, db.ForSchema(s.pg, s.dbSchema()), proof); err != nil {
+	if err := s.validateLoginProofSource(ctx, s.pg, proof); err != nil {
 		return ctx, err
 	}
 	if strings.EqualFold(strings.TrimSpace(in.Method), "email") && (version.Email == nil || strings.TrimSpace(*version.Email) == "") {
@@ -359,7 +359,7 @@ func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 			return jwt.ErrTokenUnverifiable
 		}
 		var id string
-		err := source.QueryRow(ctx, `SELECT id::text FROM profiles.user_providers WHERE id=$1::uuid AND user_id=$2::uuid AND issuer=$3 AND subject=$4 AND verified_at IS NOT NULL FOR UPDATE`, proof.ProviderID, proof.Input.UserID, proof.ProviderIssuer, proof.ProviderSubject).Scan(&id)
+		err := source.QueryRow(ctx, `SELECT id::text FROM user_providers WHERE id=$1::uuid AND user_id=$2::uuid AND issuer=$3 AND subject=$4 AND verified_at IS NOT NULL FOR UPDATE`, proof.ProviderID, proof.Input.UserID, proof.ProviderIssuer, proof.ProviderSubject).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}
@@ -369,7 +369,7 @@ func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 	}
 	if proof.PasskeyID != "" {
 		var id string
-		err := source.QueryRow(ctx, `SELECT id::text FROM profiles.user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL FOR UPDATE`, proof.PasskeyID, proof.Input.UserID).Scan(&id)
+		err := source.QueryRow(ctx, `SELECT id::text FROM user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL FOR UPDATE`, proof.PasskeyID, proof.Input.UserID).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}

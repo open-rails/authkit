@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // Admin user directory: the dashboard list/count/get and hard delete. The list
@@ -73,7 +72,7 @@ func normalizeAdminUserListOptions(o AdminUserListOptions) AdminUserListOptions 
 // resolves the subject set via the provider HERE, so list and count agree and the
 // provider is hit once per call.
 func (s *Client) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOptions) (from string, where []string, args []any, err error) {
-	from = "profiles.users u"
+	from = "users u"
 	args = []any{}
 	argIdx := 1
 
@@ -95,8 +94,8 @@ func (s *Client) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOpt
 		// WHERE EXISTS (not a JOIN) so the result is one row per user — no
 		// duplication, so no SELECT DISTINCT is needed and the (col, id) sort can
 		// use an index.
-		where = append(where, "EXISTS (SELECT 1 FROM profiles.group_user_roles gur"+
-			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id"+
+		where = append(where, "EXISTS (SELECT 1 FROM group_user_roles gur"+
+			" JOIN permission_groups pg ON pg.id = gur.permission_group_id"+
 			" WHERE gur.user_id = u.id AND gur.role = $"+fmt.Sprint(argIdx)+
 			" AND pg.persona = 'root')")
 		args = append(args, slug)
@@ -153,7 +152,7 @@ func adminUserOrderBy(o AdminUserListOptions) string {
 // adminUserDirectoryQuery. Shared by AdminCountUsers and AdminListUsers so the
 // count SQL has one definition and both agree on the predicate set.
 func (s *Client) adminUserCount(ctx context.Context, from string, where []string, args []any) (int64, error) {
-	q := db.RewriteSQL("SELECT COUNT(DISTINCT u.id) FROM "+from+" WHERE "+strings.Join(where, " AND "), s.dbSchema())
+	q := "SELECT COUNT(DISTINCT u.id) FROM " + from + " WHERE " + strings.Join(where, " AND ")
 	var total int64
 	if err := s.pg.QueryRow(ctx, q, args...).Scan(&total); err != nil {
 		return 0, err
@@ -184,14 +183,14 @@ func (s *Client) AdminListUsers(ctx context.Context, opts AdminUserListOptions) 
 
 	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses are
 	// assembled at runtime, which sqlc's static compilation cannot express.
-	// Written against the default "profiles." qualifier and rewritten to the
-	// configured schema, same mechanism as the sqlc path (issue 69).
+	// Written with unqualified names; the schema-bound AuthKit pool resolves
+	// them through its connection-local search_path.
 	argIdx := len(args) + 1
 	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.created_at, u.updated_at, u.last_login"
 	query := "SELECT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + adminUserOrderBy(opts) + " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
 	args = append(args, offset, opts.PageSize)
 
-	rows, err := s.pg.Query(ctx, db.RewriteSQL(query, s.dbSchema()), args...)
+	rows, err := s.pg.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +268,7 @@ func (s *Client) AdminGetUser(ctx context.Context, id string) (*AdminUser, error
 // AdminDeleteUser hard-deletes the user in ONE transaction: sessions are revoked
 // first (for the audit trail; every AuthKit dependent table, refresh_sessions
 // and group_user_roles included, cascades on the row delete). A host table that
-// references profiles.users(id) without ON DELETE CASCADE aborts the whole
+// references users(id) without ON DELETE CASCADE aborts the whole
 // delete with ErrUserReferenced, so a user is never left half-deleted (#304).
 // The erasure obligation is raised (or kept) and outlives the row until every
 // account issuer acknowledged it.
@@ -286,7 +285,7 @@ func (s *Client) adminDeleteUser(ctx context.Context, actorUserID, id string) er
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}

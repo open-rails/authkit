@@ -9,13 +9,13 @@
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
 
 -- name: SessionInsert :one
-INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
+INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text;
 
 -- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
@@ -25,8 +25,8 @@ WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
 -- identify the family for reuse detection.
 SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
-FROM profiles.refresh_token_history h
-JOIN profiles.refresh_sessions s ON s.id = h.session_id
+FROM refresh_token_history h
+JOIN refresh_sessions s ON s.id = h.session_id
 WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
 
 -- name: SessionRotate :execrows
@@ -35,7 +35,7 @@ WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
 -- no history. The row's latest seal still re-delivers the same successor to
 -- concurrent holders of the immediate predecessor.
 WITH rotated AS (
-  UPDATE profiles.refresh_sessions
+  UPDATE refresh_sessions
   SET current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(),
       user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
       previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
@@ -43,7 +43,7 @@ WITH rotated AS (
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
 )
-INSERT INTO profiles.refresh_token_history (session_id, token_hash)
+INSERT INTO refresh_token_history (session_id, token_hash)
 SELECT id, sqlc.arg(expected_current_token_hash) FROM rotated;
 
 -- name: SessionsListByUser :many
@@ -53,13 +53,13 @@ SELECT id, sqlc.arg(expected_current_token_hash) FROM rotated;
 -- over-fetch (#230).
 SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
 
 -- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
        auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = $3
@@ -71,7 +71,7 @@ WHERE id = sqlc.arg(session_id)::uuid
 -- just used into whatever the session already proved — it never downgrades
 -- assurance. A password-only re-auth on an MFA session keeps its otp/mfa AMR,
 -- so a later RequireMFA gate still passes.
-UPDATE profiles.refresh_sessions
+UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
       SELECT DISTINCT unnest(auth_methods || sqlc.arg(auth_methods)::text[])
@@ -84,24 +84,24 @@ WHERE id = sqlc.arg(session_id)::uuid
 
 -- name: SessionIDByCurrentTokenHash :one
 SELECT id::text
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionRevokeByID :one
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND issuer = $2 AND revoked_at IS NULL
 RETURNING user_id::text;
 
 -- name: SessionRevokeByIDForUser :one
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND user_id = $2 AND issuer = $3 AND revoked_at IS NULL
 RETURNING id::text;
 
 -- name: SessionsRevokeAll :many
 -- issuers is the revocation scope: this issuer alone, or every account issuer.
 -- keep_session_id (optional) survives, e.g. the session changing the password.
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE user_id = sqlc.arg(user_id) AND issuer = ANY(sqlc.arg(issuers)::text[])
   AND (sqlc.narg(keep_session_id)::uuid IS NULL OR id <> sqlc.narg(keep_session_id)::uuid)
   AND revoked_at IS NULL
@@ -110,19 +110,19 @@ RETURNING id::text, issuer;
 -- name: SessionsCountActiveOutsideIssuers :one
 -- Live sessions an account-wide revocation could not reach: issuers missing
 -- from the configured account issuer set.
-SELECT count(*) FROM profiles.refresh_sessions
+SELECT count(*) FROM refresh_sessions
 WHERE user_id = sqlc.arg(user_id) AND NOT (issuer = ANY(sqlc.arg(issuers)::text[]))
   AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionsCountActive :one
-SELECT count(*) FROM profiles.refresh_sessions
+SELECT count(*) FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionsEvictOldest :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id IN (
-  SELECT id FROM profiles.refresh_sessions
+  SELECT id FROM refresh_sessions
   WHERE user_id = sqlc.arg(user_id)::uuid AND issuer = sqlc.arg(issuer)::text AND revoked_at IS NULL
     AND (expires_at IS NULL OR expires_at > now())
   ORDER BY last_used_at ASC
@@ -131,7 +131,7 @@ WHERE id IN (
 RETURNING id::text;
 
 -- name: SessionsRevokeFamily :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE family_id = $1 AND revoked_at IS NULL
 RETURNING id::text, user_id::text;
 
@@ -140,19 +140,19 @@ RETURNING id::text, user_id::text;
 -- the two partial indexes (revoked / expired), then delete them by tuple id so
 -- the outer step is a Tid Scan, never a table scan. Callers loop until a short
 -- batch. History rows cascade.
-DELETE FROM profiles.refresh_sessions
+DELETE FROM refresh_sessions
 WHERE ctid = ANY(ARRAY(
-    SELECT ctid FROM profiles.refresh_sessions
+    SELECT ctid FROM refresh_sessions
     WHERE revoked_at IS NOT NULL
     UNION ALL
-    SELECT ctid FROM profiles.refresh_sessions
+    SELECT ctid FROM refresh_sessions
     WHERE revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
     LIMIT sqlc.arg(batch_size)::bigint
 ));
 
 -- name: SessionFreshSinceForUpdate :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = sqlc.arg(issuer) AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())

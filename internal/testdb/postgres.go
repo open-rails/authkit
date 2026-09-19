@@ -93,7 +93,13 @@ func scratchPostgres(t testing.TB, migrate bool) *Postgres {
 		t.Fatalf("create scratch database %s: %v", dbName, err)
 	}
 
-	pool, err := pgxpool.New(ctx, testURL)
+	poolConfig, err := pgxpool.ParseConfig(testURL)
+	if err != nil {
+		dropDatabase(context.Background(), adminURL, dbName)
+		t.Fatalf("parse scratch database URL: %v", err)
+	}
+	poolConfig.ConnConfig.RuntimeParams["search_path"] = `"profiles", public`
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		dropDatabase(context.Background(), adminURL, dbName)
 		t.Fatalf("connect scratch database: %v", err)
@@ -128,7 +134,7 @@ func ApplyMigrations(t testing.TB, ctx context.Context, dbURL string) {
 	if err != nil {
 		t.Fatalf("load authkit migrations: %v", err)
 	}
-	if err := migratekit.NewPostgres(sqlDB, "authkit").ApplyMigrations(ctx, ms); err != nil {
+	if err := migratekit.NewPostgres(sqlDB, "authkit").WithSchema("profiles").ApplyMigrations(ctx, ms); err != nil {
 		t.Fatalf("apply authkit migrations: %v", err)
 	}
 }

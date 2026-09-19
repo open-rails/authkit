@@ -70,7 +70,7 @@ generated or canonical sources named below, not here.
 | `…/oidckit` | `oidckit` | Stable | Browser-flow state, PKCE |
 | `…/password` | `password` | Stable | argon2id/bcrypt |
 | `…/ratelimit` (+ `/memory`, `/redis`) | `ratelimit` | Stable / Provided | `Limit`/`Result` and the two backends |
-| `…/authkitmigrate`, `…/migrations/postgres` | `authkitmigrate`, `migrations` | Stable | Migration API and embedded files |
+| `…/migrations/postgres` | `migrations` | Stable | Embedded migration source |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
 | `…/adapters/gin`, `…/adapters/riverjobs` | `authkitgin`, `riverjobs` | Provided | Own modules |
@@ -264,8 +264,8 @@ and surface `password_reset_required`. Minimum length 8.
 
 ### 6.1 Schema & migrations
 
-- Embedded at `migrations/postgres` (`FS`, `FSForSchema`), applied through
-  `authkitmigrate`, name-tracked so nothing is re-applied.
+- Embedded at `migrations/postgres` (`FS`), applied directly through
+  migratekit, name-tracked so nothing is re-applied.
 - Forward-only and append-only after v1.0.0: published files are immutable;
   evolution ships as new migrations. A destructive migration is MAJOR.
 - Tables live in `Config.Schema` (default `profiles`; `^[a-z_][a-z0-9_]*$`,
@@ -274,10 +274,10 @@ and surface `password_reset_required`. Minimum length 8.
   immutable user/group UUIDs, the `legacy-reset-required` hash-algo value,
   owner-namespace states and seeded restricted names. Roles are scoped names;
   no role UUID contract exists.
-- Pre-v1 databases are disposable. The fresh `1000_v1_schema.up.sql` baseline
+- Pre-v1 databases are disposable. The fresh `0001_schema.up.sql` baseline
   replaces old AuthKit histories; no data or migration compatibility is offered
-  for those histories. `authkitmigrate.Migrate(ctx) error` establishes readiness;
-  `Validate` checks exact installed migration identity and content.
+  for those histories. `migratekit.ApplyMigrations` establishes readiness;
+  `ValidateAllApplied` is the read-only migration check.
 
 ### 6.2 Keys & environment
 
@@ -307,7 +307,7 @@ Default rate limits: `authhttp.DefaultRateLimits()`.
 
 ## 7. Explicitly out of contract
 
-- Anything under `internal/`; `cmd/authkit-migrate` and its env vars; the root
+- Anything under `internal/`; migration command wiring and its env vars; the root
   `docker-compose.yaml`.
 - `*_test.go` and test-only helpers (`authtest` IS covered).
 - Error `message` strings, log lines, metrics names.

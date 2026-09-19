@@ -39,7 +39,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	require.NoError(t, err)
 	address := siws.PublicKeyToBase58(pub)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id IN (SELECT user_id FROM profiles.user_providers WHERE subject=$1)`, address)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT user_id FROM user_providers WHERE subject=$1)`, address)
 	})
 
 	w := serveJSON(srv, http.MethodPost, "/solana/challenge", `{"address":"`+address+`"}`)

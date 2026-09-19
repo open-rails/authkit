@@ -177,7 +177,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 
 // probeMigrations fails fast at construction when AuthKit's migrations were
 // never run — a definitive "users table missing" beats a cryptic mid-request
-// `relation "profiles.users" does not exist`. Fail-open on probe errors
+// `relation "users" does not exist`. Fail-open on probe errors
 // (connectivity, permissions): those surface elsewhere; only a definitive
 // "table missing" fails construction.
 func probeMigrations(client *embedded.Client) error {
@@ -191,7 +191,7 @@ func probeMigrations(client *embedded.Client) error {
 	if err != nil || exists {
 		return nil
 	}
-	return fmt.Errorf("authkit: schema %q has no users table — run AuthKit's migrations before constructing the server (authkitmigrate.New(pool, ...).Migrate(ctx))", client.Schema())
+	return fmt.Errorf("authkit: schema %q has no users table — run AuthKit's migrations before constructing the server (migratekit.NewPostgres(...).ApplyMigrations(ctx, migrations))", client.Schema())
 }
 
 // validate enforces the cross-layer dependency requirements for the configured

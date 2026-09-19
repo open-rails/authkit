@@ -30,7 +30,7 @@ func (st *PermissionGroupStore) requestGroupID(ctx context.Context, g authkit.Gr
 		return "", false, nil
 	}
 	var id string
-	err := st.q.QueryRow(ctx, `SELECT id::text FROM profiles.permission_groups WHERE id=$1::uuid AND persona=$2`, scope.id, g.Persona).Scan(&id)
+	err := st.q.QueryRow(ctx, `SELECT id::text FROM permission_groups WHERE id=$1::uuid AND persona=$2`, scope.id, g.Persona).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", true, ErrGroupNotFound
 	}

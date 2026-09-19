@@ -15,7 +15,8 @@ dynamic table selection, advisory locks, and small test fixtures.
 - `embedded/host_bootstrap_manifest.go`: bootstrap advisory lock/apply guard;
   covered by existing bootstrap manifest integration tests.
 - HTTP/embedded integration tests: fixture setup and assertions.
-- `internal/db/schema_test.go`: schema-rewrite test doubles.
+- schema-bound pool tests: search-path behavior is owned by the runtime pool
+  clone in `embedded/deps.go`, not by SQL text rewriting.
 
 ## Convert Later
 

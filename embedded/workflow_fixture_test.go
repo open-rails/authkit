@@ -17,7 +17,7 @@ import (
 
 func bootstrapClaimNames(t *testing.T, ctx context.Context, pg *testdb.Postgres) []string {
 	t.Helper()
-	rows, err := pg.Pool.Query(ctx, `SELECT name FROM profiles.bootstrap_applies ORDER BY name`)
+	rows, err := pg.Pool.Query(ctx, `SELECT name FROM bootstrap_applies ORDER BY name`)
 	if err != nil {
 		t.Fatalf("read claims: %v", err)
 	}
@@ -85,7 +85,7 @@ func newHardeningUser(t *testing.T, ctx context.Context, svc *Client, tag string
 	email := username + "@example.test"
 	u, err := svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
+	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, u.ID) })
 	return u, email
 }
 
@@ -111,21 +111,14 @@ func depsOf(opts ...Option) Deps {
 	return d
 }
 
-func userExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string) bool {
-	t.Helper()
-	var exists bool
-	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)`, userID).Scan(&exists))
-	return exists
-}
-
 func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
-	if err := pool.QueryRow(context.Background(), `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&id); err != nil {
+	if err := pool.QueryRow(context.Background(), `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&id); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, id)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, id)
 	})
 	return id
 }
@@ -138,32 +131,4 @@ func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, opts ...Option) *Cli
 		t.Fatalf("NewService: %v", err)
 	}
 	return svc
-}
-
-// providerOwner returns the (user_id, email_at_provider, provider_slug) of the
-// user_providers row for (issuer, subject).
-func (s *Client) providerOwner(t *testing.T, ctx context.Context, issuer, subject string) (userID, email, slug string) {
-	t.Helper()
-	var em, sl *string
-	if err := s.pg.QueryRow(ctx,
-		`SELECT user_id::text, email_at_provider, provider_slug FROM profiles.user_providers WHERE issuer=$1 AND subject=$2`,
-		issuer, subject).Scan(&userID, &em, &sl); err != nil {
-		t.Fatalf("lookup provider row: %v", err)
-	}
-	if em != nil {
-		email = *em
-	}
-	if sl != nil {
-		slug = *sl
-	}
-	return
-}
-
-func (s *Client) providerCount(t *testing.T, ctx context.Context, userID string) int {
-	t.Helper()
-	var n int
-	if err := s.pg.QueryRow(ctx, `SELECT count(*)::int FROM profiles.user_providers WHERE user_id=$1::uuid`, userID).Scan(&n); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	return n
 }

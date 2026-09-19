@@ -172,7 +172,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(callback.Body.Bytes(), &first))
 			require.Nil(t, first.User.Email)
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, first.User.ID) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, first.User.ID) })
 			user, err := srv.svc.AdminGetUser(ctx, first.User.ID)
 			require.NoError(t, err)
 			require.Nil(t, user.Email)
@@ -196,7 +196,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			require.NotEqual(t, first.User.ID, second.User.ID)
 			require.NotNil(t, second.User.Email)
 			require.Equal(t, email, *second.User.Email)
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, second.User.ID) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, second.User.ID) })
 			user, err = srv.svc.AdminGetUser(ctx, second.User.ID)
 			require.NoError(t, err)
 			require.True(t, user.EmailVerified)
@@ -218,7 +218,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 			denied := securityProviderLogin(t, srv, cfg, identity, "")
 			require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
 			inviter, invite := createAccountInvite(t, srv, pool, uniqueEmail("invite-destination"))
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, inviter) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, inviter) })
 			allowed := securityProviderLogin(t, srv, cfg, identity, invite.Code)
 			require.Equal(t, http.StatusOK, allowed.Code, allowed.Body.String())
 			var body struct {
@@ -229,7 +229,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(allowed.Body.Bytes(), &body))
 			require.Nil(t, body.User.Email)
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, body.User.ID) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, body.User.ID) })
 			requireAccountInviteConsumed(t, pool, invite.ID, body.User.ID)
 			identity.Subject = "another-" + uniqueSuffix()
 			denied = securityProviderLogin(t, srv, cfg, identity, invite.Code)

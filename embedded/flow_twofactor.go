@@ -96,7 +96,7 @@ func (s *Client) enable2FA(ctx context.Context, userID, method string, phoneNumb
 		if _, err := s.loadLoginProof(ctx, userID, proof.nonce); err != nil {
 			return nil, err
 		}
-		if err := s.validateLoginProofSource(ctx, db.ForSchema(tx, s.dbSchema()), proof); err != nil {
+		if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
 			return nil, err
 		}
 	} else if _, err := qtx.MFALockUser(ctx, userID); err != nil {
@@ -172,7 +172,7 @@ func (s *Client) Disable2FAWithRemovedRoles(ctx context.Context, userID string) 
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if err := s.lockAuthority(ctx, q); err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (s *Client) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, f
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if err := s.lockAuthority(ctx, q); err != nil {
 		return nil, err
 	}
@@ -271,7 +271,7 @@ func (s *Client) SetDefault2FAFactor(ctx context.Context, userID, factorID strin
 	if err != nil {
 		return err
 	}
-	var selected *db.ProfilesMfaFactor
+	var selected *db.MfaFactor
 	for i := range factors {
 		if factors[i].ID == factorID {
 			selected = &factors[i]

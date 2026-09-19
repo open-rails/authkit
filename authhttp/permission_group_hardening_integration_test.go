@@ -51,8 +51,8 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	require.NoError(t, err)
 
 	var owner string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&owner))
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, owner) })
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&owner))
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, owner) })
 
 	return &Service{svc: coreSvc}, pool, owner
 }
@@ -80,12 +80,12 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-escalate", OwnerSubjectID: owner})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-escalate'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-escalate'`)
 	})
 
 	var boundedAdmin string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&boundedAdmin))
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, boundedAdmin) })
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&boundedAdmin))
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, boundedAdmin) })
 	// Genesis-style unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
 	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(boundedAdmin), "roles-admin"))
@@ -105,8 +105,8 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// The role is UNCHANGED: assigning it and checking effective perms shows
 	// only billing:read, never billing:write.
 	var subject string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, subject) })
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
 	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(subject), "auditor"))
 	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-mfa-role", OwnerSubjectID: owner})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-mfa-role'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-mfa-role'`)
 	})
 
 	defineGR := defineRoleGR("merchant")
@@ -154,8 +154,8 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Equal(t, true, created["requires_mfa"])
 
 	var subject string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, subject) })
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
 
 	// Not enrolled in 2FA yet: assignment must be refused (403, 2fa_enrollment_required).
 	assignGR := memberRoleAssignGR("merchant")

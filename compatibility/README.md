@@ -3,11 +3,11 @@
 `scripts/check-compatibility.sh [release-or-commit]` compares the current source
 with an explicit baseline. Before v1, `base-ref` is a reviewed candidate; the
 owner's hard cut permits updating it while the contract is being finalized.
-The current baseline is the published `v0.100.0` pre-v1 release. The v1 release
+The current baseline is the published `v0.103.1` pre-v1 release. The v1 release
 will advance it to the v1 tag; later releases compare against the last supported
 release. Updating a pre-v1 baseline does not declare v1.
 
-For a `v0.x` baseline, the unpublished `1000_v1_schema.up.sql` candidate may
+For a `v0.x` baseline, the unpublished `0001_schema.up.sql` candidate may
 change or be rewritten as part of the pre-v1 hard cut; it may not be removed.
 Once the baseline is v1 (or any later release), every published migration is
 byte-for-byte protected. The script rejects changed/removed protected migrations

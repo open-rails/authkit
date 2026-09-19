@@ -205,7 +205,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 	})
 	srv, err := newServer(client, WithDocuments(docSvc))
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	user, err := srv.svc.CreateUser(ctx, "delegated-"+suffix+"@test.example", "delegated"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, user.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
 	userToken, _, err := srv.svc.MintAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	require.NoError(t, err)
 	digest := docSvc.Reference().Digest
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, digest)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, digest)
 	})
 	srv, err := newServer(client, WithDocuments(docSvc))
 	require.NoError(t, err)
@@ -480,7 +480,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	user, err := srv.svc.CreateUser(ctx, "rotate-"+suffix+"@test.example", "rotate"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, user.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
 	delegate := newDelegateCertificate(t, nil)
 

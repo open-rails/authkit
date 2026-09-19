@@ -183,7 +183,7 @@ func testDeviceKeyLifecycle(t *testing.T, store ephemeralStore) {
 	user, err := srv.svc.GetUserByEmail(ctx, email)
 	require.NoError(t, err)
 	require.True(t, user.EmailVerified)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, user.ID) })
 	meResponse := serveAuthJSON(srv, http.MethodGet, "/me", "", enrolled.AccessToken)
 	require.Equal(t, http.StatusOK, meResponse.Code, meResponse.Body.String())
 	var me struct {
@@ -194,7 +194,7 @@ func testDeviceKeyLifecycle(t *testing.T, store ephemeralStore) {
 	require.Equal(t, user.ID, me.ID)
 	require.Empty(t, me.Username)
 	var refreshSessions int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1`, user.ID).Scan(&refreshSessions))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&refreshSessions))
 	require.Zero(t, refreshSessions)
 
 	// Enrollment is single use.
@@ -286,12 +286,12 @@ func testDeviceKeyLifecycle(t *testing.T, store ephemeralStore) {
 		beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
 	require.Equal(t, second.DeviceKey.ID, proof.DeviceKey.ID)
 	var total int
-	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
+	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
 	require.Equal(t, 2, total)
 	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, proof.AccessToken)
 	require.Equal(t, http.StatusNoContent, revoked.Code, revoked.Body.String())
 	var live int
-	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&live))
+	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&live))
 	require.Equal(t, 1, live)
 
 	// The replaced machine can no longer mint a token; the kept machine can.

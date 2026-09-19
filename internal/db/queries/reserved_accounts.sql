@@ -2,10 +2,10 @@
 
 -- name: UserMetadata :one
 SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM profiles.users WHERE id = sqlc.arg(id)::uuid;
+FROM users WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserMetadataPatch :execrows
-UPDATE profiles.users
+UPDATE users
 SET metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;

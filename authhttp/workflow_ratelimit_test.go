@@ -71,7 +71,7 @@ func TestWorkflowRateLimits(t *testing.T) {
 		require.Equal(t, http.StatusTooManyRequests, status, body)
 		require.Equal(t, "rate_limited", body["error"].(map[string]any)["code"])
 		var sessions int
-		require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
+		require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
 		require.Zero(t, sessions)
 
 		const stepUpPassword = "Correct-password-12345"
@@ -105,7 +105,7 @@ func TestWorkflowRateLimits(t *testing.T) {
 			require.NoError(t, cfg.Redis.Close())
 			status, body = login("Correct-password-12345", "198.51.100.4")
 			require.Equal(t, http.StatusTooManyRequests, status, body)
-			require.NoError(t, pg.Pool.QueryRow(context.Background(), `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
+			require.NoError(t, pg.Pool.QueryRow(context.Background(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
 			require.Zero(t, sessions)
 			status, body = stepUp(outageToken, stepUpPassword, "198.51.100.9")
 			require.Equal(t, http.StatusTooManyRequests, status, body)

@@ -11,7 +11,7 @@ import (
 )
 
 const userAdvanceCredentialVersion = `-- name: UserAdvanceCredentialVersion :exec
-UPDATE profiles.users SET credential_version = credential_version + 1 WHERE id = $1
+UPDATE users SET credential_version = credential_version + 1 WHERE id = $1
 `
 
 func (q *Queries) UserAdvanceCredentialVersion(ctx context.Context, id string) error {
@@ -20,7 +20,7 @@ func (q *Queries) UserAdvanceCredentialVersion(ctx context.Context, id string) e
 }
 
 const userApplyEmailChange = `-- name: UserApplyEmailChange :exec
-UPDATE profiles.users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
+UPDATE users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
 `
 
 type UserApplyEmailChangeParams struct {
@@ -34,7 +34,7 @@ func (q *Queries) UserApplyEmailChange(ctx context.Context, arg UserApplyEmailCh
 }
 
 const userApplyPhoneChange = `-- name: UserApplyPhoneChange :exec
-UPDATE profiles.users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1
+UPDATE users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1
 `
 
 type UserApplyPhoneChangeParams struct {
@@ -48,7 +48,7 @@ func (q *Queries) UserApplyPhoneChange(ctx context.Context, arg UserApplyPhoneCh
 }
 
 const userBan = `-- name: UserBan :exec
-UPDATE profiles.users
+UPDATE users
 SET banned_at = $1, banned_until = $2, ban_reason = $3, banned_by = $4, updated_at = NOW()
 WHERE id = $5
 `
@@ -74,7 +74,7 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 
 const userByEmail = `-- name: UserByEmail :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE email = lower($1::text)::public.citext
+FROM users WHERE email = lower($1::text)::public.citext
 `
 
 type UserByEmailRow struct {
@@ -119,7 +119,7 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 const userByID = `-- name: UserByID :one
 
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
-FROM profiles.users WHERE id = $1
+FROM users WHERE id = $1
 `
 
 type UserByIDRow struct {
@@ -172,7 +172,7 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 
 const userByPhone = `-- name: UserByPhone :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE phone_number = $1
+FROM users WHERE phone_number = $1
 `
 
 type UserByPhoneRow struct {
@@ -215,7 +215,7 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 }
 
 const userClearBan = `-- name: UserClearBan :exec
-UPDATE profiles.users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1
+UPDATE users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) UserClearBan(ctx context.Context, id string) error {
@@ -225,7 +225,7 @@ func (q *Queries) UserClearBan(ctx context.Context, id string) error {
 
 const userCredentialVersion = `-- name: UserCredentialVersion :one
 SELECT credential_version, email, phone_number
-FROM profiles.users WHERE id = $1
+FROM users WHERE id = $1
 `
 
 type UserCredentialVersionRow struct {
@@ -243,7 +243,7 @@ func (q *Queries) UserCredentialVersion(ctx context.Context, id string) (UserCre
 
 const userCredentialVersionForUpdate = `-- name: UserCredentialVersionForUpdate :one
 SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
-FROM profiles.users WHERE id = $1 FOR UPDATE
+FROM users WHERE id = $1 FOR UPDATE
 `
 
 type UserCredentialVersionForUpdateRow struct {
@@ -271,7 +271,7 @@ func (q *Queries) UserCredentialVersionForUpdate(ctx context.Context, id string)
 }
 
 const userDeleteHard = `-- name: UserDeleteHard :exec
-DELETE FROM profiles.users WHERE id = $1
+DELETE FROM users WHERE id = $1
 `
 
 func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
@@ -281,8 +281,8 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
@@ -305,9 +305,9 @@ func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrU
 
 const userImportInsert = `-- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT profiles.claim_canonical_name('user','',$4::text,$1::uuid,$14::timestamptz)
+ SELECT claim_canonical_name('user','',$4::text,$1::uuid,$14::timestamptz)
 )
-INSERT INTO profiles.users (
+INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
@@ -355,7 +355,7 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 }
 
 const userImportUpdate = `-- name: UserImportUpdate :one
-UPDATE profiles.users
+UPDATE users
 SET email = COALESCE($1, email),
     phone_number = COALESCE($2, phone_number),
     username = $3,
@@ -411,9 +411,9 @@ func (q *Queries) UserImportUpdate(ctx context.Context, arg UserImportUpdatePara
 
 const userInsert = `-- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT profiles.claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
+ SELECT claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
 )
-INSERT INTO profiles.users (id, email, username)
+INSERT INTO users (id, email, username)
 SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at
 `
@@ -454,7 +454,7 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserIns
 }
 
 const userPasswordInsert = `-- name: UserPasswordInsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, 'argon2id')
 `
 
@@ -469,7 +469,7 @@ func (q *Queries) UserPasswordInsert(ctx context.Context, arg UserPasswordInsert
 }
 
 const userPasswordRehash = `-- name: UserPasswordRehash :exec
-UPDATE profiles.user_passwords SET password_hash = $1, hash_algo = 'argon2id'
+UPDATE user_passwords SET password_hash = $1, hash_algo = 'argon2id'
 WHERE user_id = $2 AND password_hash = $3
 `
 
@@ -487,7 +487,7 @@ func (q *Queries) UserPasswordRehash(ctx context.Context, arg UserPasswordRehash
 
 const userPasswordRow = `-- name: UserPasswordRow :one
 SELECT password_hash, hash_algo
-FROM profiles.user_passwords WHERE user_id = $1
+FROM user_passwords WHERE user_id = $1
 `
 
 type UserPasswordRowRow struct {
@@ -503,7 +503,7 @@ func (q *Queries) UserPasswordRow(ctx context.Context, userID string) (UserPassw
 }
 
 const userPasswordUpsert = `-- name: UserPasswordUpsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, password_updated_at = NOW()
 `
@@ -521,8 +521,8 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM users WHERE phone_number = $1::text)::boolean AS phone_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {
@@ -545,7 +545,7 @@ func (q *Queries) UserPhoneOrUsernameTaken(ctx context.Context, arg UserPhoneOrU
 
 const userPreferredLanguage = `-- name: UserPreferredLanguage :one
 SELECT COALESCE(preferred_language, '')::text AS language
-FROM profiles.users
+FROM users
 WHERE id = $1::uuid
 `
 
@@ -557,7 +557,7 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 }
 
 const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
-UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1
+UPDATE users SET avatar_url = $2, updated_at = NOW() WHERE id = $1
 `
 
 type UserSetAvatarURLParams struct {
@@ -574,7 +574,7 @@ func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLPara
 }
 
 const userSetEmailAndUnverify = `-- name: UserSetEmailAndUnverify :exec
-UPDATE profiles.users SET email = lower($2::text), email_verified = false, updated_at = NOW() WHERE id = $1
+UPDATE users SET email = lower($2::text), email_verified = false, updated_at = NOW() WHERE id = $1
 `
 
 type UserSetEmailAndUnverifyParams struct {
@@ -588,7 +588,7 @@ func (q *Queries) UserSetEmailAndUnverify(ctx context.Context, arg UserSetEmailA
 }
 
 const userSetEmailVerified = `-- name: UserSetEmailVerified :exec
-UPDATE profiles.users SET email_verified = $2, updated_at = NOW() WHERE id = $1
+UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1
 `
 
 type UserSetEmailVerifiedParams struct {
@@ -602,7 +602,7 @@ func (q *Queries) UserSetEmailVerified(ctx context.Context, arg UserSetEmailVeri
 }
 
 const userSetLastLogin = `-- name: UserSetLastLogin :exec
-UPDATE profiles.users SET last_login = $2, updated_at = NOW() WHERE id = $1
+UPDATE users SET last_login = $2, updated_at = NOW() WHERE id = $1
 `
 
 type UserSetLastLoginParams struct {
@@ -616,7 +616,7 @@ func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginPara
 }
 
 const userSetPhoneAndVerified = `-- name: UserSetPhoneAndVerified :exec
-UPDATE profiles.users
+UPDATE users
 SET phone_number = $2, phone_verified = $3, updated_at = NOW()
 WHERE id = $1
 `
@@ -633,7 +633,7 @@ func (q *Queries) UserSetPhoneAndVerified(ctx context.Context, arg UserSetPhoneA
 }
 
 const userSetPhoneVerifiedByID = `-- name: UserSetPhoneVerifiedByID :exec
-UPDATE profiles.users SET phone_verified = $2, updated_at = NOW() WHERE id = $1
+UPDATE users SET phone_verified = $2, updated_at = NOW() WHERE id = $1
 `
 
 type UserSetPhoneVerifiedByIDParams struct {
@@ -647,7 +647,7 @@ func (q *Queries) UserSetPhoneVerifiedByID(ctx context.Context, arg UserSetPhone
 }
 
 const userSetPhoneVerifiedByIDAndPhone = `-- name: UserSetPhoneVerifiedByIDAndPhone :exec
-UPDATE profiles.users
+UPDATE users
 SET phone_verified = true
 WHERE id = $1 AND phone_number = $2
 `
@@ -663,7 +663,7 @@ func (q *Queries) UserSetPhoneVerifiedByIDAndPhone(ctx context.Context, arg User
 }
 
 const userSetPreferredLanguage = `-- name: UserSetPreferredLanguage :exec
-UPDATE profiles.users
+UPDATE users
 SET preferred_language = $2,
     updated_at = now()
 WHERE id = $1::uuid
@@ -680,7 +680,7 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 }
 
 const userSoftDelete = `-- name: UserSoftDelete :exec
-UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1
+UPDATE users SET deleted_at = now(), updated_at = now() WHERE id = $1
 `
 
 func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
@@ -689,7 +689,7 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 }
 
 const userUsernameExists = `-- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1::text) AND (canonical OR expires_at IS NULL OR expires_at>$2::timestamptz))
+SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1::text) AND (canonical OR expires_at IS NULL OR expires_at>$2::timestamptz))
 `
 
 type UserUsernameExistsParams struct {

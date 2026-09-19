@@ -90,13 +90,6 @@ func (s *Client) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 	return s.splitConfiguredRootRoles(roles)
 }
 
-// listRoleSlugsByUser returns a user's configured root permission-group roles.
-// Operator authority is a root-group assignment.
-func (s *Client) listRoleSlugsByUser(ctx context.Context, userID string) []string {
-	live, _ := s.rootRoleSlugsByUser(ctx, userID)
-	return live
-}
-
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
 // This path skips actor-authz/no-escalation (genesis/bootstrap/migration);
 // runtime callers use the actor-aware AssignRoleBySlugAs path. The
@@ -154,6 +147,3 @@ func (s *Client) UpsertRoleBySlug(ctx context.Context, name string, role authkit
 func (s *Client) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	return s.removeRoleBySlug(ctx, userID, role)
 }
-
-// (single-user role reads collapsed into RoleSlugsByUsers, #220; the unexported
-// listRoleSlugsByUser stays for internal display callers.)

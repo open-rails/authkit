@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +20,7 @@ type lifecycleReadKey struct{}
 type lifecycleReadTrace struct{ swap atomic.Pointer[func()] }
 
 func (tr *lifecycleReadTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, "WITH RECURSIVE chain AS") || strings.Contains(data.SQL, "FROM profiles.api_keys t") {
+	if strings.Contains(data.SQL, "WITH RECURSIVE chain AS") || strings.Contains(data.SQL, "FROM api_keys t") {
 		return context.WithValue(ctx, lifecycleReadKey{}, true)
 	}
 	return ctx
@@ -76,13 +75,13 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, authkit.GroupInstanceUpdate{Slug: &renamed})
 			require.NoError(t, err)
 			var deadline time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM profiles.name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&deadline))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&deadline))
 			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, parent, DeletePermissionGroupOptions{ReleaseSlug: release}))
 			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, parent, DeletePermissionGroupOptions{ReleaseSlug: release})) // captured-ID replay
 			var remaining int
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
 			require.Zero(t, remaining)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
 			require.Zero(t, remaining, "descendant authority rows cascade with the subtree")
 			for _, ref := range []authkit.GroupRef{{Persona: "org", Instance: parentName}, {Persona: "repo", Instance: renamed}, {Persona: "leaf", Instance: leafName}} {
 				available, err := svc.groupStore().InstanceSlugAvailable(ctx, ref)
@@ -90,26 +89,26 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 				require.Equal(t, release, available)
 			}
 			var retained time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM profiles.name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&retained))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&retained))
 			require.True(t, deadline.Equal(retained), "old aliases keep their issued deadlines")
 		})
 	}
 	t.Run("subtree_rollback_and_late_descendant", func(t *testing.T) {
 		parent := create("org", "fault-parent", "")
 		child := create("repo", "fault-child", "fault-parent")
-		_, err := pool.Exec(ctx, `CREATE FUNCTION profiles.lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
-  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON profiles.permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-child') EXECUTE FUNCTION profiles.lifecycle_delete_failure()`)
+		_, err := pool.Exec(ctx, `CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
+  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-child') EXECUTE FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
 		require.ErrorContains(t, svc.DeleteGroupInstanceByID(ctx, parent, DeletePermissionGroupOptions{}), "injected lifecycle failure")
 		var canonical bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM profiles.name_claims WHERE owner_id=$1`, child).Scan(&canonical))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, child).Scan(&canonical))
 		require.True(t, canonical, "reservation rolls back with the failed cascade")
-		_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_delete_failure ON profiles.permission_groups; DROP FUNCTION profiles.lifecycle_delete_failure()`)
+		_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_delete_failure ON permission_groups; DROP FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
 		blocker, err := pool.Begin(ctx)
 		require.NoError(t, err)
 		defer blocker.Rollback(ctx)
-		_, err = blocker.Exec(ctx, `SELECT id FROM profiles.permission_groups WHERE id=$1 FOR KEY SHARE`, child)
+		_, err = blocker.Exec(ctx, `SELECT id FROM permission_groups WHERE id=$1 FOR KEY SHARE`, child)
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
 		go func() { deleted <- svc.DeleteGroupInstanceByID(ctx, parent, DeletePermissionGroupOptions{}) }()
@@ -132,7 +131,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}()
 		require.Eventually(t, func() bool {
 			var n int
-			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%profiles.permission_groups%'`).Scan(&n)
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%permission_groups%'`).Scan(&n)
 			return err == nil && n == 2
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, blocker.Commit(ctx))
@@ -176,13 +175,13 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	resolved, err := svc.ResolveAPIKeyDetailed(ctx, key, secret)
 	require.NoError(t, err)
 	require.Contains(t, resolved.Permissions, "org:billing:write")
-	_, err = pool.Exec(ctx, `CREATE FUNCTION profiles.lifecycle_role_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected role failure'; END $$;
- CREATE TRIGGER lifecycle_role_failure BEFORE DELETE ON profiles.group_custom_roles FOR EACH ROW EXECUTE FUNCTION profiles.lifecycle_role_failure()`)
+	_, err = pool.Exec(ctx, `CREATE FUNCTION lifecycle_role_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected role failure'; END $$;
+ CREATE TRIGGER lifecycle_role_failure BEFORE DELETE ON group_custom_roles FOR EACH ROW EXECUTE FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
 	require.ErrorContains(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role), "injected role failure")
 	_, err = svc.ResolveAPIKeyDetailed(ctx, key, secret)
 	require.NoError(t, err, "key deletion must roll back with definition deletion")
-	_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_role_failure ON profiles.group_custom_roles; DROP FUNCTION profiles.lifecycle_role_failure()`)
+	_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_role_failure ON group_custom_roles; DROP FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
 	define("org:billing:write")
@@ -235,7 +234,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		controller, err := pool.Begin(ctx)
 		require.NoError(t, err)
 		defer controller.Rollback(ctx)
-		q := db.ForSchema(controller, svc.dbSchema())
+		q := controller
 		require.NoError(t, svc.lockAuthority(ctx, q))
 		require.NoError(t, lockPermissionGroup(ctx, q, gid))
 		writers := []func() error{

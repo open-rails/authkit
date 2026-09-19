@@ -84,8 +84,19 @@ func (s *Client) nowTime() time.Time {
 	return s.now()
 }
 
-// Postgres returns the attached pgx pool (may be nil).
+// Postgres returns AuthKit's schema-bound pgx pool (may be nil). It is an
+// AuthKit-owned clone of Deps.Postgres; callers must not close it directly.
 func (s *Client) Postgres() *pgxpool.Pool { return s.pg }
+
+// Close releases AuthKit-owned resources, including its schema-bound pool.
+// The pool supplied through Deps.Postgres remains owned by the host.
+func (s *Client) Close() {
+	if s != nil && s.pg != nil {
+		s.pg.Close()
+		s.pg = nil
+		s.q = nil
+	}
+}
 
 // Schema returns the Postgres schema AuthKit's tables live in ("profiles"
 // unless configured otherwise via Config.Schema).
@@ -100,11 +111,11 @@ func (s *Client) dbSchema() string {
 	return s.schema
 }
 
-// qtx returns Queries bound to tx with the service's schema rewrite applied.
-// Always use this instead of s.qtx(tx): WithTx is sqlc-generated and
-// wraps the raw tx, which would bypass the schema rewrite.
+// qtx returns Queries bound to a transaction. The transaction comes from
+// AuthKit's schema-bound pool, so all generated SQL resolves in the configured
+// namespace through that connection's search_path.
 func (s *Client) qtx(tx pgx.Tx) *db.Queries {
-	return db.New(db.ForSchema(tx, s.dbSchema()))
+	return db.New(tx)
 }
 
 // SetEntitlementsProvider installs the entitlements provider AFTER construction.

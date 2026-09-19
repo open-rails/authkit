@@ -139,7 +139,7 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 			result = BootstrapManifestResult{}
 		}
 	}()
-	raw := db.ForSchema(tx, s.dbSchema())
+	raw := tx
 	if err = s.lockAuthority(ctx, raw); err != nil {
 		return result, err
 	}
@@ -253,10 +253,10 @@ func (s *Client) claimBootstrapApply(ctx context.Context, q db.DBTX, name string
 	var nameClaimed, anyClaimed, graphEmpty bool
 	if err := q.QueryRow(ctx, `
   SELECT
-   EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1),
-   EXISTS (SELECT 1 FROM profiles.bootstrap_applies),
-   NOT EXISTS (SELECT 1 FROM profiles.users WHERE deleted_at IS NULL)
-   AND NOT EXISTS (SELECT 1 FROM profiles.remote_applications)
+   EXISTS (SELECT 1 FROM bootstrap_applies WHERE name = $1),
+   EXISTS (SELECT 1 FROM bootstrap_applies),
+   NOT EXISTS (SELECT 1 FROM users WHERE deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM remote_applications)
  `, name).Scan(&nameClaimed, &anyClaimed, &graphEmpty); err != nil {
 		return false, err
 	}
@@ -266,7 +266,7 @@ func (s *Client) claimBootstrapApply(ctx context.Context, q db.DBTX, name string
 	if !anyClaimed && !graphEmpty {
 		return false, ErrBootstrapDatabaseNotEmpty
 	}
-	_, err = q.Exec(ctx, `INSERT INTO profiles.bootstrap_applies (name) VALUES ($1)`, name)
+	_, err = q.Exec(ctx, `INSERT INTO bootstrap_applies (name) VALUES ($1)`, name)
 	return anyClaimed, err
 }
 

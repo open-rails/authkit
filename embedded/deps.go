@@ -3,9 +3,11 @@ package embedded
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -60,10 +62,14 @@ func (d Deps) validate() error {
 	return nil
 }
 
-func (s *Client) applyDeps(d Deps) {
-	s.pg = d.Postgres
+func (s *Client) applyDeps(d Deps) error {
 	if d.Postgres != nil {
-		s.q = db.New(db.ForSchema(d.Postgres, s.dbSchema()))
+		pool, err := schemaPool(d.Postgres, s.dbSchema())
+		if err != nil {
+			return err
+		}
+		s.pg = pool
+		s.q = db.New(pool)
 	}
 	s.redisClient = d.Redis
 	s.ephemeralStore = d.EphemeralStore
@@ -81,4 +87,50 @@ func (s *Client) applyDeps(d Deps) {
 	if d.Clock != nil {
 		s.now = d.Clock
 	}
+	return nil
+}
+
+// schemaPool creates an AuthKit-owned pool whose every connection resolves
+// unqualified AuthKit SQL against schema, followed by public. The caller's
+// pool is never modified: hosts commonly share it with unrelated queries,
+// and changing its search_path would leak AuthKit's namespace into those
+// queries. The clone preserves the host pool's connection hooks, then applies
+// the AuthKit search_path after the host's AfterConnect hook has run.
+func schemaPool(source *pgxpool.Pool, schema string) (*pgxpool.Pool, error) {
+	if source == nil {
+		return nil, nil
+	}
+	cfg := source.Config().Copy()
+	if cfg == nil || cfg.ConnConfig == nil {
+		return nil, fmt.Errorf("authkit: Postgres pool has no connection configuration")
+	}
+	searchPath := pgx.Identifier{schema}.Sanitize() + ", public"
+	setSearchPath := func(cc *pgx.ConnConfig) {
+		if cc.RuntimeParams == nil {
+			cc.RuntimeParams = make(map[string]string)
+		}
+		cc.RuntimeParams["search_path"] = searchPath
+	}
+	setSearchPath(cfg.ConnConfig)
+	beforeConnect := cfg.BeforeConnect
+	cfg.BeforeConnect = func(ctx context.Context, cc *pgx.ConnConfig) error {
+		if beforeConnect != nil {
+			if err := beforeConnect(ctx, cc); err != nil {
+				return err
+			}
+		}
+		setSearchPath(cc)
+		return nil
+	}
+	afterConnect := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		if afterConnect != nil {
+			if err := afterConnect(ctx, conn); err != nil {
+				return err
+			}
+		}
+		_, err := conn.Exec(ctx, "SET search_path TO "+searchPath)
+		return err
+	}
+	return pgxpool.NewWithConfig(context.Background(), cfg)
 }

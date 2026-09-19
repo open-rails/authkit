@@ -12,7 +12,7 @@ import (
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
 `
@@ -44,8 +44,8 @@ func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCu
 const sessionByHistoricalTokenHash = `-- name: SessionByHistoricalTokenHash :one
 SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
-FROM profiles.refresh_token_history h
-JOIN profiles.refresh_sessions s ON s.id = h.session_id
+FROM refresh_token_history h
+JOIN refresh_sessions s ON s.id = h.session_id
 WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
 `
 
@@ -103,7 +103,7 @@ func (q *Queries) SessionCreateLock(ctx context.Context, key string) error {
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
        auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE id = $1::uuid
   AND user_id = $2::uuid
   AND issuer = $3
@@ -131,7 +131,7 @@ func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSincePa
 
 const sessionFreshSinceForUpdate = `-- name: SessionFreshSinceForUpdate :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE id = $1::uuid AND user_id = $2::uuid
   AND issuer = $3 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
@@ -158,7 +158,7 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 
 const sessionIDByCurrentTokenHash = `-- name: SessionIDByCurrentTokenHash :one
 SELECT id::text
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
 `
@@ -176,7 +176,7 @@ func (q *Queries) SessionIDByCurrentTokenHash(ctx context.Context, arg SessionID
 }
 
 const sessionInsert = `-- name: SessionInsert :one
-INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
+INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text
 `
@@ -216,7 +216,7 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (S
 }
 
 const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
-UPDATE profiles.refresh_sessions
+UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
       SELECT DISTINCT unnest(auth_methods || $1::text[])
@@ -253,7 +253,7 @@ func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkA
 }
 
 const sessionRevokeByID = `-- name: SessionRevokeByID :one
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND issuer = $2 AND revoked_at IS NULL
 RETURNING user_id::text
 `
@@ -271,7 +271,7 @@ func (q *Queries) SessionRevokeByID(ctx context.Context, arg SessionRevokeByIDPa
 }
 
 const sessionRevokeByIDForUser = `-- name: SessionRevokeByIDForUser :one
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND user_id = $2 AND issuer = $3 AND revoked_at IS NULL
 RETURNING id::text
 `
@@ -291,7 +291,7 @@ func (q *Queries) SessionRevokeByIDForUser(ctx context.Context, arg SessionRevok
 
 const sessionRotate = `-- name: SessionRotate :execrows
 WITH rotated AS (
-  UPDATE profiles.refresh_sessions
+  UPDATE refresh_sessions
   SET current_token_hash = $2, last_used_at = now(),
       user_agent = $3, ip_addr = $4,
       previous_successor_sealed = $5, previous_rotated_at = now()
@@ -299,7 +299,7 @@ WITH rotated AS (
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
 )
-INSERT INTO profiles.refresh_token_history (session_id, token_hash)
+INSERT INTO refresh_token_history (session_id, token_hash)
 SELECT id, $1 FROM rotated
 `
 
@@ -332,7 +332,7 @@ func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (i
 }
 
 const sessionsCountActive = `-- name: SessionsCountActive :one
-SELECT count(*) FROM profiles.refresh_sessions
+SELECT count(*) FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
 `
@@ -350,7 +350,7 @@ func (q *Queries) SessionsCountActive(ctx context.Context, arg SessionsCountActi
 }
 
 const sessionsCountActiveOutsideIssuers = `-- name: SessionsCountActiveOutsideIssuers :one
-SELECT count(*) FROM profiles.refresh_sessions
+SELECT count(*) FROM refresh_sessions
 WHERE user_id = $1 AND NOT (issuer = ANY($2::text[]))
   AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
 `
@@ -370,12 +370,12 @@ func (q *Queries) SessionsCountActiveOutsideIssuers(ctx context.Context, arg Ses
 }
 
 const sessionsDeleteRevokedOrExpiredBatch = `-- name: SessionsDeleteRevokedOrExpiredBatch :execrows
-DELETE FROM profiles.refresh_sessions
+DELETE FROM refresh_sessions
 WHERE ctid = ANY(ARRAY(
-    SELECT ctid FROM profiles.refresh_sessions
+    SELECT ctid FROM refresh_sessions
     WHERE revoked_at IS NOT NULL
     UNION ALL
-    SELECT ctid FROM profiles.refresh_sessions
+    SELECT ctid FROM refresh_sessions
     WHERE revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
     LIMIT $1::bigint
 ))
@@ -394,9 +394,9 @@ func (q *Queries) SessionsDeleteRevokedOrExpiredBatch(ctx context.Context, batch
 }
 
 const sessionsEvictOldest = `-- name: SessionsEvictOldest :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE id IN (
-  SELECT id FROM profiles.refresh_sessions
+  SELECT id FROM refresh_sessions
   WHERE user_id = $1::uuid AND issuer = $2::text AND revoked_at IS NULL
     AND (expires_at IS NULL OR expires_at > now())
   ORDER BY last_used_at ASC
@@ -434,7 +434,7 @@ func (q *Queries) SessionsEvictOldest(ctx context.Context, arg SessionsEvictOlde
 const sessionsListByUser = `-- name: SessionsListByUser :many
 SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
-FROM profiles.refresh_sessions
+FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL)
 `
 
@@ -486,7 +486,7 @@ func (q *Queries) SessionsListByUser(ctx context.Context, arg SessionsListByUser
 }
 
 const sessionsRevokeAll = `-- name: SessionsRevokeAll :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE user_id = $1 AND issuer = ANY($2::text[])
   AND ($3::uuid IS NULL OR id <> $3::uuid)
   AND revoked_at IS NULL
@@ -527,7 +527,7 @@ func (q *Queries) SessionsRevokeAll(ctx context.Context, arg SessionsRevokeAllPa
 }
 
 const sessionsRevokeFamily = `-- name: SessionsRevokeFamily :many
-UPDATE profiles.refresh_sessions SET revoked_at = now()
+UPDATE refresh_sessions SET revoked_at = now()
 WHERE family_id = $1 AND revoked_at IS NULL
 RETURNING id::text, user_id::text
 `

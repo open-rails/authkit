@@ -190,14 +190,14 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Client, error) {
 		}
 	}
 	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
-	return newClient(norm, src, gs, deps), nil
+	return newClient(norm, src, gs, deps)
 }
 
 // newService assembles a Client from an already-normalized Config. keys is
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
 // the Client exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) *Client {
+func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*Client, error) {
 	s := &Client{
 		cfg:               norm,
 		keys:              keys,
@@ -206,12 +206,14 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) *
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
 		now:               time.Now,
 	}
-	s.applyDeps(deps)
+	if err := s.applyDeps(deps); err != nil {
+		return nil, err
+	}
 	if s.appHTTPClient == nil {
 		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}
 	s.resolveEphemeralStore()
-	return s
+	return s, nil
 }
 
 // New builds the engine from host configuration and runtime dependencies.
@@ -311,7 +313,10 @@ func New(cfg Config, deps Deps) (*Client, error) {
 	// config-only unit tests need no store): a nil pool yields a Client with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
 	// host-facing authhttp constructor, not here.
-	svc := newClient(norm, keySource, gs, deps)
+	svc, err := newClient(norm, keySource, gs, deps)
+	if err != nil {
+		return nil, err
+	}
 	if err := svc.checkEphemeralBackend(norm); err != nil {
 		return nil, err
 	}

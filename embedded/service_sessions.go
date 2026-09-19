@@ -74,7 +74,7 @@ func (s *Client) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID,
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, userID)
 	status, statusErr := s.MFAStatusWith(settings, settingsErr)
-	if err := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), userID, authMethods, status, statusErr); err != nil {
+	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, status, statusErr); err != nil {
 		return "", "", nil, err
 	}
 	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, userID, userAgent, ip, authMethods)
@@ -356,7 +356,7 @@ func (s *Client) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, userID)
 	mfa, mfaErr := s.MFAStatusWith(settings, settingsErr)
-	if err := s.requireSessionMFAStateOn(ctx, db.ForSchema(tx, s.dbSchema()), userID, authMethods, mfa, mfaErr); err != nil {
+	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, mfa, mfaErr); err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}
 	address := ""
@@ -620,7 +620,7 @@ func (s *Client) revokeAccountSessions(ctx context.Context, actorUserID, userID 
 	}
 	defer tx.Rollback(ctx)
 	if actorUserID != "" {
-		st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+		st := s.groupStoreFor(tx)
 		if err := s.lockAuthority(ctx, st.q); err != nil {
 			return out, err
 		}

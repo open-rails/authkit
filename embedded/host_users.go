@@ -288,7 +288,7 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.lockAuthority(ctx, db.ForSchema(tx, s.dbSchema())); err != nil {
+	if err := s.lockAuthority(ctx, tx); err != nil {
 		return nil, err
 	}
 	user, err := s.updateImportedUserTx(ctx, tx, userID, input)
@@ -312,7 +312,7 @@ func (s *Client) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	}
 	reserved := metadataMarksReserved([]byte(metadata))
 	if banned || reserved {
-		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(db.ForSchema(tx, s.dbSchema())), authkit.UserSubject(userID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(tx), authkit.UserSubject(userID)); err != nil {
 			return nil, err
 		}
 	}
@@ -407,7 +407,7 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -451,7 +451,7 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -524,10 +524,10 @@ func (s *Client) UpdateUsername(ctx context.Context, id, username string) error 
 	return tx.Commit(ctx)
 }
 func (s *Client) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	var old *string
 	var last *time.Time
-	if err := q.QueryRow(ctx, `SELECT username::text,last_renamed_at FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id).Scan(&old, &last); err != nil {
+	if err := q.QueryRow(ctx, `SELECT username::text,last_renamed_at FROM users WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id).Scan(&old, &last); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrUserNotFound
 		}
@@ -558,7 +558,7 @@ func (s *Client) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	if err := renameNameClaim(ctx, q, "user", "", id, oldName, username, now, policy); err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx, `UPDATE profiles.users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
+	if _, err := q.Exec(ctx, `UPDATE users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
 		return err
 	}
 

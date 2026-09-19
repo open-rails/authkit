@@ -1,11 +1,11 @@
 module github.com/open-rails/authkit/adapters/gin
 
-go 1.26.6
+go 1.26.0
 
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.103.0
+	github.com/open-rails/authkit v0.105.0
 	github.com/stretchr/testify v1.12.1
 )
 

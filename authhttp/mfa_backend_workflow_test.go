@@ -66,10 +66,10 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 					require.NoError(t, admin.Do(ctx, commands...).Err())
 					restore = func() { require.NoError(t, admin.Do(ctx, "ACL", "SETUSER", name, "+get", "+eval", "+evalsha").Err()) }
 				case "persistence":
-					_, err := pg.Pool.Exec(ctx, `CREATE FUNCTION profiles.mfa_backend_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected factor persistence failure'; END $$; CREATE TRIGGER mfa_backend_failure BEFORE INSERT ON profiles.mfa_factors FOR EACH ROW EXECUTE FUNCTION profiles.mfa_backend_failure()`)
+					_, err := pg.Pool.Exec(ctx, `CREATE FUNCTION mfa_backend_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected factor persistence failure'; END $$; CREATE TRIGGER mfa_backend_failure BEFORE INSERT ON mfa_factors FOR EACH ROW EXECUTE FUNCTION mfa_backend_failure()`)
 					require.NoError(t, err)
 					restore = func() {
-						_, err := pg.Pool.Exec(ctx, `DROP TRIGGER mfa_backend_failure ON profiles.mfa_factors; DROP FUNCTION profiles.mfa_backend_failure()`)
+						_, err := pg.Pool.Exec(ctx, `DROP TRIGGER mfa_backend_failure ON mfa_factors; DROP FUNCTION mfa_backend_failure()`)
 						require.NoError(t, err)
 					}
 				}

@@ -7,8 +7,6 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // ImportUserStatus is the per-row outcome of ImportUsers.
@@ -179,7 +177,7 @@ func (s *Client) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow)
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	names := make([]string, len(chunk))
 	for i, row := range chunk {
 		names[i] = strings.ToLower(row.username)
@@ -188,11 +186,11 @@ func (s *Client) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow)
 		return nil, err
 	}
 	now := s.namingNow()
-	if _, err := q.Exec(ctx, `DELETE FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, now); err != nil {
+	if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, now); err != nil {
 		return nil, err
 	}
 	// Bulk import remains insert-or-skip, including live alias reservations.
-	rowsTaken, err := q.Query(ctx, `SELECT name FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[])`, names)
+	rowsTaken, err := q.Query(ctx, `SELECT name FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[])`, names)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +219,7 @@ func (s *Client) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow)
 		return map[string]struct{}{}, nil
 	}
 	var b strings.Builder
-	b.WriteString("INSERT INTO profiles.users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at) VALUES ")
+	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at) VALUES ")
 	args := make([]any, 0, len(chunk)*13)
 	for i, r := range chunk {
 		if i > 0 {
@@ -264,7 +262,7 @@ func (s *Client) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow)
 // was just created.
 func (s *Client) bulkInsertPasswordHashes(ctx context.Context, rows []preparedImportRow) error {
 	var b strings.Builder
-	b.WriteString("INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo) VALUES ")
+	b.WriteString("INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ")
 	args := make([]any, 0, len(rows)*3)
 	for i, r := range rows {
 		if i > 0 {
@@ -275,7 +273,7 @@ func (s *Client) bulkInsertPasswordHashes(ctx context.Context, rows []preparedIm
 		args = append(args, r.id, r.in.PasswordHash, r.in.HashAlgo)
 	}
 	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
-	_, err := s.pg.Exec(ctx, db.RewriteSQL(b.String(), s.dbSchema()), args...)
+	_, err := s.pg.Exec(ctx, (b.String()), args...)
 	return err
 }
 

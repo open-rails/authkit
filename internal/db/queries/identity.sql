@@ -2,7 +2,7 @@
 
 -- name: IdentityUsersByIDs :many
 SELECT id, username, email
-FROM profiles.users
+FROM users
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: IdentityPublicUsersByIDs :many
@@ -11,7 +11,7 @@ WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 -- the Go layer tombstones them — so a reference to a deleted author resolves to
 -- a stable placeholder instead of silently vanishing.
 SELECT id, username, avatar_url, created_at, deleted_at
-FROM profiles.users
+FROM users
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: IdentityUserLivenessByIDs :many
@@ -27,5 +27,5 @@ SELECT id, username, email, email_verified, avatar_url,
           THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
           ELSE false
         END)::boolean AS reserved
-FROM profiles.users
+FROM users
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);

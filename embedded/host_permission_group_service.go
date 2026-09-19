@@ -32,10 +32,10 @@ func (s *Client) groupSchemaOrDefault() *GroupSchema {
 	return gs
 }
 
-// groupStore binds a PermissionGroupStore to the Client's schema-rewriting pool
-// handle (so "profiles." resolves to the configured schema, authkit #69).
+// groupStore binds a PermissionGroupStore to the Client's schema-bound pool
+// handle, so unqualified SQL resolves to the configured namespace (authkit #69).
 func (s *Client) groupStore() *PermissionGroupStore {
-	return s.groupStoreFor(db.ForSchema(s.pg, s.dbSchema()))
+	return s.groupStoreFor(s.pg)
 }
 
 // SeedPermissionGroupContainment writes the declared containment schema into
@@ -76,7 +76,7 @@ func (st *PermissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	}
 	// DO NOTHING keeps a concurrent singleton insert from aborting a caller's
 	// enclosing transaction. Root has no mutable name claim.
-	err = st.q.QueryRow(ctx, `INSERT INTO profiles.permission_groups (persona)
+	err = st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona)
 		VALUES ('root') ON CONFLICT DO NOTHING RETURNING id::text`).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st.RootGroupID(ctx)
@@ -120,7 +120,7 @@ func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermission
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return "", err
 	}
@@ -154,7 +154,7 @@ func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermission
 		if _, _, err := groupRoleTable(owner.Kind); err != nil {
 			return "", err
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(tx, s.dbSchema()), id, req.Persona, owner, OwnerRoleName); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, tx, id, req.Persona, owner, OwnerRoleName); err != nil {
 			return "", fmt.Errorf("seed owner: %w", err)
 		}
 		if err := st.AssignRole(ctx, id, owner, OwnerRoleName); err != nil {
@@ -194,10 +194,10 @@ func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 		return out, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	var persona authkit.Persona
 	var current string
-	if err := st.q.QueryRow(ctx, `SELECT persona,COALESCE(instance_slug,'') FROM profiles.permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &current); err != nil {
+	if err := st.q.QueryRow(ctx, `SELECT persona,COALESCE(instance_slug,'') FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &current); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return out, ErrGroupNotFound
 		}
@@ -220,7 +220,7 @@ func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 				return out, err
 			}
 			var managed bool
-			if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.remote_applications WHERE permission_group_id=$1::uuid AND trust_root='domain')`, groupID).Scan(&managed); err != nil {
+			if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE permission_group_id=$1::uuid AND trust_root='domain')`, groupID).Scan(&managed); err != nil {
 				return out, err
 			}
 			if managed {
@@ -405,7 +405,7 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}

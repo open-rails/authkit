@@ -12,7 +12,7 @@ import (
 
 const identityPublicUsersByIDs = `-- name: IdentityPublicUsersByIDs :many
 SELECT id, username, avatar_url, created_at, deleted_at
-FROM profiles.users
+FROM users
 WHERE id = ANY($1::uuid[])
 `
 
@@ -62,7 +62,7 @@ SELECT id, username, email, email_verified, avatar_url,
           THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
           ELSE false
         END)::boolean AS reserved
-FROM profiles.users
+FROM users
 WHERE id = ANY($1::uuid[])
 `
 
@@ -120,7 +120,7 @@ func (q *Queries) IdentityUserLivenessByIDs(ctx context.Context, ids []string) (
 const identityUsersByIDs = `-- name: IdentityUsersByIDs :many
 
 SELECT id, username, email
-FROM profiles.users
+FROM users
 WHERE id = ANY($1::uuid[])
 `
 

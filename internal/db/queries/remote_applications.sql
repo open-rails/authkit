@@ -5,7 +5,7 @@
 -- The controlling group is addressed as permission_group_id throughout.
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
+INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
 VALUES (sqlc.arg(slug), sqlc.narg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled))
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
@@ -19,27 +19,27 @@ RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permi
 
 -- name: RemoteApplicationByIssuer :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE issuer = $1;
 
 -- name: RemoteApplicationBySlug :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE slug = $1;
 
 -- name: RemoteApplicationsAll :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE enabled = true
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationDelete :execrows
-DELETE FROM profiles.remote_applications WHERE issuer = $1;
+DELETE FROM remote_applications WHERE issuer = $1;
 
 -- Application self-registration (#264). Domain-rooted rows are KEYED by the
 -- proven domain (create-or-reprove idempotency); the slug is a separately
@@ -47,18 +47,18 @@ DELETE FROM profiles.remote_applications WHERE issuer = $1;
 
 -- name: RemoteApplicationBySlugForUpdate :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE slug = $1
 FOR UPDATE;
 
 -- name: RemoteApplicationByDomainForUpdate :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE domain = $1
 FOR UPDATE;
 
 -- name: RemoteApplicationDomainInsert :one
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at)
+INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at)
 VALUES (sqlc.arg(slug), sqlc.narg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), true, sqlc.arg(display_name), 'registered', 'domain', sqlc.arg(domain), sqlc.arg(document_endpoint), now())
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at;
 
@@ -66,7 +66,7 @@ RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permi
 -- Idempotent re-registration: the re-fetched document is the trust-root proof,
 -- so it refreshes issuer/keys/config, re-proves the root, and re-enables a
 -- sweeper-disabled row. Tier is untouched (approval is an admin act).
-UPDATE profiles.remote_applications
+UPDATE remote_applications
 SET issuer            = sqlc.arg(issuer),
     jwks_uri          = sqlc.arg(jwks_uri),
     mode              = sqlc.arg(mode),

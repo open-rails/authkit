@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // terminalRetention keeps revoked/expired keys and invitations available for
@@ -57,7 +55,7 @@ func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 	}
 
 	cutoff := time.Now().UTC().Add(-terminalRetention)
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	for _, target := range []struct{ table, terminal string }{
 		{"group_invite_links", "LEAST(redeemed_at, revoked_at, expires_at)"},
 		{"account_registration_invites", "LEAST(consumed_at, revoked_at, expires_at)"},
@@ -66,9 +64,9 @@ func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 		// Table/expressions are fixed above. Lock only this batch; another worker
 		// can make progress without waiting, and each call has bounded work.
 		stmt := fmt.Sprintf(`WITH batch AS (
- SELECT id FROM profiles.%s WHERE %s < $1 ORDER BY %s, id
+ SELECT id FROM %s WHERE %s < $1 ORDER BY %s, id
  LIMIT $2 FOR UPDATE SKIP LOCKED)
- DELETE FROM profiles.%s WHERE id IN (SELECT id FROM batch)`, target.table, target.terminal, target.terminal, target.table)
+ DELETE FROM %s WHERE id IN (SELECT id FROM batch)`, target.table, target.terminal, target.terminal, target.table)
 		if _, err := q.Exec(ctx, stmt, cutoff, sessionsGCBatchSize); err != nil {
 			return err
 		}
