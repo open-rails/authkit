@@ -318,6 +318,7 @@ func New(cfg Config, deps Deps) (*Client, error) {
 		return nil, err
 	}
 	if err := svc.checkEphemeralBackend(norm); err != nil {
+		svc.Close()
 		return nil, err
 	}
 	return svc, nil
