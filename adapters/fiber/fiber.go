@@ -5,7 +5,6 @@ package authkitfiber
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -99,34 +98,18 @@ func Principal(c fiber.Ctx) (authkit.Principal, bool) {
 	return p, p.Kind != ""
 }
 
-// UserClaimsData matches the Gin adapter's local-user projection.
-type UserClaimsData struct {
-	UserID        string
-	Email         string
-	EmailVerified bool
-	Username      string
-	SessionID     string
-	Entitlements  []string
-	AMR           []string
-	ACR           string
-	AuthTime      time.Time
-	MFAEnrolled   bool
-}
+// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
+// optional fields and the token-time versus live-profile freshness contract.
+type UserClaimsData = verify.UserClaimsData
 
 // UserClaims returns only a verified local user, never a machine principal or
-// an external issuer's subject. Returned slices are copies, like the Gin helper.
+// an external issuer's subject. It performs no database lookup; profile
+// availability depends on Required/Optional versus RequiredLive.
 func UserClaims(c fiber.Ctx) (UserClaimsData, bool) {
-	cl, ok := Claims(c)
-	if !ok || !cl.IsUser() {
+	if c == nil {
 		return UserClaimsData{}, false
 	}
-	return UserClaimsData{
-		UserID: cl.UserID, Email: cl.Email, EmailVerified: cl.EmailVerified,
-		Username: cl.Username, SessionID: cl.SessionID,
-		Entitlements: append([]string(nil), cl.Entitlements...),
-		AMR:          append([]string(nil), cl.AMR...), ACR: cl.ACR,
-		AuthTime: cl.AuthTime, MFAEnrolled: cl.MFAEnrolled,
-	}, true
+	return verify.UserClaimsFromContext(c.Context())
 }
 
 // RequirePermission checks the canonical permission policy using a

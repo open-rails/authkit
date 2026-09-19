@@ -200,6 +200,13 @@ live account checks as the Gin and `net/http` middleware; its constructor
 returns an error when the verifier has no liveness source. `RequirePermission`
 applies the same permission policy using a Fiber scope resolver.
 
+Gin and Fiber's `UserClaimsData` names both alias `verify.UserClaimsData`, and
+their accessors delegate to `verify.UserClaimsFromContext`. Only `UserID` is
+guaranteed populated on a successful user result. Profile fields are normally
+absent with `Required`/`Optional`; `RequiredLive` loads the current email,
+verification flag, and username but does not refresh token entitlements or MFA
+claims. See [user-claim presence and freshness](docs/verification.md#user-claims-presence-and-freshness).
+
 ## Surfaces
 
 - `docs/api-endpoints.md` — generated route table plus wire notes; CI fails
