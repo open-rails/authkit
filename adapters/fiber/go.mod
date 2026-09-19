@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gofiber/fiber/v3 v3.5.0
-	github.com/open-rails/authkit v0.106.3
+	github.com/open-rails/authkit v0.107.0
 )
 
 require (

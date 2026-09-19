@@ -5,7 +5,6 @@ package authkitgin
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	authkit "github.com/open-rails/authkit"
@@ -87,39 +86,17 @@ func Principal(c *gin.Context) (authkit.Principal, bool) {
 	return p, p.Kind != ""
 }
 
-type UserClaimsData struct {
-	UserID        string
-	Email         string
-	EmailVerified bool
-	Username      string
-	SessionID     string
-	Entitlements  []string
-	AMR           []string
-	ACR           string
-	AuthTime      time.Time
-	MFAEnrolled   bool
-}
+// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
+// optional fields and the token-time versus live-profile freshness contract.
+type UserClaimsData = verify.UserClaimsData
 
+// UserClaims reads a verified local user without performing a database lookup.
+// Profile availability depends on Required/Optional versus RequiredLive.
 func UserClaims(c *gin.Context) (UserClaimsData, bool) {
 	if c == nil || c.Request == nil {
 		return UserClaimsData{}, false
 	}
-	cl, ok := verify.ClaimsFromContext(c.Request.Context())
-	if !ok || !cl.IsUser() {
-		return UserClaimsData{}, false
-	}
-	return UserClaimsData{
-		UserID:        cl.UserID,
-		Email:         cl.Email,
-		EmailVerified: cl.EmailVerified,
-		Username:      cl.Username,
-		SessionID:     cl.SessionID,
-		Entitlements:  append([]string(nil), cl.Entitlements...),
-		AMR:           append([]string(nil), cl.AMR...),
-		ACR:           cl.ACR,
-		AuthTime:      cl.AuthTime,
-		MFAEnrolled:   cl.MFAEnrolled,
-	}, true
+	return verify.UserClaimsFromContext(c.Request.Context())
 }
 
 func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
