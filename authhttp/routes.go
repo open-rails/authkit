@@ -144,7 +144,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handlePasskeyPATCH))},
 		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
 
-		{Method: http.MethodPost, Path: "/step-up/password", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
+		{Method: http.MethodPost, Path: "/step-up/password", Group: RouteAccount, Auth: AuthRequired, Bucket: RLPasswordStepUp, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
 		{Method: http.MethodPost, Path: "/step-up/2fa", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
 
 		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteAccount, Auth: AuthRequired, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},

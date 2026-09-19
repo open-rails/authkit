@@ -21,6 +21,7 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RLAuthRegisterAbandon:      {Limit: 10, Window: time.Hour, Cooldown: time.Minute},
 		RLInviteCreate:             {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
+		RLPasswordStepUp:           {Limit: 20, Window: time.Hour},
 		RLPasswordlessStart:        {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordlessConfirm:      {Limit: 10, Window: 10 * time.Minute},
 		RLPasskeyRegister:          {Limit: 12, Window: time.Hour},

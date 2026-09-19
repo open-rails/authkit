@@ -62,6 +62,7 @@ type Service struct {
 var failClosedBuckets = map[string]struct{}{
 	RL2FAVerify:             {},
 	RLPasswordLogin:         {},
+	RLPasswordStepUp:        {},
 	RLPasswordResetConfirm:  {},
 	RLDeviceKeyEnrollFinish: {},
 	RLVerifyConfirm:         {},

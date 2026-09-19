@@ -22,6 +22,9 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
+	if s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
+		return
+	}
 	var body struct {
 		Password string `json:"password"`
 	}
