@@ -9,8 +9,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // ErrNotGroupMember is returned when a remote_application holds no role in its
@@ -26,10 +24,10 @@ func (s *Client) remoteApplicationGroupID(ctx context.Context, appID string) (st
 	if appID == "" {
 		return "", ErrInvalidRemoteApplication
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	var gid string
 	err := q.QueryRow(ctx,
-		`SELECT permission_group_id::text FROM profiles.remote_applications WHERE id = $1::uuid`,
+		`SELECT permission_group_id::text FROM remote_applications WHERE id = $1::uuid`,
 		appID).Scan(&gid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrRemoteApplicationNotFound
@@ -57,8 +55,8 @@ func (s *Client) AssignRemoteApplicationRole(ctx context.Context, appID string, 
 		return fmt.Errorf("role is required")
 	}
 	var persona authkit.Persona
-	q := db.ForSchema(s.pg, s.dbSchema())
-	if err := q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id = $1::uuid`, gid).Scan(&persona); err != nil {
+	q := s.pg
+	if err := q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id = $1::uuid`, gid).Scan(&persona); err != nil {
 		return err
 	}
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
@@ -123,12 +121,12 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	if appID == "" {
 		return out, ErrInvalidRemoteApplication
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	var gid string
 	err := q.QueryRow(ctx,
 		`SELECT ra.permission_group_id::text, pg.persona, COALESCE(pg.instance_slug, '')
-		 FROM profiles.remote_applications ra
-		 JOIN profiles.permission_groups pg ON pg.id = ra.permission_group_id
+		 FROM remote_applications ra
+		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
 		 WHERE ra.id = $1::uuid`,
 		appID).Scan(&gid, &out.Persona, &out.InstanceSlug)
 	if errors.Is(err, pgx.ErrNoRows) {

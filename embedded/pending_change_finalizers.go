@@ -83,7 +83,7 @@ func (s *Client) applyContactChange(ctx context.Context, rec pendingChange, keep
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.New(db.ForSchema(tx, s.dbSchema()))
+	q := db.New(tx)
 	if _, err := s.lockLoginAccount(ctx, q, rec.UserID, rec.Version); err != nil {
 		return err
 	}

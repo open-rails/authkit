@@ -30,8 +30,8 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 	var created []string
 	t.Cleanup(func() {
 		for _, id := range created {
-			_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, id)
-			_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.account_erasure_obligations WHERE user_id=$1::uuid`, id)
+			_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, id)
+			_, _ = pool.Exec(context.Background(), `DELETE FROM account_erasure_obligations WHERE user_id=$1::uuid`, id)
 		}
 	})
 	mk := func(tag string) *User {
@@ -76,12 +76,12 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 	}
 	userExists := func(id string) bool {
 		var n int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE id=$1::uuid`, id).Scan(&n))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE id=$1::uuid`, id).Scan(&n))
 		return n == 1
 	}
 	obligationExists := func(id string) bool {
 		var n int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_erasure_obligations WHERE user_id=$1::uuid`, id).Scan(&n))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM account_erasure_obligations WHERE user_id=$1::uuid`, id).Scan(&n))
 		return n == 1
 	}
 	purgeable := func(c *Client) map[string]bool {

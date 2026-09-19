@@ -11,7 +11,7 @@ import (
 )
 
 const erasureAcknowledge = `-- name: ErasureAcknowledge :execrows
-UPDATE profiles.account_erasure_acknowledgements SET acknowledged_at = now()
+UPDATE account_erasure_acknowledgements SET acknowledged_at = now()
 WHERE user_id = $1::uuid AND issuer = $2::text AND acknowledged_at IS NULL
 `
 
@@ -29,9 +29,9 @@ func (q *Queries) ErasureAcknowledge(ctx context.Context, arg ErasureAcknowledge
 }
 
 const erasureAcknowledgementsRequire = `-- name: ErasureAcknowledgementsRequire :exec
-INSERT INTO profiles.account_erasure_acknowledgements (user_id, issuer, obligation_created_at)
+INSERT INTO account_erasure_acknowledgements (user_id, issuer, obligation_created_at)
 SELECT o.user_id, issuer, o.created_at
-FROM profiles.account_erasure_obligations o, unnest($1::text[]) AS issuer
+FROM account_erasure_obligations o, unnest($1::text[]) AS issuer
 WHERE o.user_id = $2::uuid
 ON CONFLICT (user_id, issuer) DO NOTHING
 `
@@ -49,7 +49,7 @@ func (q *Queries) ErasureAcknowledgementsRequire(ctx context.Context, arg Erasur
 }
 
 const erasureObligationCloseIfSettled = `-- name: ErasureObligationCloseIfSettled :execrows
-DELETE FROM profiles.account_erasure_obligations
+DELETE FROM account_erasure_obligations
 WHERE user_id = $1::uuid AND purged_at IS NOT NULL AND pending_sites = 0
 `
 
@@ -63,7 +63,7 @@ func (q *Queries) ErasureObligationCloseIfSettled(ctx context.Context, userID st
 }
 
 const erasureObligationLock = `-- name: ErasureObligationLock :one
-SELECT user_id FROM profiles.account_erasure_obligations WHERE user_id = $1::uuid FOR UPDATE
+SELECT user_id FROM account_erasure_obligations WHERE user_id = $1::uuid FOR UPDATE
 `
 
 func (q *Queries) ErasureObligationLock(ctx context.Context, userID string) (string, error) {
@@ -74,7 +74,7 @@ func (q *Queries) ErasureObligationLock(ctx context.Context, userID string) (str
 }
 
 const erasureObligationMarkPurged = `-- name: ErasureObligationMarkPurged :exec
-UPDATE profiles.account_erasure_obligations SET purged_at = now()
+UPDATE account_erasure_obligations SET purged_at = now()
 WHERE user_id = $1::uuid AND purged_at IS NULL
 `
 
@@ -85,8 +85,8 @@ func (q *Queries) ErasureObligationMarkPurged(ctx context.Context, userID string
 
 const erasureObligationRecord = `-- name: ErasureObligationRecord :exec
 
-INSERT INTO profiles.account_erasure_obligations (user_id, email, username, phone_number)
-SELECT id, email, username, phone_number FROM profiles.users WHERE id = $1::uuid
+INSERT INTO account_erasure_obligations (user_id, email, username, phone_number)
+SELECT id, email, username, phone_number FROM users WHERE id = $1::uuid
 ON CONFLICT (user_id) DO NOTHING
 `
 
@@ -99,9 +99,9 @@ func (q *Queries) ErasureObligationRecord(ctx context.Context, userID string) er
 }
 
 const erasureObligationRefreshPending = `-- name: ErasureObligationRefreshPending :exec
-UPDATE profiles.account_erasure_obligations o
+UPDATE account_erasure_obligations o
 SET pending_sites = (
-  SELECT count(*) FROM profiles.account_erasure_acknowledgements a
+  SELECT count(*) FROM account_erasure_acknowledgements a
   WHERE a.user_id = o.user_id AND a.acknowledged_at IS NULL)
 WHERE o.user_id = $1::uuid
 `
@@ -114,7 +114,7 @@ func (q *Queries) ErasureObligationRefreshPending(ctx context.Context, userID st
 
 const erasureObligationsBacklog = `-- name: ErasureObligationsBacklog :many
 SELECT a.issuer, count(*)::bigint AS pending, min(a.obligation_created_at)::timestamptz AS oldest_created_at
-FROM profiles.account_erasure_acknowledgements a
+FROM account_erasure_acknowledgements a
 WHERE a.acknowledged_at IS NULL
 GROUP BY a.issuer
 ORDER BY a.issuer
@@ -148,8 +148,8 @@ func (q *Queries) ErasureObligationsBacklog(ctx context.Context) ([]ErasureOblig
 
 const erasureObligationsPendingForIssuer = `-- name: ErasureObligationsPendingForIssuer :many
 SELECT o.user_id, o.email, o.username, o.phone_number, a.obligation_created_at AS created_at, o.purged_at
-FROM profiles.account_erasure_acknowledgements a
-JOIN profiles.account_erasure_obligations o ON o.user_id = a.user_id
+FROM account_erasure_acknowledgements a
+JOIN account_erasure_obligations o ON o.user_id = a.user_id
 WHERE a.issuer = $1::text AND a.acknowledged_at IS NULL
   AND (a.obligation_created_at, a.user_id) > ($2::timestamptz, $3::uuid)
 ORDER BY a.obligation_created_at, a.user_id
@@ -207,7 +207,7 @@ func (q *Queries) ErasureObligationsPendingForIssuer(ctx context.Context, arg Er
 
 const erasurePurgeCandidates = `-- name: ErasurePurgeCandidates :many
 SELECT o.user_id::text
-FROM profiles.account_erasure_obligations o
+FROM account_erasure_obligations o
 WHERE o.purged_at IS NULL AND o.pending_sites = 0 AND o.created_at < $1::timestamptz
 ORDER BY o.created_at, o.user_id
 LIMIT $2::bigint

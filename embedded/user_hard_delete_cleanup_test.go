@@ -15,10 +15,10 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	clean := func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
+		_, _ = pool.Exec(ctx, `DELETE FROM group_remote_application_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM group_user_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups`)
+		_, _ = pool.Exec(ctx, `DELETE FROM group_persona_parents`)
 	}
 	clean()
 	t.Cleanup(clean)
@@ -44,12 +44,12 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 
 	var owner, invitee string
 	for _, p := range []*string{&owner, &invitee} {
-		if err := pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(p); err != nil {
+		if err := pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(p); err != nil {
 			t.Fatalf("create user: %v", err)
 		}
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{owner, invitee})
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{owner, invitee})
 	})
 
 	// owner gets an owner-role assignment in the new group.
@@ -59,7 +59,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 
 	countAssignments := func(uid string) int {
 		var n int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid`, uid).Scan(&n); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE user_id=$1::uuid`, uid).Scan(&n); err != nil {
 			t.Fatalf("count assignments: %v", err)
 		}
 		return n
@@ -81,7 +81,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 		t.Fatalf("after delete: %d orphaned assignments, want 0", n)
 	}
 	var stillThere int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE id=$1::uuid`, owner).Scan(&stillThere); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE id=$1::uuid`, owner).Scan(&stillThere); err != nil {
 		t.Fatalf("count user: %v", err)
 	}
 	if stillThere != 0 {

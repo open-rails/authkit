@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -287,7 +286,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				return st.UpsertCustomRole(ctx, customGID, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, ErrRoleAssignmentEscalation},
 			{"ban_expiry_after_transaction_start", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
-				_, err := st.q.Exec(ctx, `UPDATE profiles.users SET banned_at=statement_timestamp(),banned_until=statement_timestamp() WHERE id=$1::uuid`, expiringActor)
+				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=statement_timestamp() WHERE id=$1::uuid`, expiringActor)
 				return err
 			}, nil},
 			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *PermissionGroupStore) error {
@@ -298,7 +297,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				tx, err := pg.Pool.Begin(ctx)
 				require.NoError(t, err)
 				defer tx.Rollback(ctx)
-				raw := db.ForSchema(tx, svc.dbSchema())
+				raw := tx
 				require.NoError(t, svc.lockAuthority(ctx, raw))
 				done := make(chan error, 1)
 				go func() { done <- tc.run() }()

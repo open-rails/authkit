@@ -12,7 +12,7 @@ import (
 
 const sessionEventInsert = `-- name: SessionEventInsert :exec
 
-INSERT INTO profiles.session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent)
+INSERT INTO session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
@@ -47,7 +47,7 @@ func (q *Queries) SessionEventInsert(ctx context.Context, arg SessionEventInsert
 
 const sessionEventsListByUser = `-- name: SessionEventsListByUser :many
 SELECT occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent
-FROM profiles.session_events
+FROM session_events
 WHERE user_id = $1
   AND (cardinality($2::text[]) = 0 OR event = ANY($2::text[]))
 ORDER BY occurred_at DESC
@@ -104,9 +104,9 @@ func (q *Queries) SessionEventsListByUser(ctx context.Context, arg SessionEvents
 }
 
 const sessionEventsPruneBatch = `-- name: SessionEventsPruneBatch :execrows
-DELETE FROM profiles.session_events
+DELETE FROM session_events
 WHERE id IN (
-    SELECT id FROM profiles.session_events
+    SELECT id FROM session_events
     WHERE occurred_at < $1::timestamptz
     ORDER BY occurred_at
     LIMIT $2::bigint

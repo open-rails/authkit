@@ -11,7 +11,7 @@ import (
 )
 
 // Session-event history (#245): sign-ins, revocations, password changes are
-// recorded in profiles.session_events (Postgres; formerly ClickHouse). Writes
+// recorded in session_events (Postgres; formerly ClickHouse). Writes
 // are best-effort — a failed insert is logged loudly but NEVER fails the auth
 // operation (login availability > forensics completeness). All call sites log
 // post-commit, so inserts go straight to the pool.

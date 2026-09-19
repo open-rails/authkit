@@ -33,7 +33,7 @@ func (s *Client) withAuthorityMutation(ctx context.Context, apply func(*Permissi
 		return err
 	}
 	defer tx.Rollback(ctx)
-	st := s.groupStoreFor(db.ForSchema(tx, s.dbSchema()))
+	st := s.groupStoreFor(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -60,9 +60,9 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 	var query string
 	switch subject.Kind {
 	case SubjectKindUser:
-		query = `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
+		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
 	case SubjectKindRemoteApp:
-		query = `SELECT EXISTS(SELECT 1 FROM profiles.remote_applications WHERE id=$1::uuid AND enabled)`
+		query = `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled)`
 	default:
 		return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
 	}
@@ -88,20 +88,20 @@ func (s *Client) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, 
 
 func (s *Client) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding authkit.Subject) error {
 	var persona authkit.Persona
-	if err := st.q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id=$1::uuid`, gid).Scan(&persona); err != nil {
+	if err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona); err != nil {
 		return err
 	}
 	owner, _ := s.groupSchemaOrDefault().Role(persona, OwnerRoleName)
 	needsMFA := s.TwoFactorEnabled() && (s.requireMFAEnrollment() || owner.RequiresMFA)
 	var remains bool
 	err := st.q.QueryRow(ctx, `SELECT EXISTS(
- SELECT 1 FROM profiles.group_user_roles r JOIN profiles.users u ON u.id=r.user_id
+ SELECT 1 FROM group_user_roles r JOIN users u ON u.id=r.user_id
  WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='user' AND u.id=$3::uuid)
  AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())
- AND (NOT $4 OR EXISTS(SELECT 1 FROM profiles.mfa_settings m WHERE m.user_id=u.id AND m.enabled
- AND EXISTS(SELECT 1 FROM profiles.mfa_factors f WHERE f.user_id=u.id)))
+ AND (NOT $4 OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=u.id AND m.enabled
+ AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL
- SELECT 1 FROM profiles.group_remote_application_roles r JOIN profiles.remote_applications a ON a.id=r.remote_application_id
+ SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
  WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled)`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
 	if err != nil {
 		return err
@@ -186,10 +186,10 @@ func (s *Client) assignInvitedRole(ctx context.Context, st *PermissionGroupStore
 // another as replacements. Caller already holds the authority transaction lock.
 func (s *Client) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
 	rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
-      SELECT id FROM profiles.permission_groups WHERE id=$1::uuid
-      UNION ALL SELECT g.id FROM profiles.permission_groups g JOIN subtree p ON g.parent_id=p.id)
-      SELECT DISTINCT r.permission_group_id::text FROM profiles.group_remote_application_roles r
-      JOIN profiles.remote_applications a ON a.id=r.remote_application_id
+      SELECT id FROM permission_groups WHERE id=$1::uuid
+      UNION ALL SELECT g.id FROM permission_groups g JOIN subtree p ON g.parent_id=p.id)
+      SELECT DISTINCT r.permission_group_id::text FROM group_remote_application_roles r
+      JOIN remote_applications a ON a.id=r.remote_application_id
       WHERE a.permission_group_id IN (SELECT id FROM subtree) AND a.enabled AND r.role='owner'
       AND r.permission_group_id NOT IN (SELECT id FROM subtree)`, gid)
 	if err != nil {

@@ -20,12 +20,12 @@ func (s *Client) namingNow() time.Time {
 }
 
 func lockNameClaims(ctx context.Context, q db.DBTX, kind, persona string, names ...string) error {
-	_, err := q.Exec(ctx, `SELECT profiles.lock_name_claims($1,$2,$3::text[])`, kind, persona, names)
+	_, err := q.Exec(ctx, `SELECT lock_name_claims($1,$2,$3::text[])`, kind, persona, names)
 	return err
 }
 
 func claimCanonicalName(ctx context.Context, q db.DBTX, kind, persona, name, id string, now time.Time) error {
-	_, err := q.Exec(ctx, `SELECT profiles.claim_canonical_name($1, $2, $3, $4::uuid, $5)`, kind, persona, name, id, now)
+	_, err := q.Exec(ctx, `SELECT claim_canonical_name($1, $2, $3, $4::uuid, $5)`, kind, persona, name, id, now)
 	return nameClaimError(err, kind)
 }
 
@@ -48,11 +48,11 @@ func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName,
 	}
 	if oldName != "" {
 		if policy.FormerNameRetentionMode == authkit.FormerNamesImmediate {
-			if _, err := q.Exec(ctx, `DELETE FROM profiles.name_claims WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id); err != nil {
+			if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id); err != nil {
 				return err
 			}
 		} else {
-			if _, err := q.Exec(ctx, `UPDATE profiles.name_claims SET canonical=false, expires_at=$5 WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id, policy.FormerNameExpiresAt(now)); err != nil {
+			if _, err := q.Exec(ctx, `UPDATE name_claims SET canonical=false, expires_at=$5 WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id, policy.FormerNameExpiresAt(now)); err != nil {
 				return err
 			}
 		}
@@ -83,7 +83,7 @@ func (s *Client) UserNamingState(ctx context.Context, id string) (authkit.Naming
 		return authkit.NamingState{}, err
 	}
 	var last *time.Time
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&last)
+	err := s.pg.QueryRow(ctx, `SELECT last_renamed_at FROM users WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&last)
 	if err != nil {
 		return authkit.NamingState{}, err
 	}
@@ -94,7 +94,7 @@ func (s *Client) GroupNamingState(ctx context.Context, id string) (authkit.Namin
 		return authkit.NamingState{}, err
 	}
 	var last *time.Time
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.permission_groups WHERE id=$1::uuid`, id).Scan(&last)
+	err := s.pg.QueryRow(ctx, `SELECT last_renamed_at FROM permission_groups WHERE id=$1::uuid`, id).Scan(&last)
 	if err != nil {
 		return authkit.NamingState{}, err
 	}
@@ -104,7 +104,7 @@ func (s *Client) GroupNamingState(ctx context.Context, id string) (authkit.Namin
 func (s *Client) namingStateWithAliases(ctx context.Context, kind, id string, last *time.Time) (authkit.NamingState, error) {
 	now := s.namingNow()
 	state := s.NamingPolicy().State(last, now)
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT name,expires_at FROM profiles.name_claims WHERE owner_kind=$1 AND owner_id=$2::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$3) ORDER BY name`, kind, id, now)
+	rows, err := s.pg.Query(ctx, `SELECT name,expires_at FROM name_claims WHERE owner_kind=$1 AND owner_id=$2::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$3) ORDER BY name`, kind, id, now)
 	if err != nil {
 		return state, err
 	}

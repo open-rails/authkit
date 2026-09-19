@@ -125,7 +125,7 @@ type PersonaDef struct {
 }
 
 // GroupSchema is the validated, immutable set of declared group personas — the
-// containment schema + catalogs + management profiles. Construct via
+// containment schema + catalogs + management  Construct via
 // NewGroupSchema, which validates everything once.
 type GroupSchema struct {
 	types map[authkit.Persona]PersonaDef // effective defs (owner injected, roles deduped)

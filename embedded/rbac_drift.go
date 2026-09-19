@@ -4,8 +4,6 @@ import (
 	"context"
 
 	authkit "github.com/open-rails/authkit"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // RBACDriftReport counts orphaned authority rows — assigned group roles, custom
@@ -40,11 +38,11 @@ func (s *Client) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
 }
 
 func (s *Client) driftCustomRoles(ctx context.Context) (int, error) {
-	rows, err := s.pg.Query(ctx, db.RewriteSQL(`
+	rows, err := s.pg.Query(ctx, `
 		SELECT pg.persona, gcr.role, count(*)
-		  FROM profiles.group_custom_roles gcr
-		  JOIN profiles.permission_groups pg ON pg.id = gcr.permission_group_id
-		 GROUP BY pg.persona, gcr.role`, s.dbSchema()))
+		  FROM group_custom_roles gcr
+		  JOIN permission_groups pg ON pg.id = gcr.permission_group_id
+		 GROUP BY pg.persona, gcr.role`)
 	if err != nil {
 		return 0, err
 	}
@@ -70,12 +68,12 @@ func (s *Client) driftAssignedRoles(ctx context.Context, table, where string) (i
 	if err != nil {
 		return 0, err
 	}
-	rows, err := s.pg.Query(ctx, db.RewriteSQL(`
+	rows, err := s.pg.Query(ctx, `
 		SELECT pg.id::text, pg.persona, r.role, count(*)
-		  FROM profiles.`+table+` r
-		  JOIN profiles.permission_groups pg ON pg.id = r.permission_group_id
+		  FROM `+table+` r
+		  JOIN permission_groups pg ON pg.id = r.permission_group_id
 		 WHERE `+where+`
-		 GROUP BY pg.id, pg.persona, r.role`, s.dbSchema()))
+		 GROUP BY pg.id, pg.persona, r.role`)
 	if err != nil {
 		return 0, err
 	}
@@ -98,10 +96,10 @@ func (s *Client) driftAssignedRoles(ctx context.Context, table, where string) (i
 }
 
 func (s *Client) liveCustomRoleSet(ctx context.Context) (map[string]map[string]struct{}, error) {
-	rows, err := s.pg.Query(ctx, db.RewriteSQL(`
+	rows, err := s.pg.Query(ctx, `
 		SELECT pg.id::text, gcr.role
-		  FROM profiles.group_custom_roles gcr
-		  JOIN profiles.permission_groups pg ON pg.id = gcr.permission_group_id`, s.dbSchema()))
+		  FROM group_custom_roles gcr
+		  JOIN permission_groups pg ON pg.id = gcr.permission_group_id`)
 	if err != nil {
 		return nil, err
 	}

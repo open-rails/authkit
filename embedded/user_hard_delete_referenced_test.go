@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
-// #304: a host table referencing profiles.users(id) WITHOUT ON DELETE CASCADE
+// #304: a host table referencing users(id) WITHOUT ON DELETE CASCADE
 // must abort the hard delete as one unit — typed ErrUserReferenced, user row,
 // group roles and sessions all intact — and succeed once the reference is gone.
 func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
@@ -24,10 +24,10 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	}
 
 	var id string
-	if err := pool.QueryRow(ctx, `INSERT INTO profiles.users (username) VALUES ($1) RETURNING id::text`, fmt.Sprintf("hostref-%d", time.Now().UnixNano())).Scan(&id); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO users (username) VALUES ($1) RETURNING id::text`, fmt.Sprintf("hostref-%d", time.Now().UnixNano())).Scan(&id); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, id) })
 	if err := svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(id), "member"); err != nil {
 		t.Fatalf("seed membership: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	}
 
 	table := fmt.Sprintf("public.ak304_host_%d", time.Now().UnixNano())
-	if _, err := pool.Exec(ctx, `CREATE TABLE `+table+` (user_id uuid NOT NULL REFERENCES profiles.users(id))`); err != nil {
+	if _, err := pool.Exec(ctx, `CREATE TABLE `+table+` (user_id uuid NOT NULL REFERENCES users(id))`); err != nil {
 		t.Fatalf("create host table: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS `+table) })
@@ -48,10 +48,10 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 		t.Fatalf("want ErrUserReferenced, got %v", err)
 	}
 	var users, roles int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE id=$1::uuid`, id).Scan(&users); err != nil || users != 1 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE id=$1::uuid`, id).Scan(&users); err != nil || users != 1 {
 		t.Fatalf("user row must survive a refused delete: n=%d err=%v", users, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid`, id).Scan(&roles); err != nil || roles != 1 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE user_id=$1::uuid`, id).Scan(&roles); err != nil || roles != 1 {
 		t.Fatalf("group roles must survive a refused delete: n=%d err=%v", roles, err)
 	}
 	sessions, err := svc.ListUserSessions(ctx, id)
@@ -65,10 +65,10 @@ func TestAdminDeleteUserReferencedByHostTable(t *testing.T) {
 	if err := svc.AdminDeleteUser(ctx, id); err != nil {
 		t.Fatalf("delete after reference removed: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.users WHERE id=$1::uuid`, id).Scan(&users); err != nil || users != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE id=$1::uuid`, id).Scan(&users); err != nil || users != 0 {
 		t.Fatalf("user row should be gone: n=%d err=%v", users, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid`, id).Scan(&roles); err != nil || roles != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE user_id=$1::uuid`, id).Scan(&roles); err != nil || roles != 0 {
 		t.Fatalf("group roles should cascade: n=%d err=%v", roles, err)
 	}
 }

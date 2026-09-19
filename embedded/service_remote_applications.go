@@ -394,12 +394,12 @@ func (s *Client) ListRemoteApplicationsForGroup(ctx context.Context, group authk
 	if err != nil {
 		return nil, err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	rows, err := q.Query(ctx,
 		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
 		        mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint,
 		        root_verified_at, created_at, updated_at
-		 FROM profiles.remote_applications
+		 FROM remote_applications
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
 	if err != nil {

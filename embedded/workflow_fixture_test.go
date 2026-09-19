@@ -17,7 +17,7 @@ import (
 
 func bootstrapClaimNames(t *testing.T, ctx context.Context, pg *testdb.Postgres) []string {
 	t.Helper()
-	rows, err := pg.Pool.Query(ctx, `SELECT name FROM profiles.bootstrap_applies ORDER BY name`)
+	rows, err := pg.Pool.Query(ctx, `SELECT name FROM bootstrap_applies ORDER BY name`)
 	if err != nil {
 		t.Fatalf("read claims: %v", err)
 	}
@@ -85,7 +85,7 @@ func newHardeningUser(t *testing.T, ctx context.Context, svc *Client, tag string
 	email := username + "@example.test"
 	u, err := svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
+	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, u.ID) })
 	return u, email
 }
 
@@ -114,11 +114,11 @@ func depsOf(opts ...Option) Deps {
 func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
-	if err := pool.QueryRow(context.Background(), `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&id); err != nil {
+	if err := pool.QueryRow(context.Background(), `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&id); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, id)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, id)
 	})
 	return id
 }

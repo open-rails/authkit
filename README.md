@@ -35,9 +35,8 @@ import (
 )
 
 db, _ := sql.Open("pgx", dsn)
-fsys, _ := authkitmigrations.FSForSchema("profiles")
-migrations, _ := migratekit.LoadFromFS(fsys)
-err := migratekit.NewPostgres(db, "authkit").WithSchema("profiles", "profiles").ApplyMigrations(ctx, migrations)
+migrations, _ := migratekit.LoadFromFS(authkitmigrations.FS)
+err := migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(ctx, migrations)
 ```
 
 Idempotent; use `ValidateAllApplied` for a read-only readiness check. Run it

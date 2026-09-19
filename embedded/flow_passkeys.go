@@ -214,7 +214,7 @@ func (s *Client) FinishPasskeyRegistration(ctx context.Context, userID string, r
 	if err != nil {
 		return Passkey{}, err
 	}
-	return s.insertPasskey(ctx, db.ForSchema(s.pg, s.dbSchema()), strings.TrimSpace(userID), cred, nil)
+	return s.insertPasskey(ctx, s.pg, strings.TrimSpace(userID), cred, nil)
 }
 
 // FinishPasskeyReplacement registers the new credential and tombstones every
@@ -231,12 +231,12 @@ func (s *Client) FinishPasskeyReplacement(ctx context.Context, userID string, re
 		return Passkey{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	p, err := s.insertPasskey(ctx, q, userID, cred, nil)
 	if err != nil {
 		return Passkey{}, err
 	}
-	if _, err := q.Exec(ctx, `UPDATE profiles.user_passkeys SET deleted_at=NOW()
+	if _, err := q.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW()
 WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL AND id<>$3`, userID, s.cfg.Passkeys.RPID, p.ID); err != nil {
 		return Passkey{}, err
 	}
@@ -433,11 +433,11 @@ func (s *Client) FinishPasskeyAccount(ctx context.Context, response []byte) (*Us
 		return nil, Passkey{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
-	if _, err := q.Exec(ctx, `INSERT INTO profiles.users (id) VALUES ($1)`, u.id); err != nil {
+	q := tx
+	if _, err := q.Exec(ctx, `INSERT INTO users (id) VALUES ($1)`, u.id); err != nil {
 		return nil, Passkey{}, err
 	}
-	if _, err := q.Exec(ctx, `INSERT INTO profiles.user_passkey_handles (user_id, user_handle) VALUES ($1, $2)`, u.id, u.handle); err != nil {
+	if _, err := q.Exec(ctx, `INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2)`, u.id, u.handle); err != nil {
 		return nil, Passkey{}, err
 	}
 	p, err := s.insertPasskey(ctx, q, u.id, cred, nil)
@@ -459,8 +459,8 @@ func passkeyAccountUser(id uuid.UUID) passkeyUser {
 }
 
 func (s *Client) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
-FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
+	rows, err := s.pg.Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
+FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +482,7 @@ FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL 
 }
 
 func (s *Client) RenamePasskey(ctx context.Context, userID, id, label string) error {
-	tag, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND deleted_at IS NULL`, nullable(strings.TrimSpace(label)), strings.TrimSpace(id), strings.TrimSpace(userID))
+	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND deleted_at IS NULL`, nullable(strings.TrimSpace(label)), strings.TrimSpace(id), strings.TrimSpace(userID))
 	if err != nil {
 		return err
 	}
@@ -493,7 +493,7 @@ func (s *Client) RenamePasskey(ctx context.Context, userID, id, label string) er
 }
 
 func (s *Client) DeletePasskey(ctx context.Context, userID, id string) error {
-	tag, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_passkeys SET deleted_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, strings.TrimSpace(id), strings.TrimSpace(userID))
+	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, strings.TrimSpace(id), strings.TrimSpace(userID))
 	if err != nil {
 		return err
 	}
@@ -550,7 +550,7 @@ func (s *Client) passkeyUser(ctx context.Context, userID string, createHandle bo
 
 func (s *Client) passkeyUserByHandle(ctx context.Context, handle []byte) (passkeyUser, error) {
 	var userID string
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_id FROM profiles.user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
+	err := s.pg.QueryRow(ctx, `SELECT user_id FROM user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
 	if err != nil {
 		return passkeyUser{}, err
 	}
@@ -565,7 +565,7 @@ func (s *Client) passkeyUserByHandle(ctx context.Context, handle []byte) (passke
 
 func (s *Client) passkeyHandle(ctx context.Context, userID string, create bool) ([]byte, error) {
 	var handle []byte
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_handle FROM profiles.user_passkey_handles WHERE user_id=$1`, userID).Scan(&handle)
+	err := s.pg.QueryRow(ctx, `SELECT user_handle FROM user_passkey_handles WHERE user_id=$1`, userID).Scan(&handle)
 	if err == nil {
 		return handle, nil
 	}
@@ -576,13 +576,13 @@ func (s *Client) passkeyHandle(ctx context.Context, userID string, create bool) 
 	if _, err := rand.Read(handle); err != nil {
 		return nil, err
 	}
-	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `INSERT INTO profiles.user_passkey_handles (user_id, user_handle) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET user_handle=profiles.user_passkey_handles.user_handle RETURNING user_handle`, userID, handle).Scan(&handle)
+	err = s.pg.QueryRow(ctx, `INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET user_handle=user_passkey_handles.user_handle RETURNING user_handle`, userID, handle).Scan(&handle)
 	return handle, err
 }
 
 func (s *Client) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt
-FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
+	rows, err := s.pg.Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt
+FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
 	}
@@ -638,7 +638,7 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 func (s *Client) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
 	var p Passkey
 	var flags []byte
-	err := q.QueryRow(ctx, `INSERT INTO profiles.user_passkeys
+	err := q.QueryRow(ctx, `INSERT INTO user_passkeys
 (user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 RETURNING id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at`,
@@ -654,7 +654,7 @@ RETURNING id, user_id, transports, authenticator_attachment, flags, label, creat
 
 func (s *Client) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
 	var id string
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `UPDATE profiles.user_passkeys
+	err := s.pg.QueryRow(ctx, `UPDATE user_passkeys
 SET sign_count=$1, clone_warning=$2, flags=$3, last_used_at=NOW()
 WHERE user_id=$4 AND rpid=$5 AND credential_id=$6 AND deleted_at IS NULL RETURNING id`,
 		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)

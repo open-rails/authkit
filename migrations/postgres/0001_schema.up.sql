@@ -5,7 +5,7 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'profiles' AND c.relname IN (
+    WHERE n.nspname = current_schema() AND c.relname IN (
       'account_erasure_acknowledgements',
       'account_erasure_obligations',
       'account_registration_invites',
@@ -48,16 +48,15 @@ SET LOCAL statement_timeout = '300s';
 
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
-CREATE SCHEMA IF NOT EXISTS profiles;
 
 -- Bootstrap ownership
-CREATE TABLE profiles.bootstrap_applies (
+CREATE TABLE bootstrap_applies (
   name text PRIMARY KEY,
   applied_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Identity and password credentials
-CREATE TABLE profiles.users (
+CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   email public.citext,
   username public.citext UNIQUE,
@@ -67,7 +66,7 @@ CREATE TABLE profiles.users (
   banned_at timestamptz,
   banned_until timestamptz,
   ban_reason text,
-  banned_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  banned_by uuid REFERENCES users(id) ON DELETE SET NULL,
   deleted_at timestamptz,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -79,45 +78,45 @@ CREATE TABLE profiles.users (
   credential_version bigint NOT NULL DEFAULT 1 CHECK (credential_version > 0)
 );
 CREATE UNIQUE INDEX users_email_uidx
-  ON profiles.users (email)
+  ON users (email)
   WHERE email IS NOT NULL;
 CREATE INDEX users_admin_created_idx
-  ON profiles.users (created_at DESC, id)
+  ON users (created_at DESC, id)
   WHERE deleted_at IS NULL;
 CREATE INDEX users_admin_last_login_idx
-  ON profiles.users (last_login DESC, id)
+  ON users (last_login DESC, id)
   WHERE deleted_at IS NULL;
 CREATE INDEX users_admin_username_idx
-  ON profiles.users (username, id)
+  ON users (username, id)
   WHERE deleted_at IS NULL;
 CREATE INDEX users_admin_email_idx
-  ON profiles.users (email, id)
+  ON users (email, id)
   WHERE deleted_at IS NULL;
 CREATE INDEX users_deleted_at_idx
-  ON profiles.users (deleted_at, id)
+  ON users (deleted_at, id)
   WHERE deleted_at IS NOT NULL;
 CREATE INDEX users_admin_banned_idx
-  ON profiles.users (banned_at, id)
+  ON users (banned_at, id)
   WHERE deleted_at IS NULL AND banned_at IS NOT NULL;
-COMMENT ON COLUMN profiles.users.phone_number IS 'E.164 format phone number (e.g. +14155551234)';
-COMMENT ON COLUMN profiles.users.phone_verified IS 'Whether the phone number has been verified via SMS code';
-COMMENT ON COLUMN profiles.users.banned_at IS 'When the user was banned';
-COMMENT ON COLUMN profiles.users.banned_until IS 'When a temporary ban expires (NULL for permanent)';
-COMMENT ON COLUMN profiles.users.ban_reason IS 'Reason for ban';
-COMMENT ON COLUMN profiles.users.banned_by IS 'User ID of admin who imposed ban';
-COMMENT ON COLUMN profiles.users.metadata IS 'Arbitrary user metadata (internal/admin flags such as reserved)';
-COMMENT ON COLUMN profiles.users.preferred_language IS 'User communication/auth language, e.g. en, es, de, ko, zh';
+COMMENT ON COLUMN users.phone_number IS 'E.164 format phone number (e.g. +14155551234)';
+COMMENT ON COLUMN users.phone_verified IS 'Whether the phone number has been verified via SMS code';
+COMMENT ON COLUMN users.banned_at IS 'When the user was banned';
+COMMENT ON COLUMN users.banned_until IS 'When a temporary ban expires (NULL for permanent)';
+COMMENT ON COLUMN users.ban_reason IS 'Reason for ban';
+COMMENT ON COLUMN users.banned_by IS 'User ID of admin who imposed ban';
+COMMENT ON COLUMN users.metadata IS 'Arbitrary user metadata (internal/admin flags such as reserved)';
+COMMENT ON COLUMN users.preferred_language IS 'User communication/auth language, e.g. en, es, de, ko, zh';
 
-CREATE TABLE profiles.user_passwords (
-  user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
+CREATE TABLE user_passwords (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   password_hash text NOT NULL,
   hash_algo text NOT NULL DEFAULT 'argon2id',
   password_updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE profiles.user_providers (
+CREATE TABLE user_providers (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   issuer text NOT NULL,
   provider_slug text,
   subject text NOT NULL,
@@ -129,22 +128,22 @@ CREATE TABLE profiles.user_providers (
   UNIQUE (user_id, issuer)
 );
 CREATE INDEX user_providers_user_id_provider_slug_idx
-  ON profiles.user_providers (user_id, provider_slug);
+  ON user_providers (user_id, provider_slug);
 CREATE INDEX user_providers_slug_subject_idx
-  ON profiles.user_providers (provider_slug, subject);
+  ON user_providers (provider_slug, subject);
 
 -- Passkeys
-CREATE TABLE profiles.user_passkey_handles (
-  user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
+CREATE TABLE user_passkey_handles (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   user_handle bytea NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX uniq_user_passkey_handles_handle
-  ON profiles.user_passkey_handles (user_handle);
+  ON user_passkey_handles (user_handle);
 
-CREATE TABLE profiles.user_passkeys (
+CREATE TABLE user_passkeys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rpid varchar(512) NOT NULL,
   credential_id bytea NOT NULL,
   public_key bytea NOT NULL,
@@ -162,16 +161,16 @@ CREATE TABLE profiles.user_passkeys (
   deleted_at timestamptz
 );
 CREATE UNIQUE INDEX uniq_user_passkeys_rpid_credential
-  ON profiles.user_passkeys (rpid, credential_id)
+  ON user_passkeys (rpid, credential_id)
   WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_passkeys_user_active
-  ON profiles.user_passkeys (user_id)
+  ON user_passkeys (user_id)
   WHERE deleted_at IS NULL;
 
 -- Refresh sessions
-CREATE TABLE profiles.refresh_sessions (
+CREATE TABLE refresh_sessions (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   issuer text NOT NULL,
   family_id uuid NOT NULL DEFAULT uuidv7(),
   current_token_hash bytea NOT NULL,
@@ -187,29 +186,29 @@ CREATE TABLE profiles.refresh_sessions (
   previous_rotated_at timestamptz
 );
 CREATE UNIQUE INDEX refresh_sessions_current_hash_active
-  ON profiles.refresh_sessions (current_token_hash)
+  ON refresh_sessions (current_token_hash)
   WHERE revoked_at IS NULL;
 CREATE INDEX refresh_sessions_user_active
-  ON profiles.refresh_sessions (user_id, issuer, last_used_at)
+  ON refresh_sessions (user_id, issuer, last_used_at)
   WHERE revoked_at IS NULL;
 CREATE INDEX refresh_sessions_family_active
-  ON profiles.refresh_sessions (family_id)
+  ON refresh_sessions (family_id)
   WHERE revoked_at IS NULL;
 
 -- Multi-factor credentials
-CREATE TABLE profiles.mfa_settings (
-  user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
+CREATE TABLE mfa_settings (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   enabled boolean NOT NULL DEFAULT false,
   backup_codes text[],
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE profiles.mfa_settings IS 'Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.';
-COMMENT ON COLUMN profiles.mfa_settings.backup_codes IS 'Hashed backup codes for account recovery';
+COMMENT ON TABLE mfa_settings IS 'Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.';
+COMMENT ON COLUMN mfa_settings.backup_codes IS 'Hashed backup codes for account recovery';
 
-CREATE TABLE profiles.mfa_factors (
+CREATE TABLE mfa_factors (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   method varchar(10) NOT NULL CHECK (method IN ('email', 'sms', 'totp')),
   phone_number varchar(20),
   totp_secret bytea,
@@ -225,15 +224,15 @@ CREATE TABLE profiles.mfa_factors (
   )
 );
 CREATE UNIQUE INDEX uniq_mfa_factors_default
-  ON profiles.mfa_factors (user_id)
+  ON mfa_factors (user_id)
   WHERE is_default = true;
 CREATE UNIQUE INDEX uniq_mfa_factors_user_method
-  ON profiles.mfa_factors (user_id, method);
-COMMENT ON TABLE profiles.mfa_factors IS 'Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings';
-COMMENT ON COLUMN profiles.mfa_factors.is_default IS 'Default factor AuthKit challenges first when 2FA is required';
+  ON mfa_factors (user_id, method);
+COMMENT ON TABLE mfa_factors IS 'Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings';
+COMMENT ON COLUMN mfa_factors.is_default IS 'Default factor AuthKit challenges first when 2FA is required';
 
 -- Permission groups and containment
-CREATE TABLE profiles.group_persona_parents (
+CREATE TABLE group_persona_parents (
   persona text NOT NULL,
   parent_persona text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -243,13 +242,13 @@ CREATE TABLE profiles.group_persona_parents (
   CONSTRAINT gpp_not_self_chk CHECK (persona <> parent_persona),
   CONSTRAINT gpp_root_has_no_parent_chk CHECK (persona <> 'root')
 );
-COMMENT ON TABLE profiles.group_persona_parents IS
+COMMENT ON TABLE group_persona_parents IS
   'Declared containment schema: the single parent persona for each permission-group persona. root is absent.';
 
-CREATE TABLE profiles.permission_groups (
+CREATE TABLE permission_groups (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   persona text NOT NULL,
-  parent_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  parent_id uuid REFERENCES permission_groups(id) ON DELETE CASCADE,
   instance_slug text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -269,20 +268,20 @@ CREATE TABLE profiles.permission_groups (
   )
 );
 CREATE UNIQUE INDEX permission_groups_persona_instance_uidx
-  ON profiles.permission_groups (persona, instance_slug)
+  ON permission_groups (persona, instance_slug)
   WHERE instance_slug IS NOT NULL;
 CREATE UNIQUE INDEX permission_groups_singleton_root_uidx
-  ON profiles.permission_groups ((persona = 'root'))
+  ON permission_groups ((persona = 'root'))
   WHERE persona = 'root';
 CREATE INDEX permission_groups_parent_idx
-  ON profiles.permission_groups (parent_id)
+  ON permission_groups (parent_id)
   WHERE parent_id IS NOT NULL;
 CREATE INDEX permission_groups_persona_idx
-  ON profiles.permission_groups (persona);
-COMMENT ON COLUMN profiles.permission_groups.instance_slug IS
+  ON permission_groups (persona);
+COMMENT ON COLUMN permission_groups.instance_slug IS
   'Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.';
 
-CREATE FUNCTION profiles.trg_permission_group_containment() RETURNS trigger
+CREATE FUNCTION trg_permission_group_containment() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   actual_parent_persona text;
@@ -291,13 +290,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT persona INTO actual_parent_persona FROM profiles.permission_groups WHERE id = NEW.parent_id;
+  SELECT persona INTO actual_parent_persona FROM permission_groups WHERE id = NEW.parent_id;
   IF actual_parent_persona IS NULL THEN
     RAISE EXCEPTION 'permission_groups.parent_id % does not exist', NEW.parent_id
       USING ERRCODE = 'foreign_key_violation';
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM profiles.group_persona_parents
+    SELECT 1 FROM group_persona_parents
     WHERE persona = NEW.persona AND parent_persona = actual_parent_persona
   ) THEN
     RAISE EXCEPTION 'a % group may not have a % parent',
@@ -307,11 +306,11 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER permission_group_containment
-  BEFORE INSERT OR UPDATE OF persona, parent_id ON profiles.permission_groups
-  FOR EACH ROW EXECUTE FUNCTION profiles.trg_permission_group_containment();
+  BEFORE INSERT OR UPDATE OF persona, parent_id ON permission_groups
+  FOR EACH ROW EXECUTE FUNCTION trg_permission_group_containment();
 
 -- Federated applications
-CREATE TABLE profiles.remote_applications (
+CREATE TABLE remote_applications (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   slug text NOT NULL UNIQUE,
   issuer text NOT NULL UNIQUE,
@@ -321,7 +320,7 @@ CREATE TABLE profiles.remote_applications (
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
   display_name text NOT NULL DEFAULT '',
   tier text NOT NULL DEFAULT 'approved',
   trust_root text NOT NULL DEFAULT 'manual',
@@ -344,48 +343,48 @@ CREATE TABLE profiles.remote_applications (
   )
 );
 CREATE INDEX remote_applications_group_idx
-  ON profiles.remote_applications (permission_group_id);
-COMMENT ON TABLE profiles.remote_applications IS
+  ON remote_applications (permission_group_id);
+COMMENT ON TABLE remote_applications IS
   'Federation principals: external systems that authenticate by signing JWTs verified against configured keys.';
-COMMENT ON COLUMN profiles.remote_applications.permission_group_id IS
+COMMENT ON COLUMN remote_applications.permission_group_id IS
   'Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.';
 
 CREATE UNIQUE INDEX remote_applications_domain_uidx
-  ON profiles.remote_applications (domain)
+  ON remote_applications (domain)
   WHERE domain <> '';
 
-COMMENT ON COLUMN profiles.remote_applications.tier IS
+COMMENT ON COLUMN remote_applications.tier IS
   'registered (self-registered; zero default capability) | approved (admin act on the host).';
-COMMENT ON COLUMN profiles.remote_applications.trust_root IS
+COMMENT ON COLUMN remote_applications.trust_root IS
   'What rotates the keys: manual | domain | user. Never the keypair alone.';
-COMMENT ON COLUMN profiles.remote_applications.domain IS
+COMMENT ON COLUMN remote_applications.domain IS
   'Trust-root location for domain-rooted applications (canonical registration input; empty otherwise). Separate from slug — the domain proves identity, the slug is a claimed handle.';
-COMMENT ON COLUMN profiles.remote_applications.root_verified_at IS
+COMMENT ON COLUMN remote_applications.root_verified_at IS
   'Last successful trust-root proof (domain fetch). Re-verification cadence is host policy (host sweepers disable stale registered-tier apps; re-registration re-proves and re-enables).';
 
 -- Role assignments
-CREATE TABLE profiles.group_user_roles (
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+CREATE TABLE group_user_roles (
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role text NOT NULL,
   PRIMARY KEY (permission_group_id, user_id),
   CONSTRAINT gur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE INDEX gur_user_idx
-  ON profiles.group_user_roles (user_id);
+  ON group_user_roles (user_id);
 
-CREATE TABLE profiles.group_remote_application_roles (
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
+CREATE TABLE group_remote_application_roles (
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
+  remote_application_id uuid NOT NULL REFERENCES remote_applications(id) ON DELETE CASCADE,
   role text NOT NULL,
   PRIMARY KEY (permission_group_id, remote_application_id),
   CONSTRAINT grar_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE INDEX grar_remote_application_idx
-  ON profiles.group_remote_application_roles (remote_application_id);
+  ON group_remote_application_roles (remote_application_id);
 
-CREATE TABLE profiles.group_custom_roles (
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+CREATE TABLE group_custom_roles (
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
   role text NOT NULL,
   permissions text[] NOT NULL DEFAULT '{}',
   requires_mfa boolean NOT NULL DEFAULT false,
@@ -396,11 +395,11 @@ CREATE TABLE profiles.group_custom_roles (
 );
 
 -- Invitations
-CREATE TABLE profiles.group_invite_links (
+CREATE TABLE group_invite_links (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
   role text NOT NULL,
-  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  invited_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   code_hash text NOT NULL UNIQUE,
   redeemed_at timestamptz,
   expires_at timestamptz,
@@ -410,21 +409,21 @@ CREATE TABLE profiles.group_invite_links (
   CONSTRAINT gil_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE INDEX group_invite_links_group_idx
-  ON profiles.group_invite_links (permission_group_id)
+  ON group_invite_links (permission_group_id)
   WHERE revoked_at IS NULL;
 CREATE INDEX group_invite_links_terminal_idx
-  ON profiles.group_invite_links (LEAST(redeemed_at, revoked_at, expires_at), id);
+  ON group_invite_links (LEAST(redeemed_at, revoked_at, expires_at), id);
 
-CREATE TABLE profiles.account_registration_invites (
+CREATE TABLE account_registration_invites (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   email public.citext NOT NULL,
-  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  invited_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   code_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz,
   consumed_at timestamptz,
-  consumed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
-  permission_group_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  consumed_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  permission_group_id uuid REFERENCES permission_groups(id) ON DELETE CASCADE,
   role text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -432,19 +431,19 @@ CREATE TABLE profiles.account_registration_invites (
   CONSTRAINT ari_group_role_pairing_chk CHECK ((permission_group_id IS NULL) = (role IS NULL))
 );
 CREATE INDEX account_registration_invites_email_idx
-  ON profiles.account_registration_invites (email, expires_at)
+  ON account_registration_invites (email, expires_at)
   WHERE revoked_at IS NULL AND consumed_at IS NULL;
 CREATE INDEX account_registration_invites_terminal_idx
-  ON profiles.account_registration_invites (LEAST(consumed_at, revoked_at, expires_at), id);
+  ON account_registration_invites (LEAST(consumed_at, revoked_at, expires_at), id);
 
 -- API keys
-CREATE TABLE profiles.api_keys (
+CREATE TABLE api_keys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
   key_id text NOT NULL UNIQUE,
   secret_hash bytea NOT NULL,
   name text NOT NULL,
-  created_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
   expires_at timestamptz,
@@ -457,14 +456,14 @@ CREATE TABLE profiles.api_keys (
   )
 );
 CREATE INDEX api_keys_group_idx
-  ON profiles.api_keys (permission_group_id);
+  ON api_keys (permission_group_id);
 CREATE INDEX api_keys_terminal_idx
-  ON profiles.api_keys (LEAST(revoked_at, expires_at), id);
-COMMENT ON COLUMN profiles.api_keys.role IS
+  ON api_keys (LEAST(revoked_at, expires_at), id);
+COMMENT ON COLUMN api_keys.role IS
   'The single catalog/custom role this API key holds within its permission-group.';
 
 -- Security events
-CREATE TABLE profiles.session_events (
+CREATE TABLE session_events (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     occurred_at timestamptz NOT NULL,
     issuer      text NOT NULL,
@@ -478,17 +477,17 @@ CREATE TABLE profiles.session_events (
 );
 
 CREATE INDEX session_events_user_occurred_idx
-    ON profiles.session_events (user_id, occurred_at DESC);
+    ON session_events (user_id, occurred_at DESC);
 
 CREATE INDEX session_events_occurred_idx
-    ON profiles.session_events (occurred_at);
+    ON session_events (occurred_at);
 
 -- Cross-site erasure handoff: one obligation per deleted account, one
 -- acknowledgement per configured account issuer (Token.AccountIssuers). Purge
 -- selects only fully acknowledged accounts; the obligation carries the
 -- identifiers hosts key on and outlives the users row until every issuer
 -- acknowledged. Only open obligations are stored: a settled one is deleted.
-CREATE TABLE profiles.account_erasure_obligations (
+CREATE TABLE account_erasure_obligations (
   user_id       uuid PRIMARY KEY,
   email         public.citext,
   username      public.citext,
@@ -501,24 +500,24 @@ CREATE TABLE profiles.account_erasure_obligations (
   pending_sites integer NOT NULL DEFAULT 0
 );
 CREATE INDEX account_erasure_obligations_purgeable_idx
-  ON profiles.account_erasure_obligations (created_at, user_id)
+  ON account_erasure_obligations (created_at, user_id)
   WHERE purged_at IS NULL AND pending_sites = 0;
 
 -- obligation_created_at is an immutable copy of the obligation's key, so one
 -- site's pending listing is an index-ordered keyset page.
-CREATE TABLE profiles.account_erasure_acknowledgements (
-  user_id               uuid NOT NULL REFERENCES profiles.account_erasure_obligations(user_id) ON DELETE CASCADE,
+CREATE TABLE account_erasure_acknowledgements (
+  user_id               uuid NOT NULL REFERENCES account_erasure_obligations(user_id) ON DELETE CASCADE,
   issuer                text NOT NULL,
   obligation_created_at timestamptz NOT NULL,
   acknowledged_at       timestamptz,
   PRIMARY KEY (user_id, issuer)
 );
 CREATE INDEX account_erasure_acknowledgements_pending_idx
-  ON profiles.account_erasure_acknowledgements (issuer, obligation_created_at, user_id)
+  ON account_erasure_acknowledgements (issuer, obligation_created_at, user_id)
   WHERE acknowledged_at IS NULL;
 
 -- Signed documents
-CREATE TABLE profiles.signed_documents (
+CREATE TABLE signed_documents (
   digest         text PRIMARY KEY,
   document_type  text NOT NULL,
   compact_jws    text NOT NULL,
@@ -527,13 +526,13 @@ CREATE TABLE profiles.signed_documents (
   updated_at     timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE profiles.signed_documents IS
+COMMENT ON TABLE signed_documents IS
   'AuthKit-published immutable signed documents (ak#260), served at /.well-known/authkit/documents/{digest}. Digest = sha256 over signed_payload; compact_jws may be re-signed on key rotation, payload/type never change.';
 
 -- Native device credentials
-CREATE TABLE profiles.user_device_keys (
+CREATE TABLE user_device_keys (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id      uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   public_key   bytea NOT NULL UNIQUE,
   label        text,
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -544,38 +543,38 @@ CREATE TABLE profiles.user_device_keys (
 );
 
 CREATE INDEX user_device_keys_user_active_idx
-  ON profiles.user_device_keys (user_id)
+  ON user_device_keys (user_id)
   WHERE revoked_at IS NULL;
 
-COMMENT ON TABLE profiles.user_device_keys IS
+COMMENT ON TABLE user_device_keys IS
   'Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.';
 
-COMMENT ON COLUMN profiles.users.avatar_url IS 'Host-supplied avatar URL/key string; blob storage is host-owned';
+COMMENT ON COLUMN users.avatar_url IS 'Host-supplied avatar URL/key string; blob storage is host-owned';
 
 -- Refresh-token custody
-CREATE TABLE profiles.refresh_token_history (
+CREATE TABLE refresh_token_history (
     token_hash bytea PRIMARY KEY,
-    session_id uuid NOT NULL REFERENCES profiles.refresh_sessions(id) ON DELETE CASCADE,
+    session_id uuid NOT NULL REFERENCES refresh_sessions(id) ON DELETE CASCADE,
     consumed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX refresh_token_history_session_idx
-    ON profiles.refresh_token_history (session_id);
+    ON refresh_token_history (session_id);
 
-COMMENT ON COLUMN profiles.refresh_sessions.previous_rotated_at IS
+COMMENT ON COLUMN refresh_sessions.previous_rotated_at IS
   'When the most recent predecessor rotated. Bounds the rotation grace window.';
 
-COMMENT ON COLUMN profiles.refresh_sessions.previous_successor_sealed IS
+COMMENT ON COLUMN refresh_sessions.previous_successor_sealed IS
   'Successor refresh token, XOR-sealed under SHA-256(predecessor || domain separator). Readable only by a caller holding the predecessor token; the database alone cannot unseal it (ak#274).';
 
 CREATE INDEX refresh_sessions_dead_idx
-  ON profiles.refresh_sessions (id)
+  ON refresh_sessions (id)
   WHERE revoked_at IS NOT NULL;
 CREATE INDEX refresh_sessions_expires_idx
-  ON profiles.refresh_sessions (expires_at)
+  ON refresh_sessions (expires_at)
   WHERE revoked_at IS NULL AND expires_at IS NOT NULL;
 
 -- Canonical names and retained aliases
-CREATE TABLE profiles.name_claims (
+CREATE TABLE name_claims (
   owner_kind text NOT NULL CHECK (owner_kind IN ('user', 'group')),
   persona text NOT NULL,
   name text NOT NULL CHECK (name = lower(name) AND name <> ''),
@@ -586,10 +585,10 @@ CREATE TABLE profiles.name_claims (
   CHECK ((owner_kind = 'user' AND persona = '') OR (owner_kind = 'group' AND persona <> '')),
   CHECK (NOT canonical OR expires_at IS NULL)
 );
-CREATE UNIQUE INDEX name_claims_canonical_owner ON profiles.name_claims(owner_kind, owner_id) WHERE canonical;
-CREATE INDEX name_claims_owner ON profiles.name_claims(owner_kind, owner_id);
-CREATE INDEX name_claims_expiry ON profiles.name_claims(expires_at) WHERE NOT canonical AND expires_at IS NOT NULL;
-CREATE FUNCTION profiles.lock_name_claims(kind text, scope text, handles text[]) RETURNS void LANGUAGE plpgsql AS $$
+CREATE UNIQUE INDEX name_claims_canonical_owner ON name_claims(owner_kind, owner_id) WHERE canonical;
+CREATE INDEX name_claims_owner ON name_claims(owner_kind, owner_id);
+CREATE INDEX name_claims_expiry ON name_claims(expires_at) WHERE NOT canonical AND expires_at IS NOT NULL;
+CREATE FUNCTION lock_name_claims(kind text, scope text, handles text[]) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE stripe integer;
 BEGIN
  FOR stripe IN SELECT DISTINCT (hashtextextended(kind || ':' || scope || ':' || lower(handle),631335) & 255)::integer
@@ -600,12 +599,12 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION profiles.claim_canonical_name(kind text, scope text, handle text, owner uuid, at_time timestamptz)
+CREATE FUNCTION claim_canonical_name(kind text, scope text, handle text, owner uuid, at_time timestamptz)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
  IF COALESCE(handle, '') = '' THEN RETURN; END IF;
- PERFORM profiles.lock_name_claims(kind, scope, ARRAY[handle]);
- INSERT INTO profiles.name_claims(owner_kind, persona, name, owner_id, canonical)
+ PERFORM lock_name_claims(kind, scope, ARRAY[handle]);
+ INSERT INTO name_claims(owner_kind, persona, name, owner_id, canonical)
  VALUES (kind, scope, lower(handle), owner, true)
  ON CONFLICT (owner_kind, persona, name) DO UPDATE
  SET owner_id = EXCLUDED.owner_id, canonical = true, expires_at = NULL
@@ -617,7 +616,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION profiles.enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE kind text := TG_ARGV[0]; scope text; handle text; previous text;
 BEGIN
  IF TG_OP='UPDATE' AND NEW.id <> OLD.id THEN RAISE EXCEPTION 'identity UUID is immutable' USING ERRCODE='23514'; END IF;
@@ -637,26 +636,26 @@ BEGIN
   -- Raw deletion keeps existing canonical-release semantics. The explicit group
   -- lifecycle primitive first turns the canonical claim into a permanent alias
   -- when reservation is requested. Earlier rename aliases always survive.
-  DELETE FROM profiles.name_claims WHERE owner_kind=kind AND owner_id=OLD.id AND canonical;
+  DELETE FROM name_claims WHERE owner_kind=kind AND owner_id=OLD.id AND canonical;
   RETURN OLD;
  END IF;
  IF TG_OP = 'INSERT' THEN
-  PERFORM profiles.claim_canonical_name(kind, scope, handle, NEW.id, clock_timestamp());
+  PERFORM claim_canonical_name(kind, scope, handle, NEW.id, clock_timestamp());
  ELSIF lower(COALESCE(handle,'')) <> lower(COALESCE(previous,'')) THEN
   IF COALESCE(handle,'') = '' OR NOT EXISTS (
-   SELECT 1 FROM profiles.name_claims WHERE owner_kind = kind AND persona = scope
+   SELECT 1 FROM name_claims WHERE owner_kind = kind AND persona = scope
     AND name = lower(handle) AND owner_id = NEW.id AND canonical
   ) THEN RAISE EXCEPTION 'rename requires an atomic name claim' USING ERRCODE = '23514'; END IF;
  END IF;
  RETURN NEW;
 END;
 $$;
-CREATE TRIGGER users_name_claim AFTER INSERT OR UPDATE OF id, username OR DELETE ON profiles.users
- FOR EACH ROW EXECUTE FUNCTION profiles.enforce_canonical_name_claim('user');
-CREATE TRIGGER groups_name_claim AFTER INSERT OR UPDATE OF id, instance_slug, persona OR DELETE ON profiles.permission_groups
- FOR EACH ROW EXECUTE FUNCTION profiles.enforce_canonical_name_claim('group');
+CREATE TRIGGER users_name_claim AFTER INSERT OR UPDATE OF id, username OR DELETE ON users
+ FOR EACH ROW EXECUTE FUNCTION enforce_canonical_name_claim('user');
+CREATE TRIGGER groups_name_claim AFTER INSERT OR UPDATE OF id, instance_slug, persona OR DELETE ON permission_groups
+ FOR EACH ROW EXECUTE FUNCTION enforce_canonical_name_claim('group');
 
-CREATE FUNCTION profiles.invalidate_recovery_grants() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION invalidate_recovery_grants() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF ROW(NEW.email, NEW.phone_number, NEW.email_verified, NEW.phone_verified,
          NEW.banned_at, NEW.banned_until, NEW.deleted_at, NEW.metadata->'reserved')
@@ -669,5 +668,5 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER invalidate_recovery_grants
-BEFORE UPDATE ON profiles.users
-FOR EACH ROW EXECUTE FUNCTION profiles.invalidate_recovery_grants();
+BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION invalidate_recovery_grants();

@@ -316,7 +316,7 @@ func (s *Client) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	dbtx := db.ForSchema(tx, s.dbSchema())
+	dbtx := tx
 	if err := s.lockAuthority(ctx, dbtx); err != nil {
 		return nil, err
 	}
@@ -443,7 +443,7 @@ func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (person
 		return "", "", nil
 	}
 	err = dbtx.QueryRow(ctx,
-		`SELECT persona, COALESCE(instance_slug, '') FROM profiles.permission_groups WHERE id = $1::uuid`,
+		`SELECT persona, COALESCE(instance_slug, '') FROM permission_groups WHERE id = $1::uuid`,
 		groupID).Scan(&persona, &instanceSlug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", nil

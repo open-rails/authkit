@@ -12,7 +12,7 @@ import (
 const userMetadata = `-- name: UserMetadata :one
 
 SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM profiles.users WHERE id = $1::uuid
+FROM users WHERE id = $1::uuid
 `
 
 // Reserved-account + metadata queries (core/service_reserved_accounts.go).
@@ -24,7 +24,7 @@ func (q *Queries) UserMetadata(ctx context.Context, id string) ([]byte, error) {
 }
 
 const userMetadataPatch = `-- name: UserMetadataPatch :execrows
-UPDATE profiles.users
+UPDATE users
 SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
     updated_at = now()
 WHERE id = $2::uuid

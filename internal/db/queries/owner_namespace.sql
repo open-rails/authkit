@@ -9,12 +9,12 @@ SELECT (CASE
   THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
   ELSE false
 END)::boolean AS reserved
-FROM profiles.users
+FROM users
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserSlugAliases :many
 SELECT c.name AS from_slug
-FROM profiles.name_claims c JOIN profiles.users u ON u.id=c.owner_id
+FROM name_claims c JOIN users u ON u.id=c.owner_id
 WHERE c.owner_kind='user' AND c.owner_id=sqlc.arg(user_id)::uuid AND NOT c.canonical
   AND (c.expires_at IS NULL OR c.expires_at > sqlc.arg(at_time)::timestamptz)
   AND u.deleted_at IS NULL

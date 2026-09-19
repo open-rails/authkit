@@ -23,7 +23,7 @@ func (s *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
-	q := db.New(db.ForSchema(s.pg, s.dbSchema()))
+	q := db.New(s.pg)
 	rows, err := q.IdentityUsersByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (s *Client) PublicUsersByIDs(ctx context.Context, ids []string) (map[string
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
-	q := db.New(db.ForSchema(s.pg, s.dbSchema()))
+	q := db.New(s.pg)
 	rows, err := q.IdentityPublicUsersByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
-	q := db.New(db.ForSchema(s.pg, s.dbSchema()))
+	q := db.New(s.pg)
 	rows, err := q.IdentityUserLivenessByIDs(ctx, ids)
 	if err != nil {
 		return nil, err

@@ -126,7 +126,7 @@ func (s *Client) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvit
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, invitedBy, role); err != nil {
 			return err
 		}
-		return st.q.QueryRow(ctx, `INSERT INTO profiles.group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
+		return st.q.QueryRow(ctx, `INSERT INTO group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
   VALUES($1::uuid,$2,$3::uuid,$4,$5) RETURNING id::text`, gid, role, invitedBy, sha256Hex(code), expiresAt).Scan(&id)
 	})
 	if err != nil {
@@ -145,11 +145,11 @@ func (s *Client) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRe
 	if err != nil {
 		return nil, err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	rows, err := q.Query(ctx,
 		`SELECT id::text, permission_group_id::text, role, invited_by::text,
 		        redeemed_at, expires_at, revoked_at, created_at, updated_at
-		 FROM profiles.group_invite_links
+		 FROM group_invite_links
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
 	if err != nil {
@@ -182,9 +182,9 @@ func (s *Client) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupR
 	if err != nil {
 		return err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	tag, err := q.Exec(ctx,
-		`UPDATE profiles.group_invite_links SET revoked_at = now(), updated_at = now()
+		`UPDATE group_invite_links SET revoked_at = now(), updated_at = now()
 		 WHERE id = $1::uuid AND permission_group_id = $2::uuid AND revoked_at IS NULL`,
 		linkID, gid)
 	if err != nil {
@@ -221,13 +221,13 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		return zero, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if err := s.lockAuthority(ctx, q); err != nil {
 		return zero, err
 	}
 
 	var groupID string
-	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM profiles.group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
+	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return zero, ErrInviteLinkNotFound
 	}
@@ -244,8 +244,8 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	err = q.QueryRow(ctx,
 		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
 		        l.redeemed_at, l.expires_at, l.revoked_at
-		 FROM profiles.group_invite_links l
-		 JOIN profiles.permission_groups g ON g.id = l.permission_group_id
+		 FROM group_invite_links l
+		 JOIN permission_groups g ON g.id = l.permission_group_id
 		 WHERE l.code_hash = $1 AND l.permission_group_id=$2::uuid
 		 FOR UPDATE OF l`,
 		codeHash, groupID).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &redeemedAt, &expiresAt, &revokedAt)
@@ -274,7 +274,7 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 			return zero, err
 		}
 		if _, err := q.Exec(ctx,
-			`UPDATE profiles.group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = $1::uuid`,
+			`UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = $1::uuid`,
 			linkID); err != nil {
 			return zero, err
 		}
@@ -289,7 +289,7 @@ func (s *Client) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role authkit.Role) (bool, error) {
 	var exists bool
 	err := q.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM profiles.group_user_roles
+		`SELECT EXISTS(SELECT 1 FROM group_user_roles
 		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3)`,
 		groupID, userID, role).Scan(&exists)
 	return exists, err

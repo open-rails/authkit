@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // API keys: long-lived, revocable shared-secret bearer credentials owned by a
@@ -158,7 +157,7 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 			}
 			var id string
 			var createdAt time.Time
-			err = st.q.QueryRow(ctx, `INSERT INTO profiles.api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
+			err = st.q.QueryRow(ctx, `INSERT INTO api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
    VALUES($1::uuid,$2,$3,$4,$5,$6,$7) RETURNING id::text,created_at`, gid, keyID, secretHash, name, role, nullable(strings.TrimSpace(opts.CreatedBy)), expiresAt).Scan(&id, &createdAt)
 			if err != nil {
 				return err
@@ -190,11 +189,11 @@ func (s *Client) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]API
 	if err != nil {
 		return nil, err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	rows, err := q.Query(ctx,
 		`SELECT id::text, key_id, name, role, COALESCE(created_by::text, ''),
 		        created_at, last_used_at, expires_at, revoked_at
-		 FROM profiles.api_keys
+		 FROM api_keys
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
 	if err != nil {
@@ -230,9 +229,9 @@ func (s *Client) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, token
 	if err != nil {
 		return false, err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	tag, err := q.Exec(ctx,
-		`UPDATE profiles.api_keys SET revoked_at = now()
+		`UPDATE api_keys SET revoked_at = now()
 		 WHERE id = $1::uuid AND permission_group_id = $2::uuid AND revoked_at IS NULL`,
 		strings.TrimSpace(tokenID), gid)
 	if err != nil {
@@ -260,7 +259,7 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	if err := s.requirePG(); err != nil {
 		return ResolvedAPIKey{}, err
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	var (
 		id                string
 		secretHash        []byte
@@ -275,9 +274,9 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	err := q.QueryRow(ctx,
 		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
 		        pg.id::text, pg.persona, COALESCE(pg.instance_slug, ''), r.permissions
-		 FROM profiles.api_keys t
-		 JOIN profiles.permission_groups pg ON pg.id = t.permission_group_id
- LEFT JOIN profiles.group_custom_roles r ON r.permission_group_id=t.permission_group_id AND r.role=t.role
+		 FROM api_keys t
+		 JOIN permission_groups pg ON pg.id = t.permission_group_id
+ LEFT JOIN group_custom_roles r ON r.permission_group_id=t.permission_group_id AND r.role=t.role
 		 WHERE t.key_id = $1`, keyID).
 		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug, &customPermissions)
 	if err != nil {
@@ -327,8 +326,8 @@ func (s *Client) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		q := db.ForSchema(s.pg, s.dbSchema())
-		_, _ = q.Exec(ctx, `UPDATE profiles.api_keys SET last_used_at = now() WHERE id = $1::uuid AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')`, id)
+		q := s.pg
+		_, _ = q.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1::uuid AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')`, id)
 	}()
 }
 

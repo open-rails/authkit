@@ -10,7 +10,7 @@ import (
 )
 
 const mFAClearDefaultFactors = `-- name: MFAClearDefaultFactors :exec
-UPDATE profiles.mfa_factors
+UPDATE mfa_factors
 SET is_default = false, updated_at = NOW()
 WHERE user_id = $1
 `
@@ -21,7 +21,7 @@ func (q *Queries) MFAClearDefaultFactors(ctx context.Context, userID string) err
 }
 
 const mFAConsumeBackupCode = `-- name: MFAConsumeBackupCode :execrows
-UPDATE profiles.mfa_settings
+UPDATE mfa_settings
 SET backup_codes = array_remove(backup_codes, $1), updated_at = NOW()
 WHERE user_id = $2
   AND enabled = true
@@ -46,7 +46,7 @@ func (q *Queries) MFAConsumeBackupCode(ctx context.Context, arg MFAConsumeBackup
 }
 
 const mFAConsumeFactorTOTPStep = `-- name: MFAConsumeFactorTOTPStep :execrows
-UPDATE profiles.mfa_factors
+UPDATE mfa_factors
 SET last_totp_step = $1, updated_at = NOW()
 WHERE id = $2
   AND user_id = $3
@@ -69,7 +69,7 @@ func (q *Queries) MFAConsumeFactorTOTPStep(ctx context.Context, arg MFAConsumeFa
 }
 
 const mFADeleteAllFactors = `-- name: MFADeleteAllFactors :exec
-DELETE FROM profiles.mfa_factors
+DELETE FROM mfa_factors
 WHERE user_id = $1
 `
 
@@ -79,7 +79,7 @@ func (q *Queries) MFADeleteAllFactors(ctx context.Context, userID string) error 
 }
 
 const mFADeleteFactor = `-- name: MFADeleteFactor :execrows
-DELETE FROM profiles.mfa_factors
+DELETE FROM mfa_factors
 WHERE user_id = $1 AND id = $2
 `
 
@@ -98,7 +98,7 @@ func (q *Queries) MFADeleteFactor(ctx context.Context, arg MFADeleteFactorParams
 
 const mFADisable = `-- name: MFADisable :exec
 
-UPDATE profiles.mfa_settings
+UPDATE mfa_settings
 SET enabled = false, updated_at = NOW()
 WHERE user_id = $1
 `
@@ -114,7 +114,7 @@ func (q *Queries) MFADisable(ctx context.Context, userID string) error {
 }
 
 const mFAInsertFactor = `-- name: MFAInsertFactor :one
-INSERT INTO profiles.mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
+INSERT INTO mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
 RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
 `
@@ -128,7 +128,7 @@ type MFAInsertFactorParams struct {
 	IsDefault    bool
 }
 
-func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams) (ProfilesMfaFactor, error) {
+func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams) (MfaFactor, error) {
 	row := q.db.QueryRow(ctx, mFAInsertFactor,
 		arg.UserID,
 		arg.Method,
@@ -137,7 +137,7 @@ func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams
 		arg.LastTotpStep,
 		arg.IsDefault,
 	)
-	var i ProfilesMfaFactor
+	var i MfaFactor
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -154,20 +154,20 @@ func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams
 
 const mFAListFactorsByUser = `-- name: MFAListFactorsByUser :many
 SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-FROM profiles.mfa_factors
+FROM mfa_factors
 WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC
 `
 
-func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]ProfilesMfaFactor, error) {
+func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]MfaFactor, error) {
 	rows, err := q.db.Query(ctx, mFAListFactorsByUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ProfilesMfaFactor
+	var items []MfaFactor
 	for rows.Next() {
-		var i ProfilesMfaFactor
+		var i MfaFactor
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -190,7 +190,7 @@ func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]Pr
 }
 
 const mFALockUser = `-- name: MFALockUser :one
-SELECT id FROM profiles.users WHERE id = $1 FOR UPDATE
+SELECT id FROM users WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) MFALockUser(ctx context.Context, id string) (string, error) {
@@ -201,7 +201,7 @@ func (q *Queries) MFALockUser(ctx context.Context, id string) (string, error) {
 }
 
 const mFASetBackupCodes = `-- name: MFASetBackupCodes :exec
-UPDATE profiles.mfa_settings
+UPDATE mfa_settings
 SET backup_codes = $1, updated_at = NOW()
 WHERE user_id = $2
 `
@@ -217,7 +217,7 @@ func (q *Queries) MFASetBackupCodes(ctx context.Context, arg MFASetBackupCodesPa
 }
 
 const mFASetDefaultFactor = `-- name: MFASetDefaultFactor :execrows
-UPDATE profiles.mfa_factors
+UPDATE mfa_factors
 SET is_default = true, updated_at = NOW()
 WHERE user_id = $1 AND id = $2
 `
@@ -237,13 +237,13 @@ func (q *Queries) MFASetDefaultFactor(ctx context.Context, arg MFASetDefaultFact
 
 const mFASettingsByUser = `-- name: MFASettingsByUser :one
 SELECT user_id, enabled, backup_codes, created_at, updated_at
-FROM profiles.mfa_settings
+FROM mfa_settings
 WHERE user_id = $1
 `
 
-func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (ProfilesMfaSetting, error) {
+func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (MfaSetting, error) {
 	row := q.db.QueryRow(ctx, mFASettingsByUser, userID)
-	var i ProfilesMfaSetting
+	var i MfaSetting
 	err := row.Scan(
 		&i.UserID,
 		&i.Enabled,
@@ -255,7 +255,7 @@ func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (Profile
 }
 
 const mFAUpsertSettings = `-- name: MFAUpsertSettings :exec
-INSERT INTO profiles.mfa_settings (user_id, enabled, backup_codes, updated_at)
+INSERT INTO mfa_settings (user_id, enabled, backup_codes, updated_at)
 VALUES ($1, true, $2, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
   enabled = true,

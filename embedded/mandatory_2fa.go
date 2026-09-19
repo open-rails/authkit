@@ -88,7 +88,7 @@ func (s *Client) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
 func (s *Client) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
-	return s.requireSessionMFAStateOn(ctx, db.ForSchema(s.pg, s.dbSchema()), userID, authMethods, status, statusErr)
+	return s.requireSessionMFAStateOn(ctx, s.pg, userID, authMethods, status, statusErr)
 }
 
 func (s *Client) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID string, authMethods []string, status MFAStatus, statusErr error) error {
@@ -164,8 +164,8 @@ func (s *Client) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, per
 func (s *Client) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, a.role
-		   FROM profiles.group_user_roles a
-		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
+		   FROM group_user_roles a
+		   JOIN permission_groups g ON g.id = a.permission_group_id
 		  WHERE a.user_id = $1::uuid`,
 		userID)
 	if err != nil {
@@ -232,7 +232,7 @@ func (s *Client) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, error) {
 	var enabled bool
 	err := q.QueryRow(ctx,
-		`SELECT enabled FROM profiles.mfa_settings WHERE user_id = $1::uuid`,
+		`SELECT enabled FROM mfa_settings WHERE user_id = $1::uuid`,
 		userID).Scan(&enabled)
 	if errors.Is(err, pgx.ErrNoRows) || !enabled {
 		return false, nil
@@ -242,7 +242,7 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 	}
 	var hasFactor bool
 	if err := q.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM profiles.mfa_factors WHERE user_id = $1::uuid)`,
+		`SELECT EXISTS (SELECT 1 FROM mfa_factors WHERE user_id = $1::uuid)`,
 		userID).Scan(&hasFactor); err != nil {
 		return false, err
 	}
@@ -259,8 +259,8 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
-		   FROM profiles.group_user_roles a
-		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
+		   FROM group_user_roles a
+		   JOIN permission_groups g ON g.id = a.permission_group_id
 		  WHERE a.user_id = $1::uuid`,
 		userID)
 	if err != nil {
@@ -309,7 +309,7 @@ func (s *Client) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 
 	for _, r := range removals {
 		if _, err := q.Exec(ctx,
-			`DELETE FROM profiles.group_user_roles
+			`DELETE FROM group_user_roles
 			  WHERE permission_group_id = $1::uuid
 			    AND user_id = $2::uuid
 			    AND role = $3`,

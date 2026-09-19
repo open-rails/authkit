@@ -12,7 +12,7 @@ import (
 
 const remoteApplicationByDomainForUpdate = `-- name: RemoteApplicationByDomainForUpdate :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE domain = $1
 FOR UPDATE
 `
@@ -62,7 +62,7 @@ func (q *Queries) RemoteApplicationByDomainForUpdate(ctx context.Context, domain
 
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE issuer = $1
 `
 
@@ -111,7 +111,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 
 const remoteApplicationBySlug = `-- name: RemoteApplicationBySlug :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE slug = $1
 `
 
@@ -161,7 +161,7 @@ func (q *Queries) RemoteApplicationBySlug(ctx context.Context, slug string) (Rem
 const remoteApplicationBySlugForUpdate = `-- name: RemoteApplicationBySlugForUpdate :one
 
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE slug = $1
 FOR UPDATE
 `
@@ -213,7 +213,7 @@ func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug str
 }
 
 const remoteApplicationDelete = `-- name: RemoteApplicationDelete :execrows
-DELETE FROM profiles.remote_applications WHERE issuer = $1
+DELETE FROM remote_applications WHERE issuer = $1
 `
 
 func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (int64, error) {
@@ -225,7 +225,7 @@ func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (i
 }
 
 const remoteApplicationDomainInsert = `-- name: RemoteApplicationDomainInsert :one
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at)
+INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at)
 VALUES ($1, $2::uuid, $3, $4, $5, $6, true, $7, 'registered', 'domain', $8, $9, now())
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
 `
@@ -296,7 +296,7 @@ func (q *Queries) RemoteApplicationDomainInsert(ctx context.Context, arg RemoteA
 }
 
 const remoteApplicationDomainRefresh = `-- name: RemoteApplicationDomainRefresh :one
-UPDATE profiles.remote_applications
+UPDATE remote_applications
 SET issuer            = $1,
     jwks_uri          = $2,
     mode              = $3,
@@ -376,7 +376,7 @@ func (q *Queries) RemoteApplicationDomainRefresh(ctx context.Context, arg Remote
 
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
+INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
@@ -457,7 +457,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 
 const remoteApplicationsAll = `-- name: RemoteApplicationsAll :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 ORDER BY slug ASC
 `
 
@@ -519,7 +519,7 @@ func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicatio
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM profiles.remote_applications
+FROM remote_applications
 WHERE enabled = true
 ORDER BY slug ASC
 `

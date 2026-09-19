@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // GroupInstanceByID reads the identity already resolved by a host. It never
@@ -40,7 +39,7 @@ func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
+	st := NewPermissionGroupStore(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}

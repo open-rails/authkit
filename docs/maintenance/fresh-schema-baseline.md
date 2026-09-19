@@ -3,7 +3,7 @@
 AuthKit's pre-launch schema is being consolidated into one authored baseline.
 Earlier AuthKit migration histories are unsupported and must be rebuilt from
 approved source data. Migration never drops an existing application's tables.
-The raw `migrations/postgres.FS` and `FSForSchema` interfaces remain available to
+The schema-neutral `migrations/postgres.FS` interface remains available to
 host-owned migratekit runners, using the canonical `authkit` ledger namespace.
 
 Migratekit's `ApplyMigrations(ctx, migrations)` returns only an error. Migration

@@ -11,7 +11,14 @@ if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
 fi
 export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
 export AUTHKIT_TEST_REQUIRE_DB=1
-export SQLC_DATABASE_URL=$AUTHKIT_TEST_DATABASE_URL
+# AuthKit's SQL is schema-neutral; sqlc's live PREPARE checks must resolve it
+# against the same default namespace used by the integration pool.
+if [[ "$AUTHKIT_TEST_DATABASE_URL" == *\?* ]]; then
+  sqlc_sep='&'
+else
+  sqlc_sep='?'
+fi
+export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
 export GOMAXPROCS=${GOMAXPROCS:-2}
 go run github.com/open-rails/migratekit/cmd/migratekit@v1.0.1 apply \
   -dsn "$AUTHKIT_TEST_DATABASE_URL" -app authkit -dir migrations/postgres -schema profiles

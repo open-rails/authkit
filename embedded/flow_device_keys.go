@@ -299,23 +299,23 @@ func (s *Client) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 		return DeviceKey{}, "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if user == nil {
 		userID, err := newUUIDV7String()
 		if err != nil {
 			return DeviceKey{}, "", false, err
 		}
-		_, err = q.Exec(ctx, `INSERT INTO profiles.users (id, email, email_verified)
+		_, err = q.Exec(ctx, `INSERT INTO users (id, email, email_verified)
 VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 		if err != nil {
 			return DeviceKey{}, "", false, err
 		}
 	}
 	var userID string
-	if err := q.QueryRow(ctx, `SELECT id FROM profiles.users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
+	if err := q.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
 		return DeviceKey{}, "", false, err
 	}
-	if _, err := q.Exec(ctx, `UPDATE profiles.users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
+	if _, err := q.Exec(ctx, `UPDATE users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
 		return DeviceKey{}, "", false, err
 	}
 
@@ -323,7 +323,7 @@ VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 	var existingUserID string
 	var revokedAt *time.Time
 	err = q.QueryRow(ctx, `SELECT id, user_id, COALESCE(label, ''), created_at, last_used_at, revoked_at
-FROM profiles.user_device_keys WHERE public_key=$1`, publicKey).
+FROM user_device_keys WHERE public_key=$1`, publicKey).
 		Scan(&existing.ID, &existingUserID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt, &revokedAt)
 	if err == nil {
 		if existingUserID != userID || revokedAt != nil {
@@ -342,7 +342,7 @@ FROM profiles.user_device_keys WHERE public_key=$1`, publicKey).
 	if record.Label != "" {
 		label = &record.Label
 	}
-	if err := q.QueryRow(ctx, `INSERT INTO profiles.user_device_keys (user_id, public_key, label)
+	if err := q.QueryRow(ctx, `INSERT INTO user_device_keys (user_id, public_key, label)
 VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`, userID, publicKey, label).
 		Scan(&existing.ID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt); err != nil {
 		var pgErr *pgconn.PgError
@@ -384,8 +384,8 @@ func (s *Client) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (D
 		return DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
 	}
 	record := deviceKeyLogin{DeviceKeyID: deviceKeyID}
-	row := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_id, public_key
-FROM profiles.user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
+	row := s.pg.QueryRow(ctx, `SELECT user_id, public_key
+FROM user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
 	var publicKey []byte
 	if err := row.Scan(&record.UserID, &publicKey); err == nil {
 		record.PublicKey = base64.RawURLEncoding.EncodeToString(publicKey)
@@ -430,7 +430,7 @@ func (s *Client) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	}
 
 	var deviceKey DeviceKey
-	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `UPDATE profiles.user_device_keys
+	err = s.pg.QueryRow(ctx, `UPDATE user_device_keys
 SET last_used_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
 RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID, record.UserID).
 		Scan(&deviceKey.ID, &deviceKey.Label, &deviceKey.CreatedAt, &deviceKey.LastUsedAt)
@@ -447,16 +447,16 @@ RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID
 // ListDeviceKeys returns the user's machine credentials after proving that the
 // device which minted the caller's token is still active.
 func (s *Client) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error) {
-	q := db.ForSchema(s.pg, s.dbSchema())
+	q := s.pg
 	var active bool
 	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM profiles.user_device_keys
+		SELECT 1 FROM user_device_keys
 		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
 	)`, currentID, userID).Scan(&active); err != nil || !active {
 		return nil, errDeviceKeyInvalid
 	}
 	rows, err := q.Query(ctx, `SELECT id, COALESCE(label, ''), created_at, last_used_at, revoked_at
-		FROM profiles.user_device_keys WHERE user_id=$1 ORDER BY created_at, id`, userID)
+		FROM user_device_keys WHERE user_id=$1 ORDER BY created_at, id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -482,9 +482,9 @@ func (s *Client) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	if targetID == currentID {
-		result, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=COALESCE(revoked_at, now())
+		result, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=COALESCE(revoked_at, now())
 			WHERE id=$1 AND user_id=$2`, currentID, userID)
 		if err != nil {
 			return err
@@ -496,12 +496,12 @@ func (s *Client) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 	}
 	var active bool
 	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM profiles.user_device_keys
+		SELECT 1 FROM user_device_keys
 		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
 	)`, currentID, userID).Scan(&active); err != nil || !active {
 		return errDeviceKeyInvalid
 	}
-	if _, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=COALESCE(revoked_at, now())
+	if _, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=COALESCE(revoked_at, now())
 		WHERE id=$1 AND user_id=$2`, targetID, userID); err != nil {
 		return err
 	}
@@ -511,7 +511,7 @@ func (s *Client) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 // revokeAllDeviceKeys revokes every live key of userID on q and returns the
 // count (ban, soft delete, account emergency revoke).
 func (s *Client) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) (int64, error) {
-	tag, err := db.ForSchema(q, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
+	tag, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=now()
 		WHERE user_id=$1 AND revoked_at IS NULL`, userID)
 	return tag.RowsAffected(), err
 }
@@ -524,15 +524,15 @@ func (s *Client) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID st
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.ForSchema(tx, s.dbSchema())
+	q := tx
 	var active bool
 	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM profiles.user_device_keys
+		SELECT 1 FROM user_device_keys
 		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
 	)`, currentID, userID).Scan(&active); err != nil || !active {
 		return errDeviceKeyInvalid
 	}
-	if _, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
+	if _, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=now()
 		WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL`, userID, currentID); err != nil {
 		return err
 	}

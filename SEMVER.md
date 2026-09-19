@@ -264,7 +264,7 @@ and surface `password_reset_required`. Minimum length 8.
 
 ### 6.1 Schema & migrations
 
-- Embedded at `migrations/postgres` (`FS`, `FSForSchema`), applied directly through
+- Embedded at `migrations/postgres` (`FS`), applied directly through
   migratekit, name-tracked so nothing is re-applied.
 - Forward-only and append-only after v1.0.0: published files are immutable;
   evolution ships as new migrations. A destructive migration is MAJOR.

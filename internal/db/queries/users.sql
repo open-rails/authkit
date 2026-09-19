@@ -6,58 +6,58 @@
 -- the language off this row instead of issuing a separate UserPreferredLanguage
 -- query (#228).
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
-FROM profiles.users WHERE id = $1;
+FROM users WHERE id = $1;
 
 -- name: UserByEmail :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
+FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 
 -- name: UserByPhone :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE phone_number = $1;
+FROM users WHERE phone_number = $1;
 
 -- name: UserSetPhoneVerifiedByID :exec
-UPDATE profiles.users SET phone_verified = $2, updated_at = NOW() WHERE id = $1;
+UPDATE users SET phone_verified = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetPhoneVerifiedByIDAndPhone :exec
-UPDATE profiles.users
+UPDATE users
 SET phone_verified = true
 WHERE id = $1 AND phone_number = $2;
 
 -- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserSetPreferredLanguage :exec
-UPDATE profiles.users
+UPDATE users
 SET preferred_language = $2,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserPreferredLanguage :one
 SELECT COALESCE(preferred_language, '')::text AS language
-FROM profiles.users
+FROM users
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
-INSERT INTO profiles.users (id, email, username)
+INSERT INTO users (id, email, username)
 SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at;
 
 -- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
-INSERT INTO profiles.users (
+INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
@@ -67,7 +67,7 @@ SELECT
 FROM claim;
 
 -- name: UserImportUpdate :one
-UPDATE profiles.users
+UPDATE users
 SET email = COALESCE(sqlc.narg(email), email),
     phone_number = COALESCE(sqlc.narg(phone_number), phone_number),
     username = sqlc.arg(username),
@@ -84,71 +84,71 @@ WHERE id = sqlc.arg(id)::uuid
 RETURNING id::text;
 
 -- name: UserSetEmailVerified :exec
-UPDATE profiles.users SET email_verified = $2, updated_at = NOW() WHERE id = $1;
+UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserPasswordInsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, 'argon2id');
 
 -- name: UserSetPhoneAndVerified :exec
-UPDATE profiles.users
+UPDATE users
 SET phone_number = $2, phone_verified = $3, updated_at = NOW()
 WHERE id = $1;
 
 -- name: UserSetLastLogin :exec
-UPDATE profiles.users SET last_login = $2, updated_at = NOW() WHERE id = $1;
+UPDATE users SET last_login = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserClearBan :exec
-UPDATE profiles.users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1;
+UPDATE users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1;
 
 -- name: UserBan :exec
-UPDATE profiles.users
+UPDATE users
 SET banned_at = sqlc.arg(banned_at), banned_until = sqlc.narg(banned_until), ban_reason = sqlc.narg(ban_reason), banned_by = sqlc.narg(banned_by), updated_at = NOW()
 WHERE id = sqlc.arg(id);
 
 -- name: UserSoftDelete :exec
-UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1;
+UPDATE users SET deleted_at = now(), updated_at = now() WHERE id = $1;
 
 -- name: UserSetEmailAndUnverify :exec
-UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
+UPDATE users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetAvatarURL :execrows
-UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;
+UPDATE users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserPasswordRow :one
 SELECT password_hash, hash_algo
-FROM profiles.user_passwords WHERE user_id = $1;
+FROM user_passwords WHERE user_id = $1;
 
 -- name: UserPasswordUpsert :exec
-INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash_algo = EXCLUDED.hash_algo, password_updated_at = NOW();
 
 -- name: UserDeleteHard :exec
-DELETE FROM profiles.users WHERE id = $1;
+DELETE FROM users WHERE id = $1;
 
 -- name: UserApplyEmailChange :exec
-UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
+UPDATE users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
 
 -- name: UserApplyPhoneChange :exec
-UPDATE profiles.users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1;
+UPDATE users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1;
 
 -- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));
+SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));
 
 -- name: UserCredentialVersion :one
 SELECT credential_version, email, phone_number
-FROM profiles.users WHERE id = $1;
+FROM users WHERE id = $1;
 
 -- name: UserCredentialVersionForUpdate :one
 -- All credential changes acquire this account lock before credential/session rows.
 SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
-FROM profiles.users WHERE id = $1 FOR UPDATE;
+FROM users WHERE id = $1 FOR UPDATE;
 
 -- name: UserAdvanceCredentialVersion :exec
-UPDATE profiles.users SET credential_version = credential_version + 1 WHERE id = $1;
+UPDATE users SET credential_version = credential_version + 1 WHERE id = $1;
 
 -- name: UserPasswordRehash :exec
 -- Opportunistic rehash cannot overwrite a password changed after verification.
-UPDATE profiles.user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id'
+UPDATE user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id'
 WHERE user_id = sqlc.arg(user_id) AND password_hash = sqlc.arg(old_hash);

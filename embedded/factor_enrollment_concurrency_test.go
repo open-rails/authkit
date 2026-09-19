@@ -21,7 +21,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 			username := fmt.Sprintf("firstfactor%d", time.Now().UnixNano())
 			user, err := svc.CreateUser(ctx, username+"@test.example", username)
 			require.NoError(t, err)
-			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, user.ID) })
 			start := make(chan struct{})
 			var wg sync.WaitGroup
 			results := make([][]string, 2)

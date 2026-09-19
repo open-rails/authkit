@@ -97,12 +97,12 @@ func testErasureRepeatedDeletion(t *testing.T, hard, addIssuer bool) {
 	require.NoError(t, <-deleteDone)
 	if hard {
 		var remaining int
-		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_erasure_obligations WHERE user_id=$1::uuid`, user.ID).Scan(&remaining))
+		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM account_erasure_obligations WHERE user_id=$1::uuid`, user.ID).Scan(&remaining))
 		require.Zero(t, remaining, "fully acknowledged hard deletion must close its obligation")
 		return
 	}
 	var pending, unacked int
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT pending_sites,(SELECT count(*) FROM profiles.account_erasure_acknowledgements WHERE user_id=$1::uuid AND acknowledged_at IS NULL) FROM profiles.account_erasure_obligations WHERE user_id=$1::uuid`, user.ID).Scan(&pending, &unacked))
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT pending_sites,(SELECT count(*) FROM account_erasure_acknowledgements WHERE user_id=$1::uuid AND acknowledged_at IS NULL) FROM account_erasure_obligations WHERE user_id=$1::uuid`, user.ID).Scan(&pending, &unacked))
 	require.Equal(t, unacked, pending, "readiness must match committed acknowledgement state")
 	if addIssuer {
 		require.Equal(t, 1, pending, "the newly required site must remain pending")

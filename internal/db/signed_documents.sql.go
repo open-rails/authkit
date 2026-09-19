@@ -11,7 +11,7 @@ import (
 
 const lookupSignedDocument = `-- name: LookupSignedDocument :one
 SELECT document_type, compact_jws, signed_payload
-FROM profiles.signed_documents
+FROM signed_documents
 WHERE digest = $1
 `
 
@@ -30,13 +30,13 @@ func (q *Queries) LookupSignedDocument(ctx context.Context, digest string) (Look
 
 const saveSignedDocument = `-- name: SaveSignedDocument :execrows
 
-INSERT INTO profiles.signed_documents (digest, document_type, compact_jws, signed_payload)
+INSERT INTO signed_documents (digest, document_type, compact_jws, signed_payload)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (digest) DO UPDATE
 SET compact_jws = excluded.compact_jws,
     updated_at = now()
-WHERE profiles.signed_documents.document_type = excluded.document_type
-  AND profiles.signed_documents.signed_payload = excluded.signed_payload
+WHERE signed_documents.document_type = excluded.document_type
+  AND signed_documents.signed_payload = excluded.signed_payload
 `
 
 type SaveSignedDocumentParams struct {
