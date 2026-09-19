@@ -62,7 +62,7 @@ generated or canonical sources named below, not here.
 |---|---|---|---|
 | `github.com/open-rails/authkit` | `authkit` | Stable | `Client` interface, domain/wire types, typed identifiers, error catalog, verify-only primitives |
 | `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)` |
-| `…/authhttp` | `authhttp` | Stable | HTTP transport: `New(client, Config)`, `MountHandler` |
+| `…/authhttp` | `authhttp` | Stable | HTTP transport: `New(client, Config)`, `MountHandler`, `NewMount` and its route catalog |
 | `…/verify` | `verify` | Stable (verify-only) | Verifier, `Claims`, middleware, permission/liveness gates |
 | `…/dpop` | `dpop` | Stable (verify-only) | RFC 9449 sender-proof verification and atomic replay callback |
 | `…/documents` | `documents` | Stable | Signed-document envelopes, publisher/resolver, service |
@@ -138,6 +138,10 @@ an otherwise compatible AuthKit release.
   `RouteRef`, `RouteSpec`, the `RouteGroup` constants and their membership, and
   `svc.JWKSHandler()` / `APIRoutes()` / `OIDCBrowserRoutes()` /
   `PermissionGroupRoutes()`.
+- `NewMount` returns the same canonical HTTP behavior plus `Mount.Routes()`:
+  copied `MountedRoute` metadata for installed method/path pairs, including HEAD
+  support. Paths are fully anchored net/http patterns. The metadata follows the
+  same configuration and exclusions as actual registration.
 - **The route table is `docs/api-endpoints.md`**, generated from the registry
   by `TestAPIEndpointsDoc`; CI fails when stale. Method, path, group, auth,
   rate-limit bucket and mount condition of every row are covered.

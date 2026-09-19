@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 // Mount anchors. JWKS and browser OIDC are root-anchored by spec/convention
@@ -65,11 +67,55 @@ type MountOptions struct {
 	RefreshCookie bool
 }
 
+// MountedRoute describes an endpoint actually installed by NewMount. Path is
+// the full anchored net/http path pattern; GET endpoints also have a HEAD entry.
+// Auth and Permission describe the route-level gate, not every handler-specific
+// authorization check.
+type MountedRoute struct {
+	Method     string
+	Path       string
+	Group      RouteGroup
+	Auth       RouteAuthTier
+	Permission authkit.Perm
+}
+
+// Mount is the canonical HTTP handler and its route catalog. Framework adapters
+// use the catalog to register native routes, delegating requests to ServeHTTP
+// so AuthKit still owns path values, authentication, JSON and cookie guards.
+type Mount struct {
+	handler http.Handler
+	routes  []MountedRoute
+}
+
+func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	m.handler.ServeHTTP(w, r)
+}
+
+// Routes returns a copy of the configured endpoints, including JWKS and enabled
+// document/OIDC routes. It never advertises disabled or excluded endpoints.
+func (m *Mount) Routes() []MountedRoute {
+	if m == nil {
+		return nil
+	}
+	return append([]MountedRoute(nil), m.routes...)
+}
+
 // MountHandler returns the full AuthKit surface — JSON API, browser OIDC, and
 // JWKS — as ONE framework-neutral net/http handler. The host mounts it once
 // (a gin host uses gin.WrapH) and rewrites nothing. Every route keeps the
 // gate its RouteSpec carries; the mount adds no auth and removes none.
-func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
+func MountHandler(svc *Service, opts MountOptions) (http.Handler, error) {
+	mount, err := NewMount(svc, opts)
+	if err != nil {
+		return nil, err
+	}
+	return mount, nil
+}
+
+// NewMount constructs the same handler as MountHandler and exposes the route
+// catalog generated during registration. Hosts using a framework adapter can
+// let that adapter call this internally; net/http hosts can use MountHandler.
+func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 	if svc == nil || svc.svc == nil || svc.verifier == nil {
 		return nil, errors.New("authkit: MountHandler requires a Service constructed by authhttp.New")
 	}
@@ -86,13 +132,34 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	// error — a mount that cannot serve its declared surface must fail loudly.
 	defer func() {
 		if p := recover(); p != nil {
-			h, err = nil, fmt.Errorf("authkit: conflicting mount patterns: %v", p)
+			result, err = nil, fmt.Errorf("authkit: conflicting mount patterns: %v", p)
 		}
 	}()
 
 	mux := http.NewServeMux()
+	result = &Mount{}
+	indexes := make(map[RouteRef]int)
+	record := func(route MountedRoute) {
+		key := RouteRef{Method: route.Method, Path: route.Path}
+		if index, exists := indexes[key]; exists {
+			result.routes[index] = route
+			return
+		}
+		indexes[key] = len(result.routes)
+		result.routes = append(result.routes, route)
+	}
+	register := func(pattern string, handler http.Handler, route MountedRoute) {
+		mux.Handle(pattern, handler)
+		record(route)
+		if route.Method == http.MethodGet {
+			route.Method = http.MethodHead
+			record(route)
+		}
+	}
 	if !excluded[RouteRef{Method: http.MethodGet, Path: JWKSPath}] {
-		mux.Handle("GET "+JWKSPath, svc.JWKSHandler())
+		register("GET "+JWKSPath, svc.JWKSHandler(), MountedRoute{
+			Method: http.MethodGet, Path: JWKSPath, Group: RouteAuth, Auth: AuthPublic,
+		})
 	}
 	// #260: published signed documents are root-anchored by protocol (#254 —
 	// resolvers derive the URL from the issuer), like JWKS. Mounted when
@@ -101,7 +168,9 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	if len(svc.documentProviders) > 0 &&
 		(opts.Groups == nil || routeGroupSet(opts.Groups)(RouteDocuments)) &&
 		!excluded[RouteRef{Method: http.MethodGet, Path: DocumentsPath}] {
-		mux.Handle(DocumentsPath, svc.documentsHandler())
+		register(DocumentsPath, svc.documentsHandler(), MountedRoute{
+			Method: http.MethodGet, Path: DocumentsPath, Group: RouteDocuments, Auth: AuthRequired,
+		})
 	}
 
 	// #243/ak#324: the MFA-enrollment exempt surface is anchored at THIS prefix
@@ -128,7 +197,10 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 			if jsonAPI {
 				handler = svc.guardJSONAPI(handler)
 			}
-			mux.Handle(spec.Method+" "+joinRoutePath(anchor, spec.Path), handler)
+			path := joinRoutePath(anchor, spec.Path)
+			register(spec.Method+" "+path, handler, MountedRoute{
+				Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Permission,
+			})
 		}
 	}
 	mount(svc.APIRoutes(opts.Groups...), apiPrefix, true)
@@ -136,10 +208,11 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 		mount(svc.OIDCBrowserRoutes(), DefaultOIDCPath, false)
 	}
 
-	if !opts.RefreshCookie {
-		return mux, nil
+	result.handler = mux
+	if opts.RefreshCookie {
+		result.handler = withRefreshCookiePolicy(mux, refreshCookiePolicy{path: refreshCookiePath(apiPrefix)})
 	}
-	return withRefreshCookiePolicy(mux, refreshCookiePolicy{path: refreshCookiePath(apiPrefix)}), nil
+	return result, nil
 }
 
 // refreshCookiePath anchors the refresh cookie at the mount's POST /token, the

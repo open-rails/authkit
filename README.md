@@ -134,6 +134,14 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 Standard `net/http` routers, including Chi, mount the handler directly. Fiber
 hosts use the adapter shown below.
 
+Framework adapters can use `authhttp.NewMount(service, options)` to obtain the
+canonical HTTP handler together with `Routes()`: a copy of the endpoints
+actually registered, with full paths and automatic HEAD entries. The catalog
+includes JWKS and enabled document/OIDC endpoints and follows group selection,
+exclusions and the API prefix. It is produced during registration, so adapters
+do not maintain another list of AuthKit endpoints. `MountHandler` remains the
+simple `http.Handler` entry point for hosts that do not need the catalog.
+
 ## Verification in a host
 
 `srv.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
