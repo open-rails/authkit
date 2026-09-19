@@ -265,7 +265,7 @@ and surface `password_reset_required`. Minimum length 8.
 ### 6.1 Schema & migrations
 
 - Embedded at `migrations/postgres` (`FS`), applied directly through
-  migratekit, name-tracked so nothing is re-applied.
+  migratekit, keyed by numeric sequence with filename and content identity checks.
 - Forward-only and append-only after v1.0.0: published files are immutable;
   evolution ships as new migrations. A destructive migration is MAJOR.
 - Tables live in `Config.Schema` (default `profiles`; `^[a-z_][a-z0-9_]*$`,

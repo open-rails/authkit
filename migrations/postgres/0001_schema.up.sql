@@ -46,6 +46,11 @@ $$;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '300s';
 
+-- Bind function lookups to migratekit's target schema, not a host connection.
+-- pg_catalog remains implicitly first; explicit pg_temp keeps temporary tables
+-- from shadowing AuthKit relations inside the captured function search path.
+SELECT set_config('search_path', format('%I, public, pg_temp', current_schema()), true);
+
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
 
@@ -282,7 +287,7 @@ COMMENT ON COLUMN permission_groups.instance_slug IS
   'Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.';
 
 CREATE FUNCTION trg_permission_group_containment() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE
   actual_parent_persona text;
 BEGIN
@@ -588,7 +593,7 @@ CREATE TABLE name_claims (
 CREATE UNIQUE INDEX name_claims_canonical_owner ON name_claims(owner_kind, owner_id) WHERE canonical;
 CREATE INDEX name_claims_owner ON name_claims(owner_kind, owner_id);
 CREATE INDEX name_claims_expiry ON name_claims(expires_at) WHERE NOT canonical AND expires_at IS NOT NULL;
-CREATE FUNCTION lock_name_claims(kind text, scope text, handles text[]) RETURNS void LANGUAGE plpgsql AS $$
+CREATE FUNCTION lock_name_claims(kind text, scope text, handles text[]) RETURNS void LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE stripe integer;
 BEGIN
  FOR stripe IN SELECT DISTINCT (hashtextextended(kind || ':' || scope || ':' || lower(handle),631335) & 255)::integer
@@ -600,7 +605,7 @@ END;
 $$;
 
 CREATE FUNCTION claim_canonical_name(kind text, scope text, handle text, owner uuid, at_time timestamptz)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 BEGIN
  IF COALESCE(handle, '') = '' THEN RETURN; END IF;
  PERFORM lock_name_claims(kind, scope, ARRAY[handle]);
@@ -616,7 +621,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE kind text := TG_ARGV[0]; scope text; handle text; previous text;
 BEGIN
  IF TG_OP='UPDATE' AND NEW.id <> OLD.id THEN RAISE EXCEPTION 'identity UUID is immutable' USING ERRCODE='23514'; END IF;
@@ -655,7 +660,7 @@ CREATE TRIGGER users_name_claim AFTER INSERT OR UPDATE OF id, username OR DELETE
 CREATE TRIGGER groups_name_claim AFTER INSERT OR UPDATE OF id, instance_slug, persona OR DELETE ON permission_groups
  FOR EACH ROW EXECUTE FUNCTION enforce_canonical_name_claim('group');
 
-CREATE FUNCTION invalidate_recovery_grants() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION invalidate_recovery_grants() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 BEGIN
   IF ROW(NEW.email, NEW.phone_number, NEW.email_verified, NEW.phone_verified,
          NEW.banned_at, NEW.banned_until, NEW.deleted_at, NEW.metadata->'reserved')

@@ -11,7 +11,7 @@ readiness is established by a successful apply; there is no operational need to
 attribute individual migration rows to one replica when several replicas start
 concurrently:
 
-| Consumer/head | Current AuthKit migration consumption |
+| Historical consumer/head (before the migration API hard cut) | Migration consumption at that head |
 |---|---|
 | Doujins `0ea039e5` | CLI prints Applied count; coordinator discards result |
 | Hentai0 `ffad07de` | Raw FS migration runner |
@@ -40,9 +40,11 @@ and remain untouched.
 Provision a fresh AuthKit schema, configure the host for that schema, apply the
 baseline, then re-import the intended source records. Reusing a prerelease schema
 requires an explicit operator reset of AuthKit-owned relations and its ledger
-scope: app `authkit`, database `postgres`, schema `''` for the default `profiles`
-or the configured custom schema. Do not clear another app's ledger rows or rely
-on cascading deletion of host-owned tables/foreign keys. AuthKit provides no
+scope: app `authkit`, database `postgres`, schema `profiles` by default or the
+configured custom schema. The numeric migratekit ledger uses `BIGINT` sequence columns in
+`public.migrations` and `public.migration_repairs`; its earlier tracker layouts
+are unsupported. Start with a fresh database for this shared-ledger hard cut.
+Do not clear another app's ledger rows or rely on cascading deletion of host-owned tables/foreign keys. AuthKit provides no
 automatic DROP/reset path. Future schema changes can append migrations after
 this baseline; consumers must test required behavior rather than numbering.
 
@@ -58,10 +60,8 @@ deliberately changes that candidate: role assignments use live composite primary
 keys without historical timestamps, duplicate group indexes are removed, and
 terminal invite/key indexes support bounded cleanup. See [storage lifetimes](storage-lifetimes.md).
 
-One fresh-schema workflow replaces the separate migration, repeated race,
-old-ledger tolerance and pool-leak fixtures. It holds the entire one-connection
-host pool while two migrators install concurrently, validates repeat readiness,
-uses a raw-FS runner for a custom schema, exercises password/name operations,
-and rejects corrupt/old ledger entries and old tables while preserving host
-rows. The old bootstrap-claim backfill and refresh-history cutover tests are
-removed; current claim ownership, refresh rotation and cleanup tests remain.
+Migratekit owns installation, repeat/concurrent apply and ledger validation.
+AuthKit workflow fixtures apply the embedded raw FS before exercising account,
+naming, credential and permission behavior. The former AuthKit-specific
+migration runner, bootstrap-claim backfill and refresh-history cutover fixtures
+are removed; current claim ownership, refresh rotation and cleanup tests remain.
