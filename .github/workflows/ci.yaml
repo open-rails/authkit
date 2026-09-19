@@ -21,36 +21,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fiber:
-    name: Fiber adapter
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: adapters/fiber
-    env:
-      GOFLAGS: -mod=readonly
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26.6'
-          cache: true
-          cache-dependency-path: |
-            go.work.sum
-            adapters/fiber/go.sum
-      - name: Test with workspace core
-        run: go test -race -count=1 ./...
-      - name: Vet with workspace core
-        run: go vet ./...
-      - name: Test with published core
-        env:
-          GOWORK: 'off'
-        run: go test -race -count=1 ./...
-      - name: Vet with published core
-        env:
-          GOWORK: 'off'
-        run: go vet ./...
-
   workflows:
     runs-on: ubuntu-latest
     services:

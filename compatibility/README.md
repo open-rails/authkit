@@ -14,8 +14,9 @@ byte-for-byte protected. The script rejects changed/removed protected migrations
 and additions below the baseline's final number, removed/changed route rows, and
 weakening of published wire fixtures. New routes and additive wire fields are allowed. It uses Go's pinned `apidiff` to compare exported APIs
 of the root and adapter modules, then compiles each module's tests/examples
-with `GOWORK=off`. Adapter requirements must resolve through their published
-Go module versions; a workspace replacement cannot conceal incompatible pins.
+with `GOWORK=off`. Fiber also runs its race suite and vet in that published-module
+mode; the workspace workflow already exercises all adapters. Adapter requirements
+must resolve through their published Go module versions; a workspace replacement cannot conceal incompatible pins.
 An added module with no baseline is still compiled; API comparison starts once
 the baseline includes that module.
 
