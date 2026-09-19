@@ -191,7 +191,7 @@ func probeMigrations(client *embedded.Client) error {
 	if err != nil || exists {
 		return nil
 	}
-	return fmt.Errorf("authkit: schema %q has no users table — run AuthKit's migrations before constructing the server (authkitmigrate.New(pool, ...).Migrate(ctx))", client.Schema())
+	return fmt.Errorf("authkit: schema %q has no users table — run AuthKit's migrations before constructing the server (migratekit.NewPostgres(...).ApplyMigrations(ctx, migrations))", client.Schema())
 }
 
 // validate enforces the cross-layer dependency requirements for the configured

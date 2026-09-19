@@ -1,13 +1,12 @@
 // Package migrations embeds AuthKit's Postgres schema migrations.
 //
-// Hosts should apply them via authkitmigrate, which handles pool adaptation,
-// schema rendering, and migration tracking in one call:
+// Hosts should apply them with migratekit, which owns migration tracking:
 //
-//	migrator := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: cfg.Schema})
-//	err := migrator.Migrate(ctx)
+	//	migrations, _ := migratekit.LoadFromFS(FSForSchema(cfg.Schema))
+	//	migrator := migratekit.NewPostgres(db, "authkit").WithSchema(cfg.Schema, "profiles")
+	//	err := migrator.ApplyMigrations(ctx, migrations)
 //
-// The raw FS (and FSForSchema for a non-default schema) remains exported for
-// external migration runners.
+// FS and FSForSchema remain exported for host-owned runners.
 package migrations
 
 import (

@@ -24,17 +24,26 @@ if not published:
 pre_v1 = baseline_ref.startswith("v0.")
 for path in published:
     current = new / path.name
-    # v0.x is the pre-v1 candidate line. Its single 1000_v1 baseline is
+    # v0.x is the pre-v1 candidate line. Its single 0001 baseline is
     # intentionally editable until the owner freezes v1; all later releases
     # compare every published migration byte-for-byte.
     if pre_v1 and path.name == "1000_v1_schema.up.sql":
+        # The pre-v1 baseline was renumbered to the conventional initial
+        # migration name. Pre-v1 databases are disposable, so this is an
+        # intentional identity hard cut rather than a compatibility promise.
+        current = new / "0001_schema.up.sql"
         if not current.is_file():
-            raise SystemExit(f"pre-v1 baseline migration removed: {path.name}")
+            raise SystemExit(f"pre-v1 baseline migration removed or renamed unexpectedly: {path.name}")
         continue
     if not current.is_file() or current.read_bytes() != path.read_bytes():
         raise SystemExit(f"published migration changed or removed: {path.name}")
-last = max(int(p.name.split("_", 1)[0]) for p in published)
+last = max(
+    int(("0001_schema.up.sql" if p.name == "1000_v1_schema.up.sql" else p.name).split("_", 1)[0])
+    for p in published
+)
 for path in new.glob("*.sql"):
+    if pre_v1 and path.name == "0001_schema.up.sql":
+        continue
     if not (old / path.name).exists() and int(path.name.split("_", 1)[0]) <= last:
         raise SystemExit(f"new migration must follow the baseline: {path.name}")
 print(f"migration compatibility: {len(published)} published files unchanged")

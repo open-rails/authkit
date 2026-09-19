@@ -4,12 +4,12 @@ AuthKit's pre-launch schema is being consolidated into one authored baseline.
 Earlier AuthKit migration histories are unsupported and must be rebuilt from
 approved source data. Migration never drops an existing application's tables.
 The raw `migrations/postgres.FS` and `FSForSchema` interfaces remain available to
-host-owned runners, using the canonical `authkit` ledger namespace.
+host-owned migratekit runners, using the canonical `authkit` ledger namespace.
 
-`authkitmigrate.Migrate(ctx)` returns only an error. The removed `Applied`
-receipt was inferred outside the migration lock and could attribute another
-replica's work to the current call. There is no operational need for that
-attribution in the current consumer census:
+Migratekit's `ApplyMigrations(ctx, migrations)` returns only an error. Migration
+readiness is established by a successful apply; there is no operational need to
+attribute individual migration rows to one replica when several replicas start
+concurrently:
 
 | Consumer/head | Current AuthKit migration consumption |
 |---|---|
@@ -20,7 +20,7 @@ attribution in the current consumer census:
 | Tensorhub `0f86b1b6` | Startup logs Applied names; tests assert old numbers |
 | OpenRails SaaS `3511ce85` | Raw FS migration runner |
 
-Consumers should report successful readiness after Migrate returns nil and test
+Consumers should report successful readiness after ApplyMigrations returns nil and test
 required schema behavior instead of migration counts. Their dependency updates
 must include the new return signature; no compatibility adapter is provided.
 
@@ -30,13 +30,12 @@ repeat/concurrent migration, account, naming, credential and permission workflow
 
 ## Rebuild boundary
 
-`1000_v1_schema.up.sql` is the fresh schema identity. The previous 1–16 migration
-histories are not adopted or repaired. Both Migrate and Validate require exact
-filename, content/semantic digests and applied status for their scoped ledger;
-missing identity is an error, not a warning. The SQL baseline independently
-refuses existing AuthKit relation names, so raw-FS runners enforce the same
-rebuild boundary even without the wrapper. Empty precreated schemas and unrelated
-host tables are allowed and remain untouched.
+`0001_schema.up.sql` is the fresh schema identity. The previous 1–16 migration
+histories are not adopted or repaired. Migratekit applies the chain by migration
+prefix and detects filename identity conflicts; content drift is reported by its
+normal ledger policy. The SQL baseline independently refuses existing AuthKit
+relation names. Empty precreated schemas and unrelated host tables are allowed
+and remain untouched.
 
 Provision a fresh AuthKit schema, configure the host for that schema, apply the
 baseline, then re-import the intended source records. Reusing a prerelease schema

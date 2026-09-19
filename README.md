@@ -3,16 +3,15 @@
 Embedded auth library for Go services: users, sessions, MFA, passkeys, device
 keys, OAuth/OIDC and Solana login, RBAC permission groups, API keys, signed
 documents and delegated tokens, running in your process against your Postgres
-(18+) and Redis. Tests exercise the embedded HTTP handlers directly; the
-`cmd/authkit-migrate` command prepares the schema without starting a server.
+(18+) and Redis. Tests exercise the embedded HTTP handlers directly; migrations
+use the embedded SQL source with migratekit without starting a server.
 
 Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and
 `adapters/riverjobs` as separate modules so gin and river never enter the root
 `go.mod`.
 
-For local tests, run `scripts/check.sh`. The migration command
-reads `AUTHKIT_DATABASE_URL` and accepts `--schema` for a non-default schema;
-applications normally call `authkitmigrate` during their own startup.
+For local tests, run `scripts/check.sh`. Applications normally call migratekit
+directly during startup with the embedded migration source.
 
 See [verification trust and key ownership](docs/verification.md) for local versus
 external identity, application delegation boundaries, and key rotation.
@@ -28,13 +27,21 @@ describes the transaction mode that locks script keys for execution.
 ## Migrations
 
 ```go
-import "github.com/open-rails/authkit/authkitmigrate"
+import (
+	"database/sql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/open-rails/migratekit"
+	authkitmigrations "github.com/open-rails/authkit/migrations/postgres"
+)
 
-err := authkitmigrate.New(pool, nil).Migrate(ctx) // &authkitmigrate.Config{Schema: "…"} for a non-default schema
+db, _ := sql.Open("pgx", dsn)
+fsys, _ := authkitmigrations.FSForSchema("profiles")
+migrations, _ := migratekit.LoadFromFS(fsys)
+err := migratekit.NewPostgres(db, "authkit").WithSchema("profiles", "profiles").ApplyMigrations(ctx, migrations)
 ```
 
-Idempotent; `Validate(ctx)` requires the exact installed migration identity and
-content. Run it before `embedded.New`. Pre-v1 schemas must be rebuilt for the
+Idempotent; use `ValidateAllApplied` for a read-only readiness check. Run it
+before `embedded.New`. Pre-v1 schemas must be rebuilt for the
 [fresh baseline](docs/maintenance/fresh-schema-baseline.md); AuthKit never drops
 existing application data automatically.
 

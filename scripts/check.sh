@@ -13,7 +13,8 @@ export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/
 export AUTHKIT_TEST_REQUIRE_DB=1
 export SQLC_DATABASE_URL=$AUTHKIT_TEST_DATABASE_URL
 export GOMAXPROCS=${GOMAXPROCS:-2}
-AUTHKIT_DATABASE_URL=$AUTHKIT_TEST_DATABASE_URL go run ./cmd/authkit-migrate
+go run github.com/open-rails/migratekit/cmd/migratekit@v1.0.1 apply \
+  -dsn "$AUTHKIT_TEST_DATABASE_URL" -app authkit -dir migrations/postgres -schema profiles
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
@@ -37,7 +38,6 @@ required = {
                  'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
                  'TestWorkflowRateLimits'),
     'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow', 'TestErasureHandoffAcrossSites'),
-    'authkitmigrate': ('TestFreshSchemaWorkflow',),
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests

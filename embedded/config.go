@@ -71,7 +71,7 @@ type Config struct {
 	// (authkit issue 69). The name must match ^[a-z_][a-z0-9_]*$ (max 63 bytes);
 	// NewFromConfig rejects anything else. Hosts that set a non-default schema
 	// must also run the migrations rendered for that schema — see
-	// migrations/postgres.FSForSchema.
+	// migrations/postgres.FSForSchema and migratekit.WithSchema.
 	Schema string
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
