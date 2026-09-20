@@ -102,9 +102,9 @@ for replacement in json.load(sys.stdin).get("Replace", []) or []:
   else
     printf 'New module absent from compatibility baseline: %s\n' "$module"
   fi
-  # Workspace workflows already run every adapter. Fiber's request/response
-  # bridge must also execute against its published core dependency.
-  if [[ "$directory" == adapters/fiber ]]; then
+  # Workspace workflows already run every adapter. Native HTTP routing bridges
+  # must also execute against their published core dependency.
+  if [[ "$directory" == adapters/fiber || "$directory" == adapters/gin ]]; then
     (cd "$root/$directory" && go test -race -count=1 ./... && go vet ./...)
   else
     (cd "$root/$directory" && go test -run '^$' ./...)

@@ -41,11 +41,12 @@ its providers; there is no test-only per-request route reconstruction.
 Small focused tests remain for password-hash input bounds, JWT key/algorithm
 policy, DPoP and SIWS signatures, SSRF/network restrictions, document
 canonicalization, stored issuer authority, the verify-only dependency boundary,
-and the Gin/River adapters. Their fixtures are shared; the old per-handler and
-per-private-helper repetitions are removed. Fixtures and helpers count toward
-the test-maintenance budget.
+and the Gin/Fiber/River adapters. Their fixtures are shared; the old per-handler
+and per-private-helper repetitions are removed. Fixtures and helpers count
+toward the test-maintenance budget.
 
 The contracts job runs vet, SQLC generation/vet and the existing published
 Go/migration/route/wire compatibility check. Compatibility alone is not an
-authorization proof. These workflows do not qualify external identity or
-message-delivery services, and they do not declare v1.
+authorization proof. Gin and Fiber route/security tests also run with
+`GOWORK=off` against their published core dependency. These workflows do not
+qualify external identity or message-delivery services, and they do not declare v1.
