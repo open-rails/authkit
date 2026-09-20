@@ -574,6 +574,9 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 			t.Fatalf("%s %s = %d %q, want %d %q", tc.method, tc.path, status, body, tc.status, tc.body)
 		}
 		if tc.status == http.StatusCreated {
+			if got := headers.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+				t.Errorf("content type after explicit status = %q", got)
+			}
 			if !reflect.DeepEqual(headers.Values("Set-Cookie"), []string{"host=1", "a=1", "b=2"}) {
 				t.Errorf("cookies = %v", headers.Values("Set-Cookie"))
 			}
@@ -581,5 +584,78 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 				t.Errorf("HTTP Header.Del did not remove host response header: %v", headers)
 			}
 		}
+	}
+}
+
+func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		app := fiber.New()
+		app.Use(func(c fiber.Ctx) error {
+			if explicit {
+				c.Set("Content-Type", "application/custom")
+			}
+			return c.Next()
+		})
+		app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/destination", http.StatusFound)
+		})))
+		status, headers, body := request(t, app, http.MethodGet, "/", "")
+		if status != http.StatusFound || headers.Get("Location") != "/destination" {
+			t.Fatalf("redirect = %d %v %q", status, headers, body)
+		}
+		if explicit {
+			if headers.Get("Content-Type") != "application/custom" || body != "" {
+				t.Errorf("explicit host content type not preserved: %v %q", headers, body)
+			}
+		} else if headers.Get("Content-Type") != "text/html; charset=utf-8" || !strings.Contains(body, "/destination") {
+			t.Errorf("Fiber default content type changed net/http.Redirect: %v %q", headers, body)
+		}
+	}
+}
+
+func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		setHeader  func(http.Header)
+	}{
+		{name: "sniff", want: "text/html; charset=utf-8"},
+		{name: "explicit", want: "application/custom", setHeader: func(h http.Header) { h.Set("Content-Type", "application/custom") }},
+		{name: "suppressed", setHeader: func(h http.Header) { h["Content-Type"] = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := fiber.New()
+			app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.setHeader != nil {
+					tc.setHeader(w.Header())
+				}
+				w.WriteHeader(http.StatusCreated)
+				w.Write(nil)
+				io.WriteString(w, "<html>first body</html>")
+				io.WriteString(w, "plain suffix")
+			})))
+			status, headers, body := request(t, app, http.MethodGet, "/", "")
+			if status != http.StatusCreated || headers.Get("Content-Type") != tc.want || body != "<html>first body</html>plain suffix" {
+				t.Fatalf("response = %d %v %q; want content type %q", status, headers, body, tc.want)
+			}
+		})
+	}
+}
+
+func TestUseWriteAfterNextPreservesFiberContentType(t *testing.T) {
+	app := fiber.New()
+	app.Get("/", authkitfiber.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Let the downstream handler choose its own content type.
+			w.Header().Del("Content-Type")
+			next.ServeHTTP(w, r)
+			io.WriteString(w, "<html>suffix</html>")
+		})
+	}), func(c fiber.Ctx) error {
+		c.Set("Content-Type", "application/custom")
+		return c.Status(http.StatusAccepted).Send(nil)
+	})
+	status, headers, body := request(t, app, http.MethodGet, "/", "")
+	if status != http.StatusAccepted || headers.Get("Content-Type") != "application/custom" || body != "<html>suffix</html>" {
+		t.Fatalf("response = %d %v %q", status, headers, body)
 	}
 }

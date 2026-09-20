@@ -1,6 +1,6 @@
 // Package authkitfiber bridges AuthKit's net/http middleware to Fiber v3.
-// Build AuthKit's routes with authhttp.MountHandler and mount the result
-// after host routes using Fallback. Verification policy stays in verify.
+// Mount registers AuthKit's routes directly on the application. Verification
+// policy stays in verify.
 package authkitfiber
 
 import (
@@ -14,12 +14,23 @@ import (
 
 // Fallback adapts authhttp.MountHandler to Fiber. Register it last with
 // app.Use so host routes win and all AuthKit paths retain their full prefix.
+//
+// Deprecated: use Mount to register AuthKit as ordinary, inspectable Fiber
+// routes. Fallback remains available for hosts adapting a custom HTTP handler.
 func Fallback(h http.Handler) fiber.Handler {
+	return httpHandler(h)
+}
+
+func httpHandler(h http.Handler) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		r, err := adaptor.ConvertRequest(c, true)
 		if err != nil {
 			return fiber.ErrBadRequest
 		}
+		// An implicit Fiber content type looks like an explicit host header to
+		// net/http (and suppresses Redirect's HTML response). Let the canonical
+		// handler choose its content type while retaining actual host headers.
+		c.Response().Header.SetNoDefaultContentType(true)
 		c.Status(http.StatusOK)
 		w := newResponseWriter(c)
 		h.ServeHTTP(w, r.WithContext(c.Context()))
@@ -172,10 +183,19 @@ func (w *responseWriter) WriteHeader(status int) {
 }
 
 func (w *responseWriter) Write(body []byte) (int, error) {
-	if !w.wroteHeader {
-		if w.header.Get("Content-Type") == "" {
+	// net/http sniffs the first nonempty body even after WriteHeader. A
+	// present-but-nil Content-Type deliberately suppresses that behavior.
+	_, hasContentType := w.header["Content-Type"]
+	if len(body) > 0 && len(w.c.Response().Body()) == 0 && !hasContentType {
+		if !w.wroteHeader {
 			w.header.Set("Content-Type", http.DetectContentType(body))
+		} else if len(w.c.Response().Header.Peek("Content-Type")) == 0 {
+			// Headers were copied to Fiber already; retain the committed status
+			// and any content type supplied by a downstream Fiber handler.
+			w.c.Response().Header.SetContentType(http.DetectContentType(body))
 		}
+	}
+	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
 	w.c.Response().AppendBody(body)
