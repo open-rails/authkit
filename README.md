@@ -102,12 +102,7 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 	if err != nil {
 		return nil, err
 	}
-	mount, err := authhttp.MountHandler(srv, authhttp.MountOptions{RefreshCookie: true})
-	if err != nil {
-		return nil, err
-	}
 	router := gin.New()
-	router.NoRoute(authkitgin.Fallback(mount)) // host routes win; AuthKit answers the rest
 
 	requireAuth := authkitgin.Required(srv.Verifier())
 	orgScope := func(c *gin.Context) verify.PermissionScope {
@@ -123,6 +118,9 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 			claims, _ := authkitgin.UserClaims(c)
 			c.JSON(http.StatusOK, gin.H{"user_id": claims.UserID, "org": c.Param("org")})
 		})
+	if err := authkitgin.Mount(router, srv, authhttp.MountOptions{RefreshCookie: true}); err != nil {
+		return nil, err
+	}
 	return router, nil
 }
 ```
@@ -131,8 +129,18 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 `account`, `device_keys`, `admin`, `permission_groups`, `browser_oidc`,
 `applications`, `delegated`, `documents`), `APIPrefix` anchors the API,
 `ExcludeRoutes` drops routes the host shadows, `Wrap` decorates every route.
-Standard `net/http` routers, including Chi, mount the handler directly. Fiber
-hosts use the adapter shown below.
+Gin hosts call `authkitgin.Mount(router, service)` and Fiber hosts call
+`authkitfiber.Mount(app, service)`, with an optional `MountOptions` value.
+Both register ordinary native routes and build the canonical HTTP mount
+internally. Gin routes appear in `router.Routes()`; no `NoRoute` fallback is
+installed. Gin mounting takes the root `*gin.Engine`, keeps JWKS/OIDC at their
+standard root paths, and validates route conflicts before registration. Use
+`ExcludeRoutes` when replacing an AuthKit endpoint with a host route.
+Unmatched paths/methods and redirects follow the host router's configuration.
+The existing `Fallback` helpers remain available for compatibility.
+
+Standard `net/http` routers, including Chi, can use `authhttp.MountHandler`
+directly. Fiber's adapter usage is shown below.
 
 Framework adapters can use `authhttp.NewMount(service, options)` to obtain the
 canonical HTTP handler together with `Routes()`: a copy of the endpoints
