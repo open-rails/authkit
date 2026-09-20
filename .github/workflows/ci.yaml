@@ -41,6 +41,7 @@ jobs:
         # that parser and fails before the job starts.
         options: --health-cmd redis-cli --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
+      # Use exact release tags for action references in this workflow.
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
@@ -48,10 +49,10 @@ jobs:
           # the module's `go 1.26.0` directive remains the consumer floor.
           go-version: '1.26.6'
           cache: true
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: authhttp/testdata/package.json
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '24'
       - run: pnpm --dir authhttp/testdata install --frozen-lockfile
