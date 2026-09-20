@@ -44,8 +44,8 @@ func (s *Service) Close() {
 // providers without readers, and a delegated route without its authorizer.
 //
 // The service verifier uses client as its liveness source automatically, so
-// RequiredLive and VerifyRequestLive need no additional wiring. Required and
-// VerifyRequest remain stateless; hosts can override the source through
+// RequiredLive, OptionalLive and VerifyRequestLive need no additional wiring.
+// Required, Optional and VerifyRequest remain stateless; hosts can override the source through
 // Service.Verifier().WithLiveness.
 //
 // Redis is taken ONCE (#210): the engine's Redis client (Deps.Redis) also backs

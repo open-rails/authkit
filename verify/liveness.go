@@ -26,7 +26,7 @@ type LivenessSource interface {
 var ErrLivenessUnconfigured = errors.New("verify: liveness gate used without a LivenessSource (call Verifier.WithLiveness)")
 
 // WithLiveness wires the account-liveness backend used by VerifyRequestLive and
-// the RequiredLive middlewares. Pass the authkit.Client the host already holds.
+// the RequiredLive and OptionalLive middleware. Pass the authkit.Client the host already holds.
 func (v *Verifier) WithLiveness(src LivenessSource) *Verifier {
 	v.mu.Lock()
 	v.liveness = src
@@ -185,6 +185,31 @@ func RequiredLive(v *Verifier) (func(http.Handler) http.Handler, error) {
 			}
 			r = r.WithContext(SetClaims(r.Context(), cl))
 			next.ServeHTTP(w, r)
+		})
+	}, nil
+}
+
+// OptionalLive admits requests without Authorization anonymously and otherwise
+// applies RequiredLive. Invalid presented credentials and unavailable liveness
+// backends are rejected. Native users get an account-liveness lookup; other
+// verified principals retain VerifyRequestLive's semantics.
+//
+// Like RequiredLive, it returns ErrLivenessUnconfigured at construction when
+// no source is wired. Mount on an individual route, a group, or around the
+// whole application to select the scope of per-request liveness checks.
+func OptionalLive(v *Verifier) (func(http.Handler) http.Handler, error) {
+	required, err := RequiredLive(v)
+	if err != nil {
+		return nil, err
+	}
+	return func(next http.Handler) http.Handler {
+		live := required(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			live.ServeHTTP(w, r)
 		})
 	}, nil
 }

@@ -449,6 +449,39 @@ A standalone `verify.NewVerifier()` still needs an explicit
 `verify.ErrLivenessUnconfigured`. Hosts can replace a service verifier's source
 with the same setter. Attaching the source does not change stateless middleware.
 
+Choose the scope where the check runs by mounting middleware, with no global
+configuration switch or implicit admin-role policy:
+
+- `verify.Required` and `verify.Optional` keep native-user token checks stateless.
+- `verify.RequiredLive` requires credentials and checks native-user liveness.
+- `verify.OptionalLive` admits anonymous requests without a lookup; presented
+  credentials must verify, and native users must pass the liveness check.
+
+```go
+requiredLive, err := verify.RequiredLive(srv.Verifier())
+if err != nil { return err }
+optionalLive, err := verify.OptionalLive(srv.Verifier())
+if err != nil { return err }
+mux.Handle("/admin/", requiredLive(adminHandler)) // explicit sensitive-route policy
+mux.Handle("/profile", optionalLive(profileHandler))
+// Alternatively, wrap the unwrapped application handler instead of its routes:
+handler := optionalLive(applicationHandler)
+```
+
+Mount on a route, a subtree/group, or the outer application handler according to
+the host's policy; choose one scope to avoid redundant lookups. Anonymous
+requests through `OptionalLive` remain anonymous. Invalid credentials, banned
+accounts, and liveness-backend failures are refused instead of becoming
+anonymous. These checks do not grant admin permissions; authorization remains a
+separate route policy. Verified machine/external principals retain the existing
+verifier behavior and do not acquire a native-user directory lookup.
+
+AuthKit's built-in root-permission operations (such as the admin user directory,
+ban, and account recovery routes) explicitly check native-user liveness after
+permission authorization. A banned operator cannot use a still-valid token for
+those operations. This policy follows the sensitive operation, not a role named
+`admin`, and does not enable account lookups on ordinary application routes.
+
 ## Sessions across issuers
 
 Deployments sharing one account schema under different issuers (separate site

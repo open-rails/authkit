@@ -67,7 +67,8 @@ func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
 // (persona, instanceSlug) permission group, for EVERY supported principal
 // shape:
 //   - user JWT: resolved through the permission-group (svc.Can, walking the
-//     parent chain to root and unioning assignments);
+//     parent chain to root and unioning assignments), then current account
+//     liveness before the sensitive operation;
 //   - api-key / service, delegated, and remote-application principals: resolved
 //     through their verified permission ceiling (claims.HasPermission); a
 //     GROUP-BOUND machine principal (#248) must additionally match the gated
@@ -104,6 +105,17 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 				return
 			}
 			if allowed {
+				// Intrinsic root-permission operations are explicitly
+				// sensitive, independent of the actor's role name.
+				live, _, err := s.verifier.IsLive(r.Context(), claims)
+				if err != nil {
+					unauthorized(w, authkit.CodeLivenessUnavailable)
+					return
+				}
+				if !live {
+					unauthorized(w, authkit.CodeAccountDisabled)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

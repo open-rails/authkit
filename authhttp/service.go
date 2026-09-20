@@ -183,8 +183,8 @@ func (s *Service) SMSHealthy() bool { return s.svc.SMSHealthy() }
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
 // Verifier returns the server's token verifier, with the client passed to New
-// already configured as its liveness source. RequiredLive and VerifyRequestLive
-// use that source; Required and VerifyRequest remain stateless. Hosts may
+// already configured as its liveness source. The explicit live middleware and
+// VerifyRequestLive use it; Required and Optional remain stateless. Hosts may
 // replace the source using WithLiveness.
 func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 
