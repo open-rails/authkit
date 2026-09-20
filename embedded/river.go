@@ -2,6 +2,8 @@ package embedded
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -48,6 +50,19 @@ func normalizeRiverConfig(cfg RiverConfig) (RiverConfig, error) {
 		return cfg, fmt.Errorf("authkit: River.CleanupInterval must be at least one second")
 	}
 	return cfg, nil
+}
+
+// maintenanceQueue preserves existing readable names where River accepts them.
+// Schema identifiers can be 63 bytes and allow underscore patterns that River
+// queues do not. The hyphen distinguishes hashed names from readable schemas.
+func maintenanceQueue(schema string) string {
+	const prefix = "authkit_maintenance"
+	readable := prefix + "_" + schema
+	if len(readable) <= 64 && !strings.HasPrefix(schema, "_") && !strings.HasSuffix(schema, "_") && !strings.Contains(schema, "__") {
+		return readable
+	}
+	digest := sha256.Sum256([]byte(schema))
+	return prefix + "-" + hex.EncodeToString(digest[:22])
 }
 
 type riverMaintenance struct {
@@ -105,7 +120,7 @@ func (s *Client) registerRiver(cfg *river.Config) error {
 	if s.maintenance.registered {
 		return fmt.Errorf("authkit: River workers already registered")
 	}
-	queue := "authkit_maintenance_" + s.dbSchema()
+	queue := maintenanceQueue(s.dbSchema())
 	if existing, ok := cfg.Queues[queue]; ok && existing.MaxWorkers < 1 {
 		return fmt.Errorf("authkit: maintenance queue %q requires at least one worker", queue)
 	}
