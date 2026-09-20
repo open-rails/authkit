@@ -7,7 +7,7 @@ dynamic table selection, advisory locks, and small test fixtures.
 
 ## Keep Raw
 
-- `migrations/postgres`: DDL is migration source, not runtime query code.
+- `internal/migrations/postgres`: DDL is migration source, not runtime query code.
 - `cmd/authkit-server`: migration runner setup and standalone server boot SQL.
 - `embedded/permission_group_store.go`: dynamic user-vs-remote role
   table selection and recursive authorization walks; covered by

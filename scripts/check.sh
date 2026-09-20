@@ -20,8 +20,8 @@ else
 fi
 export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
 export GOMAXPROCS=${GOMAXPROCS:-2}
-go run github.com/open-rails/migratekit/cmd/migratekit apply \
-  -dsn "$AUTHKIT_TEST_DATABASE_URL" -app authkit -dir migrations/postgres -schema profiles
+go run ./cmd/authkit-migrate \
+	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports

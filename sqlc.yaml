@@ -1,7 +1,7 @@
 # sqlc configuration (https://docs.sqlc.dev).
 #
 # Raw SQL lives in internal/db/queries/*.sql (one file per domain). The schema
-# source of truth is the numbered migration files in migrations/postgres/.
+# source of truth is the numbered migration files in internal/migrations/postgres/.
 # Generated code is committed at internal/db (package db) and never hand-edited.
 #
 # Workflow (always run as a pair; see Taskfile.yaml):
@@ -16,7 +16,7 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "internal/db/queries"
-    schema: "migrations/postgres"
+    schema: "internal/migrations/postgres"
     database:
       uri: "${SQLC_DATABASE_URL}"
     rules:
