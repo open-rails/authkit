@@ -1,6 +1,6 @@
-// Package authkitgin bridges AuthKit's net/http middleware to gin. Route
-// mounting is NOT here (#250): build the whole surface with
-// authhttp.MountHandler and mount it once via gin.WrapH.
+// Package authkitgin bridges AuthKit's net/http middleware to Gin. Mount
+// registers AuthKit's routes directly on the engine; verification policy
+// stays in verify.
 package authkitgin
 
 import (
@@ -21,6 +21,9 @@ import (
 //
 // For explicit wildcard mounts (r.Any("/oidc/*path", …)) plain gin.WrapH is
 // fine — gin only pre-sets 404 on the NoRoute path.
+//
+// Deprecated: use Mount to register ordinary routes visible to router.Routes().
+// Fallback remains available for hosts adapting a custom HTTP handler.
 func Fallback(h http.Handler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.WriteHeader(http.StatusOK)

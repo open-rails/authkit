@@ -55,9 +55,11 @@ func newTestService(t *testing.T) *authhttp.Service {
 	t.Cleanup(pool.Close)
 	client, err := embedded.New(cfg, embedded.Deps{Postgres: pool})
 	require.NoError(t, err)
+	t.Cleanup(client.Close)
 	// Rate limiting off: the parity test probes the whole route table twice
 	// (old stack + new mount) and must not trip order-dependent 429s.
 	svc, err := authhttp.New(client, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
 	require.NoError(t, err)
+	t.Cleanup(svc.Close)
 	return svc
 }
