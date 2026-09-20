@@ -102,6 +102,8 @@ var (
 
 // Client is the core auth service used by HTTP adapters.
 type Client struct {
+	maintenance *riverMaintenance
+
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the Client must observe every swap (#238).

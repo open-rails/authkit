@@ -3,6 +3,9 @@ package embedded
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -28,4 +31,37 @@ func TestApplyMigrationsCreatesSchemaBeforeClientConstruction(t *testing.T) {
 	)
 	require.NoError(t, err)
 	client.Close()
+}
+
+func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
+	for _, schema := range []string{"public", "shared_jobs"} {
+		t.Run(schema, func(t *testing.T) {
+			pg := testdb.EmptyScratchPostgres(t)
+			cfg := pg.Pool.Config()
+			cfg.MaxConns = 1
+			pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+			require.NoError(t, err)
+			defer pool.Close()
+			// This test deadline catches holding a pooled advisory-lock connection
+			// while waiting for another connection from that same single-slot pool.
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			start := make(chan struct{})
+			results := make(chan error, 6)
+			for range 6 {
+				go func() {
+					<-start
+					results <- ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema})
+				}()
+			}
+			close(start)
+			for range 6 {
+				require.NoError(t, <-results)
+			}
+			var exists bool
+			require.NoError(t, pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".river_job").Scan(&exists))
+			require.True(t, exists)
+			require.NoError(t, ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema}))
+		})
+	}
 }

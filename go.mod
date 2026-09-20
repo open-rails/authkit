@@ -10,6 +10,8 @@ require (
 	github.com/mr-tron/base58 v1.3.0
 	github.com/open-rails/migratekit v1.0.4
 	github.com/redis/go-redis/v9 v9.22.0
+	github.com/riverqueue/river v0.47.0
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.47.0
 	github.com/stretchr/testify v1.12.1
 	github.com/zitadel/oidc/v3 v3.51.1
 	golang.org/x/crypto v0.57.0
@@ -33,6 +35,13 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
+	github.com/riverqueue/river/riverdriver v0.47.0 // indirect
+	github.com/riverqueue/river/rivershared v0.47.0 // indirect
+	github.com/riverqueue/river/rivertype v0.47.0 // indirect
+	github.com/tidwall/gjson v1.19.0 // indirect
+	github.com/tidwall/match v1.2.0 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zitadel/schema v1.3.2 // indirect

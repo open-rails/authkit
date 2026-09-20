@@ -69,6 +69,9 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 
 	var err error
+	if cfg.River, err = normalizeRiverConfig(cfg.River); err != nil {
+		return Config{}, err
+	}
 	if cfg.namingPolicy, err = cfg.Naming.Normalize(); err != nil {
 		return Config{}, err
 	}
@@ -213,6 +216,10 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}
 	s.resolveEphemeralStore()
+	if err := s.initRiver(deps.River); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 

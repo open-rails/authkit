@@ -94,6 +94,7 @@ func (s *Client) Close() {
 	if s == nil {
 		return
 	}
+	s.closeRiver()
 	if s.ownedMemoryStore != nil {
 		s.ownedMemoryStore.Close()
 		s.ownedMemoryStore = nil
