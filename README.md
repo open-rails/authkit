@@ -168,8 +168,9 @@ Install the separate adapter module:
 go get github.com/open-rails/authkit/adapters/fiber
 ```
 
-The middleware and typed accessors mirror the Gin adapter. The same
-`authhttp.Service` and canonical `MountHandler` serve AuthKit's own routes:
+The middleware and typed accessors mirror the Gin adapter. Pass the same
+`authhttp.Service` to `authkitfiber.Mount`; it registers AuthKit's endpoints as
+ordinary Fiber routes and builds the canonical HTTP pipeline internally:
 
 ```go
 import (
@@ -179,10 +180,6 @@ import (
 )
 
 func setupFiber(srv *authhttp.Service) (*fiber.App, error) {
-	mount, err := authhttp.MountHandler(srv, authhttp.MountOptions{})
-	if err != nil {
-		return nil, err
-	}
 	app := fiber.New()
 	app.Get("/api/viewer", authkitfiber.Optional(srv.Verifier()), func(c fiber.Ctx) error {
 		user, ok := authkitfiber.UserClaims(c)
@@ -195,10 +192,23 @@ func setupFiber(srv *authhttp.Service) (*fiber.App, error) {
 		}
 		return c.JSON(fiber.Map{"user_id": user.UserID})
 	})
-	app.Use(authkitfiber.Fallback(mount)) // register last so host routes win
+	if err := authkitfiber.Mount(app, srv); err != nil {
+		return nil, err
+	}
 	return app, nil
 }
 ```
+
+All installed endpoints appear in `app.GetRoutes(true)`, with names beginning
+with `authkitfiber.RouteNamePrefix`. The app does not create a separate HTTP
+mount, translate parameters, or register a catch-all. `Mount` takes the root
+`*fiber.App`; pass an optional `authhttp.MountOptions` to configure API prefixes,
+groups, exclusions, wrappers, or refresh cookies. JWKS and OIDC keep their
+standard root paths. Exact method/path conflicts (using Fiber's case and slash
+settings), unsupported route patterns, and disabled HTTP methods are rejected
+before registration. Use `ExcludeRoutes` for endpoints the host replaces, and
+keep broad host catch-alls after mounting. Unmatched paths and methods follow
+Fiber's routing behavior. `Fallback` remains available for existing integrations.
 
 `Claims(c)` returns all verified claims, `UserClaims(c)` returns only user
 claims, and `Principal(c)` exposes the authenticated principal. They read the
