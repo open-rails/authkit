@@ -23,7 +23,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 	issuerB := "https://erasure-b-" + suffix + ".test"
 	issuerC := "https://erasure-c-" + suffix + ".test"
 	site := func(issuer string, account ...string) *Client {
-		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer, AccountIssuers: account}}, Keyset{}, WithPostgres(pool))
+		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer, AccountIssuers: account}}, Keyset{}, Deps{Postgres: pool})
 	}
 	siteA, siteB, siteC := site(issuerA, issuerB), site(issuerB, issuerA), site(issuerC)
 

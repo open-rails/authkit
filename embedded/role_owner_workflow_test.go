@@ -29,7 +29,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly}, RBAC: []PersonaDef{
 		{Name: RootPersona, Roles: []RoleDef{{Name: "manager", Permissions: []string{"root:members:manage", "root:credentials:manage", "root:users:ban"}}, {Name: "reader", Permissions: []string{"root:users:ban"}}}},
 		{Name: "org", Parent: RootPersona, Capabilities: PersonaCapabilities{CustomRoles: true}, Catalog: []string{"org:records:read", "org:records:write", "org:members:manage", "org:credentials:manage"}, Roles: []RoleDef{{Name: "reader", Permissions: []string{"org:records:read"}}, {Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}}}},
-	}}, Keyset{}, WithPostgres(hostPool))
+	}}, Keyset{}, Deps{Postgres: hostPool})
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	root, err := svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = TwoFactorOptional
 					cfg.RBAC = []PersonaDef{{Name: "org", Parent: RootPersona, Roles: []RoleDef{{Name: OwnerRoleName, Permissions: []string{"org:*"}, RequiresMFA: true}}}}
-					raceSvc = mustNewWithKeys(t, cfg, Keyset{}, WithPostgres(hostPool))
+					raceSvc = mustNewWithKeys(t, cfg, Keyset{}, Deps{Postgres: hostPool})
 					_, err := raceSvc.Enable2FA(ctx, one, "email", nil, AllowAdditionalFactors)
 					require.NoError(t, err)
 					_, err = raceSvc.Enable2FA(ctx, two, "email", nil, AllowAdditionalFactors)

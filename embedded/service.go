@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
 	"github.com/redis/go-redis/v9"
@@ -104,7 +105,12 @@ type Client struct {
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the Client must observe every swap (#238).
-	keys         jwtkit.KeySource
+	keys jwtkit.KeySource
+
+	// Only resources allocated by New are closed with the client.
+	ownedMemoryStore *memorystore.KV
+	ownedKeySource   *jwtkit.FileKeySource
+
 	email        EmailSender
 	sms          SMSSender
 	pg           *pgxpool.Pool

@@ -51,13 +51,13 @@ func testErasureRepeatedDeletion(t *testing.T, hard, addIssuer bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	const issuer = "https://erasure-race.test"
-	site := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer}}, Keyset{}, WithPostgres(pg.Pool))
+	site := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer}}, Keyset{}, Deps{Postgres: pg.Pool})
 	user, err := site.CreateUser(ctx, "erase-race@example.test", "erase-race")
 	require.NoError(t, err)
 	require.NoError(t, site.SoftDeleteUser(ctx, user.ID))
 	const newIssuer = "https://erasure-new-site.test"
 	if addIssuer {
-		site = mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer, AccountIssuers: []string{newIssuer}}}, Keyset{}, WithPostgres(pg.Pool))
+		site = mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer, AccountIssuers: []string{newIssuer}}}, Keyset{}, Deps{Postgres: pg.Pool})
 	}
 	gate := &erasureLockGate{entered: make(chan struct{}), release: make(chan struct{})}
 	cfg, err := pgxpool.ParseConfig(pg.URL)
@@ -69,7 +69,7 @@ func testErasureRepeatedDeletion(t *testing.T, hard, addIssuer bool) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate.release) }) }
 	defer unblock()
-	ackSite := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer}}, Keyset{}, WithPostgres(ackPool))
+	ackSite := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer}}, Keyset{}, Deps{Postgres: ackPool})
 	ackDone := make(chan error, 1)
 	go func() { ackDone <- ackSite.AcknowledgeErasure(ctx, issuer, user.ID) }()
 	select {

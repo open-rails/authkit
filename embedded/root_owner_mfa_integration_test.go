@@ -27,7 +27,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	cleanRootGroupTables(ctx, pool)
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
 
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, Deps{Postgres: pool})
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}

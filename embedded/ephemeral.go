@@ -60,9 +60,6 @@ func (s *Client) resolveEphemeralStore() {
 	if s.redisClient == nil {
 		return
 	}
-	if mk, ok := s.ephemeralStore.(*memorystore.KV); ok {
-		mk.Close()
-	}
 	s.ephemeralStore = redisstore.NewKV(s.redisClient, s.cfg.Ephemeral.KeyPrefix)
 }
 

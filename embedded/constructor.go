@@ -24,8 +24,8 @@ var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
 // Construction and Config validation. There is ONE config type (Config, #237)
 // and ONE normalization pass (normalizeConfig): the Client reads the
 // normalized Config directly, so a knob cannot exist internally without being
-// settable by hosts. NewFromConfig is THE host construction path (key/TOTP
-// resolution + required-field checks); NewService is the module-internal
+// settable by hosts. New is THE host construction path (key/TOTP
+// resolution + required-field checks); NewWithKeys is the module-internal
 // low-level seam (explicit Keyset, sparse configs) used by tests.
 
 const (
@@ -39,8 +39,8 @@ const (
 // normalizeConfig is the single defaulting/validation pass every Client's
 // Config goes through, exactly once, at construction. It returns a normalized
 // COPY: trimmed strings, defaulted paths/TTLs/limits, canonical enum values.
-// Required-field presence (Issuer, audiences) is NewFromConfig's job — sparse
-// test configs stay constructible through NewService.
+// Required-field presence (Issuer, audiences) is New's job — sparse
+// test configs stay constructible through NewWithKeys.
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
 	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
@@ -157,7 +157,7 @@ func normalizeConfig(cfg Config) (Config, error) {
 
 	// Passkey RP identity derives from the BaseURL origin. A non-empty BaseURL
 	// must be a valid origin (fail loud, as before); an empty one is only
-	// reachable via the low-level NewService path — passkeys stay unconfigured
+	// reachable via the low-level NewWithKeys path — passkeys stay unconfigured
 	// there unless RPID is set explicitly.
 	if cfg.Frontend.BaseURL != "" {
 		rpid, name, origins, uv, err := normalizePasskeyConfig(cfg.Passkeys, cfg.Frontend.BaseURL, cfg.Token.Issuer)
@@ -217,18 +217,27 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 }
 
 // New builds the engine from host configuration and runtime dependencies.
-// Deps.Postgres is required; with neither Deps.Redis nor Deps.EphemeralStore
+// With neither Deps.Redis nor Deps.EphemeralStore
 // the ephemeral store is the per-process memory store, which needs the
 // explicit Config.Ephemeral.AllowMemory opt-in (#305). If Keys.Source is nil,
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
-func New(cfg Config, deps Deps) (*Client, error) {
+func New(cfg Config, deps Deps) (_ *Client, err error) {
 	if err := deps.validate(); err != nil {
 		return nil, err
 	}
-	if deps.Redis == nil && deps.EphemeralStore == nil {
-		deps.EphemeralStore = memorystore.NewKV()
-	}
+	var ownedMemoryStore *memorystore.KV
+	var ownedKeySource *jwtkit.FileKeySource
+	defer func() {
+		if err != nil {
+			if ownedMemoryStore != nil {
+				ownedMemoryStore.Close()
+			}
+			if ownedKeySource != nil {
+				ownedKeySource.Close()
+			}
+		}
+	}()
 	// Handle nil Keys.Source — resolve from <Keys.Path>/keys.json (empty Path ⇒
 	// /vault/auth). No environment variables are consulted (#231): AuthKit is a
 	// library and the HOST owns the process env; binaries (cmd/authkit-server)
@@ -249,6 +258,7 @@ func New(cfg Config, deps Deps) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Keys.Source, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 		}
+		ownedKeySource, _ = keySource.(*jwtkit.FileKeySource)
 	}
 	// keySource is held live, NOT snapshotted into a Keyset: a reloadable file
 	// source hot-swaps its active signer/public keys behind an atomic pointer
@@ -261,7 +271,7 @@ func New(cfg Config, deps Deps) (*Client, error) {
 		return nil, err
 	}
 
-	// Required host-facing fields (the low-level NewService path skips these).
+	// Required host-facing fields (the low-level NewWithKeys path skips these).
 	if norm.Token.Issuer == "" {
 		return nil, fmt.Errorf("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
@@ -313,10 +323,16 @@ func New(cfg Config, deps Deps) (*Client, error) {
 	// config-only unit tests need no store): a nil pool yields a Client with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
 	// host-facing authhttp constructor, not here.
+	if deps.Redis == nil && deps.EphemeralStore == nil {
+		ownedMemoryStore = memorystore.NewKV()
+		deps.EphemeralStore = ownedMemoryStore
+	}
 	svc, err := newClient(norm, keySource, gs, deps)
 	if err != nil {
 		return nil, err
 	}
+	svc.ownedMemoryStore = ownedMemoryStore
+	svc.ownedKeySource = ownedKeySource
 	if err := svc.checkEphemeralBackend(norm); err != nil {
 		svc.Close()
 		return nil, err
@@ -326,8 +342,7 @@ func New(cfg Config, deps Deps) (*Client, error) {
 
 // normalizeSchemaName trims and validates a Postgres schema name, defaulting to
 // db.DefaultSchema when empty. A malformed name would be spliced into SQL text,
-// so this is the single injection guard both constructors share: NewService
-// panics on the error, NewFromConfig returns it.
+// so this is the single injection guard both constructors share.
 func normalizeSchemaName(raw string) (string, error) {
 	schema := strings.TrimSpace(raw)
 	if schema == "" {

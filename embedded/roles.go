@@ -11,8 +11,7 @@ import (
 
 // Root permission-group role helpers. "Root roles" are a user's assignments in
 // the RootPersona group; the catalog itself lives in Config (the GroupSchema),
-// not the DB, so upsert is validation-only. The unexported helpers are the
-// genesis/bootstrap path; the exported wrappers are what admin/HTTP adapters call.
+// not the DB, so upsert is validation-only.
 
 // ErrCannotRemoveLastAdminRole is returned by the permission-group last-owner
 // guard (refuseOwnerLoss) and mapped to a stable HTTP code by the admin
@@ -90,13 +89,13 @@ func (s *Client) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 	return s.splitConfiguredRootRoles(roles)
 }
 
-// assignRoleBySlug grants a user a role in the root permission-group (#111).
+// AssignRoleBySlug grants a user a role in the root permission-group (#111).
 // This path skips actor-authz/no-escalation (genesis/bootstrap/migration);
 // runtime callers use the actor-aware AssignRoleBySlugAs path. The
 // MFA-required-role enrollment gate is a subject-state invariant and STILL
 // applies — assigning an MFA-required role to a non-enrolled user fails closed
 // with ErrTwoFAEnrollmentRequired.
-func (s *Client) assignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *Client) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -106,11 +105,11 @@ func (s *Client) assignRoleBySlug(ctx context.Context, userID string, role authk
 	return s.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }
 
-// upsertRoleBySlug is a no-op under the permission-group model: catalog roles
+// UpsertRoleBySlug is a no-op under the permission-group model: catalog roles
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug
 // is a known root catalog role, ensures the root group exists, and returns.
-func (s *Client) upsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+func (s *Client) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -127,23 +126,10 @@ func (s *Client) upsertRoleBySlug(ctx context.Context, name string, role authkit
 	return nil
 }
 
-// removeRoleBySlug revokes a user's role in the root permission-group.
-func (s *Client) removeRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+// RemoveRoleBySlug revokes a user's role in the root permission-group.
+func (s *Client) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
 	return s.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
-}
-
-// Exported wrappers for admin/HTTP adapters.
-func (s *Client) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
-	return s.assignRoleBySlug(ctx, userID, role)
-}
-
-func (s *Client) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
-	return s.upsertRoleBySlug(ctx, name, role, description)
-}
-
-func (s *Client) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
-	return s.removeRoleBySlug(ctx, userID, role)
 }
