@@ -3,10 +3,11 @@
 AuthKit's pre-launch schema is being consolidated into one authored baseline.
 Earlier AuthKit migration histories are unsupported and must be rebuilt from
 approved source data. Migration never drops an existing application's tables.
-The schema-neutral `migrations/postgres.FS` interface remains available to
-host-owned migratekit runners, using the canonical `authkit` ledger namespace.
+The migration source is private to AuthKit. Hosts call
+`embedded.ApplyMigrations`, which uses the canonical `authkit` ledger
+namespace and creates the configured target schema.
 
-Migratekit's `ApplyMigrations(ctx, migrations)` returns only an error. Migration
+`embedded.ApplyMigrations(ctx, pool, schema)` returns only an error. Migration
 readiness is established by a successful apply; there is no operational need to
 attribute individual migration rows to one replica when several replicas start
 concurrently:

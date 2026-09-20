@@ -17,7 +17,8 @@ import sys
 
 old_root, new_root = map(Path, sys.argv[1:])
 baseline_ref = __import__("os").environ["BASELINE_REF"]
-old, new = (root / "migrations/postgres" for root in (old_root, new_root))
+old = old_root / "migrations/postgres"
+new = new_root / "internal/migrations/postgres"
 published = sorted(old.glob("*.sql"))
 if not published:
     raise SystemExit("compatibility baseline has no migrations")

@@ -7,11 +7,12 @@
 // naming-policy evaluation, response encoding, and erasure acknowledgement.
 // Importing it does not construct an engine or connect to a database.
 //
-// Construct the engine with embedded.New. Mount authentication routes through
-// authhttp or a framework adapter, and use verify for credential verification
-// and request authorization. Apply migrations from migrations/postgres with
-// migratekit before constructing the engine. Database access, token issuance,
-// and authentication workflows are implemented by embedded, not this package.
+// Construct the engine with embedded.New. Call embedded.ApplyMigrations before
+// construction so AuthKit owns its schema and migration runner. Mount
+// authentication routes through authhttp or a framework adapter, and use
+// verify for credential verification and request authorization. Database
+// access, token issuance, and authentication workflows are implemented by
+// embedded, not this package.
 //
 // Client describes host operations implemented by embedded.Client. A host can
 // define a smaller interface for the operations it needs; Client membership

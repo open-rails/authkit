@@ -77,7 +77,6 @@ generated or canonical sources named below, not here.
 | `…/oidckit` | `oidckit` | Stable | Browser-flow state, PKCE |
 | `…/password` | `password` | Stable | argon2id/bcrypt |
 | `…/ratelimit` (+ `/memory`, `/redis`) | `ratelimit` | Stable / Provided | `Limit`/`Result` and the two backends |
-| `…/migrations/postgres` | `migrations` | Stable | Embedded migration source |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
 | `…/adapters/gin`, `…/adapters/fiber`, `…/adapters/riverjobs` | `authkitgin`, `authkitfiber`, `riverjobs` | Provided | Own modules |
@@ -275,8 +274,9 @@ and surface `password_reset_required`. Minimum length 8.
 
 ### 6.1 Schema & migrations
 
-- Embedded at `migrations/postgres` (`FS`), applied directly through
-  migratekit, keyed by numeric sequence with filename and content identity checks.
+- Applied through `embedded.ApplyMigrations`, which owns the embedded source,
+  migratekit runner, schema creation and numeric ledger with filename/content
+  identity checks. The migration source is private to AuthKit.
 - Forward-only and append-only after v1.0.0: published files are immutable;
   evolution ships as new migrations. A destructive migration is MAJOR.
 - Tables live in `Config.Schema` (default `profiles`; `^[a-z_][a-z0-9_]*$`,
@@ -287,8 +287,7 @@ and surface `password_reset_required`. Minimum length 8.
   no role UUID contract exists.
 - Pre-v1 databases are disposable. The fresh `0001_schema.up.sql` baseline
   replaces old AuthKit histories; no data or migration compatibility is offered
-  for those histories. `migratekit.ApplyMigrations` establishes readiness;
-  `ValidateAllApplied` is the read-only migration check.
+  for those histories. `embedded.ApplyMigrations` establishes readiness.
 
 ### 6.2 Keys & environment
 

@@ -7,9 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
-	migrations "github.com/open-rails/authkit/migrations/postgres"
-	"github.com/open-rails/migratekit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,14 +20,12 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 	db, err := sql.Open("pgx", pg.URL)
 	require.NoError(t, err)
 	defer db.Close()
-	ms, err := migratekit.LoadFromFS(migrations.FS)
-	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `CREATE SCHEMA openrails`)
 	require.NoError(t, err)
 
 	for _, schema := range []string{"profiles", "custom_identity"} {
 		t.Run(schema, func(t *testing.T) {
-			require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema(schema).ApplyMigrations(ctx, ms))
+			require.NoError(t, embedded.ApplyMigrations(ctx, pg.Pool, schema))
 			conn, err := db.Conn(ctx)
 			require.NoError(t, err)
 			defer conn.Close()

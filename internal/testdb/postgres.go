@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
+	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/migratekit"
 )
 
