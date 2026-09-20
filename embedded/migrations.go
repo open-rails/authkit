@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -68,6 +69,21 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 	if opts.River != nil && opts.River.fromHost {
 		return nil
 	}
+	// River initializers share this database/schema lock protocol. The
+	// dedicated session leaves even a one-connection caller pool free for DDL.
+	lockConn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
+	if err != nil {
+		return fmt.Errorf("authkit: connect River migration lock: %w", err)
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
+	}()
+	if _, err := lockConn.Exec(ctx, "SELECT pg_advisory_lock(hashtext(current_database()), hashtext($1))", "river-migrations:"+riverCfg.Schema); err != nil {
+		return fmt.Errorf("authkit: lock River migrations: %w", err)
+	}
+
 	// River owns its table migrations. Schema creation is deployment setup, and
 	// the schema is always explicit instead of following the pool search_path.
 	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{riverCfg.Schema}.Sanitize()); err != nil {
