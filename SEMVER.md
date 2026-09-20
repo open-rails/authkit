@@ -1,9 +1,16 @@
 # AuthKit — Semantic Versioning Contract
 
+AuthKit currently ships on the v0 release line. The premature v1.0.0 is
+retracted, together with the administrative v1.0.1 tag that publishes its
+retraction metadata. These tags are not supported releases; v0.108.2 remains
+the current maintenance release. Retractions let Go select the supported v0
+line even when module proxies retain a deleted v1 tag. Existing published
+versions are never moved or rewritten.
+
 What an embedding application may depend on, and therefore what forces a
 version bump. Module `github.com/open-rails/authkit` · Go 1.26 · Postgres 18+.
 
-> **Status:** pre-1.0. Nothing is frozen until `v1.0.0`; until
+> **Status:** pre-1.0. Nothing is frozen until an intentional stable v1 release; until
 > then breaking changes ship as MINOR bumps with a migration note, and
 > [§9](#9-pre-10-freeze-list) lists what shrinks first.
 

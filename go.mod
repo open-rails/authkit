@@ -46,3 +46,7 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
+
+// AuthKit remains on the v0 release line. v1.0.0 was published prematurely;
+// v1.0.1 exists only to publish this retraction metadata and retracts itself.
+retract [v1.0.0, v1.0.1]
