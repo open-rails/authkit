@@ -6,8 +6,9 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// Contract DTOs (#138 inversion): plain data,
-// stdlib-only. The engine aliases these back.
+// Shared operation inputs and results belong to the root contract so hosts
+// can use them without importing the embedded engine. Signed-document types
+// retain the identity of their definitions in the documents package.
 
 type DocumentReference = documents.Reference
 type DocumentEnvelope = documents.Envelope
