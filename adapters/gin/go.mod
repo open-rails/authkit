@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.108.1
+	github.com/open-rails/authkit v0.108.2
 	github.com/stretchr/testify v1.12.1
 )
 
