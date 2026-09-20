@@ -437,14 +437,17 @@ token until it expires (at most one access TTL). For a surface that cannot
 accept that window:
 
 ```go
-srv.Verifier().WithLiveness(client)
+// authhttp.New(client, cfg) already wires the client as the liveness source.
 requiredLive, err := authkitgin.RequiredLive(srv.Verifier()) // verify.RequiredLive for net/http
 ```
 
 It denies banned, deleted, reserved and unknown accounts on the next request
 and hands the handler fresh `Username`/`Email`/`EmailVerified`. Fail-closed:
-one `UserLivenessByIDs` read per request, no cache, a lookup error denies;
-without `WithLiveness` construction returns `verify.ErrLivenessUnconfigured`.
+one `UserLivenessByIDs` read per request, no cache, a lookup error denies.
+A standalone `verify.NewVerifier()` still needs an explicit
+`WithLiveness(client)`; without a source, live middleware construction returns
+`verify.ErrLivenessUnconfigured`. Hosts can replace a service verifier's source
+with the same setter. Attaching the source does not change stateless middleware.
 
 ## Sessions across issuers
 

@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -21,7 +23,8 @@ import (
 // revocation reaches both issuers; logout and a user's own session management
 // stay on the site that served them. Real engines, routes, verifier and PG.
 func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
-	pool := testdb.Pool(t)
+	queries := &revocationQueryCounter{}
+	pool := testdb.PoolWithTracer(t, queries)
 	ctx := context.Background()
 	suffix := uniqueSuffix()
 	issuerA := "https://site-a-" + suffix + ".test"
@@ -38,7 +41,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(srv.Close)
-		srv.verifier.WithLiveness(srv.svc)
+		require.True(t, srv.Verifier().HasLiveness(), "authhttp.New supplies the engine liveness source")
 		return srv
 	}
 	siteA := site(issuerA, accessTTL, issuerB)
@@ -169,6 +172,25 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		ban := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/ban", login(siteA, operatorEmail, operatorPass).AccessToken, `{"until":"infinite"}`)
 		require.Equal(t, http.StatusNoContent, ban.Code, ban.Body.String())
 		require.Equal(t, http.StatusUnauthorized, probeLive(), "ban reaches held access tokens through the live gate immediately")
+		// Use the sibling site's hour-long token so the stateless assertion
+		// cannot disappear merely because the short site-A token expired.
+		request := httptest.NewRequest(http.MethodGet, "/resource", nil)
+		request.Header.Set("Authorization", "Bearer "+victimB.AccessToken)
+		_, err = siteB.Verifier().VerifyRequest(request)
+		require.NoError(t, err, "automatic source wiring must not make stateless verification stateful")
+		for _, middleware := range []func(http.Handler) http.Handler{
+			verify.Required(siteB.Verifier()), verify.Optional(siteB.Verifier()),
+		} {
+			before := queries.count.Load()
+			response := httptest.NewRecorder()
+			middleware(echoClaimsHandler()).ServeHTTP(response, request)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, before, queries.count.Load(), "ordinary middleware must perform no account lookup")
+		}
+		beforeLive := queries.count.Load()
+		_, err = siteB.Verifier().VerifyRequestLive(request)
+		require.Error(t, err, "the default source must deny the banned account")
+		require.Greater(t, queries.count.Load(), beforeLive, "the explicit live path must consult the database")
 		if time.Now().Before(victimA.exp) {
 			require.Equal(t, http.StatusOK, call(siteA, http.MethodGet, "/me", victimA.AccessToken, "").Code, "stateless routes still accept it before exp")
 		}
@@ -220,4 +242,24 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		_, err = siteC.svc.AdminRevokeAccountSessions(ctx, "00000000-0000-7000-8000-000000000000")
 		require.ErrorIs(t, err, authkit.ErrUserNotFound)
 	})
+	t.Run("host may replace the default liveness source", func(t *testing.T) {
+		verifier := siteC.Verifier().WithLiveness(nil)
+		require.False(t, verifier.HasLiveness())
+		_, err := verify.RequiredLive(verifier)
+		require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
+		verifier.WithLiveness(siteA.svc)
+		require.True(t, verifier.HasLiveness())
+		_, err = verify.RequiredLive(verifier)
+		require.NoError(t, err)
+	})
+
 }
+
+// Count real database queries through the production engine's cloned pool.
+type revocationQueryCounter struct{ count atomic.Int64 }
+
+func (q *revocationQueryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	q.count.Add(1)
+	return ctx
+}
+func (*revocationQueryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}

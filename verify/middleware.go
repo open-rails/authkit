@@ -30,12 +30,10 @@ func unauthorizedError(err error) error {
 // no role/email/provider re-enrichment. Ban/deleted is enforced at token mint
 // (login + refresh); the short access TTL bounds the residual window (#90).
 //
-// That statelessness is now an explicit OPT-OUT, not the only option (#267): a
-// privileged surface that cannot accept the residual window calls
-// VerifyRequestLive (or mounts RequiredLive) and gets the same pipeline plus a
-// per-request account-liveness gate and fresh identity claims. Choose this one
-// deliberately — for genuinely stateless verifiers, and for read paths where a
-// ≤1-TTL window is acceptable.
+// Per-request account liveness is opt-in (#267): a surface that cannot accept
+// the residual window calls VerifyRequestLive (or mounts RequiredLive) for an
+// account-liveness gate and fresh identity claims. This default path stays
+// stateless even when a liveness source has been configured.
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := requestToken(r)
 	if tokenStr == "" {
