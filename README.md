@@ -457,6 +457,10 @@ configuration switch or implicit admin-role policy:
 - `verify.OptionalLive` admits anonymous requests without a lookup; presented
   credentials must verify, and native users must pass the liveness check.
 
+The Gin and Fiber adapters expose matching `RequiredLive` and `OptionalLive`
+constructors. Mount the returned native middleware on routes, groups, or the
+whole application using the framework's usual registration methods.
+
 ```go
 requiredLive, err := verify.RequiredLive(srv.Verifier())
 if err != nil { return err }

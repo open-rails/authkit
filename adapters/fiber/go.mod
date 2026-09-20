@@ -6,7 +6,7 @@ require (
 	github.com/gofiber/fiber/v3 v3.5.0
 	github.com/gofiber/utils/v2 v2.4.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.108.2
+	github.com/open-rails/authkit v0.111.0
 )
 
 require (
@@ -32,8 +32,18 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
+	github.com/open-rails/migratekit v1.0.4 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
+	github.com/riverqueue/river v0.47.0 // indirect
+	github.com/riverqueue/river/riverdriver v0.47.0 // indirect
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.47.0 // indirect
+	github.com/riverqueue/river/rivershared v0.47.0 // indirect
+	github.com/riverqueue/river/rivertype v0.47.0 // indirect
+	github.com/tidwall/gjson v1.19.0 // indirect
+	github.com/tidwall/match v1.2.0 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.73.0 // indirect
