@@ -89,9 +89,20 @@ func (s *Client) nowTime() time.Time {
 func (s *Client) Postgres() *pgxpool.Pool { return s.pg }
 
 // Close releases AuthKit-owned resources, including its schema-bound pool.
-// The pool supplied through Deps.Postgres remains owned by the host.
+// Injected dependencies, including the host pool, stores and keys, stay host-owned.
 func (s *Client) Close() {
-	if s != nil && s.pg != nil {
+	if s == nil {
+		return
+	}
+	if s.ownedMemoryStore != nil {
+		s.ownedMemoryStore.Close()
+		s.ownedMemoryStore = nil
+	}
+	if s.ownedKeySource != nil {
+		s.ownedKeySource.Close()
+		s.ownedKeySource = nil
+	}
+	if s.pg != nil {
 		s.pg.Close()
 		s.pg = nil
 		s.q = nil

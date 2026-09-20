@@ -4,7 +4,6 @@ package embedded
 import (
 	"context"
 	"fmt"
-
 	"testing"
 	"time"
 
@@ -74,8 +73,10 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 func newHardeningService(t *testing.T) (*Client, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
+	store := memorystore.NewKV()
+	t.Cleanup(store.Close)
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
-		WithPostgres(testdb.Pool(t)), WithEphemeralStore(memorystore.NewKV()), WithEmailSender(sender))
+		Deps{Postgres: testdb.Pool(t), EphemeralStore: store, Email: sender})
 	return svc, sender
 }
 
@@ -87,28 +88,6 @@ func newHardeningUser(t *testing.T, ctx context.Context, svc *Client, tag string
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, u.ID) })
 	return u, email
-}
-
-// Test-only Deps builders: the engine takes one Deps value; tests compose it
-// from these so a call site names only what it wires.
-type Option func(*Deps)
-
-func WithPostgres(pool *pgxpool.Pool) Option { return func(d *Deps) { d.Postgres = pool } }
-
-func WithEphemeralStore(store EphemeralStore) Option {
-	return func(d *Deps) { d.EphemeralStore = store }
-}
-
-func WithEmailSender(s EmailSender) Option { return func(d *Deps) { d.Email = s } }
-
-func depsOf(opts ...Option) Deps {
-	var d Deps
-	for _, o := range opts {
-		if o != nil {
-			o(&d)
-		}
-	}
-	return d
 }
 
 func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
@@ -123,12 +102,13 @@ func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 	return id
 }
 
-// mustNewService is NewService for tests: a config the constructor rejects fails the test.
-func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, opts ...Option) *Client {
+// mustNewWithKeys constructs a client and releases its owned resources after the test.
+func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, deps Deps) *Client {
 	t.Helper()
-	svc, err := NewWithKeys(cfg, keys, depsOf(opts...))
+	svc, err := NewWithKeys(cfg, keys, deps)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewWithKeys: %v", err)
 	}
+	t.Cleanup(svc.Close)
 	return svc
 }

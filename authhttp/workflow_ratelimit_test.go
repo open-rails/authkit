@@ -1,14 +1,18 @@
 package authhttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime/pprof"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
@@ -109,6 +113,48 @@ func TestWorkflowRateLimits(t *testing.T) {
 			require.Zero(t, sessions)
 			status, body = stepUp(outageToken, stepUpPassword, "198.51.100.9")
 			require.Equal(t, http.StatusTooManyRequests, status, body)
+		}
+	})
+}
+
+// Label the goroutines created by this constructor, so other services and the
+// embedded engine cannot mask an HTTP-layer worker leak.
+func TestServiceOwnsBackgroundWorkers(t *testing.T) {
+	forEachStore(t, func(t *testing.T, store ephemeralStore) {
+		client := newServerClient(t, newServerTestConfig(), testdb.Pool(t), store.engineOpts()...)
+		workerLabel := "authhttp-service"
+		hasWorkers := func() bool {
+			var profile bytes.Buffer
+			require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
+			return strings.Contains(profile.String(), strconv.Quote(workerLabel)+":"+strconv.Quote(t.Name()))
+		}
+		construct := func(cfg Config) (*Service, error) {
+			var svc *Service
+			var err error
+			pprof.Do(t.Context(), pprof.Labels(workerLabel, t.Name()), func(context.Context) {
+				svc, err = New(client, cfg)
+			})
+			return svc, err
+		}
+
+		// A valid HTTP config can still fail the cross-layer document policy.
+		// Failed construction must not strand workers the caller cannot close.
+		svc, err := construct(Config{DirectPeerIP: true, Documents: []DocumentProvider{&documents.Service{}}})
+		require.ErrorContains(t, err, "Readers is empty")
+		require.Nil(t, svc)
+		require.False(t, hasWorkers(), "failed construction leaked background workers")
+
+		svc, err = construct(Config{DirectPeerIP: true})
+		require.NoError(t, err)
+		t.Cleanup(svc.Close)
+		require.Equal(t, store.rdb == nil, hasWorkers(), "only the memory backend should start sweep workers")
+		svc.Close()
+		svc.Close() // idempotent even though the memory stores' Close methods are not
+		require.Eventually(t, func() bool { return !hasWorkers() }, 5*time.Second, 10*time.Millisecond,
+			"Close must stop every worker started by the HTTP service")
+		require.NoError(t, client.Postgres().Ping(t.Context()), "the host's pool remains usable")
+		if store.rdb != nil {
+			require.NoError(t, store.rdb.Ping(t.Context()).Err(), "the host's Redis client remains usable")
 		}
 	})
 }

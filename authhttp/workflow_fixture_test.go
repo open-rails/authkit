@@ -2,7 +2,6 @@ package authhttp
 
 // Shared fixtures for the retained public workflows and focused security checks.
 import (
-	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -196,21 +195,6 @@ func adminTestPublicKeyPEM(t *testing.T, pub crypto.PublicKey) string {
 	der, err := x509.MarshalPKIXPublicKey(pub)
 	require.NoError(t, err)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
-func postJSON(t *testing.T, h http.Handler, path string, body map[string]any) (*httptest.ResponseRecorder, map[string]any) {
-	t.Helper()
-	raw, err := json.Marshal(body)
-	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	var out map[string]any
-	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	}
-	return rec, out
 }
 
 func serveAuthJSON(srv *Service, method, path, body, token string) *httptest.ResponseRecorder {
@@ -464,15 +448,6 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	return user.ID
 }
 
-func login(t *testing.T, srv *Service, prefix, userID string) *httptest.ResponseRecorder {
-	t.Helper()
-	email := uniqueEmail(prefix)
-	if u, err := srv.svc.AdminGetUser(context.Background(), userID); err == nil && u != nil && u.Email != nil {
-		email = *u.Email
-	}
-	return serveJSON(srv, http.MethodPost, "/password/login", `{"identifier":"`+email+`","password":"Correct-password-12345"}`)
-}
-
 func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -721,14 +696,6 @@ func (s *captureEmailSender) passwordResetToken(t *testing.T) string {
 	return s.resetToken
 }
 
-func (s *captureEmailSender) passwordResetURL(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.resetURL)
-	return s.resetURL
-}
-
 func (s *captureEmailSender) verificationCode(t *testing.T) string {
 	t.Helper()
 	s.mu.Lock()
@@ -797,28 +764,12 @@ func (s *captureSMSSender) SendContactChanged(context.Context, string, embedded.
 	return nil
 }
 
-func (s *captureSMSSender) passwordResetToken(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.resetToken)
-	return s.resetToken
-}
-
 func (s *captureSMSSender) verificationCode(t *testing.T) string {
 	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	require.NotEmpty(t, s.verifyCode)
 	return s.verifyCode
-}
-
-func (s *captureSMSSender) verificationToken(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.verifyToken)
-	return s.verifyToken
 }
 
 func tokenFromURL(raw string) string {
@@ -1160,12 +1111,6 @@ func (e ephemeralStore) engineOpts() []coreOpt {
 		return nil
 	}
 	return []coreOpt{withRedis(e.rdb)}
-}
-
-// attach points a bare test Service (newTestService) at the store.
-func (e ephemeralStore) attach(s *Service) *Service {
-	s.rd = e.rdb
-	return s
 }
 
 // forEachStore runs fn under the memory store and under a scratch Redis

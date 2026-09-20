@@ -50,7 +50,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly}, RBAC: []PersonaDef{
 		{Name: "org", Parent: RootPersona, Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true}, Catalog: []string{"org:billing:read", "org:billing:write"}},
 		{Name: "repo", Parent: "org"}, {Name: "leaf", Parent: "repo"},
-	}}, Keyset{}, WithPostgres(pool))
+	}}, Keyset{}, Deps{Postgres: pool})
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	_, err = svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)

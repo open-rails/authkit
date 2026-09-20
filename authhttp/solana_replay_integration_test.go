@@ -34,6 +34,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	opts := append(store.engineOpts(), withSolanaSNSResolver(noSNSResolver{}))
 	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
+	t.Cleanup(srv.Close)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -63,7 +64,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	require.Equal(t, http.StatusUnauthorized, replay.Code, replay.Body.String())
 	require.Contains(t, replay.Body.String(), string(authkit.CodeChallengeExpired))
 
-	_, found, err := srv.siwsCache().Get(ctx, challenge.Nonce)
+	_, found, err := srv.siwsChallenges.Get(ctx, challenge.Nonce)
 	require.NoError(t, err)
 	require.False(t, found, "the nonce must be consumed by the first login")
 }

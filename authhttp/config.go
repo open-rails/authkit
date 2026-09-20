@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
@@ -65,10 +64,6 @@ type Config struct {
 	// stamped by the delegated-token mint route (#260/#261). Requires
 	// embedded.Config.Documents.Readers.
 	Documents []DocumentProvider
-
-	// memoryLimiterSweep overrides how often the in-memory limiter reclaims
-	// idle buckets (#305); tests only, the default is one minute.
-	memoryLimiterSweep time.Duration
 }
 
 // Validate checks the static configuration: parseable proxy CIDRs, one

@@ -19,7 +19,7 @@ import (
 func TestBootstrapWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://bootstrap.test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://bootstrap.test"}}, Keyset{}, Deps{Postgres: pg.Pool})
 	const seeded, rotated = "bootstrap-password-1", "rotated-password-2"
 	path := filepath.Join(t.TempDir(), "bootstrap.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`users:
