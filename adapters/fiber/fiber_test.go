@@ -659,3 +659,47 @@ func TestUseWriteAfterNextPreservesFiberContentType(t *testing.T) {
 		t.Fatalf("response = %d %v %q", status, headers, body)
 	}
 }
+
+func TestOptionalLive(t *testing.T) {
+	if middleware, err := authkitfiber.OptionalLive(nil); middleware != nil || !errors.Is(err, verify.ErrLivenessUnconfigured) {
+		t.Fatalf("missing source: middleware=%v error=%v", middleware, err)
+	}
+	issuer := newIssuer(t)
+	calls := 0
+	allowed := true
+	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+		calls++
+		return map[string]authkit.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
+	}))
+	middleware, err := authkitfiber.OptionalLive(verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := fiber.New()
+	app.Use(middleware)
+	app.Get("/", func(c fiber.Ctx) error {
+		user, ok := authkitfiber.UserClaims(c)
+		if !ok {
+			return c.SendString("anonymous")
+		}
+		return c.SendString(user.Username)
+	})
+	for _, tc := range []struct {
+		header, body  string
+		status, calls int
+	}{
+		{body: "anonymous", status: 200},
+		{header: "Bearer invalid", status: 401},
+		{header: "Bearer " + issuer.CreateToken("user-1", "old@test"), body: "fresh", status: 200, calls: 1},
+	} {
+		status, _, body := request(t, app, http.MethodGet, "/", tc.header)
+		if status != tc.status || calls != tc.calls || (tc.body != "" && body != tc.body) {
+			t.Fatalf("optional live: status=%d body=%q calls=%d; want %+v", status, body, calls, tc)
+		}
+	}
+	allowed = false
+	status, _, _ := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "old@test"))
+	if status != http.StatusUnauthorized || calls != 2 {
+		t.Fatalf("banned: status=%d calls=%d", status, calls)
+	}
+}

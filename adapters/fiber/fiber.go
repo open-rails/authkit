@@ -58,6 +58,17 @@ func RequiredLive(v *verify.Verifier) (fiber.Handler, error) {
 	return Use(mw), nil
 }
 
+// OptionalLive admits anonymous requests and checks the liveness of presented
+// native-user credentials. It returns verify.ErrLivenessUnconfigured at startup
+// when no source is wired. Use on routes, groups, or as application middleware.
+func OptionalLive(v *verify.Verifier) (fiber.Handler, error) {
+	mw, err := verify.OptionalLive(v)
+	if err != nil {
+		return nil, err
+	}
+	return Use(mw), nil
+}
+
 // Use runs synchronous net/http authentication middleware around Fiber's
 // downstream handlers. Context values and cancellation flow in both directions;
 // Fiber errors are returned to its error handler. Middleware must not retain the

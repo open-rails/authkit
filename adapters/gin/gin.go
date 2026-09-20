@@ -57,6 +57,17 @@ func RequiredLive(v *verify.Verifier) (gin.HandlerFunc, error) {
 	return Use(mw), nil
 }
 
+// OptionalLive admits anonymous requests and checks the liveness of presented
+// native-user credentials. It returns verify.ErrLivenessUnconfigured at startup
+// when no source is wired. Use on routes, groups, or as application middleware.
+func OptionalLive(v *verify.Verifier) (gin.HandlerFunc, error) {
+	mw, err := verify.OptionalLive(v)
+	if err != nil {
+		return nil, err
+	}
+	return Use(mw), nil
+}
+
 func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		terminalRan := false
