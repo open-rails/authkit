@@ -20,8 +20,6 @@ import (
 // "@" is an email, anything else is a phone number — the rule passwordless
 // login already applies (#312).
 type contactChannel struct {
-	name string // "email" | "phone"
-
 	validate        func(string) error
 	normalize       func(string) string
 	senderAvailable func() bool
@@ -29,13 +27,9 @@ type contactChannel struct {
 	requestVerification  func(context.Context, string) error
 	requestChange        func(ctx context.Context, userID, id string) error
 	requestPasswordReset func(ctx context.Context, id string, ip, ua *string) error
-	// resendPending re-issues the pending registration for id; found is false
-	// when no pending registration exists.
-	resendPending func(context.Context, string) (found bool, err error)
-
-	getUser       func(context.Context, string) (*embedded.User, error)
-	isVerified    func(*embedded.User) bool
-	pendingExists func(context.Context, string) (bool, error)
+	getUser              func(context.Context, string) (*embedded.User, error)
+	isVerified           func(*embedded.User) bool
+	pendingExists        func(context.Context, string) (bool, error)
 
 	errVerifyUnavailable authkit.Code
 	errResetUnavailable  authkit.Code
@@ -45,7 +39,6 @@ type contactChannel struct {
 
 func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
-		name:            "email",
 		validate:        embedded.ValidateEmail,
 		normalize:       embedded.NormalizeEmail,
 		senderAvailable: s.svc.HasEmailSender,
@@ -56,9 +49,8 @@ func (s *Service) emailChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
-		resendPending: s.svc.ResendRegistration,
-		getUser:       s.svc.GetUserByEmail,
-		isVerified:    func(u *embedded.User) bool { return u.EmailVerified },
+		getUser:    s.svc.GetUserByEmail,
+		isVerified: func(u *embedded.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -72,7 +64,6 @@ func (s *Service) emailChannel() contactChannel {
 
 func (s *Service) phoneChannel() contactChannel {
 	return contactChannel{
-		name:            "phone",
 		validate:        embedded.ValidatePhone,
 		normalize:       embedded.NormalizePhone,
 		senderAvailable: s.svc.SMSAvailable,
@@ -83,9 +74,8 @@ func (s *Service) phoneChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
-		resendPending: s.svc.ResendRegistration,
-		getUser:       s.svc.GetUserByPhone,
-		isVerified:    func(u *embedded.User) bool { return u.PhoneVerified },
+		getUser:    s.svc.GetUserByPhone,
+		isVerified: func(u *embedded.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
@@ -334,7 +324,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 	if s.rateLimitedByIdentifier(w, r, RLRegisterResend, id) {
 		return
 	}
-	found, err := ch.resendPending(r.Context(), id)
+	found, err := s.svc.ResendRegistration(r.Context(), id)
 	if !found {
 		notFound(w, authkit.CodePendingRegistrationNotFound)
 		return

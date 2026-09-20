@@ -15,11 +15,16 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/siws"
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
-	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/redis/go-redis/v9"
 )
+
+// oidcStateCache requires atomic consumption so concurrent callbacks cannot
+// redeem the same state. Both stores constructed by New implement it.
+type oidcStateCache interface {
+	Put(context.Context, string, oidckit.StateData) error
+	Consume(context.Context, string) (oidckit.StateData, bool, error)
+}
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
@@ -28,8 +33,7 @@ type Service struct {
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
-	closers             []func()      // background work stopped by Close (#305)
-	memoryLimiterSweep  time.Duration // Config.memoryLimiterSweep (tests); 0 => one minute
+	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool                             // Config.ClientIP: host owns the strategy; proxy sets are not composed
 	directPeerIP        bool                             // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
@@ -37,8 +41,8 @@ type Service struct {
 	trustedProxies      []netip.Prefix                   // Config.TrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
-	memStateCache       oidckit.StateCache
-	memSIWSCache        siws.ChallengeCache
+	oidcStates          oidcStateCache
+	siwsChallenges      siws.ChallengeCache
 	langCfg             *LanguageConfig
 	// documentProviders are the published-document services from
 	// Config.Documents (#260): served by the RouteDocuments mount and stamped +
@@ -190,14 +194,4 @@ func (s *Service) publicRegistrationDisabled() bool {
 		return false
 	}
 	return !s.svc.PublicNativeUserRegistrationEnabled()
-}
-
-func (s *Service) stateCache() oidckit.StateCache {
-	if s.rd != nil {
-		return redisstore.NewStateCache(s.rd, s.svc.RedisKeyPrefix()+"oidc:state:", 0)
-	}
-	if s.memStateCache == nil {
-		s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
-	}
-	return s.memStateCache
 }

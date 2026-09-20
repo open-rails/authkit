@@ -12,11 +12,13 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 )
 
-// Close stops the background work New started (the in-memory limiter's sweep).
+// Close stops the background work New started: memory cache and limiter sweeps.
+// The engine and Redis client are borrowed and remain owned by the host.
 // Idempotent; safe on a nil Service.
 func (s *Service) Close() {
 	if s == nil {
@@ -61,14 +63,13 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 	cfg := coreSvc.Config()
 
 	s := &Service{
-		dpopRequestURL:     hcfg.DPoPRequestURL,
-		svc:                coreSvc,
-		rd:                 hcfg.Redis,
-		clientIP:           DefaultClientIP(),
-		clientIPExplicit:   hcfg.ClientIP != nil,
-		directPeerIP:       hcfg.DirectPeerIP,
-		memoryLimiterSweep: hcfg.memoryLimiterSweep,
-		documentProviders:  hcfg.Documents,
+		dpopRequestURL:    hcfg.DPoPRequestURL,
+		svc:               coreSvc,
+		rd:                hcfg.Redis,
+		clientIP:          DefaultClientIP(),
+		clientIPExplicit:  hcfg.ClientIP != nil,
+		directPeerIP:      hcfg.DirectPeerIP,
+		documentProviders: hcfg.Documents,
 	}
 	s.trustedProxies, _ = parseProxyCIDRs("trusted proxy", hcfg.TrustedProxies)
 	s.cloudflareProxies, _ = parseProxyCIDRs("Cloudflare proxy", hcfg.CloudflareProxies)
@@ -88,43 +89,6 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 	// Redis instance, single source of truth, no split-brain ephemeral state.
 	if s.rd == nil {
 		s.rd = coreSvc.EphemeralRedisClient()
-	}
-
-	// AuthKit owns the rate-limit policy unless the host replaced or disabled
-	// the limiter: Redis-backed when Redis is wired, so limits are shared
-	// across instances; in-memory otherwise.
-	switch {
-	case hcfg.Limiter != nil:
-		s.rl = hcfg.Limiter
-	case hcfg.DisableRateLimiting:
-		s.rl = nil
-	default:
-		limits := DefaultRateLimits()
-		for bucket, lim := range hcfg.RateLimits {
-			limits[bucket] = lim
-		}
-		if s.rd != nil {
-			rl, err := redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
-			if err != nil {
-				return nil, err
-			}
-			s.rl = rl
-			slog.Info("authkit: rate limiter", "backend", "redis")
-		} else {
-			ml, err := memorylimiter.New(limits)
-			if err != nil {
-				return nil, err
-			}
-			sweep := s.memoryLimiterSweep
-			if sweep <= 0 {
-				sweep = time.Minute
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			ml.StartCleanup(ctx, sweep)
-			s.closers = append(s.closers, cancel)
-			s.rl = ml
-			slog.Info("authkit: rate limiter", "backend", "memory")
-		}
 	}
 
 	verOpts := []verify.VerifierOption{
@@ -160,8 +124,6 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 		return nil, err
 	}
 	s.providers = providers
-	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
-	s.memSIWSCache = memorystore.NewSIWSCache(15 * time.Minute)
 
 	// #243: derive the 2FA-enrollment allowlist from the route registry (single
 	// source of truth — RouteSpec.MFAEnrollmentExempt) instead of a hand-
@@ -171,6 +133,50 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 
 	if err := s.validate(cfg); err != nil {
 		return nil, err
+	}
+	// AuthKit owns the rate-limit policy unless the host replaced or disabled
+	// the limiter: Redis-backed when Redis is wired, so limits are shared
+	// across instances; in-memory otherwise.
+	switch {
+	case hcfg.Limiter != nil:
+		s.rl = hcfg.Limiter
+	case hcfg.DisableRateLimiting:
+		s.rl = nil
+	default:
+		limits := DefaultRateLimits()
+		for bucket, lim := range hcfg.RateLimits {
+			limits[bucket] = lim
+		}
+		if s.rd != nil {
+			rl, err := redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
+			if err != nil {
+				return nil, err
+			}
+			s.rl = rl
+			slog.Info("authkit: rate limiter", "backend", "redis")
+		} else {
+			ml, err := memorylimiter.New(limits)
+			if err != nil {
+				return nil, err
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			ml.StartCleanup(ctx, time.Minute)
+			s.closers = append(s.closers, cancel)
+			s.rl = ml
+			slog.Info("authkit: rate limiter", "backend", "memory")
+		}
+	}
+
+	// All fallible setup is complete before starting background cache workers.
+	// Construct only the selected backend and retain it for the service lifetime.
+	if s.rd != nil {
+		s.oidcStates = redisstore.NewStateCache(s.rd, coreSvc.RedisKeyPrefix()+"oidc:state:", 0)
+		s.siwsChallenges = redisstore.NewSIWSCache(s.rd, coreSvc.RedisKeyPrefix()+"siws:nonce:", 15*time.Minute)
+	} else {
+		states := memorystore.NewStateCache(15 * time.Minute)
+		challenges := memorystore.NewSIWSCache(15 * time.Minute)
+		s.oidcStates, s.siwsChallenges = states, challenges
+		s.closers = append(s.closers, func() { _ = states.Close() }, func() { _ = challenges.Close() })
 	}
 	return s, nil
 }

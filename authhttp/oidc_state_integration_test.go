@@ -58,6 +58,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 	pool := testdb.Pool(t)
 	srv, err := New(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), workflowHTTPConfig())
 	require.NoError(t, err)
+	t.Cleanup(srv.Close)
 
 	idp := newFakeOIDCIdP(t, "state-client")
 	subject := "state-" + uniqueSuffix()
@@ -100,11 +101,11 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		idp.SetNonce(f.nonce)
 		idp.ExpectCodeChallenge(f.codeChallenge)
 		t.Cleanup(func() { idp.ExpectCodeChallenge("") })
-		sd, ok, err := srv.stateCache().Get(ctx, f.state)
+		sd, ok, err := srv.oidcStates.Consume(ctx, f.state)
 		require.NoError(t, err)
 		require.True(t, ok)
 		sd.Verifier = "tampered-" + sd.Verifier
-		require.NoError(t, srv.stateCache().Put(ctx, f.state, sd))
+		require.NoError(t, srv.oidcStates.Put(ctx, f.state, sd))
 		rejected(f.callback(t, h, "custom", f.state), authkit.CodeOIDCExchangeFailed)
 	})
 
@@ -123,7 +124,7 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		require.False(t, strings.Contains(loc, "error="), loc)
 
 		rejected(f.callback(t, h, "custom", f.state), authkit.CodeInvalidState)
-		_, ok, err := srv.stateCache().Get(ctx, f.state)
+		_, ok, err := srv.oidcStates.Consume(ctx, f.state)
 		require.NoError(t, err)
 		require.False(t, ok, "consumed state must be gone from the store")
 	})
