@@ -331,12 +331,12 @@ func New(cfg Config, deps Deps) (_ *Client, err error) {
 	if err != nil {
 		return nil, err
 	}
-	svc.ownedMemoryStore = ownedMemoryStore
-	svc.ownedKeySource = ownedKeySource
 	if err := svc.checkEphemeralBackend(norm); err != nil {
 		svc.Close()
 		return nil, err
 	}
+	svc.ownedMemoryStore = ownedMemoryStore
+	svc.ownedKeySource = ownedKeySource
 	return svc, nil
 }
 
