@@ -18,6 +18,9 @@ import (
 // Deps are the runtime dependencies a Client is built with. Config carries
 // data and policy; everything that reaches outside the process is here.
 type Deps struct {
+	// River is nil for managed maintenance, or RiverFromHost for a shared fleet.
+	River *RiverOwnership
+
 	// Postgres is the durable store. Required by every host-facing constructor.
 	Postgres *pgxpool.Pool
 	// Redis backs the ephemeral store, namespaced by Ephemeral.KeyPrefix

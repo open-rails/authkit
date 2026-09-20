@@ -13,6 +13,9 @@ import (
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, Redis, senders) are Deps.
 type Config struct {
+	// River configures mandatory PostgreSQL cleanup; in-memory TTL stays local.
+	River RiverConfig
+
 	// Naming is the shared user/group rename policy, normalized at construction.
 	Naming       authkit.NamingConfig
 	namingPolicy authkit.NamingPolicy

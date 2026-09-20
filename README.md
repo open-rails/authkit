@@ -7,11 +7,12 @@ documents and delegated tokens, running in your process against your Postgres
 owns its PostgreSQL migration source and runs it through migratekit.
 
 Modules: `github.com/open-rails/authkit`, plus `adapters/gin`, `adapters/fiber`
-and `adapters/riverjobs` as separate modules so Gin, Fiber and River never enter
-the root `go.mod`.
+and `adapters/riverjobs` as separate modules. The embedded engine uses River
+for PostgreSQL maintenance; the root and `verify` packages remain engine-free.
 
 For local tests, run `scripts/check.sh`. Applications call
-`embedded.ApplyMigrations` during startup before constructing the engine.
+`embedded.ApplyMigrations` with migration credentials before constructing the
+engine, then call `client.Start(ctx)` before serving and `client.Close()` at shutdown.
 
 See [verification trust and key ownership](docs/verification.md) for local versus
 external identity, application delegation boundaries, and key rotation.
@@ -43,6 +44,50 @@ migratekit. Pre-v1 schemas must be rebuilt for the
 [fresh baseline](docs/maintenance/fresh-schema-baseline.md); AuthKit never drops
 existing application data automatically.
 
+## PostgreSQL maintenance
+
+AuthKit runs `CleanupExpiredAuthState` through River on startup and hourly.
+It removes expired sessions, terminal credentials and expired retained history;
+Redis and in-memory TTL state keep their local expiry behavior. User hard-delete
+purging remains an explicit `adapters/riverjobs` integration with retention,
+erasure acknowledgements and the host's `BeforeUserHardDelete` policy.
+
+With no River dependency supplied, `ApplyMigrations` also applies River's own
+migrations to `public`. `New` constructs an owned worker client without starting
+it or running DDL. Call `client.Start(ctx)` before serving; `client.Close()`
+cancels its workers and releases only AuthKit-owned resources. Runtime pools
+need data access, while initialization uses separate migration credentials.
+`Config.River.Schema` and `MigrationOptions.RiverSchema` select a custom managed
+River schema; `Config.River.CleanupInterval` defaults to one hour.
+
+Applications sharing River with other libraries compose one worker configuration:
+
+```go
+ownership := embedded.RiverFromHost()
+err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{River: ownership})
+// The host initializes its River schema through River's migrator.
+client, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
+riverCfg := &river.Config{Schema: "public", Workers: river.NewWorkers()}
+// Register the host's and other libraries' workers and schedules here too.
+err = client.RegisterRiver(riverCfg)
+jobs, err := river.NewClient(riverpgxv5.New(runtimePool), riverCfg)
+err = client.Start(ctx) // checks registration; never starts the host client
+err = jobs.Start(ctx)
+// On shutdown: stop jobs before client.Close().
+```
+
+`RegisterRiver` installs AuthKit's worker, queue and periodic schedule; no
+AuthKit client binding or hand-written host cron is needed. Call it once before
+`river.NewClient`. The passed host configuration owns the River schema. The
+registry supports one AuthKit engine; duplicate registration fails explicitly.
+
+**Every replica sharing a River schema must carry the same complete periodic
+schedule set.** River's elected leader alone schedules periodic jobs. Separate
+managed AuthKit and OpenRails clients with different schedules in the same
+`public` fleet can starve each other's maintenance. Use the composed host client
+above, or explicitly separate their River schemas. A managed AuthKit fleet is
+appropriate when its replicas all run the same AuthKit workers and schedules.
+
 ## Construction
 
 `embedded.New(cfg, deps)` builds the engine (`*embedded.Client`, which
@@ -72,7 +117,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender) (*gin.Engine, error) {
+func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender) (*gin.Engine, *embedded.Client, error) {
 	cfg := embedded.Config{
 		Token: embedded.TokenConfig{
 			Issuer:              "https://app.example.com",
@@ -93,13 +138,14 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 	}
 	client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	srv, err := authhttp.New(client, authhttp.Config{
 		TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP: true when nothing sits in front
 	})
 	if err != nil {
-		return nil, err
+        client.Close()
+		return nil, nil, err
 	}
 	router := gin.New()
 
@@ -118,9 +164,10 @@ func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender)
 			c.JSON(http.StatusOK, gin.H{"user_id": claims.UserID, "org": c.Param("org")})
 		})
 	if err := authkitgin.Mount(router, srv, authhttp.MountOptions{RefreshCookie: true}); err != nil {
-		return nil, err
+        client.Close()
+		return nil, nil, err
 	}
-	return router, nil
+	return router, client, nil // caller starts and closes the client
 }
 ```
 

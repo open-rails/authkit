@@ -8,6 +8,7 @@ import (
 
 var forbiddenDepPrefixes = []string{
 	"github.com/jackc/pgx",
+	"github.com/riverqueue/",
 	"github.com/open-rails/authkit/internal/",
 }
 
