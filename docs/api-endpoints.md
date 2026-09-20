@@ -177,11 +177,12 @@ zero DB lookups on the native-user path, so a banned or deleted user keeps a
 valid access token until it expires (≤1 access TTL). Ban/deleted is enforced at
 token mint (login + refresh).
 
-**LIVE is the opt-in stateful twin** (ak#267, v0.92.0). Wire
-`verifier.WithLiveness(client)` once with any `authkit.Client`, then mount
-`verify.RequiredLive` / `RequiredLiveUser` (or the `authkitgin` twins) instead of
-`Required`. It denies banned, deleted, reserved and unknown accounts on the
-user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
+**LIVE is the opt-in stateful twin** (ak#267, v0.92.0).
+`authhttp.New(client, cfg)` automatically supplies its client as the service
+verifier's liveness source. Standalone `verify.NewVerifier()` users still wire
+`verifier.WithLiveness(client)` explicitly. Mount `verify.RequiredLive` /
+`RequiredLiveUser` (or the `authkitgin` twins) instead of `Required`. It denies
+banned, deleted, reserved and unknown accounts on the user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
 FRESH as of that lookup — **do not call `AdminGetUser` per request to refresh
 display fields.** Roles and entitlements are not re-enriched: they have their own
 live reads (`RoleSlugsByUsers`, `verify.Allow`, `ListEntitlements`).
@@ -192,8 +193,20 @@ underneath is `Client.UserLivenessByIDs(ctx, ids)`.
 
 Fail-closed, no cache: a lookup error denies, and there is exactly one liveness
 lookup per gated request with no memoization (any cache reintroduces the window
-the gate closes). Building `RequiredLive` without `WithLiveness` returns
+the gate closes). Building `RequiredLive` on a verifier with no source returns
 `verify.ErrLivenessUnconfigured` from the constructor, never a 401.
+
+`verify.OptionalLive` is the anonymous-capable opt-in: missing Authorization
+passes without a lookup; presented credentials must verify and native users
+must be live. It has the same startup source requirement and failure behavior
+as `RequiredLive`. Mount either live middleware per route, on a group/subtree,
+or globally at the application handler. Ordinary `Required` and `Optional`
+remain stateless; there is no automatic admin-role inference or global flag.
+
+AuthKit's intrinsic root-permission routes also require current liveness for an
+authorized native user before running the elevated operation. This covers the
+admin directory, ban, recovery and deletion endpoints. Credential-based checks
+for non-user principals remain unchanged; ordinary AUTH routes stay stateless.
 
 **Rendering users to other users** (ak#268, v0.92.0): use
 `Client.PublicUsersByIDs(ctx, ids) → map[string]PublicUserRef`, never

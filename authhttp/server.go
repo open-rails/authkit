@@ -43,6 +43,11 @@ func (s *Service) Close() {
 // registration verification with no sender (Deps.Email / Deps.SMS), document
 // providers without readers, and a delegated route without its authorizer.
 //
+// The service verifier uses client as its liveness source automatically, so
+// RequiredLive, OptionalLive and VerifyRequestLive need no additional wiring.
+// Required, Optional and VerifyRequest remain stateless; hosts can override the source through
+// Service.Verifier().WithLiveness.
+//
 // Redis is taken ONCE (#210): the engine's Redis client (Deps.Redis) also backs
 // the HTTP layer's OIDC/SIWS state caches and rate limiter; Config.Redis is an
 // override, not a requirement.
@@ -113,7 +118,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 	}); err != nil {
 		return nil, err
 	}
-	ver.WithService(coreSvc)
+	ver.WithService(coreSvc).WithLiveness(coreSvc)
 	s.verifier = ver
 
 	providers, err := providerRegistry(cfg.Identity.Providers)

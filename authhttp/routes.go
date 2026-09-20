@@ -87,6 +87,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// rootPermission gates an intrinsic, root-scoped route on a `root:*`
 	// permission through the granular permission system (svc.Can for users,
 	// the verified ceiling for machine principals — see requirePermission).
+	// Native users must also be currently live for these sensitive operations.
 	// There is no bespoke "admin" auth tier; these are plain root-group perms.
 	rootPermission := func(perm authkit.Perm, h http.HandlerFunc) http.Handler {
 		return required(s.requirePermission(authkit.RootGroup(), perm, h))
