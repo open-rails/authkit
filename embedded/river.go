@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/riverkit"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -22,8 +22,8 @@ import (
 type RiverOwnership struct{ fromHost bool }
 
 // RiverFromHost selects a host-owned River fleet. AuthKit never migrates,
-// starts, or stops it. RegisterRiver installs AuthKit's workers and schedules
-// into its configuration before the host calls river.NewClient.
+// starts, or stops it. Pass RiverJobs() to riverkit.New to register AuthKit's
+// workers and schedules in the host fleet.
 func RiverFromHost() *RiverOwnership { return &RiverOwnership{fromHost: true} }
 
 // RiverConfig configures PostgreSQL maintenance. The default schema is public
@@ -70,6 +70,7 @@ type riverMaintenance struct {
 	client     *river.Client[pgx.Tx]
 	fromHost   bool
 	registered bool
+	failed     bool
 	closed     bool
 }
 
@@ -81,11 +82,7 @@ func (s *Client) initRiver(ownership *RiverOwnership) error {
 	if s.maintenance.fromHost {
 		return nil
 	}
-	cfg := &river.Config{Schema: s.cfg.River.Schema}
-	if err := s.registerRiver(cfg); err != nil {
-		return err
-	}
-	client, err := river.NewClient(riverpgxv5.New(s.pg), cfg)
+	client, err := riverkit.New(context.Background(), s.pg, &river.Config{Schema: s.cfg.River.Schema}, s.RiverJobs())
 	if err != nil {
 		return fmt.Errorf("authkit: construct managed River: %w", err)
 	}
@@ -93,24 +90,46 @@ func (s *Client) initRiver(ownership *RiverOwnership) error {
 	return nil
 }
 
-// RegisterRiver installs the cleanup worker, queue and hourly schedule into a
-// host-owned configuration. Call once, before river.NewClient, on every replica
-// participating in the fleet. The host controls construction, Start and Stop.
-// User hard-delete/purge is a separate opt-in adapter with its own host policy.
-func (s *Client) RegisterRiver(cfg *river.Config) error {
-	if s == nil || s.maintenance == nil {
-		return fmt.Errorf("authkit: RegisterRiver requires PostgreSQL")
-	}
-	m := s.maintenance
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return fmt.Errorf("authkit: client is closed")
-	}
-	if !m.fromHost {
-		return fmt.Errorf("authkit: RegisterRiver requires Deps.River = RiverFromHost()")
-	}
-	return s.registerRiver(cfg)
+// RiverJobs contributes AuthKit maintenance to one host-owned fleet. It does not
+// construct or start a client. Compose once, before serving requests, and close
+// the library if composition fails. The host controls Start and Stop.
+func (s *Client) RiverJobs() riverkit.Contribution {
+	claimed := false
+	return riverkit.NewContribution("authkit", func(_ context.Context, cfg *river.Config) error {
+		if s == nil || s.maintenance == nil {
+			return fmt.Errorf("authkit: RiverJobs requires PostgreSQL")
+		}
+		m := s.maintenance
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.closed {
+			return fmt.Errorf("authkit: client is closed")
+		}
+		if m.failed || m.registered {
+			return fmt.Errorf("authkit: River jobs already composed; recreate failed runtimes")
+		}
+		claimed = true
+		return s.registerRiver(cfg)
+	}, func(_ context.Context, client *river.Client[pgx.Tx]) error {
+		m := s.maintenance
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.closed || m.failed {
+			return fmt.Errorf("authkit: client closed during River composition")
+		}
+		m.client = client
+		return nil
+	}, func() error {
+		if !claimed || s == nil || s.maintenance == nil {
+			return nil
+		}
+		m := s.maintenance
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.failed = true
+		m.client = nil
+		return nil
+	})
 }
 
 func (s *Client) registerRiver(cfg *river.Config) error {
@@ -166,8 +185,8 @@ func (s *Client) Start(ctx context.Context) error {
 	if m.closed {
 		return fmt.Errorf("authkit: client is closed")
 	}
-	if !m.registered {
-		return fmt.Errorf("authkit: call RegisterRiver before starting the host fleet")
+	if m.failed || !m.registered || m.client == nil {
+		return fmt.Errorf("authkit: compose RiverJobs with riverkit.New before starting the host fleet")
 	}
 	if m.fromHost {
 		return nil
@@ -186,7 +205,7 @@ func (s *Client) closeRiver() {
 		return
 	}
 	m.closed = true
-	if m.client != nil {
+	if m.client != nil && !m.fromHost {
 		_ = m.client.StopAndCancel(context.Background())
 	}
 }

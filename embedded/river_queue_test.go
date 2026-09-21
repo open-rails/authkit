@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/riverkit"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -44,9 +45,7 @@ func TestMaintenanceQueueNames(t *testing.T) {
 			require.NoError(t, err)
 			defer hosted.Close()
 			riverCfg := &river.Config{Schema: "public"}
-			require.NoError(t, hosted.RegisterRiver(riverCfg))
-			require.Contains(t, riverCfg.Queues, queue)
-			_, err = river.NewClient(riverpgxv5.New(pool), riverCfg)
+			_, err = riverkit.New(t.Context(), pool, riverCfg, hosted.RiverJobs())
 			require.NoError(t, err, "host constructor validates queue and periodic ID")
 		})
 	}
@@ -81,8 +80,7 @@ func TestLongIdentitySchemaRunsRiverCleanup(t *testing.T) {
 				_, err = migrator.Migrate(t.Context(), rivermigrate.DirectionUp, nil)
 				require.NoError(t, err)
 				riverCfg := &river.Config{Schema: "public"}
-				require.NoError(t, core.RegisterRiver(riverCfg))
-				client, err := river.NewClient(riverpgxv5.New(pg.Pool), riverCfg)
+				client, err := riverkit.New(t.Context(), pg.Pool, riverCfg, core.RiverJobs())
 				require.NoError(t, err)
 				require.NoError(t, core.Start(t.Context()))
 				require.NoError(t, client.Start(t.Context()))
