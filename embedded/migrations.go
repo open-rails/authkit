@@ -20,6 +20,11 @@ import (
 type MigrationOptions struct {
 	River       *RiverOwnership
 	RiverSchema string
+	// RuntimePool identifies the existing database user that will run AuthKit.
+	// When supplied, initialization grants that user runtime access directly.
+	// Both pools must connect to the same database and remain host-owned.
+	// Nil applies migrations without provisioning runtime privileges.
+	RuntimePool *pgxpool.Pool
 }
 
 // ApplyMigrations applies AuthKit's PostgreSQL migrations to a privileged pool.
@@ -54,6 +59,10 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 	if err != nil {
 		return err
 	}
+	runtimeUser, err := migrationRuntimeUser(ctx, pool, opts.RuntimePool)
+	if err != nil {
+		return err
+	}
 	migrations, err := migratekit.LoadFromFS(internalmigrations.FS)
 	if err != nil {
 		return fmt.Errorf("authkit: load PostgreSQL migrations: %w", err)
@@ -67,7 +76,7 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
 	if opts.River != nil && opts.River.fromHost {
-		return nil
+		return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, "")
 	}
 	// River initializers share this database/schema lock protocol. The
 	// dedicated session leaves even a one-connection caller pool free for DDL.
@@ -96,5 +105,5 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
-	return nil
+	return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, riverCfg.Schema)
 }

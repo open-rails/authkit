@@ -10,7 +10,15 @@ namespace and creates the configured target schema.
 `embedded.ApplyMigrations(ctx, pool, schema)` returns only an error. Migration
 readiness is established by a successful apply; there is no operational need to
 attribute individual migration rows to one replica when several replicas start
-concurrently:
+concurrently.
+
+For separate migration and application credentials, pass
+`embedded.MigrationOptions{RuntimePool: applicationPool}`. The initializer
+resolves the connected application's database user and grants its runtime
+permissions directly, without creating roles or memberships. The two pools
+must target the same database. A missing runtime pool retains migration-only
+behavior; an unreachable runtime pool or a different database fails before
+migration begins. With host-owned River, its grants remain host-owned too.
 
 | Historical consumer/head (before the migration API hard cut) | Migration consumption at that head |
 |---|---|

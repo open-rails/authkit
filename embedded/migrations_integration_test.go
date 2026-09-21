@@ -37,6 +37,7 @@ func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testin
 	for _, schema := range []string{"public", "shared_jobs"} {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
+			runtimePool := migrationRuntimePool(t, pg)
 			cfg := pg.Pool.Config()
 			cfg.MaxConns = 1
 			pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
@@ -51,7 +52,7 @@ func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testin
 			for range 6 {
 				go func() {
 					<-start
-					results <- ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema})
+					results <- ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool})
 				}()
 			}
 			close(start)
@@ -61,7 +62,8 @@ func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testin
 			var exists bool
 			require.NoError(t, pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".river_job").Scan(&exists))
 			require.True(t, exists)
-			require.NoError(t, ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema}))
+			require.NoError(t, ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool}))
+			assertMigrationRuntimeUser(t, runtimePool)
 		})
 	}
 }
