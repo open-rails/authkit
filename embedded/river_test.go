@@ -2,11 +2,9 @@ package embedded
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -47,31 +45,11 @@ func TestManagedRiverMaintenance(t *testing.T) {
 	for _, schema := range []string{"public", "queue_jobs"} {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
-			require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: schema}))
-			// Provision runtime data privileges separately. Runtime initialization must
-			// work as a role with no CREATE privileges and cannot apply migrations.
-			role := "ak_runtime_" + uuid.NewString()[:8]
-			_, err := pg.Pool.Exec(t.Context(), "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+" LOGIN PASSWORD 'river_test' NOSUPERUSER NOBYPASSRLS")
+			runtimePool := migrationRuntimePool(t, pg)
+			require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool}))
+			_, err := pg.Pool.Exec(t.Context(), "REVOKE CREATE ON SCHEMA public FROM PUBLIC")
 			require.NoError(t, err)
-			t.Cleanup(func() {
-				_, err := pg.Pool.Exec(context.Background(), "DROP OWNED BY "+pgx.Identifier{role}.Sanitize())
-				require.NoError(t, err)
-				_, err = pg.Pool.Exec(context.Background(), "DROP ROLE "+pgx.Identifier{role}.Sanitize())
-				require.NoError(t, err)
-			})
-			for _, name := range []string{"profiles", schema} {
-				quoted := pgx.Identifier{name}.Sanitize()
-				_, err = pg.Pool.Exec(t.Context(), fmt.Sprintf("GRANT USAGE ON SCHEMA %s TO %s; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA %s TO %s; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA %s TO %s", quoted, role, quoted, role, quoted, role))
-				require.NoError(t, err)
-			}
-			_, err = pg.Pool.Exec(t.Context(), "REVOKE CREATE ON SCHEMA public FROM PUBLIC")
-			require.NoError(t, err)
-			runtimeCfg, err := pgxpool.ParseConfig(pg.URL)
-			require.NoError(t, err)
-			runtimeCfg.ConnConfig.User, runtimeCfg.ConnConfig.Password = role, "river_test"
-			runtimePool, err := pgxpool.NewWithConfig(t.Context(), runtimeCfg)
-			require.NoError(t, err)
-			t.Cleanup(runtimePool.Close)
+			assertMigrationRuntimeUser(t, runtimePool)
 			cfg := maintenanceConfig()
 			cfg.River = RiverConfig{Schema: schema, CleanupInterval: time.Second}
 			core, err := New(cfg, Deps{Postgres: runtimePool})

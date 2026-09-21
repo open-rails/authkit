@@ -33,8 +33,12 @@ import (
 	"github.com/open-rails/authkit/embedded"
 )
 
-pool, _ := pgxpool.New(ctx, dsn)
-err := embedded.ApplyMigrations(ctx, pool, "profiles")
+ownerPool, _ := pgxpool.New(ctx, migrationDSN)
+runtimePool, _ := pgxpool.New(ctx, applicationDSN)
+err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{
+	RuntimePool: runtimePool,
+})
+// Pass runtimePool to embedded.Deps{Postgres: runtimePool} when constructing the client.
 ```
 
 AuthKit owns the embedded migration source, migratekit runner, migration
@@ -43,6 +47,15 @@ before `embedded.New`; consumers do not import AuthKit migrations or
 migratekit. Pre-v1 schemas must be rebuilt for the
 [fresh baseline](docs/maintenance/fresh-schema-baseline.md); AuthKit never drops
 existing application data automatically.
+
+`RuntimePool` identifies the application's existing database user through its
+active connection. Both pools must connect to the same database. Initialization
+grants that user AuthKit's schema, table, sequence and function permissions
+directly, plus the runtime objects of managed River. AuthKit creates no database
+roles or memberships, and the host needs no AuthKit-specific `GRANT` script.
+The same normal application login and pool can serve other embedded libraries.
+Both pools remain host-owned. Omit `RuntimePool` for migration-only setup with
+access provisioned separately; runtime credentials never need migration rights.
 
 ## PostgreSQL maintenance
 
@@ -64,7 +77,9 @@ Applications sharing River with other libraries compose one worker configuration
 
 ```go
 ownership := embedded.RiverFromHost()
-err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{River: ownership})
+err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{
+	River: ownership, RuntimePool: runtimePool,
+})
 // The host initializes its River schema through River's migrator.
 client, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
 riverCfg := &river.Config{Schema: "public", Workers: river.NewWorkers()}
@@ -80,6 +95,8 @@ err = jobs.Start(ctx)
 AuthKit client binding or hand-written host cron is needed. Call it once before
 `river.NewClient`. The passed host configuration owns the River schema. The
 registry supports one AuthKit engine; duplicate registration fails explicitly.
+With `RiverFromHost`, the host also owns River database permissions; AuthKit
+provisions only its identity schema, leaving the shared fleet's access unchanged.
 
 **Every replica sharing a River schema must carry the same complete periodic
 schedule set.** River's elected leader alone schedules periodic jobs. Separate
