@@ -1,0 +1,4 @@
+Owner: /root/astra_auth_boundary_resume
+Purpose: Constructor-owned AuthKit HTTP and portable administrator role operations
+Branch: feat/377-constructor-admin-client
+Base: b8b41070c677a5338bbe0db38d2ad5e2ac82df87

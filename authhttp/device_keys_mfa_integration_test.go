@@ -29,10 +29,10 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	user, err := srv.svc.CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
-	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, user.ID)
+	secret, _, err := fixtureBackend(srv.svc).StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
-	_, err = srv.svc.EnableTOTP2FA(ctx, embedded.TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: embedded.FirstFactorOnly})
+	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, embedded.TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: embedded.FirstFactorOnly})
 	require.NoError(t, err)
 
 	publicKey, privateKey := newDeviceKey(t)

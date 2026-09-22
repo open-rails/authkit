@@ -25,11 +25,11 @@ func WithAccountRegistrationInviteToken(ctx context.Context, token string) conte
 	return contextWithAccountRegistrationInviteToken(ctx, token)
 }
 
-func (s *Runtime) RegistrationAllowedForEmailWithInvite(ctx context.Context, email, token string) (bool, error) {
+func (s *engine) RegistrationAllowedForEmailWithInvite(ctx context.Context, email, token string) (bool, error) {
 	return s.registrationAllowedForEmail(contextWithAccountRegistrationInviteToken(ctx, token), email)
 }
 
-func (s *Runtime) ConsumeAccountRegistrationInvite(ctx context.Context, email, userID, token string) error {
+func (s *engine) ConsumeAccountRegistrationInvite(ctx context.Context, email, userID, token string) error {
 	return s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, token), email, userID)
 }
 
@@ -50,17 +50,17 @@ type AccountRegistrationInvite = authkit.AccountRegistrationInvite
 type CreateAccountRegistrationInviteRequest = authkit.CreateAccountRegistrationInviteRequest
 type AccountRegistrationInviteCreated = authkit.AccountRegistrationInviteCreated
 
-func (s *Runtime) accountRegistrationInviteURL(code string) string {
+func (s *engine) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
 	q.Set("account_invite_token", code)
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-func (s *Runtime) CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error) {
+func (s *engine) CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error) {
 	return s.createAccountRegistrationInvite(ctx, req, true)
 }
 
-func (s *Runtime) createAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (AccountRegistrationInviteCreated, error) {
+func (s *engine) createAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (AccountRegistrationInviteCreated, error) {
 	if err := s.requirePG(); err != nil {
 		return AccountRegistrationInviteCreated{}, err
 	}
@@ -160,7 +160,7 @@ func (s *Runtime) createAccountRegistrationInvite(ctx context.Context, req Creat
 	return created, nil
 }
 
-func (s *Runtime) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
+func (s *engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
 	if s.email == nil {
 		return
 	}
@@ -175,7 +175,7 @@ func (s *Runtime) sendAccountRegistrationInviteEmail(ctx context.Context, email,
 	}
 }
 
-func (s *Runtime) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
+func (s *engine) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
 	// #147 FINAL: the stranger invite is UNBOUND — the single-use code is the
 	// credential, not the address it was delivered to. We check only that a valid,
 	// unconsumed, unexpired code is presented; `email` (the registrant's chosen
@@ -204,7 +204,7 @@ type registrationInvite struct {
 	Persona *authkit.Persona
 }
 
-func (s *Runtime) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
+func (s *engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil || mode == RegistrationModeClosed {
 		return nil, ErrRegistrationDisabled
@@ -248,7 +248,7 @@ FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &
 	return &invite, nil
 }
 
-func (s *Runtime) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *registrationInvite, userID string) error {
+func (s *engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *registrationInvite, userID string) error {
 	if invite == nil {
 		return nil
 	}
@@ -266,7 +266,7 @@ func (s *Runtime) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite
 	return nil
 }
 
-func (s *Runtime) consumeAccountRegistrationInvite(ctx context.Context, _ string, userID string) error {
+func (s *engine) consumeAccountRegistrationInvite(ctx context.Context, _ string, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return errors.New("invalid_user")
 	}

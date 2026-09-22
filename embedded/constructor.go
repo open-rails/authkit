@@ -178,7 +178,7 @@ func normalizeConfig(cfg Config) (Config, error) {
 // resolution, no required-field checks, no memory-store default. The Keyset
 // is fixed for the lifetime of the Runtime — hosts that need hot-reloaded
 // signing keys construct via New with a live jwtkit.KeySource (#238).
-func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
+func newEngineWithKeys(cfg Config, keys Keyset, deps Deps) (*engine, error) {
 	if err := deps.validate(); err != nil {
 		return nil, err
 	}
@@ -200,8 +200,8 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
 // the Runtime exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*Runtime, error) {
-	s := &Runtime{
+func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*engine, error) {
+	s := &engine{
 		cfg:               norm,
 		keys:              keys,
 		schema:            norm.Schema,
@@ -229,7 +229,7 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 // explicit Config.Ephemeral.AllowMemory opt-in (#305). If Keys.Source is nil,
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
-func New(cfg Config, deps Deps) (_ *Runtime, err error) {
+func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	if err := deps.validate(); err != nil {
 		return nil, err
 	}
@@ -344,6 +344,8 @@ func New(cfg Config, deps Deps) (_ *Runtime, err error) {
 	}
 	svc.ownedMemoryStore = ownedMemoryStore
 	svc.ownedKeySource = ownedKeySource
+	ownedMemoryStore, ownedKeySource = nil, nil // ownership transferred to svc
+
 	return svc, nil
 }
 
@@ -437,7 +439,7 @@ func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 
 // RegistrationVerificationPolicy returns the effective registration
 // verification policy ("none" when unset/invalid).
-func (s *Runtime) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
+func (s *engine) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
 	v, err := normalizeRegistrationVerification(s.cfg.Registration.Verification)
 	if err != nil {
 		return RegistrationVerificationNone
@@ -445,24 +447,24 @@ func (s *Runtime) RegistrationVerificationPolicy() RegistrationVerificationPolic
 	return v
 }
 
-func (s *Runtime) RegistrationVerificationRequired() bool {
+func (s *engine) RegistrationVerificationRequired() bool {
 	return s.RegistrationVerificationPolicy() == RegistrationVerificationRequired
 }
 
-func (s *Runtime) RegistrationVerificationEnabled() bool {
+func (s *engine) RegistrationVerificationEnabled() bool {
 	return s.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
 // self-registration / auto-registration is allowed.
-func (s *Runtime) PublicNativeUserRegistrationEnabled() bool {
+func (s *engine) PublicNativeUserRegistrationEnabled() bool {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	return err == nil && mode == RegistrationModeOpen
 }
 
 // requireMFAEnrollment reports whether every user must enroll a second factor
 // before establishing/refreshing a session (TwoFactor.Mode == "required").
-func (s *Runtime) requireMFAEnrollment() bool {
+func (s *engine) requireMFAEnrollment() bool {
 	return s.cfg.TwoFactor.Mode == TwoFactorRequired
 }
 

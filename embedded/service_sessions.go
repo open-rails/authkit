@@ -52,14 +52,14 @@ func (f SessionFreshness) AssuranceClaims() (authTime int64, amr []string, acr s
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
-func (s *Runtime) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *engine) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	return s.IssueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
 }
 
 // IssueRefreshSessionWithAuthMethods creates a refresh session and records the
 // authentication methods that established it. Callers minting a session after
 // MFA should pass e.g. []string{"pwd", "otp", "mfa"}.
-func (s *Runtime) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *engine) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
@@ -90,7 +90,7 @@ func (s *Runtime) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
-func (s *Runtime) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
+func (s *engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
 	rt := RandB64(32)
 	var exp *time.Time
 	if s.cfg.Token.RefreshTokenDuration > 0 {
@@ -119,7 +119,7 @@ func (s *Runtime) insertRefreshSessionTx(ctx context.Context, q *db.Queries, use
 	return sid, rt, exp, evicted, err
 }
 
-func (s *Runtime) logSessionEvictions(ctx context.Context, userID string, evicted []string) {
+func (s *engine) logSessionEvictions(ctx context.Context, userID string, evicted []string) {
 	reason := string(SessionRevokeReasonEvicted)
 	for _, id := range evicted {
 		s.logSessionRevoked(ctx, userID, id, &reason)
@@ -127,7 +127,7 @@ func (s *Runtime) logSessionEvictions(ctx context.Context, userID string, evicte
 }
 
 // ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
-func (s *Runtime) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+func (s *engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
 	}
@@ -210,7 +210,7 @@ func (s *Runtime) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 // Re-delivery never rotates again: every holder of one predecessor converges on
 // the same successor. Older consumed hashes identify the family but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
-func (s *Runtime) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
+func (s *engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
 	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
@@ -239,7 +239,7 @@ func (s *Runtime) exchangeDemotedRefreshToken(ctx context.Context, refreshToken 
 // check — the unsealed value hashes to the row's CURRENT token hash. That last one
 // makes the whole thing self-verifying: a seal that does not open to the live
 // successor is not accepted on the strength of the timestamp alone.
-func (s *Runtime) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
+func (s *engine) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
 	window := s.cfg.Token.RefreshRotationGrace
 	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
 		return "", false
@@ -270,7 +270,7 @@ func (s *Runtime) graceSuccessorFor(presented string, prev db.SessionByHistorica
 // the sessions) or on a transient DB error, where it would have wrongly revoked
 // everything. ensureUserAccess still rejects banned/deleted/reserved users with
 // ErrUserBanned at exactly this point.
-func (s *Runtime) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
+func (s *engine) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil || u == nil {
 		return "", time.Time{}, errOrUnauthorized(err)
@@ -340,7 +340,7 @@ func graceKeystream(predecessor string, n int) []byte {
 // IssueAuthenticatedSession issues a session for a trusted, already-authenticated
 // caller. Interactive login flows additionally check their captured proof version
 // before using the same transaction-owned issuance helper.
-func (s *Runtime) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
+func (s *engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
 	if s.pg == nil {
 		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
 	}
@@ -374,7 +374,7 @@ func (s *Runtime) IssueAuthenticatedSession(ctx context.Context, userID, userAge
 	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
 }
 
-func (s *Runtime) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *User, mfa MFAStatus, in LoginSessionInput) (IssuedSession, *time.Time, []string, error) {
+func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *User, mfa MFAStatus, in LoginSessionInput) (IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
 		return IssuedSession{}, nil, nil, err
@@ -402,7 +402,7 @@ func (s *Runtime) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *
 
 // lockLoginAccount serializes proof completion with credential recovery. Zero
 // expectedVersion is reserved for trusted host issuance, never an in-flight proof.
-func (s *Runtime) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*User, error) {
+func (s *engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*User, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -431,7 +431,7 @@ func (s *Runtime) lockLoginAccount(ctx context.Context, q *db.Queries, userID st
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
 // ListUserSessions lists active sessions for a user and issuer.
-func (s *Runtime) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
+func (s *engine) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -457,7 +457,7 @@ func (s *Runtime) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	return out, nil
 }
 
-func (s *Runtime) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
+func (s *engine) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
 	if s.pg == nil {
 		return SessionFreshness{}, errors.New("postgres not configured")
 	}
@@ -487,13 +487,13 @@ func (s *Runtime) SessionFreshness(ctx context.Context, userID, sessionID string
 	}, nil
 }
 
-func (s *Runtime) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
+func (s *engine) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
 	return s.MarkSessionAuthenticatedWithMethods(ctx, userID, sessionID, []string{"pwd"})
 }
 
 // MarkSessionAuthenticatedWithMethods refreshes the session's sensitive-action
 // auth window and records how the user re-proved identity.
-func (s *Runtime) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
+func (s *engine) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
 	if s.pg == nil {
 		return errors.New("postgres not configured")
 	}
@@ -538,7 +538,7 @@ func normalizeAuthMethods(methods []string) []string {
 }
 
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
-func (s *Runtime) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
+func (s *engine) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -560,7 +560,7 @@ func (s *Runtime) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 
 // RevokeIssuerSessions revokes the user's refresh sessions on this issuer only,
 // optionally keeping one: a user's own "sign out my other sessions" here.
-func (s *Runtime) RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error {
+func (s *engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -593,14 +593,14 @@ func (s *Runtime) RevokeIssuerSessions(ctx context.Context, userID string, keepS
 
 // AdminRevokeAccountSessions is the unchecked account-wide emergency revoke;
 // hosts authorize the actor. See AdminRevokeAccountSessionsAs.
-func (s *Runtime) AdminRevokeAccountSessions(ctx context.Context, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) AdminRevokeAccountSessions(ctx context.Context, userID string) (authkit.AccountSessionRevocation, error) {
 	return s.revokeAccountSessions(ctx, "", userID)
 }
 
 // revokeAccountSessions revokes refresh sessions on every account issuer and
 // all device keys in one transaction under the account lock, so nothing that
 // can mint a new access token survives. Issued access tokens expire on TTL.
-func (s *Runtime) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
 	issuers := s.accountIssuers()
 	out := authkit.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
 	for _, issuer := range issuers {
@@ -665,7 +665,7 @@ func (s *Runtime) revokeAccountSessions(ctx context.Context, actorUserID, userID
 }
 
 // accountIssuers is the normalized account-level revocation scope (a copy).
-func (s *Runtime) accountIssuers() []string {
+func (s *engine) accountIssuers() []string {
 	if len(s.cfg.Token.AccountIssuers) == 0 {
 		return []string{s.cfg.Token.Issuer}
 	}
@@ -693,7 +693,7 @@ func revokeSessionsTx(ctx context.Context, q *db.Queries, userID string, issuers
 }
 
 // logRevokedSessions records each revocation under the session's own issuer.
-func (s *Runtime) logRevokedSessions(ctx context.Context, userID string, revoked []revokedSession, reason string) {
+func (s *engine) logRevokedSessions(ctx context.Context, userID string, revoked []revokedSession, reason string) {
 	for _, r := range revoked {
 		s.logSessionEvent(ctx, AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: SessionEventRevoked, Reason: &reason})
 	}
@@ -705,7 +705,7 @@ func (s *Runtime) logRevokedSessions(ctx context.Context, userID string, revoked
 // evict + the subsequent insert observe a consistent view and the active count can
 // never exceed the cap. Returns the evicted session ids for the caller to audit after
 // commit (so a logging failure can't roll back the eviction).
-func (s *Runtime) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
+func (s *engine) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
 	if s.cfg.Token.SessionMaxPerUser <= 0 {
 		return nil, nil
 	}
@@ -728,7 +728,7 @@ func (s *Runtime) enforceSessionLimitTx(ctx context.Context, q *db.Queries, user
 	return ids, nil
 }
 
-func (s *Runtime) revokeFamily(ctx context.Context, familyID string) error {
+func (s *engine) revokeFamily(ctx context.Context, familyID string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -749,7 +749,7 @@ func (s *Runtime) revokeFamily(ctx context.Context, familyID string) error {
 // from a reused refresh token), so a silently-swallowed failure would leave the
 // attacker's stolen-but-rotated tokens valid. The reuse attempt itself is always
 // rejected by the caller; this only ensures the rest of the family dies too.
-func (s *Runtime) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
+func (s *engine) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
 	if err := s.revokeFamily(ctx, familyID); err == nil {
 		return
 	} else {
@@ -760,7 +760,7 @@ func (s *Runtime) revokeFamilyEnsured(ctx context.Context, familyID, userID stri
 	}
 }
 
-func (s *Runtime) hashRefresh(token string) []byte {
+func (s *engine) hashRefresh(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	out := make([]byte, len(sum))
 	copy(out, sum[:])

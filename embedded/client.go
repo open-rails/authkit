@@ -7,8 +7,8 @@ import authkit "github.com/open-rails/authkit"
 type clientView struct{ authkit.Client }
 
 // Client returns the engine-free operation view. Runtime retains ownership of
-// configuration, bootstrap, signing dependencies, HTTP and lifecycle.
-func (s *Runtime) Client() authkit.Client {
+// configuration, signing dependencies, HTTP and lifecycle.
+func (s *engine) Client() authkit.Client {
 	if s == nil {
 		return nil
 	}

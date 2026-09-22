@@ -47,7 +47,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			return authkit.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}, Documents: map[string]string{"example.policy/v1": documents.Digest([]byte("policy"))}}, nil
 		}))
 		engine := newServerClient(t, cfg, pg.Pool, opts...)
-		service, err := New(engine, Config{DirectPeerIP: true, DisableRateLimiting: true})
+		service, err := newTestService(engine, Config{DirectPeerIP: true, DisableRateLimiting: true})
 		require.NoError(t, err)
 		t.Cleanup(service.Close)
 		handler, err := MountHandler(service, MountOptions{})
@@ -131,7 +131,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 
 		// A proxy may remove an external prefix. Its configured resolver supplies
 		// that path explicitly; neither Host nor Forwarded selects the proof target.
-		rewrittenHTTP, err := New(engine, Config{DirectPeerIP: true, DisableRateLimiting: true, DPoPRequestURL: func(*http.Request) string { return cfg.Token.Issuer + "/external/api/v1/delegated/token" }})
+		rewrittenHTTP, err := newTestService(engine, Config{DirectPeerIP: true, DisableRateLimiting: true, DPoPRequestURL: func(*http.Request) string { return cfg.Token.Issuer + "/external/api/v1/delegated/token" }})
 		require.NoError(t, err)
 		t.Cleanup(rewrittenHTTP.Close)
 		rewrittenHandler, err := MountHandler(rewrittenHTTP, MountOptions{})
@@ -207,7 +207,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		// Disabling DPoP protects existing native authorizers from nil certificates.
 		cfg.Delegated.AllowDPoP = false
 		native := newServerClient(t, cfg, pg.Pool, opts...)
-		nativeHTTP, err := New(native, Config{DirectPeerIP: true, DisableRateLimiting: true})
+		nativeHTTP, err := newTestService(native, Config{DirectPeerIP: true, DisableRateLimiting: true})
 		require.NoError(t, err)
 		t.Cleanup(nativeHTTP.Close)
 		nativeHandler, err := MountHandler(nativeHTTP, MountOptions{})
@@ -232,7 +232,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 			t.Cleanup(func() { _ = denied.Close() })
 			cfg.Delegated.AllowDPoP = true
 			broken := newServerClient(t, cfg, pg.Pool, append(opts, withRedis(denied))...)
-			brokenHTTP, err := New(broken, Config{DirectPeerIP: true, DisableRateLimiting: true})
+			brokenHTTP, err := newTestService(broken, Config{DirectPeerIP: true, DisableRateLimiting: true})
 			require.NoError(t, err)
 			t.Cleanup(brokenHTTP.Close)
 			brokenHandler, err := MountHandler(brokenHTTP, MountOptions{})

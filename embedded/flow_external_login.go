@@ -57,7 +57,7 @@ var (
 // Resolution errors: ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
 // ErrUserCreationFailed. Session and MFA errors come from the shared login workflow.
-func (s *Runtime) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (LoginOutcome, error) {
+func (s *engine) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (LoginOutcome, error) {
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)
 	if err != nil {
 		return LoginOutcome{}, err
@@ -82,7 +82,7 @@ func (s *Runtime) CompleteExternalLogin(ctx context.Context, in ExternalLoginInp
 // ResolveExternalIdentity maps a verified provider identity to a local user
 // without issuing a session: the explicit link target, the already-linked
 // account, or a newly registered one (created reports the last case).
-func (s *Runtime) ResolveExternalIdentity(ctx context.Context, in ExternalLoginInput) (userID string, created bool, err error) {
+func (s *engine) ResolveExternalIdentity(ctx context.Context, in ExternalLoginInput) (userID string, created bool, err error) {
 	id := in.Identity
 	issuer, provider := id.Issuer, id.Provider
 	var emailPtr *string

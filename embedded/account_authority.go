@@ -16,7 +16,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 )
 
-func (s *Runtime) authorizeAccountAuthorityOn(ctx context.Context, st *PermissionGroupStore, actorUserID, targetUserID string) error {
+func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *PermissionGroupStore, actorUserID, targetUserID string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	targetUserID = strings.TrimSpace(targetUserID)
 	if actorUserID == "" || targetUserID == "" {
@@ -61,7 +61,7 @@ func (s *Runtime) authorizeAccountAuthorityOn(ctx context.Context, st *Permissio
 }
 
 // SoftDeleteUserAs is the actor-aware SoftDeleteUser.
-func (s *Runtime) SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
+func (s *engine) SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
 	if strings.TrimSpace(actorUserID) == "" {
 		return ErrInsufficientRoleAuthority
 	}
@@ -69,7 +69,7 @@ func (s *Runtime) SoftDeleteUserAs(ctx context.Context, actorUserID, userID stri
 }
 
 // HardDeleteUserAs is the actor-aware HardDeleteUser.
-func (s *Runtime) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
+func (s *engine) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
 	if strings.TrimSpace(actorUserID) == "" {
 		return ErrInsufficientRoleAuthority
 	}
@@ -77,7 +77,7 @@ func (s *Runtime) HardDeleteUserAs(ctx context.Context, actorUserID, userID stri
 }
 
 // AdminRevokeAccountSessionsAs is the actor-aware AdminRevokeAccountSessions.
-func (s *Runtime) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
 	if strings.TrimSpace(actorUserID) == "" {
 		return authkit.AccountSessionRevocation{}, ErrInsufficientRoleAuthority
 	}

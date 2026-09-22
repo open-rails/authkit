@@ -14,7 +14,7 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	uid, original := g.login(t, "oldreplay")
 	ctx := context.Background()
 	// A different login's family must remain valid for the same user.
-	_, other, _, err := g.srv.svc.IssueRefreshSession(ctx, uid, "other-device", nil)
+	_, other, _, err := fixtureBackend(g.srv.svc).IssueRefreshSession(ctx, uid, "other-device", nil)
 	require.NoError(t, err)
 	current := original
 	var predecessor string

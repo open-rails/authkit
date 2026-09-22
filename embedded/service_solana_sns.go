@@ -131,7 +131,7 @@ func (c solanaSNS) ttl() time.Duration {
 	return defaultSolanaSNSCacheTTL
 }
 
-func (s *Runtime) solanaSNSCacheTTL() time.Duration {
+func (s *engine) solanaSNSCacheTTL() time.Duration {
 	if s == nil {
 		return defaultSolanaSNSCacheTTL
 	}
@@ -149,7 +149,7 @@ func normalizeSolanaSNSName(name string) (string, error) {
 	return normalized, nil
 }
 
-func (s *Runtime) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
+func (s *engine) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
 	if s.pg == nil {
 		return
 	}
@@ -158,7 +158,7 @@ func (s *Runtime) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, ad
 
 // resolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
-func (s *Runtime) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
+func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
 	account := SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
@@ -215,7 +215,7 @@ func (s *Runtime) resolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 }
 
 // GetSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
-func (s *Runtime) GetSolanaLinkedAccount(ctx context.Context, userID string) (*SolanaLinkedAccount, error) {
+func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*SolanaLinkedAccount, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

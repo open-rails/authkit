@@ -39,7 +39,7 @@ type importedSolanaLinkProfile struct {
 // input row. It never verifies a wallet: only a successful SIWS proof may
 // promote an imported claim. Migration tooling only; runtime request handlers
 // must use the normal proof-aware Solana link flow.
-func (s *Runtime) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinksResult, error) {
+func (s *engine) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinksResult, error) {
 	out := ImportUnverifiedSolanaLinksResult{
 		Results: make([]ImportUnverifiedSolanaLinkResult, len(inputs)),
 	}
@@ -67,7 +67,7 @@ func (s *Runtime) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []Impo
 // importUnverifiedSolanaLink reserves a legacy Solana address for its mapped
 // AuthKit user without making it a login method. Only a later successful SIWS
 // proof promotes the row to verified state.
-func (s *Runtime) importUnverifiedSolanaLink(ctx context.Context, in ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinkResult, error) {
+func (s *engine) importUnverifiedSolanaLink(ctx context.Context, in ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinkResult, error) {
 	var out ImportUnverifiedSolanaLinkResult
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -167,7 +167,7 @@ func (s *Runtime) importUnverifiedSolanaLink(ctx context.Context, in ImportUnver
 
 // verifyImportedSolanaLink promotes only the exact mapped user/address pair.
 // Callers must verify the SIWS proof before invoking it.
-func (s *Runtime) verifyImportedSolanaLink(ctx context.Context, userID, address string) error {
+func (s *engine) verifyImportedSolanaLink(ctx context.Context, userID, address string) error {
 	_, err := s.q.UserProviderVerifyImported(ctx, db.UserProviderVerifyImportedParams{
 		UserID:  userID,
 		Issuer:  s.solanaIssuer(),
@@ -180,7 +180,7 @@ func (s *Runtime) verifyImportedSolanaLink(ctx context.Context, userID, address 
 	return nil
 }
 
-func (s *Runtime) getSolanaProviderLinkAny(ctx context.Context, address string) (userID string, verified, found bool, err error) {
+func (s *engine) getSolanaProviderLinkAny(ctx context.Context, address string) (userID string, verified, found bool, err error) {
 	row, err := s.q.ProviderLinkByIssuerAny(ctx, db.ProviderLinkByIssuerAnyParams{
 		Issuer:  s.solanaIssuer(),
 		Subject: strings.TrimSpace(address),

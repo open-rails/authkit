@@ -14,7 +14,7 @@ import (
 
 // mutateCredentials owns the account lock and the transaction for credential
 // writes. No caller may authorize from a password/version read before this lock.
-func (s *Runtime) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason SessionRevokeReason, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
+func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason SessionRevokeReason, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -38,7 +38,7 @@ func (s *Runtime) mutateCredentials(ctx context.Context, userID string, keepSess
 // mutateCredentialsTx is shared by credential flows and transactional host bootstrap.
 // Credentials are account-wide, so sessions on every account issuer are revoked.
 // The caller owns commit/rollback and logs returned sessions only after commit.
-func (s *Runtime) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepSessionID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]revokedSession, error) {
+func (s *engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepSessionID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]revokedSession, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (s *Runtime) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID
 	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
 }
 
-func (s *Runtime) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason SessionRevokeReason) error {
+func (s *engine) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason SessionRevokeReason) error {
 	if strings.TrimSpace(userID) == "" {
 		return jwt.ErrTokenInvalidClaims
 	}

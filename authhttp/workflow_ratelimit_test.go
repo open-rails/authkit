@@ -37,7 +37,7 @@ func TestWorkflowRateLimits(t *testing.T) {
 		}
 		cfg.RateLimits[RLPasswordLogin] = ratelimit.Limit{Limit: 2, Window: time.Minute}
 		cfg.RateLimits[RLPasswordStepUp] = ratelimit.Limit{Limit: 2, Window: time.Minute}
-		svc, err := New(client, cfg)
+		svc, err := newTestService(client, cfg)
 		require.NoError(t, err)
 		t.Cleanup(svc.Close)
 		mount, err := MountHandler(svc, MountOptions{})
@@ -97,7 +97,7 @@ func TestWorkflowRateLimits(t *testing.T) {
 			cfg.RateLimits[RLPasswordLogin] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 			_, outageToken := stalePasswordUserToken(t, svc, pg.Pool, "limited-step-up-outage", stepUpPassword)
 			cfg.Redis = redis.NewClient(store.rdb.Options())
-			outage, err := New(client, cfg)
+			outage, err := newTestService(client, cfg)
 			require.NoError(t, err)
 			t.Cleanup(outage.Close)
 			mounted, err := MountHandler(outage, MountOptions{})
@@ -132,7 +132,7 @@ func TestServiceOwnsBackgroundWorkers(t *testing.T) {
 			var svc *Service
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(workerLabel, t.Name()), func(context.Context) {
-				svc, err = New(client, cfg)
+				svc, err = newTestService(client, cfg)
 			})
 			return svc, err
 		}

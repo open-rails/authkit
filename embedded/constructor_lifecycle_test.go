@@ -53,9 +53,9 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	}
 
 	t.Run("close", func(t *testing.T) {
-		var client *Runtime
+		var client *engine
 		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
-			client, err = New(config, Deps{})
+			client, err = newEngine(config, Deps{})
 		})
 		require.NoError(t, err)
 		t.Cleanup(client.Close)
@@ -74,7 +74,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 				cfg.Ephemeral.AllowMemory = false
 			}
 			pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
-				client, err := New(cfg, Deps{})
+				client, err := newEngine(cfg, Deps{})
 				require.Error(t, err)
 				require.Nil(t, client)
 			})
@@ -90,11 +90,11 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		t.Cleanup(keys.Close)
 		cfg := config
 		cfg.Keys.Source = keys
-		client, err := New(cfg, Deps{EphemeralStore: store})
+		client, err := newEngine(cfg, Deps{EphemeralStore: store})
 		require.NoError(t, err)
 		client.Close()
 		cfg.Ephemeral.AllowMemory = false
-		client, err = New(cfg, Deps{EphemeralStore: store})
+		client, err = newEngine(cfg, Deps{EphemeralStore: store})
 		require.Error(t, err)
 		require.Nil(t, client)
 

@@ -30,33 +30,12 @@ func (s *Service) Close() {
 	s.closers = nil
 }
 
-// New constructs the HTTP adapter over a client the host already built —
-// client-first construction (#142). The host wires the engine and its
-// dependencies on embedded.New; New takes only the HTTP layer's Config.
-// Postgres is REQUIRED: the durable user/role and permission-group store has
-// no in-memory fallback (#106), so the client must be Postgres-backed; pure
-// token verification with no storage uses verify.NewVerifier instead.
-//
-// Construction fails (returns an error, never panics — #212) when the
-// configuration cannot be served: Config.Validate refuses a missing client-IP
-// posture or a bad CIDR, and the cross-layer checks refuse a "required"
-// registration verification with no sender (Deps.Email / Deps.SMS), document
-// providers without readers, and a delegated route without its authorizer.
-//
-// The service verifier uses client as its liveness source automatically, so
-// RequiredLive, OptionalLive and VerifyRequestLive need no additional wiring.
-// Required, Optional and VerifyRequest remain stateless; hosts can override the source through
-// Service.Verifier().WithLiveness.
-//
-// Redis is taken ONCE (#210): the engine's Redis client (Deps.Redis) also backs
-// the HTTP layer's OIDC/SIWS state caches and rate limiter; Config.Redis is an
-// override, not a requirement.
-//
-//	client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
-//	srv, err := authhttp.New(client, authhttp.Config{TrustedProxies: []string{"10.0.0.0/8"}})
-func New(client *embedded.Runtime, hcfg Config) (*Service, error) {
+// New assembles a local HTTP transport inside HTTPConfiguration.BuildHTTP.
+// Applications normally set embedded.Config.HTTP instead. Runtime and portable
+// Clients deliberately do not implement HTTPBackend.
+func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
-		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed *embedded.Runtime (Postgres is mandatory)")
+		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed embedded.HTTPBackend (Postgres is mandatory)")
 	}
 	if err := hcfg.Validate(); err != nil {
 		return nil, err
@@ -191,7 +170,7 @@ func New(client *embedded.Runtime, hcfg Config) (*Service, error) {
 // `relation "users" does not exist`. Fail-open on probe errors
 // (connectivity, permissions): those surface elsewhere; only a definitive
 // "table missing" fails construction.
-func probeMigrations(client *embedded.Runtime) error {
+func probeMigrations(client embedded.HTTPBackend) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var exists bool

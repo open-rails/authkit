@@ -107,7 +107,7 @@ func newApplicationsHTTPClient(allowPrivate bool, r netguard.Resolver) *http.Cli
 // canonical form keeps scheme+port so distinct rigs stay distinct roots; that
 // is the #257-style dev carve-out, and 127.0.0.1 obviously cannot
 // domain-prove anything in prod.
-func (s *Runtime) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
+func (s *engine) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
 		return "", "", "", fmt.Errorf("%w: domain is required", ErrApplicationDomainInvalid)
@@ -146,7 +146,7 @@ func (s *Runtime) resolveApplicationDomain(domain string) (canonical, host, fetc
 // fetchApplicationDocument GETs the well-known application.json. The fetch is
 // the domain-control proof, so its transport is deliberately strict: bounded
 // body, no redirects, SSRF-guarded dials outside dev.
-func (s *Runtime) fetchApplicationDocument(ctx context.Context, fetchURL string) (*ApplicationDocument, error) {
+func (s *engine) fetchApplicationDocument(ctx context.Context, fetchURL string) (*ApplicationDocument, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrApplicationDocumentFetchFailed, err)
@@ -192,7 +192,7 @@ type normalizedApplication struct {
 // exactly one trust source, and public https URLs. The slug is a FREE CLAIM
 // (defaulting to the hostname) — availability is checked at claim time, not
 // here.
-func (s *Runtime) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
+func (s *engine) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
 	isDev := s.cfg.Applications.AllowPrivateNetworkJWKS
 	slug := strings.ToLower(strings.TrimSpace(doc.Slug))
 	if slug == "" {
@@ -259,7 +259,7 @@ func isUniqueViolation(err error, constraint string) bool {
 
 // applicationsEnabled validates the self-registration configuration and
 // returns the org persona definition.
-func (s *Runtime) applicationsEnabled() (PersonaDef, error) {
+func (s *engine) applicationsEnabled() (PersonaDef, error) {
 	if !s.cfg.Applications.SelfRegistration {
 		return PersonaDef{}, ErrApplicationRegistrationDisabled
 	}
@@ -280,7 +280,7 @@ func (s *Runtime) applicationsEnabled() (PersonaDef, error) {
 // boot-time self-heal AND the rotation-from-root path: the old keypair may be
 // gone entirely, the fresh domain proof adopts whatever the document declares
 // now.
-func (s *Runtime) RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error) {
+func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}

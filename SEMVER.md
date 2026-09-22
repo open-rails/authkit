@@ -67,8 +67,8 @@ generated or canonical sources named below, not here.
 | Import path | Package | Tier | Role |
 |---|---|---|---|
 | `github.com/open-rails/authkit` | `authkit` | Stable | `Client` interface, domain/wire types, typed identifiers, error catalog, verify-only primitives |
-| `…/embedded` | `embedded` | Stable | Local engine: `New(cfg, deps) (*Runtime, error)`; `Runtime.Client()` exposes application operations |
-| `…/authhttp` | `authhttp` | Stable | Runtime HTTP configuration and lower-level `New(runtime, Config)`, `MountHandler`, `NewMount` |
+| `…/embedded` | `embedded` | Stable | Local infrastructure owner: `New(cfg, deps) (*Runtime, error)`; `Runtime.Client()` exposes application operations |
+| `…/authhttp` | `authhttp` | Stable | Constructor HTTP configuration and local-only `New(HTTPBackend, Config)`, `MountHandler`, `NewMount` |
 | `…/verify` | `verify` | Stable (verify-only) | Verifier, `Claims`, middleware, permission/liveness gates |
 | `…/dpop` | `dpop` | Stable (verify-only) | RFC 9449 sender-proof verification and atomic replay callback |
 | `…/documents` | `documents` | Stable | Signed-document envelopes, publisher/resolver, service |
@@ -96,13 +96,13 @@ Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`,
 
 ### 3.2 Rules
 
-- **Use `authkit.Client` for application operations and `*embedded.Runtime` for
-  local engine ownership.** `Runtime.Client()` returns the operation view without
-  pool, configuration or lifecycle access. Construction, bootstrap/import,
-  document publication, passkey ceremonies, `ConfigureHTTP`, `RiverJobs`, and
-  `Start`/`Close` remain documented Runtime responsibilities. Both public
-  contracts are covered; there is no `embedded.Client` compatibility alias.
-  AuthKit does not yet provide a remote Client transport.
+- **Use `authkit.Client` for all application operations and `*embedded.Runtime`
+  for local infrastructure ownership.** Runtime wraps a named private engine;
+  business methods, Genesis and resource getters are not exposed. Client owns
+  typed identity, role, import and explicit administrator operations. Runtime
+  exposes Client, lifecycle, routes/verifier, River contributions and required
+  construction dependencies. AuthKit does not yet provide a remote Client
+  transport; the portable operation contract owns no process resources.
 - **`Client` membership.** Adding a method is MAJOR (fakes implement it). A
   method belongs only when a server calls it in-process; browser flows belong
   to the HTTP layer. Lifecycle pairs stay together (`MintAPIKeyWithOptions` ⇒
@@ -125,22 +125,21 @@ Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`,
 and authorized by the host. A host must authenticate the caller, authorize the
 operation and retain the resolved immutable IDs before calling them. `*As`
 methods apply documented actor-dependent mutation constraints; they do not replace
-the host's operation-level authorization. `Genesis()` is for explicitly trusted
-bootstrap/import/provisioning, never for forwarding an untrusted role request.
+the host's operation-level authorization. Client administrator operations are
+for explicitly authorized host commands, never for forwarding untrusted requests.
 The host owns this boundary even when it obtains the client through an interface.
 
-**Concrete host families.** In addition to `authkit.Client`: `New`/`NewWithKeys`,
-`Config`/`Deps`, `Runtime.Client`, `ConfigureHTTP`, `RiverJobs`, `Start`/`Close`,
-`Genesis`, manifest loading/parsing, document publication via
-`DocumentStore`, and the passkey begin/finish/list/rename/delete operations are
-supported. AuthKit keeps the signer/key-source extension points in `jwtkit`:
-document signing and host-managed keys consume them directly. Their external
-types are part of the compile contract; upstream changes cannot silently break
-an otherwise compatible AuthKit release.
+**Local construction families.** `New`/`NewWithKeys`, `Config`/`Deps`,
+`Runtime.Client`, `ConfigureHTTP`, `HTTPRoutes`, `Verifier`, `RiverJobs`,
+`Start`/`Close`, and the entitlement-provider dependency are supported.
+HTTPBackend is a local protocol capability passed only to HTTP construction;
+neither Runtime nor the portable Client implements it. Document providers use
+explicit signer/store dependencies; key-source extensions remain in `jwtkit`.
+External types in these supported signatures remain part of the compile contract.
 
 ## 4. Plane B — HTTP route surface
 
-- Configure HTTP once through `Runtime.ConfigureHTTP(authhttp.Config)`, then
+- Configure HTTP in `embedded.Config.HTTP` before construction, then
   obtain a framework bundle with `authkithttp.Routes(runtime)`,
   `authkitgin.Routes(runtime)` or `authkitfiber.Routes(runtime)` and mount it on
   the root router. HTTP policy belongs to the runtime configuration, not each
@@ -255,7 +254,7 @@ The YAML schema (`users`, `remote_applications`, password modes `plaintext` /
 `LoadBootstrapManifestFile` / `ParseBootstrapManifestYAML` is a wire contract;
 removing or renaming a field is MAJOR.
 
-`ApplyBootstrapManifest` commits the complete manifest in one transaction.
+`Client.AdminApplyBootstrapManifest` commits the complete manifest in one transaction.
 `StartupOnly` is once per database schema: names label completion receipts,
 and another name does not run an additional genesis. Failed or canceled seed
 writes roll back with the receipt; a corrected attempt can retry. Separate

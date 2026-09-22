@@ -13,18 +13,18 @@ import (
 // lockAuthority precedes every group, account, MFA and session row lock in an
 // authority mutation. A schema-wide boundary also protects ancestor grants and
 // mutable role definitions. Login, verification and session reads do not use it.
-func (s *Runtime) lockAuthority(ctx context.Context, q db.DBTX) error {
+func (s *engine) lockAuthority(ctx context.Context, q db.DBTX) error {
 	_, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.authority."+s.dbSchema())
 	return err
 }
 
 // Authority reads after a queued lock must use a new statement snapshot even
 // when a host configures its pool with a stronger default isolation level.
-func (s *Runtime) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) {
+func (s *engine) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) {
 	return s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 }
 
-func (s *Runtime) withAuthorityMutation(ctx context.Context, apply func(*PermissionGroupStore) error) error {
+func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*PermissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
 // from the remaining live owners. Removing an already unusable principal does
 // not create an ownership loss; empty bootstrap groups also remain possible.
-func (s *Runtime) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, gid string, subject authkit.Subject) error {
+func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, gid string, subject authkit.Subject) error {
 	role, err := st.directRole(ctx, gid, subject)
 	if err != nil || role != OwnerRoleName {
 		return err
@@ -86,7 +86,7 @@ func (s *Runtime) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore,
 	return s.requireRemainingOwner(ctx, st, gid, subject)
 }
 
-func (s *Runtime) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding authkit.Subject) error {
+func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding authkit.Subject) error {
 	var persona authkit.Persona
 	if err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona); err != nil {
 		return err
@@ -112,7 +112,7 @@ func (s *Runtime) requireRemainingOwner(ctx context.Context, st *PermissionGroup
 	return nil
 }
 
-func (s *Runtime) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroupStore, subject authkit.Subject) error {
+func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroupStore, subject authkit.Subject) error {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -145,7 +145,7 @@ func (s *Runtime) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGrou
 
 // An invitation is a bounded bearer grant, not the inviter's current authority.
 // Redemption can retain or increase its recipient's role, never strip grants.
-func (s *Runtime) assignInvitedRole(ctx context.Context, st *PermissionGroupStore, gid string, persona authkit.Persona, userID string, role authkit.Role) error {
+func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore, gid string, persona authkit.Persona, userID string, role authkit.Role) error {
 	subject := authkit.UserSubject(userID)
 	old, err := st.directRole(ctx, gid, subject)
 	if err != nil {
@@ -184,7 +184,7 @@ func (s *Runtime) assignInvitedRole(ctx context.Context, st *PermissionGroupStor
 // A subtree deletion can also delete applications owning other groups. Check
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.
-func (s *Runtime) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
+func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
 	rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
       SELECT id FROM permission_groups WHERE id=$1::uuid
       UNION ALL SELECT g.id FROM permission_groups g JOIN subtree p ON g.parent_id=p.id)

@@ -10,7 +10,7 @@ import (
 // embedded and stays pgx-free), and verify's enrichment + lazy-load
 // federation seams (verifier.WithService / SetRemoteApplicationSource).
 var (
-	_ authkit.Client                 = (*Runtime)(nil)
-	_ verify.Enricher                = (*Runtime)(nil)
-	_ verify.RemoteApplicationSource = (*Runtime)(nil)
+	_ authkit.Client                 = (*engine)(nil)
+	_ verify.Enricher                = (*engine)(nil)
+	_ verify.RemoteApplicationSource = (*engine)(nil)
 )

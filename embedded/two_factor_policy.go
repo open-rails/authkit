@@ -18,11 +18,11 @@ import (
 var Err2FAMethodUnavailable = authkit.ErrTwoFAMethodUnavailable
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
-func (s *Runtime) TwoFactorEnabled() bool {
+func (s *engine) TwoFactorEnabled() bool {
 	return s.cfg.TwoFactor.Mode != TwoFactorDisabled
 }
 
-func (s *Runtime) twoFactorMethodConfigured(m TwoFactorMethod) bool {
+func (s *engine) twoFactorMethodConfigured(m TwoFactorMethod) bool {
 	if !s.TwoFactorEnabled() {
 		return false
 	}
@@ -40,7 +40,7 @@ func (s *Runtime) twoFactorMethodConfigured(m TwoFactorMethod) bool {
 
 // TwoFactorMethodAvailable reports whether a second-factor method can be
 // enrolled/used right now: enabled by policy AND its delivery dependency present.
-func (s *Runtime) TwoFactorMethodAvailable(method string) bool {
+func (s *engine) TwoFactorMethodAvailable(method string) bool {
 	m := TwoFactorMethod(strings.ToLower(strings.TrimSpace(method)))
 	if !s.twoFactorMethodConfigured(m) {
 		return false
@@ -60,7 +60,7 @@ func (s *Runtime) TwoFactorMethodAvailable(method string) bool {
 // TwoFactorAllowedMethods is the set of currently-usable methods, in stable order.
 // Empty when 2FA is disabled or no method's dependency is satisfied — what status
 // and enrollment-required responses report to clients.
-func (s *Runtime) TwoFactorAllowedMethods() []string {
+func (s *engine) TwoFactorAllowedMethods() []string {
 	out := []string{}
 	for _, m := range []TwoFactorMethod{TwoFactorEmail, TwoFactorSMS, TwoFactorTOTP} {
 		if s.TwoFactorMethodAvailable(string(m)) {

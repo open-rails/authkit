@@ -13,7 +13,7 @@ import (
 )
 
 // GetUserMetadata returns a user's arbitrary metadata (internal/admin flags).
-func (s *Runtime) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
+func (s *engine) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (s *Runtime) GetUserMetadata(ctx context.Context, userID string) (map[strin
 }
 
 // PatchUserMetadata merges patch into a user's metadata.
-func (s *Runtime) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
+func (s *engine) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func (s *Runtime) PatchUserMetadata(ctx context.Context, userID string, patch ma
 // so reserved placeholders cannot authenticate. The owner-namespace reservation
 // FLOW that set this flag was removed in the permission-group hard cut (#111);
 // the read gate stays as defense-in-depth for any externally-set flag.
-func (s *Runtime) IsUserReserved(ctx context.Context, userID string) (bool, error) {
+func (s *engine) IsUserReserved(ctx context.Context, userID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}

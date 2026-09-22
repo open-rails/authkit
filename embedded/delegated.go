@@ -33,7 +33,7 @@ type DelegatedAccessParams = authkit.DelegatedAccessParams
 // touches the private key. When p.Issuer is empty it defaults to the Runtime's
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
 // claim contract.
-func (s *Runtime) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
+func (s *engine) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner
@@ -52,7 +52,7 @@ func (s *Runtime) MintDelegatedAccessToken(ctx context.Context, p DelegatedAcces
 // `permissions`. A top-level `roles` claim is never minted; delegated-subject
 // role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
 //
-// Hosts embedding core.Service should prefer (*Runtime).MintDelegatedAccessToken
+// Hosts embedding core.Service should prefer (*engine).MintDelegatedAccessToken
 // so they never construct their own signer or read the PEM.
 func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p DelegatedAccessParams) (string, error) {
 	if signer == nil {

@@ -28,7 +28,7 @@ func NormalizePreferredLanguage(language string) (string, error) {
 
 type PreferredLanguage = authkit.PreferredLanguage
 
-func (s *Runtime) SetPreferredLanguage(ctx context.Context, userID, language string) error {
+func (s *engine) SetPreferredLanguage(ctx context.Context, userID, language string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -43,7 +43,7 @@ func (s *Runtime) SetPreferredLanguage(ctx context.Context, userID, language str
 	return s.q.UserSetPreferredLanguage(ctx, db.UserSetPreferredLanguageParams{ID: userID, PreferredLanguage: &normalized})
 }
 
-func (s *Runtime) GetPreferredLanguage(ctx context.Context, userID string) (PreferredLanguage, error) {
+func (s *engine) GetPreferredLanguage(ctx context.Context, userID string) (PreferredLanguage, error) {
 	if s.pg == nil {
 		return PreferredLanguage{}, nil
 	}
@@ -58,7 +58,7 @@ func contextWithPreferredLanguage(ctx context.Context, language string) context.
 	return authkit.WithLanguage(ctx, language)
 }
 
-func (s *Runtime) contextWithUserPreferredLanguage(ctx context.Context, userID string) context.Context {
+func (s *engine) contextWithUserPreferredLanguage(ctx context.Context, userID string) context.Context {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return ctx

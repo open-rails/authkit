@@ -24,7 +24,7 @@ func TestApplyMigrationsCreatesSchemaBeforeClientConstruction(t *testing.T) {
 		)`).Scan(&usersTable))
 	require.True(t, usersTable)
 
-	client, err := NewWithKeys(
+	client, err := newEngineWithKeys(
 		Config{Token: TokenConfig{Issuer: "https://migrations.test"}},
 		Keyset{},
 		Deps{Postgres: pg.Pool},

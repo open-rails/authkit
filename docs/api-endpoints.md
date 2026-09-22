@@ -178,7 +178,7 @@ valid access token until it expires (≤1 access TTL). Ban/deleted is enforced a
 token mint (login + refresh).
 
 **LIVE is the opt-in stateful twin** (ak#267, v0.92.0).
-`authhttp.New(client, cfg)` automatically supplies its client as the service
+`embedded.New` with `Config.HTTP` automatically supplies its client as the service
 verifier's liveness source. Standalone `verify.NewVerifier()` users still wire
 `verifier.WithLiveness(client)` explicitly. Mount `verify.RequiredLive` /
 `RequiredLiveUser` (or the `authkitgin` twins) instead of `Required`. It denies

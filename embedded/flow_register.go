@@ -58,7 +58,7 @@ type RegisterOutcome struct {
 // ErrRegistrationDisabled / ErrEmailRegistrationUnavailable /
 // ErrPhoneRegistrationUnavailable; engine failures carry a stage prefix
 // and, for sends, the delivery sentinel.
-func (s *Runtime) Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error) {
+func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error) {
 	if s.cfg.Registration.NativeUserMode == RegistrationModeClosed {
 		return RegisterOutcome{}, ErrRegistrationDisabled
 	}
@@ -176,7 +176,7 @@ func registrationErr(stage string, err error) error {
 	}
 }
 
-func (s *Runtime) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, account registeredAccount) (RegisterOutcome, error) {
+func (s *engine) registeredSession(ctx context.Context, in RegisterInput, out RegisterOutcome, account registeredAccount) (RegisterOutcome, error) {
 	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
 	if err != nil {
 		return RegisterOutcome{}, err

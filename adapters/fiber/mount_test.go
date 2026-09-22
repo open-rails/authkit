@@ -39,7 +39,9 @@ func newMountService(t *testing.T) *authhttp.Service {
 	if err != nil {
 		t.Fatal(err)
 	}
+	factory := &testHTTPFactory{}
 	client, err := embedded.New(embedded.Config{
+		HTTP: factory,
 		Token: embedded.TokenConfig{
 			Issuer: "https://example.com", IssuedAudiences: []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour,
@@ -60,11 +62,7 @@ func newMountService(t *testing.T) *authhttp.Service {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
-	svc, err := authhttp.New(client, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(svc.Close)
+	svc := factory.service
 	return svc
 }
 
@@ -353,4 +351,19 @@ func TestMountRejectsDisabledMethodsBeforeRegistration(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The low-level Mount tests deliberately exercise a Service. Acquire it only
+// while Runtime invokes the trusted HTTP constructor, not through an accessor.
+type testHTTPFactory struct{ service *authhttp.Service }
+type testHTTPSurface struct{ *authhttp.Service }
+
+func (*testHTTPSurface) Routes() []embedded.HTTPRoute { return nil }
+func (f *testHTTPFactory) BuildHTTP(backend embedded.HTTPBackend) (embedded.HTTPSurface, error) {
+	service, err := authhttp.New(backend, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
+	if err != nil {
+		return nil, err
+	}
+	f.service = service
+	return &testHTTPSurface{Service: service}, nil
 }

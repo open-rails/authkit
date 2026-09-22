@@ -20,7 +20,7 @@ import (
 // JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
 // KeySource on every call, so a rotation is reflected on the very next request
 // (#238).
-func (s *Runtime) JWKS() jwtkit.JWKS {
+func (s *engine) JWKS() jwtkit.JWKS {
 	active := s.keys.ActiveSigner()
 	pubs := s.keys.PublicKeys()
 
@@ -51,33 +51,33 @@ func (s *Runtime) JWKS() jwtkit.JWKS {
 
 // AdminSetPassword force-sets a user's password
 // (admin only, no current password required)
-func (s *Runtime) AdminSetPassword(ctx context.Context, userID, new string) error {
+func (s *engine) AdminSetPassword(ctx context.Context, userID, new string) error {
 	return s.changePassword(ctx, userID, new, nil, nil, nil, SessionRevokeReasonAdminSetPassword)
 }
 
-func (s *Runtime) EntitlementsProvider() EntitlementsProvider {
+func (s *engine) EntitlementsProvider() EntitlementsProvider {
 	return s.entitlements
 }
 
 // DelegationAuthorizer returns the host-injected delegated-token authorizer
 // (#277), nil when none was wired.
-func (s *Runtime) DelegationAuthorizer() DelegationAuthorizer {
+func (s *engine) DelegationAuthorizer() DelegationAuthorizer {
 	return s.delegationAuthorizer
 }
 
 // Config returns THE configuration (#237): the host Config, normalized once at
 // construction. Both the engine and the HTTP transport read it — there is no
 // parallel flat options struct (#236 bug class is structurally impossible).
-func (s *Runtime) Config() Config { return s.cfg }
+func (s *engine) Config() Config { return s.cfg }
 
 // PublicKeysByKID returns the CURRENT public keys indexed by key ID, read
 // fresh from the KeySource on every call (#238).
-func (s *Runtime) PublicKeysByKID() map[string]crypto.PublicKey {
+func (s *engine) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.keys.PublicKeys()
 }
 
 // nowTime is the engine clock (time.Now unless WithClock replaced it).
-func (s *Runtime) nowTime() time.Time {
+func (s *engine) nowTime() time.Time {
 	if s == nil || s.now == nil {
 		return time.Now()
 	}
@@ -86,18 +86,18 @@ func (s *Runtime) nowTime() time.Time {
 
 // Postgres returns AuthKit's schema-bound pgx pool (may be nil). It is an
 // AuthKit-owned clone of Deps.Postgres; callers must not close it directly.
-func (s *Runtime) Postgres() *pgxpool.Pool { return s.pg }
+func (s *engine) Postgres() *pgxpool.Pool { return s.pg }
 
 // Close releases AuthKit-owned resources, including its schema-bound pool.
 // Injected dependencies, including the host pool, stores and keys, stay host-owned.
-func (s *Runtime) Close() {
+func (s *engine) Close() {
 	if s == nil {
 		return
 	}
 	s.closeOnce.Do(s.close)
 }
 
-func (s *Runtime) close() {
+func (s *engine) close() {
 	s.httpMu.Lock()
 	s.closed = true
 	surface := s.httpSurface
@@ -124,11 +124,11 @@ func (s *Runtime) close() {
 
 // Schema returns the Postgres schema AuthKit's tables live in ("profiles"
 // unless configured otherwise via Config.Schema).
-func (s *Runtime) Schema() string { return s.dbSchema() }
+func (s *engine) Schema() string { return s.dbSchema() }
 
 // dbSchema returns the validated schema name, defaulting for zero-value
 // Services (some tests construct Runtime{} directly).
-func (s *Runtime) dbSchema() string {
+func (s *engine) dbSchema() string {
 	if s == nil || s.schema == "" {
 		return db.DefaultSchema
 	}
@@ -138,7 +138,7 @@ func (s *Runtime) dbSchema() string {
 // qtx returns Queries bound to a transaction. The transaction comes from
 // AuthKit's schema-bound pool, so all generated SQL resolves in the configured
 // namespace through that connection's search_path.
-func (s *Runtime) qtx(tx pgx.Tx) *db.Queries {
+func (s *engine) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(tx)
 }
 
@@ -154,4 +154,4 @@ func (s *Runtime) qtx(tx pgx.Tx) *db.Queries {
 // provider here. Safe because entitlements are read LAZILY at token-mint time;
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
 // should set Deps.Entitlements instead.
-func (s *Runtime) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
+func (s *engine) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }

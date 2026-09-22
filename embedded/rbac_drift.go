@@ -18,7 +18,7 @@ func (r RBACDriftReport) Total() int {
 	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
 }
 
-func (s *Runtime) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
+func (s *engine) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
 	if s == nil || s.pg == nil {
 		return RBACDriftReport{}, nil
 	}
@@ -37,7 +37,7 @@ func (s *Runtime) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) 
 	return RBACDriftReport{GroupUserRoles: userRoles, CustomRoles: custom, APIKeys: apiKeys}, nil
 }
 
-func (s *Runtime) driftCustomRoles(ctx context.Context) (int, error) {
+func (s *engine) driftCustomRoles(ctx context.Context) (int, error) {
 	rows, err := s.pg.Query(ctx, `
 		SELECT pg.persona, gcr.role, count(*)
 		  FROM group_custom_roles gcr
@@ -63,7 +63,7 @@ func (s *Runtime) driftCustomRoles(ctx context.Context) (int, error) {
 	return total, rows.Err()
 }
 
-func (s *Runtime) driftAssignedRoles(ctx context.Context, table, where string) (int, error) {
+func (s *engine) driftAssignedRoles(ctx context.Context, table, where string) (int, error) {
 	custom, err := s.liveCustomRoleSet(ctx)
 	if err != nil {
 		return 0, err
@@ -95,7 +95,7 @@ func (s *Runtime) driftAssignedRoles(ctx context.Context, table, where string) (
 	return total, rows.Err()
 }
 
-func (s *Runtime) liveCustomRoleSet(ctx context.Context) (map[string]map[string]struct{}, error) {
+func (s *engine) liveCustomRoleSet(ctx context.Context) (map[string]map[string]struct{}, error) {
 	rows, err := s.pg.Query(ctx, `
 		SELECT pg.id::text, gcr.role
 		  FROM group_custom_roles gcr
@@ -119,7 +119,7 @@ func (s *Runtime) liveCustomRoleSet(ctx context.Context) (map[string]map[string]
 	return out, rows.Err()
 }
 
-func (s *Runtime) roleLive(persona authkit.Persona, groupID string, role authkit.Role, custom map[string]map[string]struct{}) bool {
+func (s *engine) roleLive(persona authkit.Persona, groupID string, role authkit.Role, custom map[string]map[string]struct{}) bool {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return true
 	}
@@ -130,7 +130,7 @@ func (s *Runtime) roleLive(persona authkit.Persona, groupID string, role authkit
 	return ok
 }
 
-func (s *Runtime) customRolesLive(persona authkit.Persona, role authkit.Role) bool {
+func (s *engine) customRolesLive(persona authkit.Persona, role authkit.Role) bool {
 	sch := s.groupSchemaOrDefault()
 	td, ok := sch.Persona(persona)
 	if !ok || !td.Capabilities.CustomRoles {

@@ -65,7 +65,7 @@ func (d Deps) validate() error {
 	return nil
 }
 
-func (s *Runtime) applyDeps(d Deps) error {
+func (s *engine) applyDeps(d Deps) error {
 	if d.Postgres != nil {
 		pool, err := schemaPool(d.Postgres, s.dbSchema())
 		if err != nil {

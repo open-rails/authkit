@@ -56,7 +56,7 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := New(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), workflowHTTPConfig())
+	srv, err := newTestService(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), workflowHTTPConfig())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 

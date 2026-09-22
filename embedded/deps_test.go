@@ -37,7 +37,7 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 		Keys:      KeysConfig{VerifyOnly: true},
 		Ephemeral: EphemeralConfig{AllowMemory: true},
 	}
-	client, err := New(settings, Deps{Postgres: host})
+	client, err := newEngine(settings, Deps{Postgres: host})
 	require.NoError(t, err)
 	client.Close()
 	require.NoError(t, host.Ping(ctx))
@@ -59,7 +59,7 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 	}
 	settings.Ephemeral.AllowMemory = false
 	for range 3 {
-		client, err := New(settings, Deps{Postgres: host})
+		client, err := newEngine(settings, Deps{Postgres: host})
 		require.ErrorContains(t, err, "Ephemeral.AllowMemory")
 		require.Nil(t, client)
 	}

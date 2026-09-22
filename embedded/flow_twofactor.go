@@ -56,15 +56,15 @@ const (
 
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
-func (s *Runtime) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+func (s *engine) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
 	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false, mode)
 }
 
-func (s *Runtime) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
+func (s *engine) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
 	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true, mode)
 }
 
-func (s *Runtime) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
+func (s *engine) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -162,7 +162,7 @@ func (s *Runtime) enable2FA(ctx context.Context, userID, method string, phoneNum
 
 // Disable2FAWithRemovedRoles disables account MFA and removes active user role
 // assignments whose catalog role requires MFA.
-func (s *Runtime) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error) {
+func (s *engine) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -193,7 +193,7 @@ func (s *Runtime) Disable2FAWithRemovedRoles(ctx context.Context, userID string)
 	return removed, tx.Commit(ctx)
 }
 
-func (s *Runtime) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error) {
+func (s *engine) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -251,7 +251,7 @@ func (s *Runtime) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, 
 	return removed, tx.Commit(ctx)
 }
 
-func (s *Runtime) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
+func (s *engine) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -292,7 +292,7 @@ func (s *Runtime) SetDefault2FAFactor(ctx context.Context, userID, factorID stri
 }
 
 // Get2FASettings retrieves a user's 2FA settings
-func (s *Runtime) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
+func (s *engine) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -300,7 +300,7 @@ func (s *Runtime) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 	return s.get2FASettings(ctx, s.q, userID)
 }
 
-func (s *Runtime) get2FASettings(ctx context.Context, q *db.Queries, userID string) (*TwoFactorSettings, error) {
+func (s *engine) get2FASettings(ctx context.Context, q *db.Queries, userID string) (*TwoFactorSettings, error) {
 	row, err := q.MFASettingsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -331,14 +331,14 @@ func (s *Runtime) get2FASettings(ctx context.Context, q *db.Queries, userID stri
 	return settings, nil
 }
 
-func (s *Runtime) List2FAFactors(ctx context.Context, userID string) ([]TwoFactorFactor, error) {
+func (s *engine) List2FAFactors(ctx context.Context, userID string) ([]TwoFactorFactor, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
 	return s.list2FAFactors(ctx, s.q, userID)
 }
 
-func (s *Runtime) list2FAFactors(ctx context.Context, q *db.Queries, userID string) ([]TwoFactorFactor, error) {
+func (s *engine) list2FAFactors(ctx context.Context, q *db.Queries, userID string) ([]TwoFactorFactor, error) {
 	rows, err := q.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -350,7 +350,7 @@ func (s *Runtime) list2FAFactors(ctx context.Context, q *db.Queries, userID stri
 	return out, nil
 }
 
-func (s *Runtime) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
+func (s *engine) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
 	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return "", "", TwoFactorFactor{}, err
@@ -359,7 +359,7 @@ func (s *Runtime) Require2FAForLoginFactor(ctx context.Context, userID, factorID
 	return destination, factor.Method, factor, err
 }
 
-func (s *Runtime) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor TwoFactorFactor) (string, error) {
+func (s *engine) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor TwoFactorFactor) (string, error) {
 	if !factor.Enabled {
 		return "", fmt.Errorf("2FA not enabled")
 	}
@@ -374,7 +374,7 @@ func (s *Runtime) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 	return s.send2FACodeForUser(ctx, user, sessionID, factor)
 }
 
-func (s *Runtime) send2FACodeForUser(ctx context.Context, user *User, sessionID string, factor TwoFactorFactor) (string, error) {
+func (s *engine) send2FACodeForUser(ctx context.Context, user *User, sessionID string, factor TwoFactorFactor) (string, error) {
 	userID := user.ID
 	language := ""
 	if user.PreferredLanguage != nil {
@@ -445,7 +445,7 @@ func (s *Runtime) send2FACodeForUser(ctx context.Context, user *User, sessionID 
 	return destination, nil
 }
 
-func (s *Runtime) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
+func (s *engine) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
 	}
@@ -457,7 +457,7 @@ func (s *Runtime) Require2FAForStepUpMethod(ctx context.Context, userID, session
 	return destination, factor.Method, factor, err
 }
 
-func (s *Runtime) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
+func (s *engine) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
@@ -471,7 +471,7 @@ func (s *Runtime) Verify2FAStepUpMethodCode(ctx context.Context, userID, session
 // verifyStepUpForFactor is the shared step-up verify tail once the factor is
 // resolved (by id or by method): TOTP verifies inline, everything else consumes
 // the session-scoped code from the ephemeral store.
-func (s *Runtime) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor TwoFactorFactor) (bool, error) {
+func (s *engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor TwoFactorFactor) (bool, error) {
 	if factor.Method == "totp" {
 		return s.verifyTOTPFactorCode(ctx, factor, code)
 	}
@@ -483,11 +483,11 @@ func (s *Runtime) verifyStepUpForFactor(ctx context.Context, userID, sessionID, 
 
 // Verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
-func (s *Runtime) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
+func (s *engine) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
 	return s.Verify2FAFactorCode(ctx, userID, "", code)
 }
 
-func (s *Runtime) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
+func (s *engine) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
 	factor, err := s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return false, err
@@ -504,11 +504,11 @@ func (s *Runtime) Verify2FAFactorCode(ctx context.Context, userID, factorID, cod
 	return false, fmt.Errorf("ephemeral store not configured")
 }
 
-func (s *Runtime) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
+func (s *engine) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
 	return s.verifyTOTPFactorCodeOn(ctx, s.q, factor, code)
 }
 
-func (s *Runtime) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, factor TwoFactorFactor, code string) (bool, error) {
+func (s *engine) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, factor TwoFactorFactor, code string) (bool, error) {
 	secret, err := s.decryptTOTPSecret(factor.TOTPSecret)
 	if err != nil {
 		return false, err
@@ -526,11 +526,11 @@ func (s *Runtime) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, fac
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.
 // On success, removes the used backup code from the user's backup codes.
-func (s *Runtime) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
+func (s *engine) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
 	return s.verifyBackupCode(ctx, s.q, userID, backupCode)
 }
 
-func (s *Runtime) verifyBackupCode(ctx context.Context, q *db.Queries, userID, backupCode string) (bool, error) {
+func (s *engine) verifyBackupCode(ctx context.Context, q *db.Queries, userID, backupCode string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
 	}
@@ -551,7 +551,7 @@ func (s *Runtime) verifyBackupCode(ctx context.Context, q *db.Queries, userID, b
 
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).
 // Returns the plaintext codes (caller must show these to user ONCE).
-func (s *Runtime) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
+func (s *engine) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -570,7 +570,7 @@ func (s *Runtime) RegenerateBackupCodes(ctx context.Context, userID string) ([]s
 	return plaintextCodes, nil
 }
 
-func (s *Runtime) twoFactorFactor(ctx context.Context, userID, factorID string) (TwoFactorFactor, error) {
+func (s *engine) twoFactorFactor(ctx context.Context, userID, factorID string) (TwoFactorFactor, error) {
 	if s.pg == nil {
 		return TwoFactorFactor{}, fmt.Errorf("postgres not configured")
 	}
@@ -601,7 +601,7 @@ func (s *Runtime) twoFactorFactor(ctx context.Context, userID, factorID string) 
 	return factors[0], nil
 }
 
-func (s *Runtime) twoFactorFactorByMethod(ctx context.Context, userID, method string) (TwoFactorFactor, error) {
+func (s *engine) twoFactorFactorByMethod(ctx context.Context, userID, method string) (TwoFactorFactor, error) {
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method == "" {
 		return s.twoFactorFactor(ctx, userID, "")

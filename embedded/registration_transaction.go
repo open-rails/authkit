@@ -22,7 +22,7 @@ type registeredAccount struct {
 	Version int64
 }
 
-func (s *Runtime) registerAccount(ctx context.Context, in accountRegistration) (registeredAccount, error) {
+func (s *engine) registerAccount(ctx context.Context, in accountRegistration) (registeredAccount, error) {
 	if err := s.requirePG(); err != nil {
 		return registeredAccount{}, err
 	}

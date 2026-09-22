@@ -1,6 +1,6 @@
 # Verification trust and key ownership
 
-`authhttp.New` registers the engine's issuer as local and reads its live public
+`embedded.New` with `Config.HTTP` registers the engine's issuer as local and reads its live public
 keys on every verification. `Claims.UserID`, `Claims.IsUser()`, Gin `UserClaims`,
 and AuthKit account/permission lookups are reserved for that local namespace.
 Standalone verifiers use `IssuerOptions.IsLocal` only when the configured signer

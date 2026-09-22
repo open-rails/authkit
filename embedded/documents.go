@@ -9,7 +9,7 @@ import (
 
 // SignDocument signs through the Runtime's live key source, so normal AuthKit
 // key rotation applies without exposing private key material to the host.
-func (s *Runtime) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
+func (s *engine) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return documents.SignedDocument{}, ErrMissingSigner

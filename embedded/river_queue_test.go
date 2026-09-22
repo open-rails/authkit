@@ -38,10 +38,10 @@ func TestMaintenanceQueueNames(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
 			cfg.Ephemeral.KeyPrefix = "queue-test:" // This independent namespace need not include the full schema name.
-			managed, err := New(cfg, Deps{Postgres: pool})
+			managed, err := newEngine(cfg, Deps{Postgres: pool})
 			require.NoError(t, err, "managed constructor must accept every valid schema")
 			managed.Close()
-			hosted, err := New(cfg, Deps{Postgres: pool, River: RiverFromHost()})
+			hosted, err := newEngine(cfg, Deps{Postgres: pool, River: RiverFromHost()})
 			require.NoError(t, err)
 			defer hosted.Close()
 			riverCfg := &river.Config{Schema: "public"}
@@ -68,7 +68,7 @@ func TestLongIdentitySchemaRunsRiverCleanup(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
 			cfg.Ephemeral.KeyPrefix = "queue-test:" // This independent namespace need not include the full schema name.
-			core, err := New(cfg, Deps{Postgres: pg.Pool, River: ownership})
+			core, err := newEngine(cfg, Deps{Postgres: pg.Pool, River: ownership})
 			require.NoError(t, err)
 			defer core.Close()
 			var id int64

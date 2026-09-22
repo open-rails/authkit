@@ -15,7 +15,8 @@ import (
 )
 
 // Signer signs one envelope with the process's active AuthKit key and exposes
-// the CURRENT public keys for self-verification. *embedded.Runtime satisfies it.
+// the current public keys for self-verification. Supply it as a local
+// construction dependency; application runtimes do not expose signer accessors.
 type Signer interface {
 	SignDocument(ctx context.Context, envelope Envelope) (SignedDocument, error)
 	PublicKeysByKID() map[string]crypto.PublicKey
@@ -42,9 +43,9 @@ type ServiceConfig struct {
 	Issuer string
 	// Audiences are the signed envelope audiences readers verify against.
 	Audiences []string
-	// Signer signs and self-verifies (normally the *embedded.Runtime).
+	// Signer signs and self-verifies using host-supplied local key material.
 	Signer Signer
-	// Store persists the document (normally embedded.Runtime.DocumentStore()).
+	// Store is the host-supplied persistence dependency.
 	Store Store
 }
 

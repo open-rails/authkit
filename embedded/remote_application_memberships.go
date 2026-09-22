@@ -19,7 +19,7 @@ var ErrNotGroupMember = authkit.ErrNotGroupMember
 // permission_group_id (its REQUIRED group, #111). appID is the remote_application
 // uuid. Returns ErrInvalidRemoteApplication on empty input and
 // ErrRemoteApplicationNotFound when no such app exists.
-func (s *Runtime) remoteApplicationGroupID(ctx context.Context, appID string) (string, error) {
+func (s *engine) remoteApplicationGroupID(ctx context.Context, appID string) (string, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
 		return "", ErrInvalidRemoteApplication
@@ -42,7 +42,7 @@ func (s *Runtime) remoteApplicationGroupID(ctx context.Context, appID string) (s
 // controlling permission-group with NO actor check (#308): reachable only via
 // bootstrap and embedded.Runtime.Genesis(). Runtime callers use
 // AssignRemoteApplicationRoleAs.
-func (s *Runtime) AssignRemoteApplicationRole(ctx context.Context, appID string, role authkit.Role) error {
+func (s *engine) AssignRemoteApplicationRole(ctx context.Context, appID string, role authkit.Role) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func (s *Runtime) AssignRemoteApplicationRole(ctx context.Context, appID string,
 // remoteApplicationRoles returns the roles a remote_application holds in its
 // controlling permission-group, or ErrNotGroupMember when it holds none.
 // Unexported: not on the public contract; only authcore tests use it.
-func (s *Runtime) remoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
+func (s *engine) remoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (s *Runtime) remoteApplicationRoles(ctx context.Context, appID string) ([]s
 // controlling permission-group's parent chain (#111) — plus the owning group
 // instance the authority is bound to (#248). Permissions is an empty slice
 // (no error) when the app holds no roles.
-func (s *Runtime) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
+func (s *engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
 	var out authkit.RemoteApplicationAuthority
 	if err := s.requirePG(); err != nil {
 		return out, err

@@ -10,7 +10,7 @@ import (
 
 // GroupInstanceByID reads the identity already resolved by a host. It never
 // interprets the UUID as a mutable name.
-func (s *Runtime) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
+func (s *engine) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupInstance{}, err
 	}
@@ -19,7 +19,7 @@ func (s *Runtime) GroupInstanceByID(ctx context.Context, groupID string) (GroupI
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
 // or reclaimed name cannot redirect this check to a different owner.
-func (s *Runtime) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
+func (s *engine) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -30,7 +30,7 @@ func (s *Runtime) CanOnGroup(ctx context.Context, subject authkit.Subject, group
 // authorizes deletion before calling it; retries always target the captured UUID.
 // The entire descendant subtree is deleted. ReleaseSlug applies to every
 // deleted canonical name, preserving earlier alias reservations.
-func (s *Runtime) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error {
+func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

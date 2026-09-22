@@ -110,7 +110,7 @@ func (rec pendingChange) key() string {
 // storePendingChange writes a pending change under its identity key plus the
 // link pointer and (register kinds) the username index. Any prior record on the
 // same identity or username is cleared first so a re-request supersedes it.
-func (s *Runtime) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
+func (s *engine) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -158,7 +158,7 @@ func (s *Runtime) storePendingChange(ctx context.Context, rec pendingChange, ttl
 	return nil
 }
 
-func (s *Runtime) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
+func (s *engine) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
 	var rec pendingChange
 	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
 	rec.expected = raw
@@ -170,12 +170,12 @@ func (s *Runtime) loadPendingChange(ctx context.Context, key string) (pendingCha
 // findPendingChangeByTarget is the lookup-only form: a store failure reads as
 // "not found". Confirm paths use pendingChangeByTarget so a backend failure is
 // never counted as a bad guess (ak#324).
-func (s *Runtime) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
+func (s *engine) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
 	rec, ok, _ := s.pendingChangeByTarget(ctx, kind, target)
 	return rec, ok
 }
 
-func (s *Runtime) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
+func (s *engine) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
 	target = normalizePendingTarget(kind, target)
 	if !kind.isRegister() || target == "" {
 		return pendingChange{}, false, nil
@@ -190,7 +190,7 @@ func (s *Runtime) pendingChangeByTarget(ctx context.Context, kind PendingChangeK
 	return rec, true, nil
 }
 
-func (s *Runtime) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
+func (s *engine) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false, nil
 	}
@@ -211,7 +211,7 @@ type pendingChangeIndex struct {
 	ID  string
 }
 
-func (s *Runtime) pendingChangeUsernameTaken(ctx context.Context, username string) bool {
+func (s *engine) pendingChangeUsernameTaken(ctx context.Context, username string) bool {
 	if !s.useEphemeralStore() {
 		return false
 	}
@@ -230,12 +230,12 @@ func (s *Runtime) pendingChangeUsernameTaken(ctx context.Context, username strin
 
 // pendingChangeTargetTaken reports whether a register-kind pending change is
 // holding the given email/phone target.
-func (s *Runtime) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
+func (s *engine) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
 	_, ok := s.findPendingChangeByTarget(ctx, kind, target)
 	return ok
 }
 
-func (s *Runtime) clearPendingIndexes(ctx context.Context, rec pendingChange) {
+func (s *engine) clearPendingIndexes(ctx context.Context, rec pendingChange) {
 	if rec.linkKey != "" {
 		_ = s.ephemDel(ctx, rec.linkKey)
 	} else if rec.LinkHash != "" {
@@ -247,7 +247,7 @@ func (s *Runtime) clearPendingIndexes(ctx context.Context, rec pendingChange) {
 	}
 }
 
-func (s *Runtime) claimPendingChange(ctx context.Context, rec pendingChange) error {
+func (s *engine) claimPendingChange(ctx context.Context, rec pendingChange) error {
 	if err := s.claimProof(ctx, rec.key(), rec.expected); err != nil {
 		return err
 	}
@@ -255,13 +255,13 @@ func (s *Runtime) claimPendingChange(ctx context.Context, rec pendingChange) err
 	return nil
 }
 
-func (s *Runtime) deletePendingChange(ctx context.Context, key string) {
+func (s *engine) deletePendingChange(ctx context.Context, key string) {
 	if rec, ok, _ := s.loadPendingChange(ctx, key); ok {
 		_ = s.claimPendingChange(ctx, rec)
 	}
 }
 
-func (s *Runtime) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
+func (s *engine) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
 	if !s.useEphemeralStore() || !kind.isRegister() {
 		return
 	}
@@ -270,7 +270,7 @@ func (s *Runtime) deletePendingChangeByTarget(ctx context.Context, kind PendingC
 
 // finalizePendingChange dispatches to the per-kind finalizer that completes the
 // deferred change and returns the affected user's ID.
-func (s *Runtime) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *engine) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
 	case KindChangeEmail:
 		return s.finalizeChangeEmail(ctx, rec, keepSessionID)
@@ -285,7 +285,7 @@ func (s *Runtime) finalizePendingChange(ctx context.Context, rec pendingChange, 
 // typed code matches. A wrong code leaves the record intact; the per-identifier
 // attempt caps bound guessing. keepSessionID is the confirming session a
 // contact change must not revoke (nil for registrations and link confirms).
-func (s *Runtime) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
+func (s *engine) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
 	if !SecretEqual(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -298,7 +298,7 @@ func (s *Runtime) consumePendingChangeCode(ctx context.Context, rec pendingChang
 // consumePendingChangeByLink redeems the 256-bit link token: the pointer is
 // consumed atomically (single-use), then the record it names must be of the
 // expected kind and still carry that link hash.
-func (s *Runtime) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
+func (s *engine) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
 	key, ok := s.consumeLink(ctx, pendingChangeLinkKey(expectKind, linkHash))
 	if !ok {
 		return "", jwt.ErrTokenUnverifiable
