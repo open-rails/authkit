@@ -2,17 +2,14 @@ package embedded
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	stdlog "log"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 )
 
-// Admin user directory: the dashboard list/count/get and hard delete. The list
+// Admin user directory: the dashboard list/count/get. The list
 // and count share one runtime-assembled, fully-parameterized query
 // (adminUserDirectoryQuery); ordering is a closed enum.
 
@@ -263,66 +260,4 @@ func (s *engine) AdminGetUser(ctx context.Context, id string) (*AdminUser, error
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
 	a.Entitlements = s.ListEntitlements(ctx, id)
 	return a, nil
-}
-
-// AdminDeleteUser hard-deletes the user in ONE transaction: sessions are revoked
-// first (for the audit trail; every AuthKit dependent table, refresh_sessions
-// and group_user_roles included, cascades on the row delete). A host table that
-// references users(id) without ON DELETE CASCADE aborts the whole
-// delete with ErrUserReferenced, so a user is never left half-deleted (#304).
-// The erasure obligation is raised (or kept) and outlives the row until every
-// account issuer acknowledged it.
-func (s *engine) AdminDeleteUser(ctx context.Context, id string) error {
-	return s.adminDeleteUser(ctx, "", id)
-}
-
-func (s *engine) adminDeleteUser(ctx context.Context, actorUserID, id string) error {
-	if s.pg == nil {
-		return nil
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(tx)
-	if err := s.lockAuthority(ctx, st.q); err != nil {
-		return err
-	}
-	if actorUserID != "" {
-		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, id); err != nil {
-			return err
-		}
-	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(id)); err != nil {
-		return err
-	}
-	qtx := s.qtx(tx)
-	if _, err := qtx.UserCredentialVersionForUpdate(ctx, id); errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	revoked, err := revokeSessionsTx(ctx, qtx, id, s.accountIssuers(), nil)
-	if err != nil {
-		return err
-	}
-	if err := s.raiseErasureObligationTx(ctx, qtx, id); err != nil {
-		return err
-	}
-	if err := qtx.UserDeleteHard(ctx, id); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return fmt.Errorf("%w: %s.%s", ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
-		}
-		return err
-	}
-	if err := settleErasureObligationTx(ctx, qtx, id); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	s.logRevokedSessions(ctx, id, revoked, string(SessionRevokeReasonHardDeleted))
-	return nil
 }

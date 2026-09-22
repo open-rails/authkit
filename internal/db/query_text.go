@@ -21,11 +21,7 @@ var QueryText = map[string]string{
 	"SessionsEvictOldest":          sessionsEvictOldest,
 	"ProviderLinkByIssuer":         providerLinkByIssuer,
 	"UserProviderSlugs":            userProviderSlugs,
-	// Cross-site erasure handoff: both are index-ordered keyset pages that
-	// must never walk the unacknowledged backlog.
-	"ErasurePurgeCandidates":             erasurePurgeCandidates,
-	"ErasureObligationsPendingForIssuer": erasureObligationsPendingForIssuer,
-	"SessionsRevokeFamily":               sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
+	"SessionsRevokeFamily":         sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
 	// Batched GC sweep; gated since migration 013 added the dead/expires partial
 	// indexes (#325).
 	"SessionsDeleteRevokedOrExpiredBatch": sessionsDeleteRevokedOrExpiredBatch,

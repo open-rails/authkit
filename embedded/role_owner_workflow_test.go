@@ -156,7 +156,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		g, _ := group("account-life", sole)
 		require.ErrorIs(t, svc.BanUser(ctx, sole, nil, nil, owner), ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.HardDeleteUserAs(ctx, sole, sole), ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.SoftDeleteUserAs(ctx, sole, sole), ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.PatchUserMetadata(ctx, sole, map[string]any{"reserved": true}), ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.PatchUserMetadata(ctx, sole, map[string]any{"reserved": json.RawMessage(`true`)}), ErrCannotRemoveLastAdminRole)
 		_, err := svc.UpdateImportedUser(ctx, sole, ImportUserInput{Username: "reservedowner", Metadata: map[string]any{"reserved": json.RawMessage(`true`)}})
@@ -170,11 +170,11 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), ErrCannotRemoveLastAdminRole)
 		require.NoError(t, svc.UnbanUser(ctx, alternate))
 		require.NoError(t, svc.PatchUserMetadata(ctx, alternate, map[string]any{"reserved": true}))
-		require.ErrorIs(t, svc.HardDeleteUser(ctx, sole), ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), ErrCannotRemoveLastAdminRole)
 		require.NoError(t, svc.PatchUserMetadata(ctx, alternate, map[string]any{"reserved": false}))
 		require.NoError(t, svc.SoftDeleteUser(ctx, sole))
-		require.NoError(t, svc.HardDeleteUser(ctx, sole), "already inactive owner can be cleaned up")
-		require.ErrorIs(t, svc.HardDeleteUser(ctx, alternate), ErrCannotRemoveLastAdminRole)
+		require.NoError(t, svc.SoftDeleteUser(ctx, sole), "repeated deletion is idempotent")
+		require.ErrorIs(t, svc.SoftDeleteUser(ctx, alternate), ErrCannotRemoveLastAdminRole)
 	})
 	t.Run("custom_role_is_not_recovery_owner", func(t *testing.T) {
 		human := user()
@@ -189,7 +189,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.Equal(t, OwnerRoleName, role(gid, human))
 	})
 	t.Run("concurrent_owner_departures", func(t *testing.T) {
-		for _, op := range []string{"remove", "unassign", "replace", "ban", "soft-delete", "hard-delete", "mfa", "mfa-factor"} {
+		for _, op := range []string{"remove", "unassign", "replace", "ban", "soft-delete", "mfa", "mfa-factor"} {
 			t.Run(op, func(t *testing.T) {
 				one, two := user(), user()
 				g, gid := group("race-"+op, one)
@@ -226,8 +226,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 						return svc.BanUser(ctx, uid, nil, nil, uid)
 					case "soft-delete":
 						return svc.SoftDeleteUser(ctx, uid)
-					case "hard-delete":
-						return svc.HardDeleteUser(ctx, uid)
 					case "mfa-factor":
 						_, err := raceSvc.Disable2FAFactorWithRemovedRoles(ctx, uid, factors[uid])
 						return err

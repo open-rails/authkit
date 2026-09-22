@@ -4,7 +4,7 @@
 // The root package owns Client, domain and wire types, typed identifiers,
 // policy vocabulary, and the error catalog. It also owns the small shared
 // operations on those contracts: credential parsing, permission matching,
-// naming-policy evaluation, response encoding, and erasure acknowledgement.
+// naming-policy evaluation and response encoding.
 // Importing it does not construct an engine or connect to a database.
 //
 // Construct the engine with embedded.New. Call embedded.ApplyMigrations before

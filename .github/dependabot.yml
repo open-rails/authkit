@@ -5,7 +5,6 @@ updates:
       - "/"
       - "/adapters/fiber"
       - "/adapters/gin"
-      - "/adapters/riverjobs"
     schedule:
       interval: weekly
     groups:

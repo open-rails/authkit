@@ -248,13 +248,19 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 	writeJSON(w, http.StatusOK, result)
 }
 
-// handleAdminErasureBacklogGET reports unacknowledged cross-site erasure
-// obligations per site with the oldest pending one (the age bound).
-func (s *Service) handleAdminErasureBacklogGET(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.svc.ErasureBacklog(r.Context())
-	if err != nil {
+func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("user_id"))
+	if id == "" {
+		badRequest(w, authkit.CodeInvalidRequest)
+		return
+	}
+	actor, ok := actorUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.RestoreUserAs(r.Context(), actor, id); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeList(w, rows, "")
+	noContent(w)
 }

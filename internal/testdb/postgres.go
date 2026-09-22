@@ -17,6 +17,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/migratekit"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 )
 
 // Postgres is an isolated migrated database for integration tests.
@@ -136,6 +138,18 @@ func ApplyMigrations(t testing.TB, ctx context.Context, dbURL string) {
 	}
 	if err := migratekit.NewPostgres(sqlDB, "authkit").WithSchema("profiles").ApplyMigrations(ctx, ms); err != nil {
 		t.Fatalf("apply authkit migrations: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	migrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Schema: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
+		t.Fatal(err)
 	}
 }
 

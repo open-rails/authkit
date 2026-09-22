@@ -27,7 +27,7 @@ are released through Git tags; this change adds no publishing machinery.
 | Browser and provider authentication | Real two-site Chromium cookie workflow, OIDC/OAuth discovery/token exchange and browser state, MFA continuation, verified account linking and unverified/email-less identity refusal. |
 | Authority and isolation | Group lifecycle, custom-role escalation, last-owner protection under concurrent departure, human/application authority, application trust withdrawal and namespace isolation. |
 | Delegation | Host-authorized DPoP and certificate-bound grants, audience/key policy, exact sender and request binding, signed documents, key rotation, issuer withdrawal and proof replay. |
-| Persistence and recovery | Fresh/custom schema migration, host bootstrap, erasure acknowledgements and purge, backend failure without partial enrollment, configured memory/Redis limits and fail-closed limiter outage. |
+| Persistence and recovery | Fresh/custom schema migration, host bootstrap, 30-day recovery and cross-application River callbacks, backend failure without partial enrollment, configured memory/Redis limits and fail-closed limiter outage. |
 
 The main account journeys share the public `MountHandler`, real PostgreSQL and
 real configured memory/Redis limiters. Their high per-IP allowance permits a

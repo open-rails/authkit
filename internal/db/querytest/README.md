@@ -31,8 +31,7 @@ sweeps over growable tables). PK / unique point lookups are O(1) and not gated.
 Current cases: user-by-email, user-by-username, users-by-id-array, session by
 current/previous hash, sessions list/evict by user, session revoke-by-family,
 provider link by issuer+subject, provider slugs by user, identity
-forward-username (rename join), the erasure purge sweep and per-site pending
-listing, and the raw authcore group-roles page query. A case may also assert `ForbidSort` (no `Sort` node) for
+forward-username (rename join), and the raw authcore group-roles page query. A case may also assert `ForbidSort` (no `Sort` node) for
 queries that must be index-ordered, e.g. `sessions_evict_oldest`.
 
 Known limitation: the gate catches `Seq Scan` (and, where asserted, `Sort`) on a
@@ -50,18 +49,6 @@ Fixed (gated):
   per-user index stopped at `(user_id, issuer)`. Migration 002 extends it to
   `(user_id, issuer, last_used_at)`; gated by `sessions_evict_oldest` with
   `ForbidSort`.
-
-Fixed (gated):
-
-- Cross-site erasure: selecting purge candidates by anti-joining the
-  acknowledgement table walked the whole unacknowledged backlog on every run
-  (230 read blocks at 100k, growing with the backlog). Readiness is now a
-  recomputed `pending_sites` counter on the obligation with a partial
-  `(created_at, user_id)` index, and each site's pending listing is an
-  index-ordered keyset page over `(issuer, obligation_created_at, user_id)`;
-  both are gated with `ForbidSort`. `ORDER BY user_id` after `SELECT
-  user_id::text` binds to the output column and re-sorts — the query orders by
-  the qualified table column.
 
 Fixed:
 

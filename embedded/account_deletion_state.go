@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 	"github.com/riverqueue/river"
 )
@@ -58,7 +59,11 @@ func (s *engine) adoptAccountDeletions(ctx context.Context, client *river.Client
 			return err
 		}
 		var record accountDeletionRecord
-		err = tx.QueryRow(ctx, `SELECT id::text,user_id::text,deleted_at,purge_at,state,recipients FROM account_deletions WHERE NOT jobs_enqueued AND state='deleted' ORDER BY deleted_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&record.ID, &record.UserID, &record.DeletedAt, &record.PurgeAt, &record.state, &record.recipients)
+		err = tx.QueryRow(ctx, `SELECT id::text,user_id::text,deleted_at,purge_at,state,recipients FROM account_deletions d
+ WHERE NOT jobs_enqueued AND state IN ('deleted','finalizing')
+ AND NOT EXISTS(SELECT 1 FROM unnest(CASE WHEN cardinality(d.recipients)=0 THEN $1::text[] ELSE d.recipients END) AS required(issuer)
+   LEFT JOIN account_delivery_fleets f ON f.issuer=required.issuer WHERE f.issuer IS NULL)
+ ORDER BY deleted_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, s.accountIssuers()).Scan(&record.ID, &record.UserID, &record.DeletedAt, &record.PurgeAt, &record.state, &record.recipients)
 		if errors.Is(err, pgx.ErrNoRows) {
 			_ = tx.Rollback(ctx)
 			return nil
@@ -75,7 +80,15 @@ func (s *engine) adoptAccountDeletions(ctx context.Context, client *river.Client
 			_ = tx.Rollback(ctx)
 			return errors.New("authkit: pending account deletion requires Token.Issuer")
 		}
-		if err := s.scheduleAccountDeletion(ctx, tx, client, record.UserDeletion, issuers); err != nil {
+		if record.state == "finalizing" {
+			err = s.enqueueAccountDeliveries(ctx, tx, client, record.UserDeletion, issuers, "hard")
+			if err == nil {
+				_, err = tx.Exec(ctx, "UPDATE account_deletions SET jobs_enqueued=true WHERE id=$1::uuid", record.ID)
+			}
+		} else {
+			err = s.scheduleAccountDeletion(ctx, tx, client, record.UserDeletion, issuers)
+		}
+		if err != nil {
 			_ = tx.Rollback(ctx)
 			return err
 		}
@@ -107,10 +120,8 @@ func (s *engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 		return err
 	}
 	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	missingUser := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !missingUser {
 		return err
 	}
 	record, err := loadAccountDeletion(ctx, tx, id)
@@ -120,14 +131,14 @@ func (s *engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if err != nil {
 		return err
 	}
-	if record.state == "restored" || record.state == "purged" || user.DeletedAt == nil || !user.DeletedAt.Equal(record.DeletedAt) {
+	if record.state == "restored" || record.state == "purged" || (!missingUser && (user.DeletedAt == nil || !user.DeletedAt.Equal(record.DeletedAt))) {
 		return nil
 	}
 	var now time.Time
 	if err := tx.QueryRow(ctx, "SELECT statement_timestamp()").Scan(&now); err != nil {
 		return err
 	}
-	if now.Before(record.PurgeAt) {
+	if now.Before(record.PurgeAt) && !(missingUser && record.state == "finalizing") {
 		return river.JobSnooze(record.PurgeAt.Sub(now))
 	}
 	if err := s.requireOwnersAfterAccountPurge(ctx, store, userID); err != nil {
@@ -161,6 +172,10 @@ func (s *engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 		return river.JobSnooze(time.Minute)
 	}
 	if err := s.qtx(tx).UserDeleteHard(ctx, userID); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return fmt.Errorf("%w: %s.%s", ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
+		}
 		return fmt.Errorf("authkit: final account purge: %w", err)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE account_deletions SET state='purged',purged_at=statement_timestamp() WHERE id=$1::uuid", id); err != nil {

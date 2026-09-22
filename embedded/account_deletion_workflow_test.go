@@ -143,3 +143,68 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletions WHERE user_id=$1::uuid", user.ID).Scan(&cycles))
 	require.Zero(t, cycles)
 }
+
+func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
+	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: "sibling_jobs"}))
+	issuers := []string{"https://first.example.test", "https://second.example.test"}
+	var mu sync.Mutex
+	events := map[string][]string{}
+	makeRuntime := func(issuer, schema string) *Runtime {
+		t.Helper()
+		cfg := maintenanceConfig()
+		cfg.Token.Issuer = issuer
+		cfg.Token.AccountIssuers = issuers
+		cfg.River.Schema = schema
+		hook := func(stage string) func(context.Context, authkit.UserDeletion) error {
+			return func(_ context.Context, deletion authkit.UserDeletion) error {
+				mu.Lock()
+				defer mu.Unlock()
+				events[issuer] = append(events[issuer], stage+":"+deletion.ID)
+				return nil
+			}
+		}
+		runtime, err := New(cfg, Deps{Postgres: pg.Pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
+		require.NoError(t, err)
+		t.Cleanup(runtime.Close)
+		return runtime
+	}
+	first := makeRuntime(issuers[0], "public")
+	second := makeRuntime(issuers[1], "sibling_jobs")
+	user, err := first.Client().CreateUser(t.Context(), "two-fleets@example.test", "twofleets")
+	require.NoError(t, err)
+	results, err := first.Client().SoftDeleteUsers(t.Context(), []string{user.ID})
+	require.NoError(t, err)
+	require.NoError(t, results[0].Err)
+	var generation string
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id::text FROM profiles.account_deletions WHERE user_id=$1::uuid", user.ID).Scan(&generation))
+	for _, pair := range [][2]string{{"public", issuers[0]}, {"sibling_jobs", issuers[1]}} {
+		var count int
+		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM "+pgx.Identifier{pair[0], "river_job"}.Sanitize()+" WHERE kind='authkit_account_delivery' AND args->>'issuer'=$1", pair[1]).Scan(&count))
+		require.Equal(t, 1, count, "each callback is queued in its recipient's actual fleet")
+	}
+	require.NoError(t, first.Start(t.Context()))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
+	}, 10*time.Second, 25*time.Millisecond)
+	results, err = first.Client().OperatorRestoreUsers(t.Context(), []string{user.ID})
+	require.NoError(t, err)
+	require.NoError(t, results[0].Err)
+	// The second deployment was offline throughout deletion and recovery. Its
+	// own fleet must replay the events in order when it eventually starts.
+	require.NoError(t, second.Start(t.Context()))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(events[issuers[0]]) == 2 && len(events[issuers[1]]) == 2
+	}, 10*time.Second, 25*time.Millisecond)
+	mu.Lock()
+	recorded := map[string][]string{issuers[0]: append([]string(nil), events[issuers[0]]...), issuers[1]: append([]string(nil), events[issuers[1]]...)}
+	mu.Unlock()
+	for _, issuer := range issuers {
+		require.Equal(t, []string{"soft:" + generation, "restore:" + generation}, recorded[issuer])
+	}
+}
