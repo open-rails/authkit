@@ -170,6 +170,23 @@ database, configuration or signer accessors. The HTTP transport receives its
 local engine capability only while the runtime constructs it. This release
 adds no remote AuthKit client or standalone service.
 
+For a host's root moderation gates, `Token.RootPermissionSnapshot: true` adds a
+bounded, versioned snapshot of the user's effective root permissions to native
+access tokens. It is off by default. After normal token verification, call
+`claims.RootPermissionSnapshot(permission)`: `complete && !allowed` is a complete
+negative that needs no database lookup. If `complete` is false, retain the normal
+live authorization path. Sensitive positive decisions should still call
+`client.Can` and check account liveness so role revocation and bans take effect
+immediately. A new grant becomes visible after token refresh; an old negative
+does not turn positive merely because the database changed.
+
+This first snapshot API covers only concrete `root:resource:action` permissions,
+not other groups, delegated tokens, external users, or enrollment-only tokens.
+The entire snapshot is omitted on lookup failure or if its 128-grant/4096-byte
+limit is exceeded; it is never truncated into a misleading complete negative.
+Caller-supplied token extras cannot set `root_permissions`. Existing `Can`,
+`verify.Allow`, and AuthKit management-route authorization remain live.
+
 ## Verification in a host
 
 `runtime.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
