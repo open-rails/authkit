@@ -296,6 +296,7 @@ var (
 	ErrAvatarURLInvalid                  = E(CodeAvatarURLInvalid)
 	ErrCannotRemoveLastAdminRole         = E(CodeCannotRemoveLastAdminRole)
 	ErrAccountRegistrationInviteNotFound = E(CodeAccountRegistrationInviteNotFound)
+	ErrAccountRecoveryExpired            = E(CodeAccountRecoveryExpired)
 	ErrCustomRoleGrantCrossPersona       = E(CodeCustomRoleGrantCrossPersona)
 	ErrCustomRoleGrantOutsideCatalog     = E(CodeCustomRoleGrantOutsideCatalog)
 	ErrCustomRoleIsCatalogRole           = E(CodeCustomRoleIsCatalogRole)

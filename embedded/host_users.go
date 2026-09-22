@@ -480,6 +480,8 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err != nil {
 		return err
 	}
+	// The invalidate_recovery_grants trigger advances credential_version when
+	// deleted_at changes, invalidating every pre-deletion proof atomically.
 	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
 		return err
 	}
