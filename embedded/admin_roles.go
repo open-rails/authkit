@@ -29,3 +29,9 @@ func (s *engine) AdminUnassignGroupRole(ctx context.Context, group authkit.Group
 	}
 	return s.UnassignGroupRole(ctx, group, subject, role)
 }
+
+// AdminApplyBootstrapManifest is the explicit operator reconciliation operation.
+// Runtime construction never invokes it or restores user role assignments.
+func (s *engine) AdminApplyBootstrapManifest(ctx context.Context, manifest authkit.BootstrapManifest, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {
+	return s.ApplyBootstrapManifest(ctx, manifest, opts)
+}

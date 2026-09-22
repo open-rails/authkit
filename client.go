@@ -72,6 +72,9 @@ type Client interface {
 	// AdminRevokeAccountSessions revokes the user's refresh sessions on every
 	// account issuer plus device keys. Unchecked: the host authorizes the actor.
 	AdminRevokeAccountSessions(ctx context.Context, userID string) (AccountSessionRevocation, error)
+	// AdminApplyBootstrapManifest reconciles authority under explicit trusted operator authority.
+	// It is never invoked implicitly by runtime construction or exposed over HTTP.
+	AdminApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
 	AdminSetPassword(ctx context.Context, userID, new string) error
 	// AdminAssignGroupRole and AdminUnassignGroupRole use trusted host-operator
 	// authority, like AdminSetPassword. Hosts authorize the operator; request

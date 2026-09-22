@@ -157,8 +157,8 @@ shows the actual inventory. JWKS remains at `/.well-known/jwks.json`, browser
 OIDC under `/oidc`, and published documents at their standard root path; mount
 AuthKit on the host root router. No catch-all is installed.
 
-`embedded.New` initializes declared group containment and the root singleton
-in one transaction. Apply migrations before constructing a database-backed
+`embedded.New` initializes explicitly declared group containment and the root
+singleton in one transaction. Omitted or empty RBAC leaves shared topology intact. Apply migrations before constructing a database-backed
 runtime. Construction never grants user roles or restores revoked permissions.
 Use `client.AdminAssignGroupRole` and `client.AdminUnassignGroupRole` for explicit
 trusted operator commands; request paths use the actor-checked `*As` methods.

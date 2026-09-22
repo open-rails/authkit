@@ -47,8 +47,13 @@ func (s *engine) initializeGroups() error {
 	}
 	ctx := context.Background()
 	if err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
-		if err := st.SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
-			return err
+		// An issuer-only runtime may share the identity schema with a host that
+		// declares additional personas. Omitted RBAC is not permission to
+		// reconcile that host's topology down to the implicit root default.
+		if len(s.cfg.RBAC) > 0 {
+			if err := st.SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
+				return err
+			}
 		}
 		_, err := st.ensureRootGroup(ctx)
 		return err
