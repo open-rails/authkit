@@ -71,6 +71,16 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 	return live, err
 }
 
+// A request's verified native JWT authenticates its actor until expiry. Ban
+// eligibility is checked at login/refresh, not added to each live permission
+// mutation. Deleted/reserved identities remain invalid mutation actors. This
+// is deliberately separate from the stricter current-owner eligibility above.
+func authorizationActorPresent(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	var present bool
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb)`, userID).Scan(&present)
+	return present, err
+}
+
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
 // from the remaining live owners. Removing an already unusable principal does
 // not create an ownership loss; empty bootstrap groups also remain possible.

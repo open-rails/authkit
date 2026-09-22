@@ -7,13 +7,12 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/internal/rootsnapshot"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 // MintAccessToken builds and signs an access token (JWT) for the given user.
-// Includes core registered claims plus:
-// - entitlements (authoritative short-lived snapshot)
+// Includes core registered claims and explicitly selected, provider-granted
+// entitlement names as an optional short-lived snapshot.
 // Extra claims in `extra` are merged into the token body (e.g., sid).
 func (s *engine) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	return s.mintAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
@@ -25,19 +24,20 @@ func (s *engine) MintAccessToken(ctx context.Context, userID string, extra map[s
 // caller-supplied `extra` value for any of them is DROPPED, never signed
 // (AK2-AUTH-01). Without this, a host that forwards any request-influenced data
 // into MintAccessToken / PasswordLogin(...extra) could mint a validly-signed
-// token with attacker-chosen roles/permissions/identity, which the verifier then
-// trusts (verify/middleware.go even skips the DB role lookup when the token
-// already carries `roles`).
+// token with attacker-chosen roles/permissions/identity. Older verification
+// paths trusted such native role claims; current native verification ignores
+// token role/permission authority and application permission checks stay live.
 //
 // Intentionally NOT reserved: `sid`, `provider`, `2fa_enrollment`, and arbitrary
 // host/custom claims are deliberate, caller-settable protocol/app claims set by
 // AuthKit's own flows (login/OIDC/passkey/enrollment) and carry no authority the
-// verifier trusts as identity. AuthKit-owned claims (iss/sub/aud/iat/exp/
-// entitlements, and auth_time/amr/acr/mfa_enrolled when AuthKit sets them) are
+// verifier trusts as identity. AuthKit-owned claims (iss/sub/aud/iat/exp,
+// and entitlements/auth_time/amr/acr/mfa_enrolled when AuthKit sets them) are
 // already protected by the owned-claim check below; they appear here too so a
 // host can never inject the assurance variants AuthKit did not set.
 var reservedAccessTokenClaims = map[string]struct{}{
-	rootsnapshot.Claim: {},
+	"entitlements":     {},
+	"root_permissions": {}, // retired native permission snapshot; never caller-owned
 	"roles":            {},
 	"permissions":      {},
 	"global_roles":     {},
@@ -114,10 +114,13 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
-	// Legacy unscoped roles remain absent. The optional bounded root snapshot
-	// below is produced by the same group authorization engine used by Can.
+	// Group/role authority is no longer carried as a token claim: the legacy
+	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
+	// RBAC engine (#111) — group role assignments + `<persona>:<resource>:<action>`
+	// perms resolved at request time from the DB (svc.Can), not snapshotted into
+	// the access token.
 	var ents []string
-	if s.entitlements != nil {
+	if len(s.cfg.Token.EntitlementAllowlist) > 0 && s.entitlements != nil {
 		m, entErr := s.entitlements.ListEntitlements(ctx, []string{userID})
 		if entErr != nil {
 			// Deliberate availability-over-consistency: a failing entitlements
@@ -126,27 +129,19 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 			// until the next refresh.
 			stdlog.Printf("authkit: error: entitlements provider failed during access-token issuance for user %s; token issued WITHOUT entitlement claims: %v", userID, entErr)
 		} else {
-			ents = m[userID]
+			ents = selectedTokenEntitlements(s.cfg.Token.EntitlementAllowlist, m[userID])
 		}
 	}
 
 	claims := map[string]any{
-		"iss":          s.cfg.Token.Issuer,
-		"sub":          base.Subject,
-		"aud":          base.Audience,
-		"iat":          base.IssuedAt.Time.Unix(),
-		"exp":          base.ExpiresAt.Time.Unix(),
-		"entitlements": ents,
+		"iss": s.cfg.Token.Issuer,
+		"sub": base.Subject,
+		"aud": base.Audience,
+		"iat": base.IssuedAt.Time.Unix(),
+		"exp": base.ExpiresAt.Time.Unix(),
 	}
-	if enrollment, _ := extra["2fa_enrollment"].(bool); s.cfg.Token.RootPermissionSnapshot && !enrollment {
-		snapshot, snapshotErr := s.rootPermissionSnapshot(ctx, userID)
-		if snapshotErr != nil {
-			// A failed optimization must not prevent login or masquerade as a
-			// complete negative. Consumers fall back to live authorization.
-			stdlog.Printf("authkit: root permission snapshot omitted during access-token issuance: %v", snapshotErr)
-		} else {
-			claims[rootsnapshot.Claim] = snapshot
-		}
+	if len(ents) > 0 {
+		claims["entitlements"] = ents
 	}
 	if assurance != nil {
 		if assurance.JTI != "" {
@@ -175,7 +170,7 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 		claims["mfa_enrolled"] = true
 	}
 	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim
-	// (sub/iss/aud/iat/exp/entitlements always; auth_time/amr/acr/mfa_enrolled when
+	// (sub/iss/aud/iat/exp always; entitlements/auth_time/amr/acr/mfa_enrolled when
 	// set) and never populate a reserved authority/identity/assurance claim the
 	// verifier trusts (AK2-AUTH-01). This prevents a host from forging identity,
 	// authorization, expiry, or assurance via extra, while still allowing custom

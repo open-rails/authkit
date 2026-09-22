@@ -274,6 +274,13 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 // role's permissions. Include all definitions on assigned groups, preserving
 // the existing authorization resolver's scope for target-role checks.
 func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject authkit.Subject, definitions bool) ([]GroupAssignment, CustomRoleResolver, error) {
+	return st.readAssignments(ctx, groupID, subject, definitions, false)
+}
+
+// Authorization excludes deleted/reserved native accounts in the same MVCC
+// query. Ban freshness is separate. Introspection and no-escalation comparisons
+// must retain latent assignments, including those of a deleted target.
+func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID string, subject authkit.Subject, definitions, requirePresentUser bool) ([]GroupAssignment, CustomRoleResolver, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return nil, nil, err
@@ -284,7 +291,9 @@ func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, 
  SELECT c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
  JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
  LEFT JOIN group_custom_roles r ON r.permission_group_id=c.id AND $3
- ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions)
+ WHERE NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
+ AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb)
+ ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions, requirePresentUser)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -480,7 +489,7 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 // action on a persona-RT resource reached from an ancestor of persona LT, the perm is
 // `LT:RT:<action>`).
 func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
-	assignments, resolver, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, true)
+	assignments, resolver, err := st.readAssignments(ctx, groupID, subject, true, subject.Kind == authkit.SubjectKindUser)
 	if err != nil {
 		return false, err
 	}

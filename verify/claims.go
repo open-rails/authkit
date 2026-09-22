@@ -12,9 +12,6 @@ import (
 
 // Claims is a typed view of authenticated user information attached by middleware.
 type Claims struct {
-	// rootPermissions is populated only after signature and local-user profile
-	// verification. Unverified public struct fields cannot manufacture it.
-	rootPermissions *verifiedRootSnapshot
 	// Subject is an external access token's subject. It is meaningful only with
 	// Issuer; it never authorizes a lookup in the host's local user database.
 	Subject string
@@ -27,7 +24,9 @@ type Claims struct {
 	SessionID       string
 	// DeviceKeyID is the AuthKit-issued machine credential that minted this
 	// access token. It is present only on device-key tokens.
-	DeviceKeyID     string
+	DeviceKeyID string
+	// Roles is external access-token metadata. Native user roles are never
+	// populated from a token; their group authority is resolved live.
 	Roles           []string
 	Entitlements    []string
 	AMR             []string
