@@ -122,6 +122,9 @@ func (s *engine) RiverJobs() riverhelpers.Contribution {
 		}
 		m.client = binding.Client
 		m.mu.Unlock()
+		if err := s.registerAccountDeliveryFleet(ctx, binding.Client); err != nil {
+			return err
+		}
 		return s.adoptAccountDeletions(ctx, binding.Client)
 	}, func() error {
 		if !claimed || s == nil || s.maintenance == nil {

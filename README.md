@@ -6,8 +6,8 @@ documents and delegated tokens, running in your process against your Postgres
 (18+) and Redis. Tests exercise the embedded HTTP handlers directly; AuthKit
 owns its PostgreSQL migration source and runs it through migratekit.
 
-Modules: `github.com/open-rails/authkit`, plus `adapters/gin`, `adapters/fiber`
-and `adapters/riverjobs` as separate modules. The embedded engine uses River
+Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and `adapters/fiber`
+as separate modules. The embedded engine uses River
 for PostgreSQL maintenance; the root and `verify` packages remain engine-free.
 
 For local tests, run `scripts/check.sh`. Applications call
@@ -61,9 +61,9 @@ access provisioned separately; runtime credentials never need migration rights.
 
 AuthKit runs `CleanupExpiredAuthState` through River on startup and hourly.
 It removes expired sessions, terminal credentials and expired retained history;
-Redis and in-memory TTL state keep their local expiry behavior. User hard-delete
-purging remains an explicit `adapters/riverjobs` integration with retention,
-erasure acknowledgements and the host's `BeforeUserHardDelete` policy.
+Redis and in-memory TTL state keep their local expiry behavior. AuthKit also
+owns the fixed 30-day recoverable account deletion lifecycle and its durable
+application callbacks. There is no separate purge adapter to register.
 
 With no River dependency supplied, `ApplyMigrations` also applies River's own
 migrations to `public`. `New` constructs an owned worker client without starting
@@ -491,41 +491,42 @@ Each revoked session is recorded under its own issuer, plus one
 Revocation stops refresh and step-up re-authentication at once. It does not
 recall issued access tokens: `verify.Required` accepts them until `exp`
 (`AccessTokenDuration`), and `RequiredLive`/`AllowLive` check account liveness
-and live permissions, not sessions. To cut privileged access immediately, also
-ban the account or remove its roles.
+and live permissions, not sessions. Removing the account's roles cuts privileged
+access immediately. Bans block login and refresh; existing native access tokens
+retain their remaining lifetime unless explicit live-account verification is used.
 
-## Account erasure across sites
+## Recoverable account deletion
 
-Each site owns data keyed by the shared account, so deleting the account is a
-handoff, not one host's job. Deleting a user (soft or hard) raises one erasure
-obligation with one acknowledgement per `Token.AccountIssuers` entry — the
-deleting deployment's own set, unioned with any already recorded.
+Every accepted account deletion is soft for exactly 30 days. Ownership must be
+transferred, or the group deleted, before its last eligible owner can delete
+their account. Repeating deletion does not restart the clock. AuthKit revokes
+existing sessions immediately, retains the identity for recovery, and schedules
+a River finalizer for that account's exact deadline.
 
-```go
-// Each site drains its own obligations, e.g. from a scheduled job.
-res, err := authkit.AcceptErasureObligations(ctx, client, cfg.Token.Issuer, 500,
-    func(ctx context.Context, o authkit.ErasureObligation) error {
-        return myLedger.RecordErasure(ctx, o.UserID) // must COMMIT before returning nil
-    })
-```
+Pass optional `OnSoftDelete`, `OnHardDelete` and `OnRestore` functions in
+`embedded.Deps`. Each receives `(context.Context, authkit.UserDeletion)` and
+returns an error. The payload contains a deletion generation `ID`, `UserID`,
+`DeletedAt` and `PurgeAt`. Soft callbacks must preserve recoverable host data;
+restore callbacks undo reversible soft work. Hard callbacks run after the
+deadline and before physical identity purge, so they can remove host foreign
+keys. Final purge waits for all required applications to finish successfully.
 
-Acknowledging means **"durably accepted into my own ledger"**, not "erased".
-The hook must commit a row the site can replay later; returning nil without one
-discards the only notice the site will get. A failed accept leaves the
-obligation pending and never blocks the later pages.
+Callbacks run at least once, outside database transactions, in lifecycle order
+for each user and application. They must be idempotent and honor cancellation;
+River retries errors without losing the cleanup. Nil means no application work
+for that stage. The host does not poll a backlog or acknowledge events.
 
-| | |
-| --- | --- |
-| `ListErasureObligations(ctx, site, after, limit)` | keyset page (`created_at`, `user_id`), oldest first; `next == ""` on the last page. Progresses past any backlog. |
-| `AcknowledgeErasure(ctx, site, userID)` | idempotent; a site the obligation does not require is a no-op. |
-| `ListUsersDeletedBefore(ctx, cutoff, limit)` | the purge-ready set: accounts deleted before `cutoff` that **every** required site acknowledged — not every soft-deleted account. |
-| `ErasureBacklog(ctx)` | per-site unacknowledged count and the oldest pending obligation (the age bound). |
+`Token.AccountIssuers` identifies deployments sharing account lifecycle. Each
+issuer must compose its River fleet once before deletion affects it; AuthKit
+remembers that issuer's River schema and queues callbacks directly into it,
+even while the application is offline. Separate River schemas are supported,
+but AuthKit and every participating fleet must address the same physical
+database for atomic insertion. Binding verifies that identity, including
+schema-bound pool copies. Moving an issuer to another River schema requires
+migrating its queued work rather than silently abandoning the previous fleet.
 
-A site added to `AccountIssuers` later is only required for obligations raised
-after it is configured; back-fill its own ledger from the account store before
-adding it. The purge job (`adapters/riverjobs`) is fleet-unique, so only the
-executing host's `BeforeUserHardDelete` hook runs; the other sites are covered
-by their own acceptance pass. `ListUsersDeletedBefore` never offers an
-unacknowledged account, so an offline site retains the identity rather than
-losing the notice, and the obligation — user id, email, username, phone —
-outlives the hard delete until the last site acknowledges, then closes itself.
+Trusted operators can use `client.OperatorRestoreUsers`; authorized HTTP
+administrators use `POST /admin/users/{user_id}/restore`. Recovery before the
+deadline invalidates that generation's finalizer without reviving revoked
+sessions. Once finalization starts after the deadline, restoration is refused.
+There is no public immediate-purge operation or configurable retention period.

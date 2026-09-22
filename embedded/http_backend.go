@@ -120,6 +120,7 @@ type HTTPBackend interface {
 	SetPreferredLanguage(ctx context.Context, userID, language string) error
 	SoftDeleteUser(ctx context.Context, id string) error
 	SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error
+	RestoreUserAs(ctx context.Context, actorUserID, userID string) error
 	StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error)
 	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool

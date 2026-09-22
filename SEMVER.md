@@ -79,19 +79,19 @@ generated or canonical sources named below, not here.
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
 | `…/adapters/http` | `authkithttp` | Provided | Configured runtime route bundle for net/http and Chi; part of the root module |
-| `…/adapters/gin`, `…/adapters/fiber`, `…/adapters/riverjobs` | `authkitgin`, `authkitfiber`, `riverjobs` | Provided | Own modules |
+| `…/adapters/gin`, `…/adapters/fiber` | `authkitgin`, `authkitfiber` | Provided | Own modules |
 | `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
 Renaming an import path or package name is MAJOR; adding a package is MINOR.
 `go doc` is the live enumeration; the compatibility comparison in §8 checks
 exported signatures as well as the documented host compile fixtures.
 
-**Nested modules.** `adapters/gin`, `adapters/fiber` and `adapters/riverjobs`
+**Nested modules.** `adapters/gin` and `adapters/fiber`
 are their own modules. Gin and Fiber framework dependencies remain isolated;
 the embedded runtime itself uses River and `github.com/open-rails/helpers/river`
 for shared host composition.
-Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`,
-`adapters/riverjobs/vX.Y.Z`. Release order: tag the root, bump each nested
+Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`.
+Release order: tag the root, bump each nested
 `require github.com/open-rails/authkit` to it, tag the adapters.
 
 ### 3.2 Rules

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
 type accountFinalizeArgs struct {
@@ -65,8 +66,12 @@ func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client 
 // therefore already has its durable job; no independent polling queue exists.
 func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, issuers []string, stage string) error {
 	for _, issuer := range issuers {
+		target, err := s.accountDeliveryClient(ctx, tx, client, issuer)
+		if err != nil {
+			return err
+		}
 		var id int64
-		err := tx.QueryRow(ctx, `INSERT INTO account_deletion_deliveries(deletion_id,user_id,issuer,stage)
+		err = tx.QueryRow(ctx, `INSERT INTO account_deletion_deliveries(deletion_id,user_id,issuer,stage)
  VALUES ($1::uuid,$2::uuid,$3,$4) ON CONFLICT(deletion_id,issuer,stage) DO NOTHING RETURNING id`, deletion.ID, deletion.UserID, issuer, stage).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -74,12 +79,47 @@ func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client
 		if err != nil {
 			return err
 		}
-		_, err = client.InsertTx(ctx, tx, accountDeliveryArgs{Schema: s.dbSchema(), Issuer: issuer, DeliveryID: id}, &river.InsertOpts{Queue: accountDeliveryQueue(s.dbSchema(), issuer)})
+		_, err = target.InsertTx(ctx, tx, accountDeliveryArgs{Schema: s.dbSchema(), Issuer: issuer, DeliveryID: id}, &river.InsertOpts{Queue: accountDeliveryQueue(s.dbSchema(), issuer)})
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// Register the durable destination before accepting account mutations. Every
+// configured account issuer must bind once before deletion can affect it. An
+// offline registered application still receives durable jobs in its own fleet.
+func (s *engine) registerAccountDeliveryFleet(ctx context.Context, client *river.Client[pgx.Tx]) error {
+	if s.cfg.Token.Issuer == "" {
+		return nil
+	}
+	var registered string
+	err := s.pg.QueryRow(ctx, `INSERT INTO account_delivery_fleets(issuer,river_schema) VALUES ($1,$2)
+ ON CONFLICT(issuer) DO UPDATE SET issuer=EXCLUDED.issuer RETURNING river_schema`, s.cfg.Token.Issuer, client.Schema()).Scan(&registered)
+	if err != nil {
+		return err
+	}
+	if registered != client.Schema() {
+		return fmt.Errorf("authkit: issuer %q has pending delivery infrastructure in River schema %q; migrate its jobs before changing the fleet schema", s.cfg.Token.Issuer, registered)
+	}
+	return nil
+}
+
+func (s *engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx], issuer string) (*river.Client[pgx.Tx], error) {
+	var schema string
+	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR SHARE", issuer).Scan(&schema); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("authkit: account issuer %q must compose its River fleet before account deletion", issuer)
+		}
+		return nil, err
+	}
+	if schema == local.Schema() {
+		return local, nil
+	}
+	// Insert-only client: no worker registry, start/stop, polling or owned pool.
+	// InsertTx writes into this fleet's schema using the same account transaction.
+	return river.NewClient(riverpgxv5.New(s.pg), &river.Config{Schema: schema})
 }
 
 type accountDeliveryWorker struct {
@@ -106,10 +146,35 @@ func (w *accountDeliveryWorker) Work(ctx context.Context, job *river.Job[account
 }
 
 func (s *engine) deliverAccountEvent(ctx context.Context, id int64) error {
+	var userID string
+	err := s.pg.QueryRow(ctx, "SELECT user_id::text FROM account_deletion_deliveries WHERE id=$1", id).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// River is at least once. Serialize a user's callbacks across replicas and
+	// rescued attempts, then reread the receipt. A dedicated connection keeps
+	// the host's one-slot pool available for callback code and holds no table
+	// transaction while application code runs.
+	lock, err := pgx.ConnectConfig(ctx, s.pg.Config().ConnConfig.Copy())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = lock.Close(cleanup)
+	}()
+	key := "authkit-account-callback:" + s.dbSchema() + ":" + s.cfg.Token.Issuer + ":" + userID
+	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock(hashtext(current_database()),hashtext($1))", key); err != nil {
+		return err
+	}
 	var deletion authkit.UserDeletion
 	var issuer, stage string
 	var completed *time.Time
-	err := s.pg.QueryRow(ctx, `SELECT d.id::text,d.user_id::text,d.deleted_at,d.purge_at,e.issuer,e.stage,e.completed_at
+	err = s.pg.QueryRow(ctx, `SELECT d.id::text,d.user_id::text,d.deleted_at,d.purge_at,e.issuer,e.stage,e.completed_at
  FROM account_deletion_deliveries e JOIN account_deletions d ON d.id=e.deletion_id WHERE e.id=$1`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt, &issuer, &stage, &completed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
