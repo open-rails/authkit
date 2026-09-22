@@ -60,7 +60,7 @@ v0.52.0).** Every error response is:
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
 `embedded.LoadBootstrapManifestFile`, `embedded.ParseBootstrapManifestYAML`, and
-`(*embedded.Client).ApplyBootstrapManifest(ctx, manifest, opts)`. Host applications layer their
+`(*embedded.Runtime).ApplyBootstrapManifest(ctx, manifest, opts)`. Host applications layer their
 own domain bootstrap after AuthKit has applied users, root role assignments,
 remote applications, and group role assignments.
 
@@ -399,7 +399,7 @@ from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
 `iat`, `nbf`, `exp`, `jti`, `token_use=service`, `permissions: []` and `scope: []`.
 AuthKit's default mint lifetime is 15 minutes.
 
-Use `embedded.MintServiceJWT` or `(*embedded.Client).MintServiceJWT` on the caller side,
+Use `embedded.MintServiceJWT` or `(*embedded.Runtime).MintServiceJWT` on the caller side,
 and `(*verify.Verifier).VerifyServiceJWT` on the receiver side. Verification uses registered issuers/JWKS, including
 remote-application issuer lazy-load; disabled issuer rows fail closed. AuthKit parses requested
 permissions but does not grant them. The resource service must
