@@ -45,15 +45,13 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 
 	specs := s.permissionGroupRouteSpecs()
-	if s.hasUserVisibleMemberships() {
-		specs = append(specs, RouteSpec{
-			Method:  http.MethodGet,
-			Path:    "/me/groups",
-			Group:   RouteAccount,
-			Auth:    AuthRequired,
-			Handler: http.HandlerFunc(s.handleMeGroupsGET),
-		})
-	}
+	specs = append(specs, RouteSpec{
+		Method:  http.MethodGet,
+		Path:    "/me/groups",
+		Group:   RouteAccount,
+		Auth:    AuthRequired,
+		Handler: http.HandlerFunc(s.handleMeGroupsGET),
+	})
 	// Permission-introspection (#421): the caller's effective grants in one group
 	// instance (?persona=, ?instance=; defaults to the singleton root group), so a
 	// client gates UI on permission strings instead of expanding role slugs.
@@ -106,19 +104,6 @@ func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 		})
 	}
 	return specs
-}
-
-func (s *Service) hasUserVisibleMemberships() bool {
-	if s == nil || s.svc == nil {
-		return false
-	}
-	schema := s.svc.PermissionGroupSchema()
-	for _, persona := range schema.Personas() {
-		if persona != authkit.RootPersona {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) hasInviteLinkSupport() bool {

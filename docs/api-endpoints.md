@@ -92,7 +92,7 @@ remote applications, and group role assignments.
 | GET | `{api}/register/availability` | registration | public | `auth_register_availability` |  |
 | POST | `{api}/register/resend` | registration | public | `auth_register_resend` | Registration.NativeUserMode != closed |
 | GET | `{api}/me` | account | required | `auth_user_me` |  |
-| GET | `{api}/me/groups` | account | required |  | RBAC persona profile |
+| GET | `{api}/me/groups` | account | required |  |  |
 | GET | `{api}/me/permissions` | account | required |  |  |
 | POST | `{api}/oidc/{provider}/link/start` | account | required |  | Identity.Providers |
 | POST | `{api}/oidc/{provider}/step-up/start` | account | required |  | Identity.Providers |
@@ -480,4 +480,3 @@ authenticated current-user token endpoint, mint a short-lived `aud=openrails`
 delegated access JWT for its resource account with self-scoped permissions such as
 `openrails:self:billing:read` or `openrails:self:checkout:create`, and let the
 browser call OpenRails directly; the host does not need to proxy billing routes.
-

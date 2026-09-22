@@ -11,14 +11,14 @@ import (
 
 // AuthCapabilities is the public, static auth feature-discovery response.
 type AuthCapabilities struct {
-	Registration AuthRegistrationCapabilities `json:"registration"`
-	Providers    []AuthProviderSummary        `json:"providers"`
-	Password     AuthPasswordCapabilities     `json:"password"`
-	Passwordless AuthPasswordlessCapabilities `json:"passwordless"`
-	Passkeys     AuthPasskeyCapabilities      `json:"passkeys"`
-	Solana       AuthSolanaCapabilities       `json:"solana"`
-	Verification AuthVerificationCapabilities `json:"verification"`
-	Languages    []string                     `json:"languages,omitempty"`
+	Registration           AuthRegistrationCapabilities `json:"registration"`
+	ExternalLoginProviders []AuthProviderSummary        `json:"external_login_providers"`
+	Password               AuthPasswordCapabilities     `json:"password"`
+	Passwordless           AuthPasswordlessCapabilities `json:"passwordless"`
+	Passkeys               AuthPasskeyCapabilities      `json:"passkeys"`
+	Solana                 AuthSolanaCapabilities       `json:"solana"`
+	Verification           AuthVerificationCapabilities `json:"verification"`
+	Languages              []string                     `json:"languages,omitempty"`
 }
 
 type AuthRegistrationCapabilities struct {
@@ -79,7 +79,7 @@ func (s *Service) capabilities() AuthCapabilities {
 			Mode:                string(cfg.Registration.NativeUserMode),
 			InviteTokenRequired: cfg.Registration.NativeUserMode == embedded.RegistrationModeInviteOnly,
 		},
-		Providers: s.providerSummaries(),
+		ExternalLoginProviders: s.providerSummaries(),
 		Password: AuthPasswordCapabilities{
 			Login: true,
 		},

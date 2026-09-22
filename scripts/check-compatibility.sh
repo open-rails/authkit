@@ -53,7 +53,13 @@ def route_rows(root):
     return {line for line in (root / "docs/api-endpoints.md").read_text().splitlines()
             if line.startswith(tuple(f"| {method}" for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")))}
 
-removed = route_rows(old_root) - route_rows(new_root)
+current_routes = route_rows(new_root)
+removed = route_rows(old_root) - current_routes
+# #380 deliberately makes authenticated membership discovery available even
+# with only the intrinsic root persona. Its method/path/auth contract is intact;
+# only this obsolete availability annotation is removed in the pre-v1 hard cut.
+if pre_v1 and "| GET | `{api}/me/groups` | account | required |  |  |" in current_routes:
+    removed.discard("| GET | `{api}/me/groups` | account | required |  | RBAC persona profile |")
 if removed:
     raise SystemExit("published routes changed or removed:\n" + "\n".join(sorted(removed)))
 
