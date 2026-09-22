@@ -1,11 +1,11 @@
 module github.com/open-rails/authkit/adapters/gin
 
-go 1.26.0
+go 1.26.6
 
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.115.0
+	github.com/open-rails/authkit v0.117.0-rc.1
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -44,8 +44,8 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
+	github.com/open-rails/helpers v0.1.0 // indirect
 	github.com/open-rails/migratekit v1.0.4 // indirect
-	github.com/open-rails/riverkit v0.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
