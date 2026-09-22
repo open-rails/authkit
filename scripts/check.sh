@@ -47,7 +47,7 @@ required = {
     'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
-                 'TestAccountDeletionUpgradePreservesPendingSites',
+                 'TestAccountDeletionRollsBackWhenRiverInsertFails',
                  'TestAccountRecoveryAndFinalizerSerializeAtDeadline',
                  'TestAccountCallbackFailureAndConcurrentRescue',
                  'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',

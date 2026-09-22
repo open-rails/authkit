@@ -6,8 +6,9 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = current_schema() AND c.relname IN (
-      'account_erasure_acknowledgements',
-      'account_erasure_obligations',
+      'account_delivery_fleets',
+      'account_deletions',
+      'account_deletion_deliveries',
       'account_registration_invites',
       'api_keys',
       'bootstrap_applies',
@@ -487,39 +488,43 @@ CREATE INDEX session_events_user_occurred_idx
 CREATE INDEX session_events_occurred_idx
     ON session_events (occurred_at);
 
--- Cross-site erasure handoff: one obligation per deleted account, one
--- acknowledgement per configured account issuer (Token.AccountIssuers). Purge
--- selects only fully acknowledged accounts; the obligation carries the
--- identifiers hosts key on and outlives the users row until every issuer
--- acknowledged. Only open obligations are stored: a settled one is deleted.
-CREATE TABLE account_erasure_obligations (
-  user_id       uuid PRIMARY KEY,
-  email         public.citext,
-  username      public.citext,
-  phone_number  text,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  purged_at     timestamptz,
-  -- Recomputed from the acknowledgements below under the obligation's row
-  -- lock, so the purge sweep reads readiness from one index instead of an
-  -- anti-join over the whole backlog.
-  pending_sites integer NOT NULL DEFAULT 0
+-- Account deletion is recoverable for thirty days. Delivery receipts are
+-- private lifecycle state; River owns scheduling and execution.
+-- Applications may share identities while running separate River schemas.
+CREATE TABLE account_delivery_fleets (
+    issuer text PRIMARY KEY,
+    river_schema text NOT NULL
 );
-CREATE INDEX account_erasure_obligations_purgeable_idx
-  ON account_erasure_obligations (created_at, user_id)
-  WHERE purged_at IS NULL AND pending_sites = 0;
 
--- obligation_created_at is an immutable copy of the obligation's key, so one
--- site's pending listing is an index-ordered keyset page.
-CREATE TABLE account_erasure_acknowledgements (
-  user_id               uuid NOT NULL REFERENCES account_erasure_obligations(user_id) ON DELETE CASCADE,
-  issuer                text NOT NULL,
-  obligation_created_at timestamptz NOT NULL,
-  acknowledged_at       timestamptz,
-  PRIMARY KEY (user_id, issuer)
+CREATE TABLE account_deletions (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id uuid NOT NULL,
+    deleted_at timestamptz NOT NULL,
+    purge_at timestamptz NOT NULL,
+    state text NOT NULL DEFAULT 'deleted' CHECK (state IN ('deleted','restored','finalizing','purged')),
+    recipients text[] NOT NULL DEFAULT '{}',
+    restored_at timestamptz,
+    purged_at timestamptz,
+    CHECK (purge_at = deleted_at + interval '720 hours')
 );
-CREATE INDEX account_erasure_acknowledgements_pending_idx
-  ON account_erasure_acknowledgements (issuer, obligation_created_at, user_id)
-  WHERE acknowledged_at IS NULL;
+CREATE UNIQUE INDEX account_deletions_active_user_idx ON account_deletions(user_id)
+    WHERE state IN ('deleted','finalizing');
+CREATE INDEX account_deletions_user_idx ON account_deletions(user_id,deleted_at,id);
+CREATE INDEX account_deletions_terminal_idx ON account_deletions((COALESCE(restored_at,purged_at)),id)
+    WHERE state IN ('restored','purged');
+
+CREATE TABLE account_deletion_deliveries (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    deletion_id uuid NOT NULL REFERENCES account_deletions(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL,
+    issuer text NOT NULL,
+    stage text NOT NULL CHECK (stage IN ('soft','restore','hard')),
+    completed_at timestamptz,
+    UNIQUE (deletion_id,issuer,stage)
+);
+CREATE INDEX account_deletion_deliveries_pending_idx
+    ON account_deletion_deliveries(user_id,issuer,id) WHERE completed_at IS NULL;
+
 
 -- Signed documents
 CREATE TABLE signed_documents (

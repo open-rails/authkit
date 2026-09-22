@@ -43,59 +43,7 @@ func (s *engine) scheduleAccountDeletion(ctx context.Context, tx pgx.Tx, client 
 	if err := s.enqueueAccountDeliveries(ctx, tx, client, deletion, issuers, "soft"); err != nil {
 		return err
 	}
-	if err := s.enqueueAccountFinalizer(ctx, tx, client, deletion, false); err != nil {
-		return err
-	}
-	_, err := tx.Exec(ctx, "UPDATE account_deletions SET jobs_enqueued=true,recipients=$2 WHERE id=$1::uuid", deletion.ID, issuers)
-	return err
-}
-
-// adoptAccountDeletions is upgrade initialization only. New deletion requests
-// enqueue directly in their transaction; workers never scan this table for work.
-func (s *engine) adoptAccountDeletions(ctx context.Context, client *river.Client[pgx.Tx]) error {
-	for {
-		tx, err := s.pg.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		var record accountDeletionRecord
-		err = tx.QueryRow(ctx, `SELECT id::text,user_id::text,deleted_at,purge_at,state,recipients FROM account_deletions d
- WHERE NOT jobs_enqueued AND state IN ('deleted','finalizing')
- AND NOT EXISTS(SELECT 1 FROM unnest(CASE WHEN cardinality(d.recipients)=0 THEN $1::text[] ELSE d.recipients END) AS required(issuer)
-   LEFT JOIN account_delivery_fleets f ON f.issuer=required.issuer WHERE f.issuer IS NULL)
- ORDER BY deleted_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, s.accountIssuers()).Scan(&record.ID, &record.UserID, &record.DeletedAt, &record.PurgeAt, &record.state, &record.recipients)
-		if errors.Is(err, pgx.ErrNoRows) {
-			_ = tx.Rollback(ctx)
-			return nil
-		}
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return err
-		}
-		issuers := record.recipients
-		if len(issuers) == 0 {
-			issuers = s.accountIssuers()
-		}
-		if len(issuers) == 0 {
-			_ = tx.Rollback(ctx)
-			return errors.New("authkit: pending account deletion requires Token.Issuer")
-		}
-		if record.state == "finalizing" {
-			err = s.enqueueAccountDeliveries(ctx, tx, client, record.UserDeletion, issuers, "hard")
-			if err == nil {
-				_, err = tx.Exec(ctx, "UPDATE account_deletions SET jobs_enqueued=true WHERE id=$1::uuid", record.ID)
-			}
-		} else {
-			err = s.scheduleAccountDeletion(ctx, tx, client, record.UserDeletion, issuers)
-		}
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return err
-		}
-	}
+	return s.enqueueAccountFinalizer(ctx, tx, client, deletion, false)
 }
 
 func (s *engine) finalizeAccountDeletion(ctx context.Context, id string, purge bool) error {
