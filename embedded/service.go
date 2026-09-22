@@ -31,8 +31,8 @@ type Keyset struct {
 
 // EntitlementsProvider returns the names of users' currently active
 // application entitlements (e.g., billing tiers). Names are the ONLY shape
-// AuthKit consumes — they are baked verbatim into the `entitlements` claim of
-// access tokens and surfaced on admin user views. Providers should return
+// AuthKit consumes. Token.EntitlementAllowlist selects which names may appear
+// in access tokens; admin user views receive the full result. Providers return
 // active grants only; expired/revoked entitlements are the provider's concern,
 // not AuthKit's.
 //

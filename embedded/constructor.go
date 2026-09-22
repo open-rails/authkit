@@ -69,6 +69,9 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 
 	var err error
+	if cfg.Token.EntitlementAllowlist, err = normalizeEntitlementAllowlist(cfg.Token.EntitlementAllowlist); err != nil {
+		return Config{}, err
+	}
 	if cfg.River, err = normalizeRiverConfig(cfg.River); err != nil {
 		return Config{}, err
 	}

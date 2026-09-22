@@ -105,17 +105,8 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 				return
 			}
 			if allowed {
-				// Intrinsic root-permission operations are explicitly
-				// sensitive, independent of the actor's role name.
-				live, _, err := s.verifier.IsLive(r.Context(), claims)
-				if err != nil {
-					unauthorized(w, authkit.CodeLivenessUnavailable)
-					return
-				}
-				if !live {
-					unauthorized(w, authkit.CodeAccountDisabled)
-					return
-				}
+				// Permissions are current; native identity remains the verified
+				// JWT snapshot. Hosts can explicitly select live-account checks.
 				next.ServeHTTP(w, r)
 				return
 			}

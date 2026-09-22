@@ -170,22 +170,32 @@ database, configuration or signer accessors. The HTTP transport receives its
 local engine capability only while the runtime constructs it. This release
 adds no remote AuthKit client or standalone service.
 
-For a host's root moderation gates, `Token.RootPermissionSnapshot: true` adds a
-bounded, versioned snapshot of the user's effective root permissions to native
-access tokens. It is off by default. After normal token verification, call
-`claims.RootPermissionSnapshot(permission)`: `complete && !allowed` is a complete
-negative that needs no database lookup. If `complete` is false, retain the normal
-live authorization path. Sensitive positive decisions should still call
-`client.Can` and check account liveness so role revocation and bans take effect
-immediately. A new grant becomes visible after token refresh; an old negative
-does not turn positive merely because the database changed.
+Native user JWTs establish identity; group memberships, roles and permissions
+are always resolved live when a route requires permission. Native tokens do not
+carry permission authority. The experimental `RootPermissionSnapshot` API has
+been removed. Machine and delegated credentials retain their separate verified
+permission ceilings and scope bindings.
 
-This first snapshot API covers only concrete `root:resource:action` permissions,
-not other groups, delegated tokens, external users, or enrollment-only tokens.
-The entire snapshot is omitted on lookup failure or if its 128-grant/4096-byte
-limit is exceeded; it is never truncated into a misleading complete negative.
-Caller-supplied token extras cannot set `root_permissions`. Existing `Can`,
-`verify.Allow`, and AuthKit management-route authorization remain live.
+Bans prevent login and refresh. An existing native identity JWT remains valid
+until expiry (15 minutes by default), including on a permission route if its
+current grant remains assigned. Revoking a role takes effect immediately at the
+next permission check. Account liveness can still be explicitly requested with
+`RequiredLive`, `OptionalLive`, or `IsLive`; it is not automatically added to
+admin routes. Ownership mutations retain their current valid-owner invariants.
+
+Select optional coarse entitlement claims explicitly:
+
+```go
+embedded.TokenConfig{EntitlementAllowlist: []string{"premium"}}
+```
+
+Only names actually granted by the entitlement provider are included. Empty
+configuration skips that provider lookup during minting and omits the claim;
+directory/admin provider results remain unfiltered. The allowlist is limited to
+32 distinct names, 128 UTF-8 bytes per name and 2048 encoded JSON bytes. Provider
+failure also omits the claim while allowing login; omission is not a successful
+empty-grant lookup. These are token-time billing snapshots until refresh, not
+live permission checks. Per-product ownership belongs in the billing query API.
 
 ## Verification in a host
 
@@ -320,6 +330,15 @@ both as durable identifiers and never rename in place; removed names fail
 closed without deleting rows. One role per subject per group; who may create a
 group is the host's decision.
 
+An enabled remote application can own its immutable controlling group. Its
+signed app-self token can use that group's existing member add, role-change,
+removal, member-list and role-list endpoints. Mutations recheck current grants
+and the credential's permission ceiling in the same transaction as the write;
+both the replaced and requested roles must fit. Delegated user tokens do not
+inherit the application's ownership. Registration invitations still require a
+native user. A remote owner assignment in another group is rejected and never
+counts as a remaining owner; ordinary ancestor permission grants are unchanged.
+
 ## Signed documents and delegated tokens
 
 `documents.NewService` signs, persists and re-verifies an immutable JSON
@@ -446,11 +465,12 @@ anonymous. These checks do not grant admin permissions; authorization remains a
 separate route policy. Verified machine/external principals retain the existing
 verifier behavior and do not acquire a native-user directory lookup.
 
-AuthKit's built-in root-permission operations (such as the admin user directory,
-ban, and account recovery routes) explicitly check native-user liveness after
-permission authorization. A banned operator cannot use a still-valid token for
-those operations. This policy follows the sensitive operation, not a role named
-`admin`, and does not enable account lookups on ordinary application routes.
+AuthKit's built-in root-permission operations resolve permissions live, without
+an implicit account-ban lookup. Existing native access tokens authenticate until
+expiry; bans prevent login and refresh. Hosts can explicitly select the live
+middleware above when they need immediate account revocation. Deleted or
+reserved users cannot perform authority mutations, and ownership transitions
+retain their stricter valid-owner checks.
 
 ## Sessions across issuers
 

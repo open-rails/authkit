@@ -71,6 +71,16 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 	return live, err
 }
 
+// A request's verified native JWT authenticates its actor until expiry. Ban
+// eligibility is checked at login/refresh, not added to each live permission
+// mutation. Deleted/reserved identities remain invalid mutation actors. This
+// is deliberately separate from the stricter current-owner eligibility above.
+func authorizationActorPresent(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	var present bool
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb)`, userID).Scan(&present)
+	return present, err
+}
+
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
 // from the remaining live owners. Removing an already unusable principal does
 // not create an ownership loss; empty bootstrap groups also remain possible.
@@ -80,6 +90,9 @@ func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, 
 		return err
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
+	if err == nil && live && subject.Kind == authkit.SubjectKindRemoteApp {
+		err = st.q.QueryRow(ctx, `SELECT permission_group_id=$2::uuid FROM remote_applications WHERE id=$1::uuid`, subject.ID, gid).Scan(&live)
+	}
 	if err != nil || !live {
 		return err
 	}
@@ -102,7 +115,7 @@ func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupS
  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL
  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled)`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
+ WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id)`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
 	if err != nil {
 		return err
 	}

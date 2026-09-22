@@ -45,15 +45,13 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 
 	specs := s.permissionGroupRouteSpecs()
-	if s.hasUserVisibleMemberships() {
-		specs = append(specs, RouteSpec{
-			Method:  http.MethodGet,
-			Path:    "/me/groups",
-			Group:   RouteAccount,
-			Auth:    AuthRequired,
-			Handler: http.HandlerFunc(s.handleMeGroupsGET),
-		})
-	}
+	specs = append(specs, RouteSpec{
+		Method:  http.MethodGet,
+		Path:    "/me/groups",
+		Group:   RouteAccount,
+		Auth:    AuthRequired,
+		Handler: http.HandlerFunc(s.handleMeGroupsGET),
+	})
 	// Permission-introspection (#421): the caller's effective grants in one group
 	// instance (?persona=, ?instance=; defaults to the singleton root group), so a
 	// client gates UI on permission strings instead of expanding role slugs.
@@ -106,19 +104,6 @@ func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 		})
 	}
 	return specs
-}
-
-func (s *Service) hasUserVisibleMemberships() bool {
-	if s == nil || s.svc == nil {
-		return false
-	}
-	schema := s.svc.PermissionGroupSchema()
-	for _, persona := range schema.Personas() {
-		if persona != authkit.RootPersona {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) hasInviteLinkSupport() bool {
@@ -186,7 +171,9 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
-		if !ok || claims.UserID == "" {
+		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, verify.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
+		remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
+		if !ok || (claims.UserID == "" && !(remoteSelf && remoteOperation)) {
 			unauthorized(w, authkit.CodeNotAuthenticated)
 			return
 		}
@@ -204,8 +191,18 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		}
 		r = r.WithContext(embedded.WithResolvedGroup(r.Context(), instance, instanceSlug))
 
-		// Authorize: the caller (a user) must hold route.Perm on this group.
-		allowed, err := s.groupCan(r, claims.UserID, group, gr.Perm)
+		// Native authority is live. Remote self credentials additionally remain
+		// bound to their controlling group and verified permission ceiling.
+		var allowed bool
+		if remoteSelf {
+			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
+			err = nil
+			if allowed {
+				allowed, err = s.svc.Can(r.Context(), authkit.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)
+			}
+		} else {
+			allowed, err = s.groupCan(r, claims.UserID, group, gr.Perm)
+		}
 		if err != nil {
 			serverErr(w, authkit.CodeDatabaseError)
 			return

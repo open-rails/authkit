@@ -116,18 +116,19 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, svc.AssignGroupRoleGenesis(ctx, g, authkit.UserSubject(human), OwnerRoleName))
 		require.NoError(t, svc.DeleteRemoteApplication(ctx, a.Issuer))
 	})
-	t.Run("subtree_cascade_preserves_external_owners", func(t *testing.T) {
+	t.Run("subtree_cascade_cannot_count_cross_control_owners", func(t *testing.T) {
 		human := user()
-		controlling, controllerID := group("app-controller", human)
+		_, controllerID := group("app-controller", human)
 		survivor, survivorID := group("app-survivor", human)
 		for range 2 {
 			a := app(controllerID)
-			require.NoError(t, svc.AssignGroupRoleAs(ctx, human, survivor, authkit.RemoteAppSubject(a.ID), OwnerRoleName))
+			require.ErrorIs(t, svc.AssignGroupRoleAs(ctx, human, survivor, authkit.RemoteAppSubject(a.ID), OwnerRoleName), ErrInsufficientRoleAuthority)
+			// Historical invalid assignments are not operational owners. Even if
+			// present, neither removal nor a concurrent subtree cascade may count them.
+			_, err := svc.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, survivorID, a.ID)
+			require.NoError(t, err)
 		}
-		require.NoError(t, svc.RemoveGroupSubjectAs(ctx, human, survivor, authkit.UserSubject(human)))
-		require.ErrorIs(t, svc.DeletePermissionGroup(ctx, controlling, DeletePermissionGroupOptions{}), ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.DeleteGroupInstanceByID(ctx, controllerID, DeletePermissionGroupOptions{}), ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.AssignGroupRoleGenesis(ctx, survivor, authkit.UserSubject(human), OwnerRoleName))
+		require.ErrorIs(t, svc.RemoveGroupSubjectAs(ctx, human, survivor, authkit.UserSubject(human)), ErrCannotRemoveLastAdminRole)
 		start := make(chan struct{})
 		done := make(chan error, 2)
 		go func() {
@@ -285,8 +286,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			}, func(st *PermissionGroupStore) error {
 				return st.UpsertCustomRole(ctx, customGID, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, ErrRoleAssignmentEscalation},
-			{"ban_expiry_after_transaction_start", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
-				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=statement_timestamp() WHERE id=$1::uuid`, expiringActor)
+			{"banned_actor_retains_current_permission", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
+				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=NULL WHERE id=$1::uuid`, expiringActor)
 				return err
 			}, nil},
 			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *PermissionGroupStore) error {

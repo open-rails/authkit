@@ -473,7 +473,9 @@ func (s *engine) Can(ctx context.Context, subject authkit.Subject, group authkit
 // from role slugs. Scoped per group instance BY DESIGN — perms are persona-
 // namespaced, so a global union would be both large and meaningless. An unknown
 // group ⇒ empty (no authority), not an error; real lookup failures propagate
-// (fail-closed — never a partial set returned as if complete).
+// (fail-closed — never a partial set returned as if complete). This describes
+// assigned grants, including latent authority on deleted/reserved accounts;
+// Can additionally requires a present native account before granting access.
 func (s *engine) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()

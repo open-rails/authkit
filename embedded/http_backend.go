@@ -20,6 +20,8 @@ import (
 type HTTPBackend interface {
 	authkit.Client
 	verify.Enricher
+	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
+	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject) error
 	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error)
 	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error
 	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error)
