@@ -2,11 +2,13 @@ package embedded
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/riverkit"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -100,25 +102,25 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
 	require.Nil(t, core.maintenance.client, "host mode must not construct another River client")
-	require.ErrorContains(t, core.Start(t.Context()), "RegisterRiver")
+	require.ErrorContains(t, core.Start(t.Context()), "RiverJobs")
 	hostCfg := &river.Config{Schema: "host_queue", Workers: river.NewWorkers(), Queues: map[string]river.QueueConfig{"host_jobs": {MaxWorkers: 1}}}
 	hostWorker := &hostMaintenanceWorker{done: make(chan struct{}, 4)}
 	river.AddWorker(hostCfg.Workers, hostWorker)
 	hostCfg.PeriodicJobs = []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 		return hostMaintenanceArgs{}, &river.InsertOpts{Queue: "host_jobs"}
 	}, &river.PeriodicJobOpts{RunOnStart: true})}
-	require.NoError(t, core.RegisterRiver(hostCfg))
+	host, err := riverkit.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
+	require.NoError(t, err)
 	require.Equal(t, "host_queue", hostCfg.Schema, "host schema is authoritative")
-	require.Len(t, hostCfg.PeriodicJobs, 2, "both library and host schedules share the leader")
-	require.ErrorContains(t, core.RegisterRiver(hostCfg), "already registered")
+	require.Len(t, hostCfg.PeriodicJobs, 1, "composer preserves the caller configuration")
+	_, err = riverkit.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
+	require.ErrorContains(t, err, "already composed")
 	require.NoError(t, core.Start(t.Context()))
 	_, err = pg.Pool.Exec(t.Context(), "CREATE SCHEMA host_queue")
 	require.NoError(t, err)
 	migrator, err := rivermigrate.New(riverpgxv5.New(pg.Pool), &rivermigrate.Config{Schema: hostCfg.Schema})
 	require.NoError(t, err)
 	_, err = migrator.Migrate(t.Context(), rivermigrate.DirectionUp, nil)
-	require.NoError(t, err)
-	host, err := river.NewClient(riverpgxv5.New(pg.Pool), hostCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, host.StopAndCancel(context.Background())) })
 	id := expiredEvent(t, pg.Pool)
@@ -159,7 +161,11 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 	require.NoError(t, core.Start(t.Context()))
-	require.ErrorContains(t, core.RegisterRiver(&river.Config{}), "requires PostgreSQL")
+	pool, err := pgxpool.New(t.Context(), "postgres://unused@127.0.0.1:1/unused?sslmode=disable")
+	require.NoError(t, err)
+	defer pool.Close()
+	_, err = riverkit.New(t.Context(), pool, nil, core.RiverJobs())
+	require.ErrorContains(t, err, "requires PostgreSQL")
 	cfg := maintenanceConfig()
 	cfg.River.Schema = "invalid;schema"
 	_, err = New(cfg, Deps{})
@@ -168,4 +174,32 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	cfg.River.CleanupInterval = -time.Hour
 	_, err = New(cfg, Deps{})
 	require.ErrorContains(t, err, "CleanupInterval")
+}
+
+func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
+	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	require.NoError(t, err)
+	defer core.Close()
+	fail := riverkit.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, *river.Client[pgx.Tx]) error { return fmt.Errorf("binding failed") }, func() error { return nil })
+	client, err := riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs(), fail)
+	require.ErrorContains(t, err, "binding failed")
+	require.Nil(t, client)
+	require.Nil(t, core.maintenance.client)
+	require.ErrorContains(t, core.Start(t.Context()), "RiverJobs")
+	_, err = riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs())
+	require.ErrorContains(t, err, "already composed")
+	require.NoError(t, pg.Pool.Ping(t.Context()))
+}
+
+func TestClosedRiverJobsCannotCompose(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
+	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	require.NoError(t, err)
+	core.Close()
+	_, err = riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs())
+	require.ErrorContains(t, err, "closed")
+	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
