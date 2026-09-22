@@ -32,7 +32,7 @@ type MigrationOptions struct {
 // New and Start never run DDL; runtime credentials can be separately restricted.
 //
 // AuthKit owns its migration source and migratekit runner. The host supplies
-// the database pool and the schema name, then constructs the Client after
+// the database pool and the schema name, then constructs the Runtime after
 // this function returns successfully. The schema is created by migratekit;
 // callers must not create it separately. An empty schema selects AuthKit's
 // default "profiles" schema.

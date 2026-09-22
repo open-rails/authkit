@@ -70,7 +70,7 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 	return nil
 }
 
-func newHardeningService(t *testing.T) (*Client, *hardeningEmailSender) {
+func newHardeningService(t *testing.T) (*Runtime, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
 	store := memorystore.NewKV()
@@ -80,7 +80,7 @@ func newHardeningService(t *testing.T) (*Client, *hardeningEmailSender) {
 	return svc, sender
 }
 
-func newHardeningUser(t *testing.T, ctx context.Context, svc *Client, tag string) (*User, string) {
+func newHardeningUser(t *testing.T, ctx context.Context, svc *Runtime, tag string) (*User, string) {
 	t.Helper()
 	username := fmt.Sprintf("hard-%s-%d", tag, time.Now().UnixNano())
 	email := username + "@example.test"
@@ -103,7 +103,7 @@ func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 }
 
 // mustNewWithKeys constructs a client and releases its owned resources after the test.
-func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, deps Deps) *Client {
+func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, deps Deps) *Runtime {
 	t.Helper()
 	svc, err := NewWithKeys(cfg, keys, deps)
 	if err != nil {

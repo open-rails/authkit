@@ -5,19 +5,19 @@ import (
 	"time"
 )
 
-// Client is a convenient host interface: the in-process operations a host calls
-// on the engine, one flat interface grounded in what the consumers actually
-// use (ak#289). *embedded.Client implements it. Infra accessors (Postgres,
+// Client is the engine-free operation contract applications obtain from
+// embedded.Runtime.Client. Its inputs and results do not carry local resources.
+// No remote implementation is provided yet. Infra accessors (Postgres,
 // JWKS, Config, Schema), the browser-flow methods the authhttp transport
 // drives, the passkey ceremonies and the unchecked Genesis() seam are
-// deliberately OFF this interface — they stay on the concrete *embedded.Client.
+// deliberately OFF this interface — they stay on the concrete *embedded.Runtime.
 // Documented concrete host operations remain covered by SEMVER.md; membership
 // in this interface is not the stability boundary. Hosts may use smaller local
 // interfaces for their own dependencies.
 // Adding a method is MAJOR: consumers implement it in fakes.
 //
-//	c, err := embedded.New(cfg, deps)
-//	var _ authkit.Client = c
+//	runtime, err := embedded.New(cfg, deps)
+//	client := runtime.Client()
 type Client interface {
 	// --- users ---
 	CreateUser(ctx context.Context, email, username string) (*User, error)
@@ -84,7 +84,7 @@ type Client interface {
 	UnbanUser(ctx context.Context, userID string) error
 
 	// --- root roles (actor-checked; the unchecked genesis forms live on
-	// embedded.Client.Genesis(), #241) ---
+	// embedded.Runtime.Genesis(), #241) ---
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation
 	// check (#136) runs PER ITEM and each OpResult carries its own authority error.
 	AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role Role) ([]OpResult, error)
@@ -96,8 +96,6 @@ type Client interface {
 
 	// --- permission groups ---
 	CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error)
-	EnsureRootGroup(ctx context.Context) (string, error)
-	SeedPermissionGroupContainment(ctx context.Context) error
 	ResolveGroupIDForSlug(ctx context.Context, group GroupRef) (string, error)
 	GroupInstanceForSlug(ctx context.Context, group GroupRef) (GroupInstance, error)
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
@@ -112,7 +110,6 @@ type Client interface {
 	CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error)
 	ListGroupInviteLinks(ctx context.Context, group GroupRef) ([]GroupInviteLink, error)
 	RevokeGroupInviteLink(ctx context.Context, group GroupRef, linkID string) error
-	ExternalInvitesEnabled() bool
 
 	// --- tokens (#214: Mint* = signing a JWT; session creation is not a Mint) ---
 	MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
@@ -135,16 +132,4 @@ type Client interface {
 	UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (RemoteApplicationAuthority, error)
-
-	// --- bootstrap: hosts with a file load it themselves
-	// (embedded.LoadBootstrapManifestFile) then apply it ---
-	ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
-
-	// --- senders + upkeep ---
-	HasEmailSender() bool
-	HasSMSSender() bool
-	SMSAvailable() bool
-	CheckSMSHealth(ctx context.Context) error
-	CleanupExpiredAuthState(ctx context.Context) error
-	ValidateVerificationConfiguration() error
 }

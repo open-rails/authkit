@@ -313,7 +313,7 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 // from options. A test that wires neither Redis nor an EphemeralStore gets the
 // memory store New defaults to, so the opt-in is implied (the host-facing
 // refusal is pinned in embedded and by TestNewServer_RequiresClientIPPosture).
-func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Client, error) {
+func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Runtime, error) {
 	deps := depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...)
 	if deps.Redis == nil && deps.EphemeralStore == nil {
 		cfg.Ephemeral.AllowMemory = true
@@ -325,7 +325,7 @@ const documentsTestType = "example.entitlements/v1"
 
 // registerDocumentReader registers a remote application (static keys) nested
 // under the root group and returns a bearer token minted by ITS OWN key.
-func registerDocumentReader(t *testing.T, core *embedded.Client, slug, issuer string) string {
+func registerDocumentReader(t *testing.T, core *embedded.Runtime, slug, issuer string) string {
 	t.Helper()
 	ctx := context.Background()
 	coreSvc := core
@@ -1016,7 +1016,7 @@ func configOf(opts ...Option) Config {
 	return c
 }
 
-func newServer(client *embedded.Client, opts ...Option) (*Service, error) {
+func newServer(client *embedded.Runtime, opts ...Option) (*Service, error) {
 	return New(client, configOf(opts...))
 }
 
@@ -1054,7 +1054,7 @@ func newServerTestConfig() embedded.Config {
 
 // newServerClient builds the embedded engine that a client-first NewServer wraps
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
-func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *embedded.Client {
+func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *embedded.Runtime {
 	t.Helper()
 	deps := depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...)
 	if deps.Redis == nil && deps.EphemeralStore == nil {

@@ -23,7 +23,7 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 
 // withLockedGroup gives role definitions and grants one lifecycle boundary.
 // Authorization stays in the existing caller checks, using this bound store.
-func (s *Client) withLockedGroup(ctx context.Context, groupID string, apply func(*PermissionGroupStore) error) error {
+func (s *Runtime) withLockedGroup(ctx context.Context, groupID string, apply func(*PermissionGroupStore) error) error {
 	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 			return err
@@ -34,7 +34,7 @@ func (s *Client) withLockedGroup(ctx context.Context, groupID string, apply func
 
 // A role must exist when a durable reference is created. Catalog definitions
 // are immutable configuration; custom definitions are read under the group lock.
-func (s *Client) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) error {
+func (s *Runtime) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) error {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return nil
 	}

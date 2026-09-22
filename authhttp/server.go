@@ -54,9 +54,9 @@ func (s *Service) Close() {
 //
 //	client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
 //	srv, err := authhttp.New(client, authhttp.Config{TrustedProxies: []string{"10.0.0.0/8"}})
-func New(client *embedded.Client, hcfg Config) (*Service, error) {
+func New(client *embedded.Runtime, hcfg Config) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
-		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed *embedded.Client (Postgres is mandatory)")
+		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed *embedded.Runtime (Postgres is mandatory)")
 	}
 	if err := hcfg.Validate(); err != nil {
 		return nil, err
@@ -191,7 +191,7 @@ func New(client *embedded.Client, hcfg Config) (*Service, error) {
 // `relation "users" does not exist`. Fail-open on probe errors
 // (connectivity, permissions): those surface elsewhere; only a definitive
 // "table missing" fails construction.
-func probeMigrations(client *embedded.Client) error {
+func probeMigrations(client *embedded.Runtime) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var exists bool

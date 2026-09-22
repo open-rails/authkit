@@ -13,7 +13,7 @@ import (
 
 // setPasswordSet removed; presence of password is inferred from user_passwords
 
-func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo string, err error) {
+func (s *Runtime) getPasswordHash(ctx context.Context, userID string) (hash, algo string, err error) {
 	if s.pg == nil {
 		return "", "", nil
 	}
@@ -23,7 +23,7 @@ func (s *Client) getPasswordHash(ctx context.Context, userID string) (hash, algo
 
 // UpsertPasswordHash replaces a precomputed password hash and invalidates all
 // sessions and recovery grants. Intended for trusted host import/maintenance.
-func (s *Client) UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error {
+func (s *Runtime) UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error {
 	if err := validatePasswordHashForStorage(hash, algo); err != nil {
 		return err
 	}

@@ -43,7 +43,7 @@ type LoginChallengeInput struct {
 	IP         string
 }
 
-func (s *Client) loadLoginProof(ctx context.Context, userID, nonce string) (loginProof, error) {
+func (s *Runtime) loadLoginProof(ctx context.Context, userID, nonce string) (loginProof, error) {
 	var proof loginProof
 	raw, ok, err := s.ephemReadJSON(ctx, keyTwoFactorChallenge+userID, &proof)
 	if err != nil {
@@ -61,7 +61,7 @@ func independentFactor(proof loginProof, factor TwoFactorFactor) bool {
 	return !hasAuthMethod(proof.Input.AuthMethods, factor.Method) || (factor.Method != "email" && factor.Method != "sms")
 }
 
-func (s *Client) loginFactors(proof loginProof, settings *TwoFactorSettings) []TwoFactorFactor {
+func (s *Runtime) loginFactors(proof loginProof, settings *TwoFactorSettings) []TwoFactorFactor {
 	var factors []TwoFactorFactor
 	if settings == nil || !settings.Enabled {
 		return factors
@@ -74,7 +74,7 @@ func (s *Client) loginFactors(proof loginProof, settings *TwoFactorSettings) []T
 	return factors
 }
 
-func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (LoginOutcome, error) {
+func (s *Runtime) finishFirstFactor(ctx context.Context, proof loginProof) (LoginOutcome, error) {
 	if proof.Version <= 0 || len(proof.Input.AuthMethods) == 0 {
 		return LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
@@ -164,7 +164,7 @@ func (s *Client) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	return out, nil
 }
 
-func (s *Client) sendLoginFactor(ctx context.Context, user *User, proof loginProof, nonce string, settings *TwoFactorSettings, factorID string) (*TwoFactorChallenge, error) {
+func (s *Runtime) sendLoginFactor(ctx context.Context, user *User, proof loginProof, nonce string, settings *TwoFactorSettings, factorID string) (*TwoFactorChallenge, error) {
 	factors := s.loginFactors(proof, settings)
 	var selected *TwoFactorFactor
 	for i := range factors {
@@ -192,7 +192,7 @@ func (s *Client) sendLoginFactor(ctx context.Context, user *User, proof loginPro
 
 // ResendLoginChallenge changes the selected independent factor while retaining
 // the first-factor proof and its original expiry.
-func (s *Client) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*TwoFactorChallenge, error) {
+func (s *Runtime) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*TwoFactorChallenge, error) {
 	proof, err := s.loadLoginProof(ctx, userID, nonce)
 	if err != nil || proof.Enrollment {
 		return nil, jwt.ErrTokenUnverifiable
@@ -223,7 +223,7 @@ func (s *Client) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 
 // CompleteLoginChallenge gives one current first-factor grant one successful
 // second-factor completion and commits its session while holding the account lock.
-func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeInput) (LoginOutcome, error) {
+func (s *Runtime) CompleteLoginChallenge(ctx context.Context, in LoginChallengeInput) (LoginOutcome, error) {
 	proof, err := s.loadLoginProof(ctx, in.UserID, in.Challenge)
 	if err != nil || proof.Enrollment {
 		return LoginOutcome{}, jwt.ErrTokenUnverifiable
@@ -307,7 +307,7 @@ func (s *Client) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 
 type loginEnrollmentKey struct{}
 
-func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrollInput) (context.Context, error) {
+func (s *Runtime) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrollInput) (context.Context, error) {
 	if in.Mode != FirstFactorOnly {
 		return ctx, nil
 	}
@@ -334,7 +334,7 @@ func (s *Client) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrol
 	return context.WithValue(ctx, loginEnrollmentKey{}, proof), nil
 }
 
-func (s *Client) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrollInput, out TwoFactorEnrollOutcome) (TwoFactorEnrollOutcome, error) {
+func (s *Runtime) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrollInput, out TwoFactorEnrollOutcome) (TwoFactorEnrollOutcome, error) {
 	proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof)
 	if !ok {
 		return out, nil
@@ -352,7 +352,7 @@ func (s *Client) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrol
 	return out, nil
 }
 
-func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, proof loginProof) error {
+func (s *Runtime) validateLoginProofSource(ctx context.Context, source db.DBTX, proof loginProof) error {
 	q := db.New(source)
 	if proof.ProviderIssuer != "" {
 		if proof.ProviderID == "" {
@@ -389,7 +389,7 @@ func (s *Client) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 
 // ContinueRefreshMFA is called only after validating the refresh credential.
 // An old session must repeat a first factor before sensitive factor enrollment.
-func (s *Client) ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error) {
+func (s *Runtime) ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error) {
 	fresh, err := s.SessionFreshness(ctx, userID, sessionID, time.Now())
 	if err != nil {
 		return LoginOutcome{}, err
