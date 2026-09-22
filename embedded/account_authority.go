@@ -68,14 +68,6 @@ func (s *engine) SoftDeleteUserAs(ctx context.Context, actorUserID, userID strin
 	return s.softDeleteUser(ctx, actorUserID, userID)
 }
 
-// HardDeleteUserAs is the actor-aware HardDeleteUser.
-func (s *engine) HardDeleteUserAs(ctx context.Context, actorUserID, userID string) error {
-	if strings.TrimSpace(actorUserID) == "" {
-		return ErrInsufficientRoleAuthority
-	}
-	return s.adminDeleteUser(ctx, actorUserID, userID)
-}
-
 // AdminRevokeAccountSessionsAs is the actor-aware AdminRevokeAccountSessions.
 func (s *engine) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
 	if strings.TrimSpace(actorUserID) == "" {

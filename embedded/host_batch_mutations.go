@@ -12,14 +12,6 @@ import (
 // remain on the internal Runtime for the HTTP handlers (self-delete and the
 // admin delete route act on exactly one subject).
 
-func (s *engine) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	out := make([]authkit.OpResult, 0, len(userIDs))
-	for _, id := range userIDs {
-		out = append(out, authkit.OpResult{ID: id, Err: s.HardDeleteUser(ctx, id)})
-	}
-	return out, nil
-}
-
 func (s *engine) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {

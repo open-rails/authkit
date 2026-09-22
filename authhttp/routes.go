@@ -104,6 +104,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/token", Group: RouteAuth, Auth: AuthPublic, Bucket: RLAuthToken, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteAuth, Auth: AuthRequired, Bucket: RLAuthLogout, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/password/login", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/account/recovery/confirm", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handleAccountRecoveryConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordlessStart, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
 		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordlessConfirm, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasskeyLogin, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
@@ -173,7 +174,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
-		{Method: http.MethodGet, Path: "/admin/erasure/backlog", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootResourcesRead, Handler: rootPermission(embedded.PermRootResourcesRead, s.handleAdminErasureBacklogGET)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Auth: AuthPermission, Permission: embedded.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserRestorePOST)},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only

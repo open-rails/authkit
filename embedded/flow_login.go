@@ -101,6 +101,7 @@ type TwoFactorChallenge struct {
 // LoginOutcome is the result of a password login. Exactly one of Session,
 // Verification and Challenge is set, per Kind; Reason is set for LoginRejected.
 type LoginOutcome struct {
+	Recovery       *AccountRecoveryConfirmation
 	Enrollment     *authkit.TokenSet
 	AllowedMethods []string
 	ReturnTo       string
@@ -112,6 +113,8 @@ type LoginOutcome struct {
 	Verification   *VerificationRequired
 	Challenge      *TwoFactorChallenge
 }
+
+const LoginRecoveryRequired LoginOutcomeKind = "account_recovery_required"
 
 // PasswordLoginInput is a password login attempt. Identifier is an email
 // (contains "@"), an E.164 phone ("+…") or a username.

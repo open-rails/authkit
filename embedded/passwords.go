@@ -18,7 +18,7 @@ func (s *engine) authenticatePassword(ctx context.Context, u *User, pass string)
 	if s.pg == nil {
 		return 0, jwt.ErrTokenUnverifiable
 	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
+	if err := s.ensureLoginProofAccess(ctx, u); err != nil {
 		return 0, err
 	}
 	version, err := s.q.UserCredentialVersion(ctx, u.ID)

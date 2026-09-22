@@ -110,15 +110,22 @@ func (s *engine) RiverJobs() riverhelpers.Contribution {
 		}
 		claimed = true
 		return s.registerRiver(cfg)
-	}, func(_ context.Context, binding riverhelpers.Binding) error {
+	}, func(ctx context.Context, binding riverhelpers.Binding) error {
+		if err := requireSameRiverDatabase(ctx, s.pg, binding.Pool); err != nil {
+			return err
+		}
 		m := s.maintenance
 		m.mu.Lock()
-		defer m.mu.Unlock()
 		if m.closed || m.failed {
+			m.mu.Unlock()
 			return fmt.Errorf("authkit: client closed during River composition")
 		}
 		m.client = binding.Client
-		return nil
+		m.mu.Unlock()
+		if err := s.registerAccountDeliveryFleet(ctx, binding.Client); err != nil {
+			return err
+		}
+		return s.adoptAccountDeletions(ctx, binding.Client)
 	}, func() error {
 		if !claimed || s == nil || s.maintenance == nil {
 			return nil
@@ -150,12 +157,32 @@ func (s *engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &cleanupAuthStateWorker{client: s}); err != nil {
 		return fmt.Errorf("authkit: register cleanup worker: %w", err)
 	}
+	if err := river.AddWorkerSafely(workers, &accountFinalizeWorker{engine: s}); err != nil {
+		return err
+	}
+	if err := river.AddWorkerSafely(workers, &accountDeliveryWorker{engine: s}); err != nil {
+		return err
+	}
 	cfg.Workers = workers
 	if cfg.Queues == nil {
 		cfg.Queues = make(map[string]river.QueueConfig)
 	}
 	if _, ok := cfg.Queues[queue]; !ok {
 		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: 1}
+	}
+	deliveryQueue := accountDeliveryQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	if existing, ok := cfg.Queues[deliveryQueue]; ok && existing.MaxWorkers < 1 {
+		return fmt.Errorf("authkit: account callback queue %q requires workers", deliveryQueue)
+	}
+	if _, ok := cfg.Queues[deliveryQueue]; !ok {
+		cfg.Queues[deliveryQueue] = river.QueueConfig{MaxWorkers: 1}
+	}
+	finalizerQueue := accountFinalizerQueue(s.dbSchema())
+	if existing, ok := cfg.Queues[finalizerQueue]; ok && existing.MaxWorkers < 1 {
+		return fmt.Errorf("authkit: account finalization queue %q requires workers", finalizerQueue)
+	}
+	if _, ok := cfg.Queues[finalizerQueue]; !ok {
+		cfg.Queues[finalizerQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
 	interval := s.cfg.River.CleanupInterval
 	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
@@ -200,13 +227,17 @@ func (s *engine) closeRiver() {
 	}
 	m := s.maintenance
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
+		m.mu.Unlock()
 		return
 	}
 	m.closed = true
-	if m.client != nil && !m.fromHost {
-		_ = m.client.StopAndCancel(context.Background())
+	client, owned := m.client, !m.fromHost
+	m.mu.Unlock()
+	// Active lifecycle workers may still read the binding as cancellation
+	// propagates. Never wait for their shutdown while holding that mutex.
+	if client != nil && owned {
+		_ = client.StopAndCancel(context.Background())
 	}
 }
 

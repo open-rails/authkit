@@ -60,6 +60,10 @@ removed = route_rows(old_root) - current_routes
 # only this obsolete availability annotation is removed in the pre-v1 hard cut.
 if pre_v1 and "| GET | `{api}/me/groups` | account | required |  |  |" in current_routes:
     removed.discard("| GET | `{api}/me/groups` | account | required |  | RBAC persona profile |")
+# #379 retires the public erasure handoff/backlog in favor of constructor
+# callbacks delivered durably by AuthKit. This one pre-v1 route is a hard cut.
+if pre_v1:
+    removed.discard("| GET | `{api}/admin/erasure/backlog` | admin | `root:resources:read` |  |  |")
 if removed:
     raise SystemExit("published routes changed or removed:\n" + "\n".join(sorted(removed)))
 
@@ -82,7 +86,7 @@ PY
 
 tool=golang.org/x/exp/cmd/apidiff@v0.0.0-20260908205506-85c1c2202aba
 export GOWORK=off GOFLAGS=-mod=readonly
-for directory in . adapters/gin adapters/fiber adapters/riverjobs; do
+for directory in . adapters/gin adapters/fiber; do
   name=${directory//\//_}
   module=$(cd "$root/$directory" && go list -m)
   # GOWORK=off alone does not disable module-local replacements.

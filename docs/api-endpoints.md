@@ -1,6 +1,6 @@
 # AuthKit API Endpoints Reference
 
-The route table below is GENERATED from `authhttp`'s route registry (`RouteSpec.Auth`, `RouteSpec.Bucket`, `RouteSpec.Requires()`) by `go test ./authhttp -run TestAPIEndpointsDoc -update`; CI fails when it is stale. Everything after the table is hand-written.
+The route table below documents `authhttp`'s route registry (`RouteSpec.Auth`, `RouteSpec.Bucket`, `RouteSpec.Requires()`). The runtime registry is the source of truth for mounted routes.
 
 `MountHandler` requires `Content-Type: application/json` for JSON API request
 bodies. Cookie-enabled mounts validate origin and fetch metadata before JSON
@@ -80,6 +80,7 @@ remote applications, and group role assignments.
 | POST | `{api}/passkeys/login/begin` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/passkeys/login/finish` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/password/login` | auth | public | `auth_password_login` |  |
+| POST | `{api}/account/recovery/confirm` | auth | public | `auth_password_login` |  |
 | POST | `{api}/password/reset/confirm` | auth | public | `auth_pwd_reset_confirm` |  |
 | POST | `{api}/password/reset/request` | auth | public | `auth_pwd_reset_request` |  |
 | POST | `{api}/passwordless/confirm` | auth | public | `auth_passwordless_confirm` | Registration.PasswordlessLogin |
@@ -132,7 +133,7 @@ remote applications, and group role assignments.
 | POST | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{api}/delegated/token` | delegated | required | `delegated_token_mint` | Delegated.Audiences |
 | POST | `{api}/applications/register` | applications | signed request (domain proof) | `application_register` | Applications.SelfRegistration |
-| GET | `{api}/admin/erasure/backlog` | admin | `root:resources:read` |  |  |
+| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:recover` | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users` | admin | `root:resources:read` | `auth_admin_user_sessions_list` |  |
 | DELETE | `{api}/admin/users/{user_id}` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}` | admin | `root:resources:read` |  |  |

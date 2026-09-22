@@ -105,16 +105,18 @@ func (s *engine) GenerateSIWSChallenge(ctx context.Context, cache siws.Challenge
 }
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
-// Returns access token, expiry, refresh token, user ID, and whether a new user was created.
-func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
+// It shares the normal MFA/recovery/session tail with other first factors.
+func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error) {
+	var userID string
+	var created bool
 	if s.pg == nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("postgres not configured")
+		return LoginOutcome{}, fmt.Errorf("postgres not configured")
 	}
 
 	// Parse the signed message to get the input fields
 	parsedInput, err := siws.ParseMessage(string(output.SignedMessage))
 	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("failed to parse signed message: %w", err)
+		return LoginOutcome{}, fmt.Errorf("failed to parse signed message: %w", err)
 	}
 
 	// Atomically consume the challenge by nonce (single-use). GETDEL (Redis) /
@@ -123,28 +125,28 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 	// verified twice (closes the AK-IMPL-2d replay window — authkit #90).
 	challengeData, found, err := cache.Consume(ctx, parsedInput.Nonce)
 	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("failed to consume challenge: %w", err)
+		return LoginOutcome{}, fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return "", time.Time{}, "", "", false, fmt.Errorf("%w", ErrSIWSChallengeNotFound)
+		return LoginOutcome{}, fmt.Errorf("%w", ErrSIWSChallengeNotFound)
 	}
 
 	// Run the stateless verification (expiry, address, domain, timestamps,
 	// public-key consistency, signature) against the server-issued challenge.
 	if err := verifySIWSChallenge(challengeData, parsedInput, output, time.Now().UTC()); err != nil {
-		return "", time.Time{}, "", "", false, err
+		return LoginOutcome{}, err
 	}
 
 	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
 	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("look up Solana link: %w", err)
+		return LoginOutcome{}, fmt.Errorf("look up Solana link: %w", err)
 	}
 	if found {
 		userID = existingUserID
 		created = false
 		if !verified {
 			if err := s.verifyImportedSolanaLink(ctx, userID, output.Account.Address); err != nil {
-				return "", time.Time{}, "", "", false, fmt.Errorf("verify imported Solana link: %w", err)
+				return LoginOutcome{}, fmt.Errorf("verify imported Solana link: %w", err)
 			}
 		}
 	} else {
@@ -152,7 +154,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 		// disabled: an existing wallet still logs in via the branch above, but
 		// no NEW account may be auto-created here.
 		if !s.PublicNativeUserRegistrationEnabled() {
-			return "", time.Time{}, "", "", false, ErrRegistrationDisabled
+			return LoginOutcome{}, ErrRegistrationDisabled
 		}
 		username := challengeData.Username
 		if username == "" {
@@ -164,43 +166,32 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 		// Create user with no email/phone
 		u, err := s.createUser(ctx, "", username)
 		if err != nil {
-			return "", time.Time{}, "", "", false, fmt.Errorf("failed to create user: %w", err)
+			return LoginOutcome{}, fmt.Errorf("failed to create user: %w", err)
 		}
 		userID = u.ID
 		created = true
 
 		// Link wallet to user
 		if err := s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil); err != nil {
-			return "", time.Time{}, "", "", false, fmt.Errorf("failed to link wallet: %w", err)
+			return LoginOutcome{}, fmt.Errorf("failed to link wallet: %w", err)
 		}
 	}
 
-	if err := s.ensureUserAccessByID(ctx, userID); err != nil {
-		return "", time.Time{}, "", "", false, err
-	}
-
-	// Issue tokens
 	if extra == nil {
 		extra = make(map[string]any)
 	}
 	extra["provider"] = SolanaProviderSlug
 	extra["solana_address"] = output.Account.Address
 
-	sid, refreshToken, _, err := s.IssueRefreshSessionWithAuthMethods(ctx, userID, "", nil, []string{"swk"})
+	var version int64
+	var providerID string
+	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, s.solanaIssuer(), output.Account.Address).Scan(&version, &providerID)
 	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("failed to create session: %w", err)
+		return LoginOutcome{}, err
 	}
-	extra["sid"] = sid
-
-	accessToken, expiresAt, err = s.MintAccessToken(ctx, userID, extra)
-	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("failed to issue token: %w", err)
-	}
-
-	// Log the login
-	s.LogSessionCreated(ctx, userID, "solana_login", sid, nil, nil)
-
-	return accessToken, expiresAt, refreshToken, userID, created, nil
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
+	out.Created = created
+	return out, err
 }
 
 // LinkSolanaWallet links a Solana wallet to an existing user account.

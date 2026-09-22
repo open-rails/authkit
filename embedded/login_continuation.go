@@ -15,6 +15,7 @@ import (
 // loginProof is server-owned first-factor provenance. One current record per
 // account bounds state; the nonce and exact-value claim distinguish issuances.
 type loginProof struct {
+	DeletionID      string `json:"deletion_id,omitempty"`
 	SessionID       string `json:"session_id,omitempty"`
 	ProviderIssuer  string `json:"provider_issuer,omitempty"`
 	ProviderID      string `json:"provider_id,omitempty"`
@@ -84,8 +85,11 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	user, err := s.lockLoginAccount(ctx, q, proof.Input.UserID, proof.Version)
+	user, err := s.lockAuthenticationAccount(ctx, q, proof.Input.UserID, proof.Version, proof.SessionID == "")
 	if err != nil {
+		return LoginOutcome{}, err
+	}
+	if err := s.bindRecoveryGeneration(ctx, tx, user, &proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
@@ -111,6 +115,11 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	}
 	out := LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
 	if needsChallenge || gateErr != nil {
+		// Enrollment JWTs authorize account mutations. A deleted account may
+		// complete an existing factor, but never receives an enrollment token.
+		if proof.DeletionID != "" && !needsChallenge {
+			return LoginOutcome{}, gateErr
+		}
 		nonce := RandB64(32)
 		proof.NonceHash = sha256Hex(nonce)
 		proof.Issuer = s.cfg.Token.Issuer
@@ -149,6 +158,9 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	}
 	if proof.SessionID != "" && !completedMFA {
 		return LoginOutcome{}, ErrStepUpRequired
+	}
+	if proof.DeletionID != "" {
+		return s.finishRecoveryProof(ctx, tx, proof)
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
 	if err != nil {
@@ -203,8 +215,11 @@ func (s *engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	user, err := s.lockLoginAccount(ctx, q, userID, proof.Version)
+	user, err := s.lockAuthenticationAccount(ctx, q, userID, proof.Version, proof.DeletionID != "")
 	if err != nil {
+		return nil, err
+	}
+	if err := s.bindRecoveryGeneration(ctx, tx, user, &proof); err != nil {
 		return nil, err
 	}
 	proof, err = s.loadLoginProof(ctx, userID, nonce)
@@ -234,8 +249,11 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	user, err := s.lockLoginAccount(ctx, q, in.UserID, proof.Version)
+	user, err := s.lockAuthenticationAccount(ctx, q, in.UserID, proof.Version, proof.DeletionID != "")
 	if err != nil {
+		return LoginOutcome{}, err
+	}
+	if err := s.bindRecoveryGeneration(ctx, tx, user, &proof); err != nil {
 		return LoginOutcome{}, err
 	}
 	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
@@ -292,6 +310,9 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	status, err := s.MFAStatusWith(settings, nil)
 	if err != nil {
 		return LoginOutcome{}, err
+	}
+	if proof.DeletionID != "" {
+		return s.finishRecoveryProof(ctx, tx, proof)
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
 	if err != nil {

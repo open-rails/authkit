@@ -205,7 +205,10 @@ func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Reques
 	}
 	var extra map[string]any
 	code := authkit.CodeTwoFAEnrollmentRequired
-	if out.Kind == embedded.LoginTwoFactorRequired {
+	if out.Kind == embedded.LoginRecoveryRequired {
+		s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusConflict, authkit.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
+		return
+	} else if out.Kind == embedded.LoginTwoFactorRequired {
 		code = authkit.CodeTwoFARequired
 		extra = loginChallengeMetadata(out.UserID, out.Challenge)
 	} else {

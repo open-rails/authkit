@@ -446,6 +446,10 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if s.pg == nil {
 		return nil
 	}
+	client, err := s.deletionRiver()
+	if err != nil {
+		return err
+	}
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
@@ -463,19 +467,25 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(id)); err != nil {
 		return err
 	}
-	if _, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	} else if err != nil {
 		return err
+	}
+	if user.DeletedAt != nil {
+		return nil // A repeat request must not extend the recovery window.
 	}
 	revoked, err := s.revokeCredentialsTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
+	// The invalidate_recovery_grants trigger advances credential_version when
+	// deleted_at changes, invalidating every pre-deletion proof atomically.
 	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
 		return err
 	}
-	if err := s.raiseErasureObligationTx(ctx, s.qtx(tx), id); err != nil {
+	if err := s.createAccountDeletion(ctx, tx, client, id); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

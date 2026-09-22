@@ -76,7 +76,10 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(result.AccessToken, result.RefreshToken, result.ExpiresAt))
+	if s.writeLoginContinuation(w, r, result, nil) {
+		return
+	}
+	s.writeTokenSet(w, r, http.StatusOK, result.Session.TokenSet())
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {

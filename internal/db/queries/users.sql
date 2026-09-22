@@ -107,7 +107,7 @@ SET banned_at = sqlc.arg(banned_at), banned_until = sqlc.narg(banned_until), ban
 WHERE id = sqlc.arg(id);
 
 -- name: UserSoftDelete :exec
-UPDATE users SET deleted_at = now(), updated_at = now() WHERE id = $1;
+UPDATE users SET deleted_at = statement_timestamp(), updated_at = statement_timestamp() WHERE id = $1;
 
 -- name: UserSetEmailAndUnverify :exec
 UPDATE users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;

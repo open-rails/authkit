@@ -20,10 +20,9 @@ type Client interface {
 	// GetUserMetadata reads application-owned JSON under trusted host authority.
 	// Hosts select public fields explicitly; the metadata map is not a public profile.
 	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
-	// {Hard,Soft}DeleteUsers are batch-native admin bulk mutations (#219/#222):
+	// SoftDeleteUsers begins the fixed 30-day recoverable account lifecycle:
 	// per-item BEST-EFFORT — the returned OpResults pinpoint the failures; the
 	// outer error is a whole-call failure only (e.g. no store).
-	HardDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SoftDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	MarkEmailVerified(ctx context.Context, id string) error
 	// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
@@ -33,13 +32,6 @@ type Client interface {
 	UpdateUsername(ctx context.Context, id, username string) error
 	UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error)
 	ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error)
-	// ListUsersDeletedBefore lists accounts deleted before cutoff whose
-	// erasure obligation EVERY required site acknowledged (see the erasure
-	// section) — the purge-ready set, not every soft-deleted account. An
-	// unacknowledged account is retained and never listed, so the page
-	// advances whatever the backlog size. To discover deletions this site
-	// must act on, use ListErasureObligations.
-	ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
 	// UsersByIDs resolves many user IDs to slim display projections in ONE
 	// query; missing IDs are absent. PRIVILEGED — the projection carries Email;
 	// render other users with PublicUsersByIDs.
@@ -53,21 +45,6 @@ type Client interface {
 	// denial.
 	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]UserLiveness, error)
 	UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error
-
-	// --- cross-site erasure (one obligation per deleted account, one
-	// acknowledgement per TokenConfig.AccountIssuers entry) ---
-	// ListErasureObligations pages, oldest first, the deleted accounts site
-	// (normally this deployment's Token.Issuer) has not acknowledged. after is
-	// "" for the first page; next is "" on the last one.
-	ListErasureObligations(ctx context.Context, site, after string, limit int) (page []ErasureObligation, next string, err error)
-	// AcknowledgeErasure records that site durably accepted the obligation
-	// into its own ledger — not that it erased anything. Idempotent; a site
-	// the obligation does not require is a no-op. Once every required issuer
-	// acknowledged, purge may remove the identity and the obligation closes.
-	AcknowledgeErasure(ctx context.Context, site, userID string) error
-	// ErasureBacklog reports unacknowledged obligations per site with the
-	// oldest pending creation time (the age bound).
-	ErasureBacklog(ctx context.Context) ([]ErasureSiteBacklog, error)
 
 	// --- admin directory ---
 	AdminGetUser(ctx context.Context, id string) (*AdminUser, error)
@@ -89,6 +66,9 @@ type Client interface {
 	// final-owner invariants still apply. These methods add no HTTP exposure.
 	OperatorAssignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
 	OperatorUnassignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
+	// OperatorRestoreUsers restores soft-deleted accounts before their fixed
+	// recovery deadline under explicit trusted host authority.
+	OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 
 	// --- root roles (actor-checked) ---
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation

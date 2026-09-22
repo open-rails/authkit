@@ -4,5 +4,4 @@ use (
 	.
 	./adapters/fiber
 	./adapters/gin
-	./adapters/riverjobs
 )

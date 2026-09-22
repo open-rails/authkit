@@ -34,6 +34,14 @@ type Deps struct {
 	Email          EmailSender
 	SMS            SMSSender
 	Entitlements   EntitlementsProvider
+	// Deletion hooks run durably through River, never inside the request's
+	// transaction. Soft deletion must preserve recoverable host data; hard
+	// deletion is finalization work after 30 days and before identity purge.
+	// Hooks must be idempotent and honor context cancellation. Nil means no
+	// application work for that stage. OnRestore undoes reversible soft work.
+	OnSoftDelete func(context.Context, authkit.UserDeletion) error
+	OnHardDelete func(context.Context, authkit.UserDeletion) error
+	OnRestore    func(context.Context, authkit.UserDeletion) error
 	// DelegatedAuthorization is the host's delegation authorizer for the
 	// delegated-token mint route (#261/#277); its grant is the complete
 	// authority AuthKit signs. Required when Delegated.Audiences is set.
@@ -79,6 +87,7 @@ func (s *engine) applyDeps(d Deps) error {
 	s.email = d.Email
 	s.sms = d.SMS
 	s.entitlements = d.Entitlements
+	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.appAdmission = d.ApplicationAdmission
 	s.instanceAdmission = d.InstanceAdmission
