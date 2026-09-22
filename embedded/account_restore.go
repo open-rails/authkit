@@ -31,10 +31,6 @@ func (s *engine) restoreUser(ctx context.Context, actorUserID, userID string) er
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	client, err := s.deletionRiver()
-	if err != nil {
-		return err
-	}
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return err
@@ -49,6 +45,21 @@ func (s *engine) restoreUser(ctx context.Context, actorUserID, userID string) er
 			return err
 		}
 	}
+	if err := s.restoreAccountDeletionOn(ctx, tx, userID, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// restoreAccountDeletionOn is the common transactional restore transition.
+// Recovery proofs must pass their server-bound generation; trusted operators
+// pass an empty generation to select the current deletion. Callers retain
+// responsibility for authenticating their actor before invoking this helper.
+func (s *engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID, generation string) error {
+	client, err := s.deletionRiver()
+	if err != nil {
+		return err
+	}
 	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authkit.E(authkit.CodeUserNotFound)
@@ -57,6 +68,9 @@ func (s *engine) restoreUser(ctx context.Context, actorUserID, userID string) er
 		return err
 	}
 	if user.DeletedAt == nil {
+		if generation != "" {
+			return authkit.E(authkit.CodeAccountRecoveryExpired)
+		}
 		return nil
 	}
 	var id string
@@ -66,6 +80,9 @@ func (s *engine) restoreUser(ctx context.Context, actorUserID, userID string) er
 	}
 	if err != nil {
 		return err
+	}
+	if generation != "" && generation != id {
+		return authkit.E(authkit.CodeAccountRecoveryExpired)
 	}
 	record, err := loadAccountDeletion(ctx, tx, id)
 	if err != nil {
@@ -87,5 +104,5 @@ func (s *engine) restoreUser(ctx context.Context, actorUserID, userID string) er
 	if err := s.enqueueAccountDeliveries(ctx, tx, client, record.UserDeletion, record.recipients, "restore"); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
