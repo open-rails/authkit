@@ -1,6 +1,6 @@
 module github.com/open-rails/authkit
 
-go 1.26.0
+go 1.26.6
 
 require (
 	github.com/go-webauthn/webauthn v0.18.1
@@ -33,9 +33,8 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
-	github.com/open-rails/riverkit v0.2.0
+	github.com/open-rails/helpers v0.1.0
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/riverqueue/river/riverdriver v0.47.0 // indirect
 	github.com/riverqueue/river/rivershared v0.47.0 // indirect

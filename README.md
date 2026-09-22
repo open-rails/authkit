@@ -82,7 +82,7 @@ err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOp
 })
 // The host initializes its River schema through River's migrator.
 runtime, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
-jobs, err := riverkit.New(ctx, runtimePool, &river.Config{Schema: "public"},
+jobs, err := riverhelpers.New(ctx, runtimePool, &river.Config{Schema: "public"},
     runtime.RiverJobs(), billing.RiverJobs())
 err = runtime.Start(ctx) // checks composition; never starts the host client
 err = jobs.Start(ctx)
@@ -90,7 +90,7 @@ err = jobs.Start(ctx)
 ```
 
 `RiverJobs` contributes AuthKit's worker, queue and periodic schedule to the
-neutral `github.com/open-rails/riverkit` composer. Producer binding happens inside
+neutral `github.com/open-rails/helpers/river` composer. Producer binding happens inside
 composition; no per-library binding call or hand-written host cron is needed.
 The passed host configuration owns the River schema. The
 registry supports one AuthKit engine; duplicate registration fails explicitly.

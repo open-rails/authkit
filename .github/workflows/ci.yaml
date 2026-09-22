@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           # Build and security scans run on the latest patched Go 1.26 toolchain;
-          # the module's `go 1.26.0` directive remains the consumer floor.
+          # the module also requires Go 1.26.6 as its consumer floor.
           go-version: '1.26.6'
           cache: true
       - uses: pnpm/action-setup@v6.1.0
