@@ -7,8 +7,6 @@ import (
 	"errors"
 	"regexp"
 	"slices"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -21,6 +19,7 @@ const (
 var ErrInvalid = errors.New("authkit: invalid root permission snapshot")
 var grantPattern = regexp.MustCompile(`^root:(\*|[a-z][a-z0-9-]*:(\*|[a-z][a-z0-9-]*))$`)
 var concretePermission = regexp.MustCompile(`^root:[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$`)
+var canonicalUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Value struct {
 	Version  int      `json:"v"`
@@ -77,8 +76,7 @@ func Parse(claim any, issuer string) (*Value, error) {
 }
 
 func (v *Value) validate(issuer string) error {
-	id, err := uuid.Parse(v.GroupID)
-	if err != nil || id == uuid.Nil || id.String() != v.GroupID || issuer == "" || v.Issuer != issuer || v.Grants == nil || len(v.Grants) > MaxGrants {
+	if !canonicalUUID.MatchString(v.GroupID) || v.GroupID == "00000000-0000-0000-0000-000000000000" || issuer == "" || v.Issuer != issuer || v.Grants == nil || len(v.Grants) > MaxGrants {
 		return ErrInvalid
 	}
 	seen := make(map[string]bool, len(v.Grants))
