@@ -67,7 +67,7 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 			if !kind.isEmail() {
 				channel = PasswordlessChannelSMS
 			}
-			account, err = s.verifyContactProof(ctx, rec.UserID, rec.Version, channel, rec.Target)
+			account, err = s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, channel, rec.Target, true)
 		} else {
 			var keep *string
 			if in.UserID == rec.UserID && in.SessionID != "" {

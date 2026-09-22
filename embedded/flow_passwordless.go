@@ -281,10 +281,16 @@ func (s *engine) consumePasswordlessChallenge(ctx context.Context, rec passwordl
 		}
 		return s.createPasswordlessUser(ctx, rec)
 	}
-	return s.verifyContactProof(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier)
+	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true)
 }
 
 func (s *engine) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string) (registeredAccount, error) {
+	return s.verifyContactProofWithRecovery(ctx, userID, version, channel, identifier, false)
+}
+
+// Only a login completion can verify a deleted account's contact before the
+// recovery tail. Standalone contact finalizers retain the normal access gate.
+func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID string, version int64, channel, identifier string, allowRecovery bool) (registeredAccount, error) {
 	if version <= 0 {
 		return registeredAccount{}, jwt.ErrTokenUnverifiable
 	}
@@ -294,7 +300,7 @@ func (s *engine) verifyContactProof(ctx context.Context, userID string, version 
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	u, err := s.lockAuthenticationAccount(ctx, q, userID, version, true)
+	u, err := s.lockAuthenticationAccount(ctx, q, userID, version, allowRecovery)
 	if err != nil {
 		return registeredAccount{}, err
 	}

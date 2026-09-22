@@ -1,8 +1,9 @@
 package authhttp
 
 import (
-	authkit "github.com/open-rails/authkit"
 	"net/http"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *http.Request) {
