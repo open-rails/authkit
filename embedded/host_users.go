@@ -480,6 +480,11 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err != nil {
 		return err
 	}
+	// First-factor and MFA continuations issued before deletion cannot be
+	// repurposed as fresh recovery proof for this generation.
+	if err := s.qtx(tx).UserAdvanceCredentialVersion(ctx, id); err != nil {
+		return err
+	}
 	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
 		return err
 	}

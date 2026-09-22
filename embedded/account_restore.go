@@ -95,7 +95,7 @@ func (s *engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 	if record.state != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
 		return authkit.E(authkit.CodeAccountRecoveryExpired)
 	}
-	if _, err := tx.Exec(ctx, "UPDATE users SET deleted_at=NULL,updated_at=statement_timestamp() WHERE id=$1::uuid", userID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE users SET deleted_at=NULL,credential_version=credential_version+1,updated_at=statement_timestamp() WHERE id=$1::uuid", userID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, "UPDATE account_deletions SET state='restored',restored_at=statement_timestamp() WHERE id=$1::uuid", id); err != nil {
