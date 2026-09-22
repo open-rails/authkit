@@ -680,7 +680,7 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 }
 
 const userSoftDelete = `-- name: UserSoftDelete :exec
-UPDATE users SET deleted_at = now(), updated_at = now() WHERE id = $1
+UPDATE users SET deleted_at = statement_timestamp(), updated_at = statement_timestamp() WHERE id = $1
 `
 
 func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
