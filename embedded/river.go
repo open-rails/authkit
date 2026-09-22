@@ -110,14 +110,14 @@ func (s *Client) RiverJobs() riverkit.Contribution {
 		}
 		claimed = true
 		return s.registerRiver(cfg)
-	}, func(_ context.Context, client *river.Client[pgx.Tx]) error {
+	}, func(_ context.Context, binding riverkit.Binding) error {
 		m := s.maintenance
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if m.closed || m.failed {
 			return fmt.Errorf("authkit: client closed during River composition")
 		}
-		m.client = client
+		m.client = binding.Client
 		return nil
 	}, func() error {
 		if !claimed || s == nil || s.maintenance == nil {

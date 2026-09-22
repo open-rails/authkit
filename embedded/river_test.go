@@ -182,7 +182,7 @@ func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testin
 	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	defer core.Close()
-	fail := riverkit.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, *river.Client[pgx.Tx]) error { return fmt.Errorf("binding failed") }, func() error { return nil })
+	fail := riverkit.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, riverkit.Binding) error { return fmt.Errorf("binding failed") }, func() error { return nil })
 	client, err := riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs(), fail)
 	require.ErrorContains(t, err, "binding failed")
 	require.Nil(t, client)
