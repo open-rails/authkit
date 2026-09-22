@@ -18,7 +18,7 @@ import (
 // NOT exposed here on purpose: username/email writes go through UpdateUsername/
 // UpdateEmail, which enforce the rename cooldown + validation that raw table
 // writes (the old identity.Store) silently skipped.
-func (s *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
+func (s *Runtime) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
 	out := map[string]authkit.UserRef{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
@@ -62,7 +62,7 @@ func (s *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 //   - An id that matches no row at all is ABSENT from the map, like UsersByIDs.
 //     authkit.PublicDisplayName covers that case for callers that want one
 //     branch-free lookup.
-func (s *Client) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]authkit.PublicUserRef, error) {
+func (s *Runtime) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]authkit.PublicUserRef, error) {
 	out := map[string]authkit.PublicUserRef{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
@@ -106,7 +106,7 @@ func (s *Client) PublicUsersByIDs(ctx context.Context, ids []string) (map[string
 // lookup failure rather than read an outage as "allowed" — the same contract
 // RoleSlugsByUsers carries. IDs that match no row are absent from the map,
 // which a gate must also treat as a denial.
-func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+func (s *Runtime) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
 	out := map[string]authkit.UserLiveness{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil

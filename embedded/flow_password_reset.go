@@ -11,7 +11,7 @@ import (
 
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
 // Returns nil for unknown emails to prevent user enumeration (202-like behavior).
-func (s *Client) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error {
+func (s *Runtime) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -61,7 +61,7 @@ func (s *Client) RequestPasswordReset(ctx context.Context, email string, ttl tim
 }
 
 // ConfirmPasswordReset verifies token and sets a new password.
-func (s *Client) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
+func (s *Runtime) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -89,7 +89,7 @@ func resetGateError(err error) error {
 
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
-func (s *Client) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
+func (s *Runtime) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
 	// Look up user by phone
 	u, err := s.GetUserByPhone(ctx, phone)
 	if err != nil || u == nil {

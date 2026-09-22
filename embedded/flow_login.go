@@ -52,7 +52,7 @@ type LoginSessionInput struct {
 // writes the session-created audit event — the shared tail of every login.
 // The liveness and MFA gates fire exactly as IssueAuthenticatedSession does
 // (ErrUserBanned, ErrTwoFAEnrollmentRequired).
-func (s *Client) IssueLoginSession(ctx context.Context, in LoginSessionInput) (IssuedSession, error) {
+func (s *Runtime) IssueLoginSession(ctx context.Context, in LoginSessionInput) (IssuedSession, error) {
 	sid, rt, access, exp, _, err := s.IssueAuthenticatedSession(ctx, in.UserID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods, in.Extra)
 	if err != nil {
 		return IssuedSession{}, err
@@ -126,7 +126,7 @@ type PasswordLoginInput struct {
 // error only when the engine itself failed (a send, the challenge store, the
 // session insert — each prefixed with its stage and, for sends, the
 // delivery sentinel); every policy result is a LoginOutcome.
-func (s *Client) PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error) {
+func (s *Runtime) PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error) {
 	identifier := strings.TrimSpace(in.Identifier)
 	if identifier == "" || in.Password == "" {
 		return s.rejectLogin(ctx, in, "", ErrInvalidCredentials), nil
@@ -195,17 +195,17 @@ func loginRejection(err error) error {
 	}
 }
 
-func (s *Client) rejectLogin(ctx context.Context, in PasswordLoginInput, userID string, reason error) LoginOutcome {
+func (s *Runtime) rejectLogin(ctx context.Context, in PasswordLoginInput, userID string, reason error) LoginOutcome {
 	s.loginFailed(ctx, in, userID, reason.Error())
 	return LoginOutcome{Kind: LoginRejected, UserID: userID, Reason: reason}
 }
 
-func (s *Client) loginFailed(ctx context.Context, in PasswordLoginInput, userID, reason string) {
+func (s *Runtime) loginFailed(ctx context.Context, in PasswordLoginInput, userID, reason string) {
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
 }
 
 // recoverPendingLogin resends the same pending signup after checking its password.
-func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string) (LoginOutcome, error) {
+func (s *Runtime) recoverPendingLogin(ctx context.Context, in PasswordLoginInput, kind PendingChangeKind, identifier string) (LoginOutcome, error) {
 	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
 	if err != nil {
 		return LoginOutcome{}, err
@@ -230,7 +230,7 @@ func (s *Client) recoverPendingLogin(ctx context.Context, in PasswordLoginInput,
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired.
-func (s *Client) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
+func (s *Runtime) verificationGate(ctx context.Context, in PasswordLoginInput, u *User) (LoginOutcome, bool, error) {
 	needsEmail := !u.EmailVerified && u.Email != nil
 	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {

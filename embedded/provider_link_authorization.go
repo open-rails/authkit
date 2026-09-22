@@ -12,7 +12,7 @@ import (
 
 // The account lock serializes credential/liveness changes; the session lock
 // serializes every revocation path. Linking never mints a replacement session.
-func (s *Client) completeProviderLink(ctx context.Context, link ExternalLinkAuthorization, id ExternalIdentity, email *string) error {
+func (s *Runtime) completeProviderLink(ctx context.Context, link ExternalLinkAuthorization, id ExternalIdentity, email *string) error {
 	if s.pg == nil || link.UserID == "" || link.SessionID == "" || link.AuthenticatedAt.IsZero() {
 		return authkit.E(authkit.CodeAuthRequiredForLink)
 	}

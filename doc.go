@@ -14,7 +14,7 @@
 // access, token issuance, and authentication workflows are implemented by
 // embedded, not this package.
 //
-// Client describes host operations implemented by embedded.Client. A host can
+// Client describes host operations implemented by embedded.Runtime. A host can
 // define a smaller interface for the operations it needs; Client membership
 // does not define the full supported API. Documented concrete operations are
 // also covered by the repository's SEMVER.md contract.

@@ -36,7 +36,7 @@ func userFromByPhoneRow(r db.UserByPhoneRow) *User {
 
 type ImportUserInput = authkit.ImportUserInput
 
-func (s *Client) getUserByEmail(ctx context.Context, email string) (*User, error) {
+func (s *Runtime) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -48,11 +48,11 @@ func (s *Client) getUserByEmail(ctx context.Context, email string) (*User, error
 }
 
 // GetUserByEmail looks up a user by email.
-func (s *Client) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+func (s *Runtime) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	return s.getUserByEmail(ctx, email)
 }
 
-func (s *Client) getUserByUsername(ctx context.Context, username string) (*User, error) {
+func (s *Runtime) getUserByUsername(ctx context.Context, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -64,11 +64,11 @@ func (s *Client) getUserByUsername(ctx context.Context, username string) (*User,
 }
 
 // GetUserByUsername looks up a user by username.
-func (s *Client) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+func (s *Runtime) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	return s.getUserByUsername(ctx, username)
 }
 
-func (s *Client) getUserByID(ctx context.Context, id string) (*User, error) {
+func (s *Runtime) getUserByID(ctx context.Context, id string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -90,7 +90,7 @@ func livenessAllowed(u *User, reserved bool) bool {
 	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
 }
 
-func (s *Client) ensureUserAccess(ctx context.Context, u *User) error {
+func (s *Runtime) ensureUserAccess(ctx context.Context, u *User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -113,7 +113,7 @@ func (s *Client) ensureUserAccess(ctx context.Context, u *User) error {
 	return nil
 }
 
-func (s *Client) ensureUserAccessByID(ctx context.Context, userID string) error {
+func (s *Runtime) ensureUserAccessByID(ctx context.Context, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -124,7 +124,7 @@ func (s *Client) ensureUserAccessByID(ctx context.Context, userID string) error 
 	return s.ensureUserAccess(ctx, u)
 }
 
-func (s *Client) autoUnbanIfExpired(ctx context.Context, u *User) error {
+func (s *Runtime) autoUnbanIfExpired(ctx context.Context, u *User) error {
 	if u == nil || u.BannedUntil == nil {
 		return nil
 	}
@@ -166,7 +166,7 @@ func mapUserUniqueViolation(err error) error {
 	return err
 }
 
-func (s *Client) createUser(ctx context.Context, email, username string) (*User, error) {
+func (s *Runtime) createUser(ctx context.Context, email, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -186,7 +186,7 @@ func (s *Client) createUser(ctx context.Context, email, username string) (*User,
 }
 
 // CreateUser inserts a new user with the given email and username.
-func (s *Client) CreateUser(ctx context.Context, email, username string) (*User, error) {
+func (s *Runtime) CreateUser(ctx context.Context, email, username string) (*User, error) {
 	return s.createUser(ctx, email, username)
 }
 
@@ -233,14 +233,14 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
 }
 
-func (s *Client) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
+func (s *Runtime) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
 	return s.importUser(ctx, s.q, input)
 }
 
-func (s *Client) importUser(ctx context.Context, q *db.Queries, input ImportUserInput) (*User, error) {
+func (s *Runtime) importUser(ctx context.Context, q *db.Queries, input ImportUserInput) (*User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -275,7 +275,7 @@ func (s *Client) importUser(ctx context.Context, q *db.Queries, input ImportUser
 	return userFromByIDRow(row), nil
 }
 
-func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
+func (s *Runtime) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (s *Client) UpdateImportedUser(ctx context.Context, userID string, input Im
 	return user, nil
 }
 
-func (s *Client) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input ImportUserInput) (*User, error) {
+func (s *Runtime) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input ImportUserInput) (*User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func (s *Client) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	return userFromByIDRow(row), nil
 }
 
-func (s *Client) setEmailVerified(ctx context.Context, id string, v bool) error {
+func (s *Runtime) setEmailVerified(ctx context.Context, id string, v bool) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -355,16 +355,16 @@ func (s *Client) setEmailVerified(ctx context.Context, id string, v bool) error 
 }
 
 // MarkEmailVerified records that the user's email address is verified.
-func (s *Client) MarkEmailVerified(ctx context.Context, id string) error {
+func (s *Runtime) MarkEmailVerified(ctx context.Context, id string) error {
 	return s.setEmailVerified(ctx, id, true)
 }
 
 // ClearEmailVerified marks the user's email address unverified again.
-func (s *Client) ClearEmailVerified(ctx context.Context, id string) error {
+func (s *Runtime) ClearEmailVerified(ctx context.Context, id string) error {
 	return s.setEmailVerified(ctx, id, false)
 }
 
-func (s *Client) clearUserBan(ctx context.Context, userID string) error {
+func (s *Runtime) clearUserBan(ctx context.Context, userID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -378,7 +378,7 @@ func (s *Client) clearUserBan(ctx context.Context, userID string) error {
 // acting user and must hold every root grant the target holds (#286), so a
 // bounded operator can never lock out a more privileged account. The ban,
 // session revoke and device-key revoke commit together.
-func (s *Client) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
+func (s *Runtime) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -432,17 +432,17 @@ func (s *Client) BanUser(ctx context.Context, userID string, reason *string, unt
 }
 
 // UnbanUser clears ban metadata and re-enables the account.
-func (s *Client) UnbanUser(ctx context.Context, userID string) error {
+func (s *Runtime) UnbanUser(ctx context.Context, userID string) error {
 	return s.clearUserBan(ctx, userID)
 }
 
 // SoftDeleteUser marks the user deleted without dropping rows. Sessions and
 // device keys are revoked in the same transaction.
-func (s *Client) SoftDeleteUser(ctx context.Context, id string) error {
+func (s *Runtime) SoftDeleteUser(ctx context.Context, id string) error {
 	return s.softDeleteUser(ctx, "", id)
 }
 
-func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) error {
+func (s *Runtime) softDeleteUser(ctx context.Context, actorUserID, id string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -487,7 +487,7 @@ func (s *Client) softDeleteUser(ctx context.Context, actorUserID, id string) err
 
 // revokeCredentialsTx revokes every refresh session (all account issuers) and
 // device key of userID inside tx, returning sessions for post-commit audit.
-func (s *Client) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]revokedSession, error) {
+func (s *Runtime) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]revokedSession, error) {
 	revoked, err := revokeSessionsTx(ctx, s.qtx(tx), userID, s.accountIssuers(), nil)
 	if err != nil {
 		return nil, err
@@ -508,7 +508,7 @@ const (
 )
 
 // UpdateUsername applies the deployment policy to an account rename.
-func (s *Client) UpdateUsername(ctx context.Context, id, username string) error {
+func (s *Runtime) UpdateUsername(ctx context.Context, id, username string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -523,7 +523,7 @@ func (s *Client) UpdateUsername(ctx context.Context, id, username string) error 
 	}
 	return tx.Commit(ctx)
 }
-func (s *Client) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
+func (s *Runtime) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
 	q := tx
 	var old *string
 	var last *time.Time
@@ -565,7 +565,7 @@ func (s *Client) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	return nil
 }
 
-func (s *Client) updateEmail(ctx context.Context, id, email string) error {
+func (s *Runtime) updateEmail(ctx context.Context, id, email string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -594,7 +594,7 @@ func (s *Client) updateEmail(ctx context.Context, id, email string) error {
 }
 
 // UpdateEmail updates a user's email and re-triggers email verification.
-func (s *Client) UpdateEmail(ctx context.Context, id, email string) error {
+func (s *Runtime) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.updateEmail(ctx, id, email)
 }
 
@@ -605,7 +605,7 @@ const maxAvatarURLLen = 2048
 // UpdateAvatarURL sets (nil clears) a user's avatar URL/key string (#262).
 // Blob storage and content validation are host-owned; authkit stores the
 // string verbatim (trimmed) and serves it on GET /me.
-func (s *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
+func (s *Runtime) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
 	if s.pg == nil {
 		return nil
 	}

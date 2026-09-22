@@ -53,7 +53,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	}
 
 	t.Run("close", func(t *testing.T) {
-		var client *Client
+		var client *Runtime
 		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
 			client, err = New(config, Deps{})
 		})

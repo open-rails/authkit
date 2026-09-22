@@ -1,6 +1,6 @@
 package embedded
 
-// Client-level permission-group API (#111): the consumer entry points that wrap
+// Runtime-level permission-group API (#111): the consumer entry points that wrap
 // the store with the declared GroupSchema (catalog + containment validation),
 // owner seeding, and transaction scoping. Group ids stay INTERNAL — callers
 // address groups by (persona, instance_slug).
@@ -18,13 +18,13 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// PermissionGroupSchema returns the validated schema this Client was built with
+// PermissionGroupSchema returns the validated schema this Runtime was built with
 // (the intrinsic root-only schema if constructed without Config groups).
-func (s *Client) PermissionGroupSchema() *GroupSchema {
+func (s *Runtime) PermissionGroupSchema() *GroupSchema {
 	return s.groupSchemaOrDefault()
 }
 
-func (s *Client) groupSchemaOrDefault() *GroupSchema {
+func (s *Runtime) groupSchemaOrDefault() *GroupSchema {
 	if s.groupSchema != nil {
 		return s.groupSchema
 	}
@@ -32,16 +32,16 @@ func (s *Client) groupSchemaOrDefault() *GroupSchema {
 	return gs
 }
 
-// groupStore binds a PermissionGroupStore to the Client's schema-bound pool
+// groupStore binds a PermissionGroupStore to the Runtime's schema-bound pool
 // handle, so unqualified SQL resolves to the configured namespace (authkit #69).
-func (s *Client) groupStore() *PermissionGroupStore {
+func (s *Runtime) groupStore() *PermissionGroupStore {
 	return s.groupStoreFor(s.pg)
 }
 
 // SeedPermissionGroupContainment writes the declared containment schema into
 // group_persona_parents so the DB trigger can enforce tree shape. Idempotent; call
 // once at bootstrap.
-func (s *Client) SeedPermissionGroupContainment(ctx context.Context) error {
+func (s *Runtime) SeedPermissionGroupContainment(ctx context.Context) error {
 	if err := s.groupStore().SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (s *Client) SeedPermissionGroupContainment(ctx context.Context) error {
 	return nil
 }
 
-func (s *Client) logRBACDrift(ctx context.Context) {
+func (s *Runtime) logRBACDrift(ctx context.Context) {
 	if report, err := s.RBACDriftReport(ctx); err == nil && report.Total() > 0 {
 		slog.Default().Warn("authkit: rbac drift detected",
 			"group_user_roles", report.GroupUserRoles,
@@ -62,7 +62,7 @@ func (s *Client) logRBACDrift(ctx context.Context) {
 // EnsureRootGroup creates the singleton root group if absent (idempotent) and
 // returns its internal id. Concurrent cold boots race the singleton index; the
 // loser adopts the winner's row instead of failing (#258).
-func (s *Client) EnsureRootGroup(ctx context.Context) (string, error) {
+func (s *Runtime) EnsureRootGroup(ctx context.Context) (string, error) {
 	return s.groupStore().ensureRootGroup(ctx)
 }
 
@@ -93,7 +93,7 @@ type CreatePermissionGroupRequest = authkit.CreatePermissionGroupRequest
 // parent group, creates the group, and (atomically) seeds the owner assignment.
 // Returns the INTERNAL group id (for the caller's own bookkeeping; never exposed
 // over the wire).
-func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error) {
+func (s *Runtime) CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error) {
 	sch := s.groupSchemaOrDefault()
 	req.Persona = authkit.Persona(strings.TrimSpace(string(req.Persona)))
 	req.InstanceSlug = strings.TrimSpace(req.InstanceSlug)
@@ -170,7 +170,7 @@ func (s *Client) CreatePermissionGroup(ctx context.Context, req CreatePermission
 // SetPermissionGroupDisplayName updates a group's free-form, non-unique
 // display name (#264 naming doctrine: vanity naming lives here, renameable at
 // will; the slug stays the unique handle). Callers gate authorization.
-func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, group authkit.GroupRef, displayName string) error {
+func (s *Runtime) SetPermissionGroupDisplayName(ctx context.Context, group authkit.GroupRef, displayName string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, group authki
 
 // UpdateGroupInstanceAs applies settings to one captured UUID. It authorizes
 // before even a no-op and never resolves a mutable spelling after authorization.
-func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error) {
+func (s *Runtime) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error) {
 	var out authkit.GroupInstance
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -251,7 +251,7 @@ func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 
 // resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
 // the singleton and ignores instance_slug.
-func (s *Client) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g authkit.GroupRef) (string, error) {
+func (s *Runtime) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g authkit.GroupRef) (string, error) {
 	g.Persona = authkit.Persona(strings.TrimSpace(string(g.Persona)))
 	g.Instance = strings.TrimSpace(g.Instance)
 	if g.IsRoot() {
@@ -269,7 +269,7 @@ func (s *Client) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g
 // remote_application's permission_group_id, #111). ErrGroupNotFound if no live
 // group matches. Out-of-process callers use GroupInstanceForSlug, which the
 // HTTP descriptor route exposes under an authorization gate (#269).
-func (s *Client) ResolveGroupIDForSlug(ctx context.Context, group authkit.GroupRef) (string, error) {
+func (s *Runtime) ResolveGroupIDForSlug(ctx context.Context, group authkit.GroupRef) (string, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
 	}
@@ -280,7 +280,7 @@ func (s *Client) ResolveGroupIDForSlug(ctx context.Context, group authkit.GroupR
 // display name (#269). This is the read behind GET /<persona>/:instance_slug:
 // the id is a JOIN KEY a host needs for its own ledger rows, never an address.
 // Authorization is the caller's job (the route gates on <persona>:settings:read).
-func (s *Client) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (GroupInstance, error) {
+func (s *Runtime) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (GroupInstance, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupInstance{}, err
 	}
@@ -295,7 +295,7 @@ func (s *Client) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRe
 // validRoleForPersona reports whether role is assignable in a group of persona: a
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
-func (s *Client) validRoleForPersona(sch *GroupSchema, persona authkit.Persona, role authkit.Role) bool {
+func (s *Runtime) validRoleForPersona(sch *GroupSchema, persona authkit.Persona, role authkit.Role) bool {
 	role = authkit.Role(strings.TrimSpace(string(role)))
 	if role == "" {
 		return false
@@ -311,7 +311,7 @@ func (s *Client) validRoleForPersona(sch *GroupSchema, persona authkit.Persona, 
 // instanceSlug). The role must be a catalog role (or any role for custom-enabled
 // types). Gated by the MFA-required-role rule (#148/root-owner-MFA); genesis
 // callers that must run before any policy can apply use AssignGroupRoleGenesis.
-func (s *Client) AssignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+func (s *Runtime) AssignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	return s.assignGroupRole(ctx, group, subject, role, true)
 }
 
@@ -321,11 +321,11 @@ func (s *Client) AssignGroupRole(ctx context.Context, group authkit.GroupRef, su
 // that runs before any actor-authorized request path (or any chance to enroll
 // MFA) exists, so no runtime policy can apply yet. Never call this from a
 // runtime request handler; use AssignGroupRole or AssignGroupRoleAs there.
-func (s *Client) AssignGroupRoleGenesis(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+func (s *Runtime) AssignGroupRoleGenesis(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	return s.assignGroupRole(ctx, group, subject, role, false)
 }
 
-func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role, checkMFA bool) error {
+func (s *Runtime) assignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role, checkMFA bool) error {
 	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
@@ -359,7 +359,7 @@ func (s *Client) assignGroupRole(ctx context.Context, group authkit.GroupRef, su
 }
 
 // UnassignGroupRole revokes a subject's role in a group.
-func (s *Client) UnassignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+func (s *Runtime) UnassignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	role = authkit.Role(strings.TrimSpace(string(role)))
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
@@ -391,7 +391,7 @@ type DeletePermissionGroupOptions = authkit.DeletePermissionGroupOptions
 // ReleaseSlug frees every deleted canonical name instead; that is safe ONLY for names nothing
 // ever referenced, and the judgment is the host's. authkit itself never
 // deletes a group — dormancy policy is entirely host-side.
-func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupRef, opts DeletePermissionGroupOptions) error {
+func (s *Runtime) DeletePermissionGroup(ctx context.Context, group authkit.GroupRef, opts DeletePermissionGroupOptions) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -422,10 +422,10 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 	return tx.Commit(ctx)
 }
 
-// Can is the Client-level authorization check: resolve the group addressed by
+// Can is the Runtime-level authorization check: resolve the group addressed by
 // (persona, instanceSlug), then test perm coverage via the additive walk-up.
 // The caller constructs perm per the two-persona rule (LT:RT:action).
-func (s *Client) Can(ctx context.Context, subject authkit.Subject, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
+func (s *Runtime) Can(ctx context.Context, subject authkit.Subject, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
@@ -448,7 +448,7 @@ func (s *Client) Can(ctx context.Context, subject authkit.Subject, group authkit
 // namespaced, so a global union would be both large and meaningless. An unknown
 // group ⇒ empty (no authority), not an error; real lookup failures propagate
 // (fail-closed — never a partial set returned as if complete).
-func (s *Client) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]string, error) {
+func (s *Runtime) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
@@ -463,7 +463,7 @@ func (s *Client) ListEffectivePermissions(ctx context.Context, subject authkit.S
 
 // ListGroupMembers returns the role-assignments in the group addressed by
 // (persona, instanceSlug).
-func (s *Client) ListGroupMembers(ctx context.Context, group authkit.GroupRef) ([]GroupMember, error) {
+func (s *Runtime) ListGroupMembers(ctx context.Context, group authkit.GroupRef) ([]GroupMember, error) {
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
@@ -474,7 +474,7 @@ func (s *Client) ListGroupMembers(ctx context.Context, group authkit.GroupRef) (
 
 // ListSubjectGroups returns every group membership a subject holds (the
 // cross-persona discovery behind /me/groups).
-func (s *Client) ListSubjectGroups(ctx context.Context, subject authkit.Subject) ([]SubjectGroupMembership, error) {
+func (s *Runtime) ListSubjectGroups(ctx context.Context, subject authkit.Subject) ([]SubjectGroupMembership, error) {
 	return s.groupStore().SubjectGroups(ctx, subject)
 }
 
@@ -493,7 +493,7 @@ func (s *Client) ListSubjectGroups(ctx context.Context, subject authkit.Subject)
 // effective grants without ever passing AssignGroupRoleAs's no-escalation
 // gate. The actor must hold roles:manage AND already cover every permission in
 // BOTH the role's current grants (if it exists) and the requested ones.
-func (s *Client) DefineGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, def authkit.CustomRoleDef) error {
+func (s *Runtime) DefineGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, def authkit.CustomRoleDef) error {
 	sch := s.groupSchemaOrDefault()
 	persona, role, permissions := group.Persona, def.Role, def.Permissions
 	td, ok := sch.Persona(persona)
@@ -553,7 +553,7 @@ func (s *Client) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 // rule as DefineGroupCustomRole (covering the role's stored grants; a
 // not-yet-defined role has nothing to revoke, so only the capability check
 // applies).
-func (s *Client) DeleteGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, role authkit.Role) error {
+func (s *Runtime) DeleteGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, role authkit.Role) error {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
@@ -572,12 +572,12 @@ func (s *Client) DeleteGroupCustomRole(ctx context.Context, actorUserID string, 
 	})
 }
 
-func (s *Client) groupStoreFor(q db.DBTX) *PermissionGroupStore {
+func (s *Runtime) groupStoreFor(q db.DBTX) *PermissionGroupStore {
 	st := NewPermissionGroupStore(q)
 	st.now = s.namingNow
 	return st
 }
 
-func (s *Client) ResolveGroupSlug(ctx context.Context, group authkit.GroupRef) (authkit.NameResolution, error) {
+func (s *Runtime) ResolveGroupSlug(ctx context.Context, group authkit.GroupRef) (authkit.NameResolution, error) {
 	return s.groupStore().ResolveGroupSlug(ctx, group)
 }

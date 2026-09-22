@@ -77,7 +77,7 @@ Configure the receiving verifier with `verify.WithDPoP(replay, requestURL)`.
 proxy-stripped path prefix. It must not trust caller-controlled `Host` or
 forwarding headers. `replay` implements `dpop.ReplayGuard`: one atomic claim per
 fixed-size key with the supplied TTL, shared across all receiving replicas.
-An embedding host can use `embedded.Client.ClaimDPoPProof`, which uses its
+An embedding host can use `embedded.Runtime.ClaimDPoPProof`, which uses its
 existing ephemeral store. A receiver with its own storage can supply the
 minimal callback without importing AuthKit's PostgreSQL engine. Live replay
 claims must not be evicted to admit more claims; capacity errors fail closed.

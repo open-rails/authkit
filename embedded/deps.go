@@ -15,7 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Deps are the runtime dependencies a Client is built with. Config carries
+// Deps are the runtime dependencies a Runtime is built with. Config carries
 // data and policy; everything that reaches outside the process is here.
 type Deps struct {
 	// River is nil for managed maintenance, or RiverFromHost for a shared fleet.
@@ -65,7 +65,7 @@ func (d Deps) validate() error {
 	return nil
 }
 
-func (s *Client) applyDeps(d Deps) error {
+func (s *Runtime) applyDeps(d Deps) error {
 	if d.Postgres != nil {
 		pool, err := schemaPool(d.Postgres, s.dbSchema())
 		if err != nil {

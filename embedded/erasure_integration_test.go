@@ -22,7 +22,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 	issuerA := "https://erasure-a-" + suffix + ".test"
 	issuerB := "https://erasure-b-" + suffix + ".test"
 	issuerC := "https://erasure-c-" + suffix + ".test"
-	site := func(issuer string, account ...string) *Client {
+	site := func(issuer string, account ...string) *Runtime {
 		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: issuer, AccountIssuers: account}}, Keyset{}, Deps{Postgres: pool})
 	}
 	siteA, siteB, siteC := site(issuerA, issuerB), site(issuerB, issuerA), site(issuerC)
@@ -48,7 +48,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 		}
 		return out
 	}
-	listAll := func(c *Client, issuer string, limit int) []authkit.ErasureObligation {
+	listAll := func(c *Runtime, issuer string, limit int) []authkit.ErasureObligation {
 		t.Helper()
 		var all []authkit.ErasureObligation
 		next := ""
@@ -84,7 +84,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM account_erasure_obligations WHERE user_id=$1::uuid`, id).Scan(&n))
 		return n == 1
 	}
-	purgeable := func(c *Client) map[string]bool {
+	purgeable := func(c *Runtime) map[string]bool {
 		t.Helper()
 		got, err := c.ListUsersDeletedBefore(ctx, time.Now(), 10000)
 		require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 		for _, u := range []*User{soft, live} {
 			require.False(t, userExists(u.ID))
 			for _, c := range []struct {
-				client *Client
+				client *Runtime
 				issuer string
 			}{{siteA, issuerA}, {siteB, issuerB}} {
 				var got *authkit.ErasureObligation
@@ -275,7 +275,7 @@ func TestErasureHandoffAcrossSites(t *testing.T) {
 			var wg sync.WaitGroup
 			errs := make(chan error, 2)
 			for _, s := range []struct {
-				client *Client
+				client *Runtime
 				issuer string
 			}{{siteA, issuerA}, {siteB, issuerB}} {
 				wg.Add(1)

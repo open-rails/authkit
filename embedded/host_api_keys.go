@@ -74,7 +74,7 @@ type ResolvedAPIKey = authkit.ResolvedAPIKey
 // group custom role); its permissions are resolved from that role at use time.
 type APIKeyMintOptions = authkit.APIKeyMintOptions
 
-func (s *Client) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona authkit.Persona, gid, actorUserID string, role authkit.Role) error {
+func (s *Runtime) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona authkit.Persona, gid, actorUserID string, role authkit.Role) error {
 	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, PermCredentialsManage(persona), role)
 }
 
@@ -82,7 +82,7 @@ func (s *Client) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGro
 // set within a permission-group of persona: a catalog role from the schema
 // (core.Config), or a per-group custom role from group_custom_roles. The role —
 // not any snapshot — is the source of truth, so resolution repeats at use time.
-func (s *Client) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) ([]string, error) {
+func (s *Runtime) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	if def, ok := sch.Role(persona, role); ok {
 		perms := append([]string(nil), def.Permissions...)
@@ -102,7 +102,7 @@ func (s *Client) effectiveGroupRolePermissions(ctx context.Context, st *Permissi
 // MintAPIKeyWithOptions inserts a new API key. The key references exactly ONE
 // role (opts.Role) valid for the owning group's persona; its effective
 // permissions are resolved from the role at use time.
-func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupRef, opts APIKeyMintOptions) (APIKey, string, error) {
+func (s *Runtime) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupRef, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
 	}
@@ -181,7 +181,7 @@ func (s *Client) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 // addressed by (persona, instanceSlug), including revoked/expired ones. The
 // secret is never returned. Terminal keys are retained for 90 days and removed
 // by CleanupExpiredAuthState in bounded batches.
-func (s *Client) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]APIKey, error) {
+func (s *Runtime) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (s *Client) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]API
 // RevokeAPIKey marks the API key revoked. It is scoped to the group so a token
 // cannot be revoked from a different group. Returns false if no matching,
 // not-already-revoked token exists.
-func (s *Client) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, tokenID string) (bool, error) {
+func (s *Runtime) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -244,7 +244,7 @@ func (s *Client) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, token
 // owning permission-group id and the key's
 // effective permissions resolved from its role at verify time (a role edit is
 // reflected immediately — perms are never frozen into the key).
-func (s *Client) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
+func (s *Runtime) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
 	resolved, err := s.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if err != nil {
 		return "", nil, err
@@ -255,7 +255,7 @@ func (s *Client) ResolveAPIKey(ctx context.Context, keyID, secret string) (group
 // ResolveAPIKeyDetailed validates a presented API key and returns the full
 // resolution result (id, key_id, owning group, role, and role-resolved
 // permissions).
-func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
+func (s *Runtime) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return ResolvedAPIKey{}, err
 	}
@@ -322,7 +322,7 @@ func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 // in-query to at most once per 5 minutes per key (the WHERE clause no-ops when
 // last_used_at is recent), avoiding a row write on every request without adding
 // a read round-trip.
-func (s *Client) touchAccessTokenAsync(id string) {
+func (s *Runtime) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -333,7 +333,7 @@ func (s *Client) touchAccessTokenAsync(id string) {
 
 // loadAPIKeyPermissions fills each key's Permissions with its ROLE resolved to
 // effective permissions (#111). Keys sharing a role resolve once (cached per role).
-func (s *Client) loadAPIKeyPermissions(ctx context.Context, groupID string, persona authkit.Persona, tokens []APIKey) error {
+func (s *Runtime) loadAPIKeyPermissions(ctx context.Context, groupID string, persona authkit.Persona, tokens []APIKey) error {
 	if len(tokens) == 0 {
 		return nil
 	}

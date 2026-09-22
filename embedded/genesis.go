@@ -8,7 +8,7 @@ import (
 
 // GenesisClient is the explicitly-dangerous bootstrap/migration seam (#241): its
 // mutators run with NO actor check and NO no-escalation enforcement — the
-// opposite of the actor-checked `*As` methods on the Client itself
+// opposite of the actor-checked `*As` methods on the Runtime itself
 // (AssignRoleBySlugAs / AssignGroupRoleAs / RemoveGroupSubjectAs). One mistaken
 // call here can hand out root:*.
 //
@@ -21,16 +21,16 @@ import (
 // the one seam that bypasses it (a manifest-seeded user has no session to have
 // enrolled with).
 //
-// Reach it via Client.Genesis(). Use it ONLY for one-time bootstrap/seed/
+// Reach it via Runtime.Genesis(). Use it ONLY for one-time bootstrap/seed/
 // migration code that runs before any actor-authorized request path exists
 // (e.g. provisioning the first owner of a fresh install) — never from a runtime
 // request handler, where the corresponding `*As` method belongs.
 type GenesisClient struct {
-	impl *Client
+	impl *Runtime
 }
 
 // Genesis returns the unchecked bootstrap/migration sub-client. See GenesisClient.
-func (s *Client) Genesis() GenesisClient {
+func (s *Runtime) Genesis() GenesisClient {
 	return GenesisClient{impl: s}
 }
 

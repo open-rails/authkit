@@ -9,7 +9,7 @@ import (
 // reset, and passwordless landing pages. All resolve against the host's
 // configured BaseURL and frontend paths.
 
-func (s *Client) authkitURL(path string, q url.Values) string {
+func (s *Runtime) authkitURL(path string, q url.Values) string {
 	base := strings.TrimRight(strings.TrimSpace(s.cfg.Frontend.BaseURL), "/")
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -29,7 +29,7 @@ func (s *Client) authkitURL(path string, q url.Values) string {
 // FrontendPasswordResetPath) so a host keeps its own routes; channel lets one
 // landing page serve both email and phone. Verify and reset are symmetric: same
 // mechanism, different configured path.
-func (s *Client) verificationURL(frontendPath, channel, token string) string {
+func (s *Runtime) verificationURL(frontendPath, channel, token string) string {
 	q := url.Values{}
 	q.Set("status", "ready")
 	q.Set("token", token)
@@ -39,23 +39,23 @@ func (s *Client) verificationURL(frontendPath, channel, token string) string {
 	return s.authkitURL(frontendPath, q)
 }
 
-func (s *Client) emailVerificationURL(token string) string {
+func (s *Runtime) emailVerificationURL(token string) string {
 	return s.verificationURL(s.cfg.Frontend.VerifyPath, "email", token)
 }
 
-func (s *Client) phoneVerificationURL(token string) string {
+func (s *Runtime) phoneVerificationURL(token string) string {
 	return s.verificationURL(s.cfg.Frontend.VerifyPath, "phone", token)
 }
 
-func (s *Client) emailPasswordResetURL(token string) string {
+func (s *Runtime) emailPasswordResetURL(token string) string {
 	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "email", token)
 }
 
-func (s *Client) phonePasswordResetURL(token string) string {
+func (s *Runtime) phonePasswordResetURL(token string) string {
 	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "phone", token)
 }
 
-func (s *Client) passwordlessURL(channel, token, returnTo string) string {
+func (s *Runtime) passwordlessURL(channel, token, returnTo string) string {
 	q := url.Values{}
 	q.Set("status", "ready")
 	q.Set("token", token)
