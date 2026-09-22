@@ -22,6 +22,8 @@ CREATE TABLE account_deletions (
 CREATE UNIQUE INDEX account_deletions_active_user_idx ON account_deletions(user_id)
     WHERE state IN ('deleted','finalizing');
 CREATE INDEX account_deletions_user_idx ON account_deletions(user_id,deleted_at,id);
+CREATE INDEX account_deletions_terminal_idx ON account_deletions((COALESCE(restored_at,purged_at)),id)
+    WHERE state IN ('restored','purged');
 
 CREATE TABLE account_deletion_deliveries (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

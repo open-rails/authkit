@@ -55,6 +55,9 @@ func (s *engine) CleanupExpiredAuthState(ctx context.Context) error {
 	}
 
 	cutoff := time.Now().UTC().Add(-terminalRetention)
+	if _, err := s.gcTerminalAccountDeletions(ctx, cutoff, sessionsGCBatchSize); err != nil {
+		return err
+	}
 	q := s.pg
 	for _, target := range []struct{ table, terminal string }{
 		{"group_invite_links", "LEAST(redeemed_at, revoked_at, expires_at)"},
@@ -72,4 +75,18 @@ func (s *engine) CleanupExpiredAuthState(ctx context.Context) error {
 		}
 	}
 	return s.pruneSessionEvents(ctx)
+}
+
+// Lifecycle history shares the existing private 90-day terminal retention.
+// Pending callbacks and active generations are never eligible. One bounded
+// batch per maintenance tick deletes completed receipts through their FK;
+// old River retries safely no-op when the generation or receipt is absent.
+func (s *engine) gcTerminalAccountDeletions(ctx context.Context, cutoff time.Time, batchSize int64) (int64, error) {
+	result, err := s.pg.Exec(ctx, `WITH batch AS (
+ SELECT d.id FROM account_deletions d
+ WHERE d.state IN ('restored','purged') AND COALESCE(d.restored_at,d.purged_at)<$1
+ AND NOT EXISTS(SELECT 1 FROM account_deletion_deliveries e WHERE e.deletion_id=d.id AND e.completed_at IS NULL)
+ ORDER BY COALESCE(d.restored_at,d.purged_at),d.id LIMIT $2 FOR UPDATE SKIP LOCKED)
+ DELETE FROM account_deletions WHERE id IN (SELECT id FROM batch)`, cutoff, batchSize)
+	return result.RowsAffected(), err
 }

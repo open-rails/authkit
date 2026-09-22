@@ -522,8 +522,13 @@ remembers that issuer's River schema and queues callbacks directly into it,
 even while the application is offline. Separate River schemas are supported,
 but AuthKit and every participating fleet must address the same physical
 database for atomic insertion. Binding verifies that identity, including
-schema-bound pool copies. Moving an issuer to another River schema requires
-migrating its queued work rather than silently abandoning the previous fleet.
+schema-bound pool copies. An issuer may bind a different River schema once it
+has no active deletion generations or pending callbacks. The transition is
+atomic and fences old runtime producers; active work must finish first.
+
+Terminal generation and delivery history uses AuthKit's internal 90-day
+retention and bounded maintenance batches. Active generations and unfinished
+callbacks are never expired; old completed River jobs safely no-op afterward.
 
 Trusted operators can use `client.OperatorRestoreUsers`; authorized HTTP
 administrators use `POST /admin/users/{user_id}/restore`. Recovery before the

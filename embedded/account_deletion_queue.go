@@ -54,6 +54,9 @@ func (s *engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 }
 
 func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, purge bool) error {
+	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
+		return err
+	}
 	scheduled := deletion.PurgeAt
 	if purge {
 		scheduled = time.Time{}
@@ -65,6 +68,9 @@ func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client 
 // The delivery receipt and River row are one transaction. An existing receipt
 // therefore already has its durable job; no independent polling queue exists.
 func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, issuers []string, stage string) error {
+	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
+		return err
+	}
 	for _, issuer := range issuers {
 		target, err := s.accountDeliveryClient(ctx, tx, client, issuer)
 		if err != nil {
@@ -94,19 +100,52 @@ func (s *engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 	if s.cfg.Token.Issuer == "" {
 		return nil
 	}
-	var registered string
-	err := s.pg.QueryRow(ctx, `INSERT INTO account_delivery_fleets(issuer,river_schema) VALUES ($1,$2)
- ON CONFLICT(issuer) DO UPDATE SET issuer=EXCLUDED.issuer RETURNING river_schema`, s.cfg.Token.Issuer, client.Schema()).Scan(&registered)
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `INSERT INTO account_delivery_fleets(issuer,river_schema) VALUES ($1,$2) ON CONFLICT(issuer) DO NOTHING`, s.cfg.Token.Issuer, client.Schema()); err != nil {
+		return err
+	}
+	var registered string
+	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR UPDATE", s.cfg.Token.Issuer).Scan(&registered); err != nil {
+		return err
+	}
 	if registered != client.Schema() {
-		return fmt.Errorf("authkit: issuer %q has pending delivery infrastructure in River schema %q; migrate its jobs before changing the fleet schema", s.cfg.Token.Issuer, registered)
+		var pending bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE issuer=$1 AND completed_at IS NULL)
+ OR EXISTS(SELECT 1 FROM account_deletions WHERE state IN ('deleted','finalizing') AND $1=ANY(recipients))`, s.cfg.Token.Issuer).Scan(&pending); err != nil {
+			return err
+		}
+		if pending {
+			return fmt.Errorf("authkit: issuer %q still has active account lifecycle work in River schema %q; finish that work before rebinding its fleet", s.cfg.Token.Issuer, registered)
+		}
+		if _, err := tx.Exec(ctx, "UPDATE account_delivery_fleets SET river_schema=$2 WHERE issuer=$1", s.cfg.Token.Issuer, client.Schema()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// Fence a previously bound runtime after a quiescent schema switch. Holding
+// this shared row lock until the account transaction commits also prevents a
+// rebind from racing new lifecycle jobs into the former destination.
+func (s *engine) requireAccountProducerOn(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx]) error {
+	var schema string
+	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR SHARE", s.cfg.Token.Issuer).Scan(&schema); err != nil {
+		return err
+	}
+	if schema != local.Schema() {
+		return errors.New("authkit: this runtime's account River fleet was rebound; recreate the runtime with the current fleet schema")
 	}
 	return nil
 }
 
 func (s *engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx], issuer string) (*river.Client[pgx.Tx], error) {
+	if issuer == s.cfg.Token.Issuer {
+		return local, nil // requireAccountProducerOn already locked this mapping.
+	}
 	var schema string
 	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR SHARE", issuer).Scan(&schema); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
