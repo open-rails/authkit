@@ -18,7 +18,6 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/internal/netguard"
-	"github.com/open-rails/authkit/internal/rootsnapshot"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -953,20 +952,17 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 		if issuer.managed {
 			return Claims{}, authkit.E(authkit.CodeBadIssuer)
 		}
+		if issuer.isLocal {
+			// Native JWTs establish identity, never group/role/permission
+			// authority. Machine and delegated profiles retain their ceilings.
+			cl.Roles = nil
+			cl.Permissions = nil
+		}
 		if !issuer.isLocal {
 			cl.Subject, cl.UserID = cl.UserID, ""
 		}
 	}
 	cl.TokenTyp = tokenTyp
-	if raw, present := mapClaims[rootsnapshot.Claim]; present && isAccessTyp && issuer.isLocal && !cl.TwoFAEnrollment {
-		snapshot, err := rootsnapshot.Parse(raw, cl.Issuer)
-		if err != nil {
-			return Claims{}, err
-		}
-		if snapshot != nil {
-			cl.rootPermissions = &verifiedRootSnapshot{value: snapshot, userID: cl.UserID}
-		}
-	}
 	cl.Documents = documentReferences
 	if confirmationKind == jwtkit.CertificateThumbprintMember {
 		cl.ConfirmationCertificateSHA256 = confirmation

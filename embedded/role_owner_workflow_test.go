@@ -285,8 +285,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			}, func(st *PermissionGroupStore) error {
 				return st.UpsertCustomRole(ctx, customGID, authkit.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, ErrRoleAssignmentEscalation},
-			{"ban_expiry_after_transaction_start", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
-				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=statement_timestamp() WHERE id=$1::uuid`, expiringActor)
+			{"banned_actor_retains_current_permission", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
+				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=NULL WHERE id=$1::uuid`, expiringActor)
 				return err
 			}, nil},
 			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *PermissionGroupStore) error {

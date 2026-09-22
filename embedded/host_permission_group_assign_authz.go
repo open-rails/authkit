@@ -69,11 +69,11 @@ func (s *engine) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 		return ErrInsufficientRoleAuthority
 	}
 
-	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	present, err := authorizationActorPresent(ctx, st.q, actorUserID)
 	if err != nil {
 		return err
 	}
-	if !live {
+	if !present {
 		return ErrInsufficientRoleAuthority
 	}
 	// Resolve the actor's effective grants in this group (additive walk-up union).
@@ -139,11 +139,11 @@ func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *PermissionGr
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
 	}
-	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	present, err := authorizationActorPresent(ctx, st.q, actorUserID)
 	if err != nil {
 		return err
 	}
-	if !live {
+	if !present {
 		return ErrInsufficientRoleAuthority
 	}
 	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)

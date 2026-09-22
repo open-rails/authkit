@@ -170,22 +170,32 @@ database, configuration or signer accessors. The HTTP transport receives its
 local engine capability only while the runtime constructs it. This release
 adds no remote AuthKit client or standalone service.
 
-For a host's root moderation gates, `Token.RootPermissionSnapshot: true` adds a
-bounded, versioned snapshot of the user's effective root permissions to native
-access tokens. It is off by default. After normal token verification, call
-`claims.RootPermissionSnapshot(permission)`: `complete && !allowed` is a complete
-negative that needs no database lookup. If `complete` is false, retain the normal
-live authorization path. Sensitive positive decisions should still call
-`client.Can` and check account liveness so role revocation and bans take effect
-immediately. A new grant becomes visible after token refresh; an old negative
-does not turn positive merely because the database changed.
+Native user JWTs establish identity; group memberships, roles and permissions
+are always resolved live when a route requires permission. Native tokens do not
+carry permission authority. The experimental `RootPermissionSnapshot` API has
+been removed. Machine and delegated credentials retain their separate verified
+permission ceilings and scope bindings.
 
-This first snapshot API covers only concrete `root:resource:action` permissions,
-not other groups, delegated tokens, external users, or enrollment-only tokens.
-The entire snapshot is omitted on lookup failure or if its 128-grant/4096-byte
-limit is exceeded; it is never truncated into a misleading complete negative.
-Caller-supplied token extras cannot set `root_permissions`. Existing `Can`,
-`verify.Allow`, and AuthKit management-route authorization remain live.
+Bans prevent login and refresh. An existing native identity JWT remains valid
+until expiry (15 minutes by default), including on a permission route if its
+current grant remains assigned. Revoking a role takes effect immediately at the
+next permission check. Account liveness can still be explicitly requested with
+`RequiredLive`, `OptionalLive`, or `IsLive`; it is not automatically added to
+admin routes. Ownership mutations retain their current valid-owner invariants.
+
+Select optional coarse entitlement claims explicitly:
+
+```go
+embedded.TokenConfig{EntitlementAllowlist: []string{"premium"}}
+```
+
+Only names actually granted by the entitlement provider are included. Empty
+configuration skips that provider lookup during minting and omits the claim;
+directory/admin provider results remain unfiltered. The allowlist is limited to
+32 distinct names, 128 UTF-8 bytes per name and 2048 encoded JSON bytes. Provider
+failure also omits the claim while allowing login; omission is not a successful
+empty-grant lookup. These are token-time billing snapshots until refresh, not
+live permission checks. Per-product ownership belongs in the billing query API.
 
 ## Verification in a host
 

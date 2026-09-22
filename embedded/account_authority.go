@@ -25,11 +25,11 @@ func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *Permission
 	if s.pg == nil {
 		return nil
 	}
-	live, err := subjectUsable(ctx, st.q, authkit.UserSubject(actorUserID))
+	present, err := authorizationActorPresent(ctx, st.q, actorUserID)
 	if err != nil {
 		return err
 	}
-	if !live {
+	if !present {
 		return ErrInsufficientRoleAuthority
 	}
 	if actorUserID == targetUserID {
