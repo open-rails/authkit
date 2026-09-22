@@ -359,6 +359,15 @@ func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 // AssignRole replaces the current role for a group and subject. The composite
 // primary key enforces one assignment; callers validate the role definition.
 func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, subject authkit.Subject, role authkit.Role) error {
+	if subject.Kind == authkit.SubjectKindRemoteApp && role == OwnerRoleName {
+		var operable bool
+		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled AND permission_group_id=$2::uuid)`, subject.ID, groupID).Scan(&operable); err != nil {
+			return err
+		}
+		if !operable {
+			return ErrInsufficientRoleAuthority
+		}
+	}
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -412,7 +421,7 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
      AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
      AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp()))
     + (SELECT count(*) FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
-       WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND a.enabled)`, groupID).Scan(&n)
+       WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND a.enabled AND a.permission_group_id=r.permission_group_id)`, groupID).Scan(&n)
 	return n, err
 }
 

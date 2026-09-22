@@ -52,7 +52,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 		}
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || actor.UserID == "" {
+	if !ok {
 		forbidden(w, authkit.CodeForbidden)
 		return
 	}
@@ -66,6 +66,12 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 			return
 		}
 		if u == nil {
+			// Account-registration invitations currently require a native inviter.
+			// A remote owner can manage existing users, but cannot invent one.
+			if actor.UserID == "" {
+				forbidden(w, authkit.CodeForbidden)
+				return
+			}
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
 				return
 			}
@@ -103,7 +109,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 		userID = u.ID
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
-	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, group, authkit.UserSubject(userID), role); err != nil {
+	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, authkit.UserSubject(userID), role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -123,13 +129,13 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, grou
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || actor.UserID == "" {
+	if !ok {
 		forbidden(w, authkit.CodeForbidden)
 		return
 	}
 	// #136: actor-aware removal enforces no-escalation across every role the
 	// target holds — a non-owner cannot strip an owner's roles.
-	if err := s.svc.RemoveGroupSubjectAs(r.Context(), actor.UserID, group, authkit.UserSubject(userID)); err != nil {
+	if err := s.svc.RemoveGroupSubjectFromClaims(r.Context(), actor, group, authkit.UserSubject(userID)); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -149,12 +155,12 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group 
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || actor.UserID == "" {
+	if !ok {
 		forbidden(w, authkit.CodeForbidden)
 		return
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
-	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, group, authkit.UserSubject(userID), role); err != nil {
+	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, authkit.UserSubject(userID), role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

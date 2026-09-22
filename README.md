@@ -330,6 +330,15 @@ both as durable identifiers and never rename in place; removed names fail
 closed without deleting rows. One role per subject per group; who may create a
 group is the host's decision.
 
+An enabled remote application can own its immutable controlling group. Its
+signed app-self token can use that group's existing member add, role-change,
+removal, member-list and role-list endpoints. Mutations recheck current grants
+and the credential's permission ceiling in the same transaction as the write;
+both the replaced and requested roles must fit. Delegated user tokens do not
+inherit the application's ownership. Registration invitations still require a
+native user. A remote owner assignment in another group is rejected and never
+counts as a remaining owner; ordinary ancestor permission grants are unchanged.
+
 ## Signed documents and delegated tokens
 
 `documents.NewService` signs, persists and re-verifies an immutable JSON
@@ -456,11 +465,12 @@ anonymous. These checks do not grant admin permissions; authorization remains a
 separate route policy. Verified machine/external principals retain the existing
 verifier behavior and do not acquire a native-user directory lookup.
 
-AuthKit's built-in root-permission operations (such as the admin user directory,
-ban, and account recovery routes) explicitly check native-user liveness after
-permission authorization. A banned operator cannot use a still-valid token for
-those operations. This policy follows the sensitive operation, not a role named
-`admin`, and does not enable account lookups on ordinary application routes.
+AuthKit's built-in root-permission operations resolve permissions live, without
+an implicit account-ban lookup. Existing native access tokens authenticate until
+expiry; bans prevent login and refresh. Hosts can explicitly select the live
+middleware above when they need immediate account revocation. Deleted or
+reserved users cannot perform authority mutations, and ownership transitions
+retain their stricter valid-owner checks.
 
 ## Sessions across issuers
 
