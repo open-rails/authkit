@@ -530,3 +530,14 @@ administrators use `POST /admin/users/{user_id}/restore`. Recovery before the
 deadline invalidates that generation's finalizer without reviving revoked
 sessions. Once finalization starts after the deadline, restoration is refused.
 There is no public immediate-purge operation or configurable retention period.
+
+A deleted user can prove their identity through the existing password,
+passwordless, passkey, external-login or Solana login flow. Existing MFA still
+applies. Successful proof returns `409 account_recovery_required` with an opaque
+`recovery` object instead of a session. Submit its `token` to
+`POST /account/recovery/confirm` to restore explicitly, then sign in normally.
+The one-use confirmation expires within ten minutes and before the deletion
+deadline; it is bound to that issuer, credential version and deletion generation.
+It cannot authenticate API requests, enroll new MFA factors, or refresh a session.
+Required but missing MFA enrollment needs operator recovery; no enrollment
+access token is issued for a deleted account. Login never restores implicitly.

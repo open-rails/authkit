@@ -78,7 +78,7 @@ func (s *engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 	if err := tx.Commit(ctx); err != nil {
 		return LoginOutcome{}, err
 	}
-	return LoginOutcome{Kind: LoginRecoveryRequired, UserID: proof.Input.UserID, Recovery: &AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
+	return LoginOutcome{Kind: LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
 }
 
 func (s *engine) ConfirmAccountRecovery(ctx context.Context, token string) error {

@@ -60,13 +60,14 @@ type flowResponse struct {
 	} `json:"error"`
 }
 
-func newAccountFlow(t *testing.T, pool *pgxpool.Pool, store ephemeralStore, cfg embedded.Config) *accountFlow {
+func newAccountFlow(t *testing.T, pool *pgxpool.Pool, store ephemeralStore, cfg embedded.Config, extra ...coreOpt) *accountFlow {
 	t.Helper()
 	f := &accountFlow{t: t, email: &captureEmailSender{}, sms: &captureSMSSender{}}
 	cfg.Frontend.BaseURL = "https://app.example"
 	cfg.Frontend.VerifyPath, cfg.Frontend.PasswordlessPath, cfg.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
 	opts := append(store.engineOpts(), withEmailSender(f.email), withSMSSender(f.sms))
+	opts = append(opts, extra...)
 	var err error
 	f.service, err = newTestService(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
 	require.NoError(t, err)

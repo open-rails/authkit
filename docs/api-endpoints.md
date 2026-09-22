@@ -80,6 +80,7 @@ remote applications, and group role assignments.
 | POST | `{api}/passkeys/login/begin` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/passkeys/login/finish` | auth | public | `auth_passkey_login` | Passkeys.RPID |
 | POST | `{api}/password/login` | auth | public | `auth_password_login` |  |
+| POST | `{api}/account/recovery/confirm` | auth | public | `auth_password_login` |  |
 | POST | `{api}/password/reset/confirm` | auth | public | `auth_pwd_reset_confirm` |  |
 | POST | `{api}/password/reset/request` | auth | public | `auth_pwd_reset_request` |  |
 | POST | `{api}/passwordless/confirm` | auth | public | `auth_passwordless_confirm` | Registration.PasswordlessLogin |

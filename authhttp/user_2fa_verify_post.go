@@ -43,6 +43,9 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, authkit.CodeInvalidCode)
 		return
 	}
+	if s.writeLoginContinuation(w, r, out, nil) {
+		return
+	}
 	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
 }
 
