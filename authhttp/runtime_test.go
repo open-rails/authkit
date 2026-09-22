@@ -1,13 +1,19 @@
 package authhttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime/pprof"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	authkithttp "github.com/open-rails/authkit/adapters/http"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -29,7 +35,15 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	routes, err := runtime.HTTPRoutes()
 	require.NoError(t, err)
 	require.NotEmpty(t, routes)
-	handler := routes[0].Handler // every registration delegates to the same configured canonical mount
+	bundle, err := authkithttp.Routes(runtime)
+	require.NoError(t, err)
+	handler := http.NewServeMux()
+	require.NoError(t, bundle.Mount(handler))
+	chiRouter := chi.NewRouter()
+	require.NoError(t, bundle.Mount(chiRouter))
+	chiResponse := httptest.NewRecorder()
+	chiRouter.ServeHTTP(chiResponse, httptest.NewRequest(http.MethodGet, JWKSPath, nil))
+	require.Equal(t, http.StatusOK, chiResponse.Code)
 	call := func(method, path, body, token string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -72,4 +86,35 @@ func TestRuntimeHTTPBuildFailureKeepsOperationClient(t *testing.T) {
 	_, err = runtime.Client().CreateUser(context.Background(), "after-http-failure@example.test", "after-http-failure")
 	require.NoError(t, err)
 	require.Error(t, runtime.ConfigureHTTP(Config{DirectPeerIP: true}))
+}
+
+func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
+			pg := testdb.ScratchPostgres(t)
+			runtime := newServerClient(t, newServerTestConfig(), pg.Pool)
+			t.Cleanup(runtime.Close)
+			const label = "authkit-runtime-http"
+			hasWorkers := func() bool {
+				var profile bytes.Buffer
+				require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
+				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
+			}
+			cfg := Config{DirectPeerIP: true}
+			if fail {
+				cfg.Mount.APIPrefix = "invalid prefix"
+			}
+			var err error
+			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) { err = runtime.ConfigureHTTP(cfg) })
+			if fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.True(t, hasWorkers())
+				runtime.Close()
+			}
+			require.Eventually(t, func() bool { return !hasWorkers() }, 5*time.Second, 10*time.Millisecond, "HTTP workers survived runtime cleanup")
+			require.NoError(t, pg.Pool.Ping(t.Context()))
+		})
+	}
 }

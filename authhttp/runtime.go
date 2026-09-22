@@ -14,6 +14,9 @@ func (s *runtimeHTTP) Routes() []embedded.HTTPRoute {
 // BuildHTTP implements embedded.HTTPConfiguration for a local Runtime. Hosts
 // use runtime.ConfigureHTTP(config); construction and cleanup stay runtime-owned.
 func (cfg Config) BuildHTTP(runtime *embedded.Runtime) (embedded.HTTPSurface, error) {
+	// Freeze collection membership while retaining the host-owned provider objects.
+	cfg.Documents = append([]DocumentProvider(nil), cfg.Documents...)
+	cfg.Languages.Supported = append([]string(nil), cfg.Languages.Supported...)
 	service, err := New(runtime, cfg)
 	if err != nil {
 		return nil, err
