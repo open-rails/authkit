@@ -25,16 +25,14 @@ go run ./cmd/authkit-migrate \
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
-  go test -race -count=1 -p 1 -json github.com/open-rails/authkit/... \
-    | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}
-  go test -race -count=1 -tags browser ./authhttp -run '^TestCookieLoginBrowserTwoSites$' -json \
-    | tee .reports/browser-test.json | jq -rj 'select(.Output != null) | .Output'
+  go test -race -count=1 -p 1 -tags browser -json github.com/open-rails/authkit/... \
+    | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 - <<'PY'
 import json
 from pathlib import Path
-events = [json.loads(line) for p in (Path('.reports/go-test.json'), Path('.reports/browser-test.json'))
-          for line in p.read_text().splitlines() if line.startswith('{')]
+events = [json.loads(line) for line in Path('.reports/go-test.json').read_text().splitlines()
+          if line.startswith('{')]
 bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
        or (e.get('Action') == 'skip' and e.get('Test'))]
 if bad:
