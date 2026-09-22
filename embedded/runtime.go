@@ -19,6 +19,16 @@ func New(cfg Config, deps Deps) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := engine.initializeGroups(); err != nil {
+		engine.Close()
+		return nil, err
+	}
+	if cfg.HTTP != nil {
+		if err := engine.ConfigureHTTP(cfg.HTTP); err != nil {
+			engine.Close()
+			return nil, err
+		}
+	}
 	return &Runtime{engine: engine}, nil
 }
 

@@ -46,7 +46,7 @@ func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) authkit.Cl
 		t.Fatalf("new service: %v", err)
 	}
 	t.Cleanup(svc.Close)
-	return svc
+	return svc.Client()
 }
 
 // deletedUser seeds a soft-deleted user owed to issuers; acked marks which of

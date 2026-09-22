@@ -97,6 +97,8 @@ type Client interface {
 	ResolveGroupIDForSlug(ctx context.Context, group GroupRef) (string, error)
 	GroupInstanceForSlug(ctx context.Context, group GroupRef) (GroupInstance, error)
 	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update GroupInstanceUpdate) (GroupInstance, error)
+	// DeleteGroupInstanceByID is a trusted host-operator mutation.
+	DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	AssignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error

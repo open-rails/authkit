@@ -345,16 +345,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	svc.ownedMemoryStore = ownedMemoryStore
 	svc.ownedKeySource = ownedKeySource
 	ownedMemoryStore, ownedKeySource = nil, nil // ownership transferred to svc
-	if err := svc.initializeGroups(); err != nil {
-		svc.Close()
-		return nil, err
-	}
-	if norm.HTTP != nil {
-		if err := svc.ConfigureHTTP(norm.HTTP); err != nil {
-			svc.Close()
-			return nil, err
-		}
-	}
+
 	return svc, nil
 }
 
