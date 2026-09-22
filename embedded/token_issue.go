@@ -7,6 +7,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/rootsnapshot"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -36,6 +37,7 @@ func (s *engine) MintAccessToken(ctx context.Context, userID string, extra map[s
 // already protected by the owned-claim check below; they appear here too so a
 // host can never inject the assurance variants AuthKit did not set.
 var reservedAccessTokenClaims = map[string]struct{}{
+	rootsnapshot.Claim: {},
 	"roles":            {},
 	"permissions":      {},
 	"global_roles":     {},
@@ -112,11 +114,8 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
-	// Group/role authority is no longer carried as a token claim: the legacy
-	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
-	// RBAC engine (#111) — group role assignments + `<persona>:<resource>:<action>`
-	// perms resolved at request time from the DB (svc.Can), not snapshotted into
-	// the access token.
+	// Legacy unscoped roles remain absent. The optional bounded root snapshot
+	// below is produced by the same group authorization engine used by Can.
 	var ents []string
 	if s.entitlements != nil {
 		m, entErr := s.entitlements.ListEntitlements(ctx, []string{userID})
@@ -138,6 +137,16 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 		"iat":          base.IssuedAt.Time.Unix(),
 		"exp":          base.ExpiresAt.Time.Unix(),
 		"entitlements": ents,
+	}
+	if enrollment, _ := extra["2fa_enrollment"].(bool); s.cfg.Token.RootPermissionSnapshot && !enrollment {
+		snapshot, snapshotErr := s.rootPermissionSnapshot(ctx, userID)
+		if snapshotErr != nil {
+			// A failed optimization must not prevent login or masquerade as a
+			// complete negative. Consumers fall back to live authorization.
+			stdlog.Printf("authkit: root permission snapshot omitted during access-token issuance: %v", snapshotErr)
+		} else {
+			claims[rootsnapshot.Claim] = snapshot
+		}
 	}
 	if assurance != nil {
 		if assurance.JTI != "" {

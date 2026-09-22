@@ -12,6 +12,9 @@ import (
 
 // Claims is a typed view of authenticated user information attached by middleware.
 type Claims struct {
+	// rootPermissions is populated only after signature and local-user profile
+	// verification. Unverified public struct fields cannot manufacture it.
+	rootPermissions *verifiedRootSnapshot
 	// Subject is an external access token's subject. It is meaningful only with
 	// Issuer; it never authorizes a lookup in the host's local user database.
 	Subject string

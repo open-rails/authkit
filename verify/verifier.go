@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/internal/netguard"
+	"github.com/open-rails/authkit/internal/rootsnapshot"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -957,6 +958,15 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 		}
 	}
 	cl.TokenTyp = tokenTyp
+	if raw, present := mapClaims[rootsnapshot.Claim]; present && isAccessTyp && issuer.isLocal && !cl.TwoFAEnrollment {
+		snapshot, err := rootsnapshot.Parse(raw, cl.Issuer)
+		if err != nil {
+			return Claims{}, err
+		}
+		if snapshot != nil {
+			cl.rootPermissions = &verifiedRootSnapshot{value: snapshot, userID: cl.UserID}
+		}
+	}
 	cl.Documents = documentReferences
 	if confirmationKind == jwtkit.CertificateThumbprintMember {
 		cl.ConfirmationCertificateSHA256 = confirmation
