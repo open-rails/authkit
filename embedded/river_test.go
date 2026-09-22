@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/riverkit"
+	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -109,11 +109,11 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 	hostCfg.PeriodicJobs = []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 		return hostMaintenanceArgs{}, &river.InsertOpts{Queue: "host_jobs"}
 	}, &river.PeriodicJobOpts{RunOnStart: true})}
-	host, err := riverkit.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
+	host, err := riverhelpers.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
 	require.NoError(t, err)
 	require.Equal(t, "host_queue", hostCfg.Schema, "host schema is authoritative")
 	require.Len(t, hostCfg.PeriodicJobs, 1, "composer preserves the caller configuration")
-	_, err = riverkit.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
+	_, err = riverhelpers.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
 	require.ErrorContains(t, err, "already composed")
 	require.NoError(t, core.Start(t.Context()))
 	_, err = pg.Pool.Exec(t.Context(), "CREATE SCHEMA host_queue")
@@ -164,7 +164,7 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	pool, err := pgxpool.New(t.Context(), "postgres://unused@127.0.0.1:1/unused?sslmode=disable")
 	require.NoError(t, err)
 	defer pool.Close()
-	_, err = riverkit.New(t.Context(), pool, nil, core.RiverJobs())
+	_, err = riverhelpers.New(t.Context(), pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "requires PostgreSQL")
 	cfg := maintenanceConfig()
 	cfg.River.Schema = "invalid;schema"
@@ -182,13 +182,13 @@ func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testin
 	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	defer core.Close()
-	fail := riverkit.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, riverkit.Binding) error { return fmt.Errorf("binding failed") }, func() error { return nil })
-	client, err := riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs(), fail)
+	fail := riverhelpers.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, riverhelpers.Binding) error { return fmt.Errorf("binding failed") }, func() error { return nil })
+	client, err := riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs(), fail)
 	require.ErrorContains(t, err, "binding failed")
 	require.Nil(t, client)
 	require.Nil(t, core.maintenance.client)
 	require.ErrorContains(t, core.Start(t.Context()), "RiverJobs")
-	_, err = riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs())
+	_, err = riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "already composed")
 	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
@@ -199,7 +199,7 @@ func TestClosedRiverJobsCannotCompose(t *testing.T) {
 	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	core.Close()
-	_, err = riverkit.New(t.Context(), pg.Pool, nil, core.RiverJobs())
+	_, err = riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "closed")
 	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
