@@ -24,7 +24,7 @@ func normalizeRootRoleSlug(role authkit.Role) authkit.Role {
 	return authkit.Role(strings.ToLower(strings.TrimSpace(string(role))))
 }
 
-func (s *Runtime) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
+func (s *engine) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
 	if len(roles) == 0 {
 		return nil, nil
 	}
@@ -67,7 +67,7 @@ func (s *Runtime) splitConfiguredRootRoles(roles []string) (live []string, remov
 
 // rootRoleSlugsByUser returns a user's configured root permission-group roles
 // and any stored roles removed from the current schema.
-func (s *Runtime) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
+func (s *engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -95,7 +95,7 @@ func (s *Runtime) rootRoleSlugsByUser(ctx context.Context, userID string) ([]str
 // MFA-required-role enrollment gate is a subject-state invariant and STILL
 // applies — assigning an MFA-required role to a non-enrolled user fails closed
 // with ErrTwoFAEnrollmentRequired.
-func (s *Runtime) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *engine) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -109,7 +109,7 @@ func (s *Runtime) AssignRoleBySlug(ctx context.Context, userID string, role auth
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug
 // is a known root catalog role, ensures the root group exists, and returns.
-func (s *Runtime) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (s *Runtime) UpsertRoleBySlug(ctx context.Context, name string, role authki
 }
 
 // RemoveRoleBySlug revokes a user's role in the root permission-group.
-func (s *Runtime) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *engine) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
 	if s.pg == nil {
 		return nil
 	}

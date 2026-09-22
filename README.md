@@ -111,9 +111,13 @@ pools, keys, River and lifecycle. `runtime.Client()` returns the engine-free
 `authkit.Client` operation view. That view does not expose local configuration,
 bootstrap or resource access. Creating it starts no additional engine.
 
-Configure HTTP once after provisioning, then obtain and mount its routes:
+Set HTTP policy in the runtime constructor, then obtain and mount its routes:
 
 ```go
+cfg.HTTP = authhttp.Config{
+    TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
+    Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
+}
 runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
 if err != nil {
     return err
@@ -121,13 +125,6 @@ if err != nil {
 defer runtime.Close()
 client := runtime.Client() // application user/group/token operations
 
-err = runtime.ConfigureHTTP(authhttp.Config{
-    TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
-    Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
-})
-if err != nil {
-    return err
-}
 routes, err := authkitgin.Routes(runtime)
 if err != nil {
     return err
@@ -146,7 +143,8 @@ router. Handle the error returned by `Routes` before calling `Mount`.
 The `adapters/http` package is included in the core module; Gin and Fiber are
 separate modules.
 
-`ConfigureHTTP` is one-shot. A failed build consumes the attempt and closes
+Prefer `Config.HTTP` for policy known at construction. `ConfigureHTTP` supports
+provisioning dependencies that become available later and is one-shot. A failed build consumes the attempt and closes
 partial HTTP resources; the operation client remains available. Calling
 `HTTPRoutes` before configuration seals HTTP disabled and returns an error.
 Configure before obtaining route bundles; configuration after Close is refused.
@@ -159,10 +157,16 @@ shows the actual inventory. JWKS remains at `/.well-known/jwks.json`, browser
 OIDC under `/oidc`, and published documents at their standard root path; mount
 AuthKit on the host root router. No catch-all is installed.
 
-`authhttp.New(runtime, config)` and `authhttp.NewMount` remain lower-level
-constructors for hosts explicitly managing HTTP lifetime themselves. The
-runtime-configured path owns that work automatically. Neither constructor
-accepts a portable or remote operation Client as a server backend. This release
+`embedded.New` initializes declared group containment and the root singleton
+in one transaction. Apply migrations before constructing a database-backed
+runtime. Construction never grants user roles or restores revoked permissions.
+Use `client.AdminAssignGroupRole` and `client.AdminUnassignGroupRole` for explicit
+trusted operator commands; request paths use the actor-checked `*As` methods.
+
+The runtime wraps a private engine and exposes only lifecycle, route, verifier,
+job and construction dependencies. It has no public business methods, Genesis,
+database, configuration or signer accessors. The HTTP transport receives its
+local engine capability only while the runtime constructs it. This release
 adds no remote AuthKit client or standalone service.
 
 ## Verification in a host
@@ -367,22 +371,12 @@ nothing else — no refresh session. `GET /api/v1/device-keys`,
 `DELETE /api/v1/device-keys/{id}` and `POST /api/v1/device-keys/revoke-others`
 manage keys; a revoked machine cannot revoke its replacement.
 
-## Passkey primitives
+## Passkey ceremonies
 
-`/api/v1/passkeys/*` covers browser login, registration and management. A host
-that drives WebAuthn itself calls the same ceremonies on `*embedded.Runtime`;
-every finish consumes its ceremony once and only for the purpose it was begun
-with:
-
-- `BeginDiscoverablePasskeyVerification` / `Finish…` → `VerifiedPasskey`, an
-  identity proof only — no session, token or cookie;
-- `BeginPasskeyAccount` / `Finish…` → a new passkey-only user (needs an open
-  `Registration.NativeUserMode`);
-- `BeginPasskeyRegistration(userID)`, then `FinishPasskeyRegistration` (add) or
-  `FinishPasskeyReplacement` (atomic single-passkey rotate).
-
-The host gates who may call these and never treats a `VerifiedPasskey` as a
-session.
+`/api/v1/passkeys/*` covers browser login, registration and management. AuthKit's
+HTTP transport drives the private engine ceremonies; Runtime does not expose
+workflow primitives to embedding applications. Every finish consumes its
+ceremony once and only for the purpose for which it was begun.
 
 ## Liveness
 
@@ -391,7 +385,7 @@ token until it expires (at most one access TTL). For a surface that cannot
 accept that window:
 
 ```go
-// authhttp.New(client, cfg) already wires the client as the liveness source.
+// Config.HTTP wires the local engine as the liveness source.
 requiredLive, err := authkitgin.RequiredLive(srv.Verifier()) // verify.RequiredLive for net/http
 ```
 

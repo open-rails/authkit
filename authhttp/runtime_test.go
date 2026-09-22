@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	authkithttp "github.com/open-rails/authkit/adapters/http"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -23,14 +24,14 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
-	runtime := newServerClient(t, cfg, pg.Pool)
+	policy := workflowHTTPConfig()
+	policy.Mount.APIPrefix = "/auth"
+	cfg.HTTP = policy
+	runtime := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(runtime.Close)
 	user, err := runtime.Client().CreateUser(context.Background(), "runtime-boundary@example.test", "runtime-boundary")
 	require.NoError(t, err)
 	require.NoError(t, runtime.Client().AdminSetPassword(context.Background(), user.ID, "Correct-horse-battery-1"))
-	policy := workflowHTTPConfig()
-	policy.Mount.APIPrefix = "/auth"
-	require.NoError(t, runtime.ConfigureHTTP(policy))
 	require.NotNil(t, runtime.Verifier())
 	routes, err := runtime.HTTPRoutes()
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 
 func TestRuntimeHTTPBuildFailureKeepsOperationClient(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	runtime := newServerClient(t, newServerTestConfig(), pg.Pool)
+	runtime := newPublicRuntime(t, newServerTestConfig(), pg.Pool)
 	t.Cleanup(runtime.Close)
 	err := runtime.ConfigureHTTP(Config{DirectPeerIP: true, Mount: MountOptions{APIPrefix: "bad prefix"}})
 	require.Error(t, err)
@@ -92,7 +93,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
-			runtime := newServerClient(t, newServerTestConfig(), pg.Pool)
+			runtime := newPublicRuntime(t, newServerTestConfig(), pg.Pool)
 			t.Cleanup(runtime.Close)
 			const label = "authkit-runtime-http"
 			hasWorkers := func() bool {
@@ -117,4 +118,11 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			require.NoError(t, pg.Pool.Ping(t.Context()))
 		})
 	}
+}
+
+func newPublicRuntime(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool) *embedded.Runtime {
+	t.Helper()
+	r, err := embedded.New(cfg, embedded.Deps{Postgres: pool})
+	require.NoError(t, err)
+	return r
 }

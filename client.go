@@ -5,19 +5,12 @@ import (
 	"time"
 )
 
-// Client is the engine-free operation contract applications obtain from
-// embedded.Runtime.Client. Its inputs and results do not carry local resources.
-// No remote implementation is provided yet. Infra accessors (Postgres,
-// JWKS, Config, Schema), the browser-flow methods the authhttp transport
-// drives, the passkey ceremonies and the unchecked Genesis() seam are
-// deliberately OFF this interface — they stay on the concrete *embedded.Runtime.
-// Documented concrete host operations remain covered by SEMVER.md; membership
-// in this interface is not the stability boundary. Hosts may use smaller local
-// interfaces for their own dependencies.
-// Adding a method is MAJOR: consumers implement it in fakes.
-//
-//	runtime, err := embedded.New(cfg, deps)
-//	client := runtime.Client()
+// Client is the portable application operation contract returned by
+// embedded.Runtime.Client. The local implementation calls the private engine
+// directly; a future remote implementation can preserve these typed operations.
+// Inputs and results carry no process resources. Privileged operations require
+// trusted host authority; this contract does not expose them over HTTP.
+// Adding methods changes the contract implemented by consumer fakes.
 type Client interface {
 	// --- users ---
 	CreateUser(ctx context.Context, email, username string) (*User, error)
@@ -80,11 +73,16 @@ type Client interface {
 	// account issuer plus device keys. Unchecked: the host authorizes the actor.
 	AdminRevokeAccountSessions(ctx context.Context, userID string) (AccountSessionRevocation, error)
 	AdminSetPassword(ctx context.Context, userID, new string) error
+	// AdminAssignGroupRole and AdminUnassignGroupRole use trusted host-operator
+	// authority, like AdminSetPassword. Hosts authorize the operator; request
+	// actors use the corresponding actor-checked *As methods. Subject MFA and
+	// final-owner invariants still apply. These methods add no HTTP exposure.
+	AdminAssignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
+	AdminUnassignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
 	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
 	UnbanUser(ctx context.Context, userID string) error
 
-	// --- root roles (actor-checked; the unchecked genesis forms live on
-	// embedded.Runtime.Genesis(), #241) ---
+	// --- root roles (actor-checked) ---
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation
 	// check (#136) runs PER ITEM and each OpResult carries its own authority error.
 	AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role Role) ([]OpResult, error)
@@ -98,6 +96,7 @@ type Client interface {
 	CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error)
 	ResolveGroupIDForSlug(ctx context.Context, group GroupRef) (string, error)
 	GroupInstanceForSlug(ctx context.Context, group GroupRef) (GroupInstance, error)
+	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update GroupInstanceUpdate) (GroupInstance, error)
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	AssignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error

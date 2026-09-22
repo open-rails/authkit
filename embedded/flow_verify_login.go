@@ -25,7 +25,7 @@ type VerificationInput struct {
 // ConfirmVerification is the shared registration/contact-verification workflow.
 // Verification that authenticates a user returns the same MFA/session outcome
 // as password and provider login; a contact mutation returns contact_changed.
-func (s *Runtime) ConfirmVerification(ctx context.Context, in VerificationInput) (LoginOutcome, error) {
+func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) (LoginOutcome, error) {
 	if in.Token != "" && in.Code != "" || in.Token == "" && (in.Identifier == "" || in.Code == "") {
 		return LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
@@ -103,7 +103,7 @@ func (s *Runtime) ConfirmVerification(ctx context.Context, in VerificationInput)
 	return LoginOutcome{}, jwt.ErrTokenUnverifiable
 }
 
-func (s *Runtime) verificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
+func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
 	if kind == KindVerifyEmail || kind == KindVerifyPhone {
 		return s.existingVerificationRecord(ctx, kind, in)
 	}
@@ -130,7 +130,7 @@ func (s *Runtime) verificationRecord(ctx context.Context, kind PendingChangeKind
 	return rec, rec.Kind == kind && (in.Identifier == "" || rec.Target == normalizePendingTarget(kind, in.Identifier)), nil
 }
 
-func (s *Runtime) existingVerificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
+func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
 	var key, linkKey string
 	if in.Token != "" {
 		prefix := keyEmailVerifyLink

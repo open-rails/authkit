@@ -167,11 +167,11 @@ END $$`)
 func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email string) (string, authkit.AccountRegistrationInviteCreated) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := srv.svc.EnsureRootGroup(ctx)
+	_, err := fixtureBackend(srv.svc).EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	inviter, err := srv.svc.CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(inviter.ID), authkit.OwnerRole))
+	require.NoError(t, fixtureBackend(srv.svc).AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(inviter.ID), authkit.OwnerRole))
 	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,
@@ -313,19 +313,19 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 // from options. A test that wires neither Redis nor an EphemeralStore gets the
 // memory store New defaults to, so the opt-in is implied (the host-facing
 // refusal is pinned in embedded and by TestNewServer_RequiresClientIPPosture).
-func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*embedded.Runtime, error) {
+func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*testRuntime, error) {
 	deps := depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...)
 	if deps.Redis == nil && deps.EphemeralStore == nil {
 		cfg.Ephemeral.AllowMemory = true
 	}
-	return embedded.New(cfg, deps)
+	return newTestRuntime(cfg, deps)
 }
 
 const documentsTestType = "example.entitlements/v1"
 
 // registerDocumentReader registers a remote application (static keys) nested
 // under the root group and returns a bearer token minted by ITS OWN key.
-func registerDocumentReader(t *testing.T, core *embedded.Runtime, slug, issuer string) string {
+func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string) string {
 	t.Helper()
 	ctx := context.Background()
 	coreSvc := core
@@ -465,7 +465,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 
-	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	setupToken, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
@@ -905,7 +905,7 @@ func newInstanceTestUser(t *testing.T, srv *Service, prefix string) (id, token s
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
-	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	tok, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
@@ -983,7 +983,7 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
-	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)
 	require.NoError(t, err)
@@ -1016,8 +1016,8 @@ func configOf(opts ...Option) Config {
 	return c
 }
 
-func newServer(client *embedded.Runtime, opts ...Option) (*Service, error) {
-	return New(client, configOf(opts...))
+func newServer(client *testRuntime, opts ...Option) (*Service, error) {
+	return newTestService(client, configOf(opts...))
 }
 
 // testSigner is one RSA keypair shared by the package's test engines: explicit
@@ -1054,13 +1054,13 @@ func newServerTestConfig() embedded.Config {
 
 // newServerClient builds the embedded engine that a client-first NewServer wraps
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
-func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *embedded.Runtime {
+func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *testRuntime {
 	t.Helper()
 	deps := depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...)
 	if deps.Redis == nil && deps.EphemeralStore == nil {
 		cfg.Ephemeral.AllowMemory = true // the harness's memory store is deliberate
 	}
-	c, err := embedded.New(cfg, deps)
+	c, err := newTestRuntime(cfg, deps)
 	require.NoError(t, err)
 	return c
 }

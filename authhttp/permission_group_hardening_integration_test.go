@@ -88,7 +88,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, boundedAdmin) })
 	// Genesis-style unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
-	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(boundedAdmin), "roles-admin"))
+	require.NoError(t, fixtureBackend(s.svc).AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(boundedAdmin), "roles-admin"))
 
 	// Owner defines "auditor" (billing:read only) — this establishes a role
 	// someone else (in principle) could hold.
@@ -107,7 +107,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	var subject string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
-	require.NoError(t, s.svc.AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(subject), "auditor"))
+	require.NoError(t, fixtureBackend(s.svc).AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(subject), "auditor"))
 	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
@@ -165,7 +165,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = s.svc.Enable2FA(ctx, subject, "email", nil, embedded.AllowAdditionalFactors)
+	_, err = fixtureBackend(s.svc).Enable2FA(ctx, subject, "email", nil, embedded.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = s.driveSub(t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

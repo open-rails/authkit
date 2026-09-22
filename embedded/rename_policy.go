@@ -15,4 +15,4 @@ var ErrRenameRateLimited = authkit.ErrRenameRateLimited
 var ErrOwnerSlugTaken = authkit.ErrOwnerSlugTaken
 
 // NamingPolicy returns the normalized site policy for users and groups.
-func (s *Runtime) NamingPolicy() authkit.NamingPolicy { return s.cfg.namingPolicy }
+func (s *engine) NamingPolicy() authkit.NamingPolicy { return s.cfg.namingPolicy }

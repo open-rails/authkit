@@ -30,7 +30,7 @@ const (
 	RegistrationModeClosed     = authkit.RegistrationModeClosed
 )
 
-func (s *Runtime) issuePendingEmailRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
+func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
 	allowed, err := s.registrationAllowedForEmail(ctx, email)
 	if err != nil {
 		return "", err
@@ -79,7 +79,7 @@ func (s *Runtime) issuePendingEmailRegistration(ctx context.Context, email, user
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
 // Returns (emailTaken, usernameTaken, error)
-func (s *Runtime) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
+func (s *engine) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
 	var emailTaken, usernameTaken bool
 	email = NormalizeEmail(email)
 	username = strings.TrimSpace(username)
@@ -108,7 +108,7 @@ func (s *Runtime) CheckPendingRegistrationConflict(ctx context.Context, email, u
 
 // --- Phone Registration (for phone+password signups) ---
 
-func (s *Runtime) issuePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
+func (s *engine) issuePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
 	allowed, err := s.registrationAllowedForEmail(ctx, phone)
 	if err != nil {
 		return "", err
@@ -155,7 +155,7 @@ func (s *Runtime) issuePendingPhoneRegistration(ctx context.Context, phone, user
 
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
 // Returns (phoneTaken, usernameTaken, error)
-func (s *Runtime) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
+func (s *engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
 	var phoneTaken, usernameTaken bool
 	phone = NormalizePhone(phone)
 	username = strings.TrimSpace(username)
@@ -186,7 +186,7 @@ func (s *Runtime) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 
 // ResendRegistration reissues the pending signup while retaining its invitation,
 // username, password and language. A resend never creates an account.
-func (s *Runtime) ResendRegistration(ctx context.Context, identifier string) (bool, error) {
+func (s *engine) ResendRegistration(ctx context.Context, identifier string) (bool, error) {
 	kind := KindRegisterEmail
 	if !strings.Contains(identifier, "@") {
 		kind = KindRegisterPhone

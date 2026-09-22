@@ -8,7 +8,7 @@ import (
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
-func (s *Runtime) GenerateAvailableUsername(ctx context.Context, base string) string {
+func (s *engine) GenerateAvailableUsername(ctx context.Context, base string) string {
 	base = cleanUsername(base)
 	if base == "" {
 		base = "user"
@@ -47,7 +47,7 @@ func usernameWithSuffix(base, suffix string) string {
 // pgx.ErrNoRows for a free name, so ErrNoRows is the available case (#111: the
 // organization-slug reservation plane was removed, so username uniqueness is the only
 // constraint).
-func (s *Runtime) usernameAvailable(ctx context.Context, username string) bool {
+func (s *engine) usernameAvailable(ctx context.Context, username string) bool {
 	if s.pg == nil {
 		return true
 	}
@@ -57,7 +57,7 @@ func (s *Runtime) usernameAvailable(ctx context.Context, username string) bool {
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
-func (s *Runtime) DeriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
+func (s *engine) DeriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
 	// Highest: preferred username from provider
 	if strings.TrimSpace(preferred) != "" {
 		return s.GenerateAvailableUsername(ctx, preferred)

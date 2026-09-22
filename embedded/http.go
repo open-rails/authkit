@@ -19,7 +19,7 @@ type HTTPRoute struct {
 // implements this small construction boundary without an embedded/authhttp
 // package cycle. It is trusted host configuration, never a Client operation.
 type HTTPConfiguration interface {
-	BuildHTTP(*Runtime) (HTTPSurface, error)
+	BuildHTTP(HTTPBackend) (HTTPSurface, error)
 }
 
 // HTTPSurface is the runtime-owned result of local HTTP configuration.
@@ -32,7 +32,7 @@ type HTTPSurface interface {
 // ConfigureHTTP configures HTTP once, after local provisioning and before
 // obtaining routes. A failed build consumes the configuration attempt; the
 // operation Client remains usable and Runtime.Close still releases its engine.
-func (s *Runtime) ConfigureHTTP(cfg HTTPConfiguration) error {
+func (s *engine) ConfigureHTTP(cfg HTTPConfiguration) error {
 	if s == nil {
 		return errors.New("authkit: HTTP requires an initialized Runtime")
 	}
@@ -64,7 +64,7 @@ func (s *Runtime) ConfigureHTTP(cfg HTTPConfiguration) error {
 
 // HTTPRoutes returns the configured route inventory. Inspection seals HTTP
 // configuration, including an unconfigured runtime; configure before mounting.
-func (s *Runtime) HTTPRoutes() ([]HTTPRoute, error) {
+func (s *engine) HTTPRoutes() ([]HTTPRoute, error) {
 	if s == nil {
 		return nil, errors.New("authkit: HTTP requires an initialized Runtime")
 	}
@@ -83,7 +83,7 @@ func (s *Runtime) HTTPRoutes() ([]HTTPRoute, error) {
 // Verifier returns the configured local HTTP verifier. It is nil before
 // ConfigureHTTP or after Close. Ordinary verification remains stateless;
 // callers select live verification explicitly for sensitive operations.
-func (s *Runtime) Verifier() *verify.Verifier {
+func (s *engine) Verifier() *verify.Verifier {
 	if s == nil {
 		return nil
 	}

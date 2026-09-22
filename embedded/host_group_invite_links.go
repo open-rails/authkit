@@ -69,7 +69,7 @@ type GroupInviteLinkCreated = authkit.GroupInviteLinkCreated
 // sign up) or invite_only (sign up ONLY via an invite). Under closed an invited
 // stranger has no way to obtain an account, so the capability is OFF (an admin
 // assigns roles directly via the members endpoint instead).
-func (s *Runtime) externalInvitesEnabled() bool {
+func (s *engine) externalInvitesEnabled() bool {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil {
 		return false
@@ -79,11 +79,11 @@ func (s *Runtime) externalInvitesEnabled() bool {
 
 // ExternalInvitesEnabled exposes the registration-mode gate for HTTP adapters
 // (so a closed-registration deployment can omit/zero the invite-link routes).
-func (s *Runtime) ExternalInvitesEnabled() bool { return s.externalInvitesEnabled() }
+func (s *engine) ExternalInvitesEnabled() bool { return s.externalInvitesEnabled() }
 
 // inviteURL builds the host-facing accept-invite link: BaseURL + the configured
 // FrontendInvitePath + ?code=. The SPA reads the code and POSTs it to redeem.
-func (s *Runtime) inviteURL(code string) string {
+func (s *engine) inviteURL(code string) string {
 	q := url.Values{}
 	q.Set("code", code)
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
@@ -91,7 +91,7 @@ func (s *Runtime) inviteURL(code string) string {
 
 // CreateGroupInviteLink mints an unbound single-use invite link. Returns the
 // plaintext code ONCE.
-func (s *Runtime) CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error) {
+func (s *engine) CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
@@ -137,7 +137,7 @@ func (s *Runtime) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 
 // ListGroupInviteLinks lists the group's invite links (active and inactive),
 // newest first. Never returns the code or its hash.
-func (s *Runtime) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRef) ([]GroupInviteLink, error) {
+func (s *engine) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRef) ([]GroupInviteLink, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (s *Runtime) ListGroupInviteLinks(ctx context.Context, group authkit.GroupR
 
 // RevokeGroupInviteLink revokes a link by id, scoped to the group addressed by
 // (persona, instanceSlug) so a manager cannot revoke another group's link.
-func (s *Runtime) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupRef, linkID string) error {
+func (s *engine) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupRef, linkID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ type RedeemGroupInviteLinkResult = authkit.RedeemGroupInviteLinkResult
 // it validates the link (live, not expired/revoked, unredeemed), assigns the role
 // in the same transaction, and stamps redeemed_at. Idempotent: if the redeemer
 // already holds that role, it succeeds without consuming the link.
-func (s *Runtime) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error) {
+func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error) {
 	var zero RedeemGroupInviteLinkResult
 	if err := s.requirePG(); err != nil {
 		return zero, err

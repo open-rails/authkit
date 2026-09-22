@@ -13,6 +13,11 @@ import (
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, Redis, senders) are Deps.
 type Config struct {
+	// HTTP configures the optional runtime-owned HTTP surface during New.
+	// Pass authhttp.Config. Nil keeps the runtime headless; hosts that must
+	// provision first may call ConfigureHTTP before obtaining routes instead.
+	HTTP HTTPConfiguration
+
 	// River configures mandatory PostgreSQL cleanup; in-memory TTL stays local.
 	River RiverConfig
 

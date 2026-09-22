@@ -38,7 +38,7 @@ func newGraceHarness(t *testing.T, grace time.Duration) *graceHarness {
 	// Wall-following: the rotation timestamp the window is measured against is
 	// written by Postgres, so a frozen clock would sit behind it forever.
 	clk := testclock.Wall()
-	srv, err := New(newServerClient(t, cfg, pool, withClock(clk.Now)), workflowHTTPConfig())
+	srv, err := newTestService(newServerClient(t, cfg, pool, withClock(clk.Now)), workflowHTTPConfig())
 	require.NoError(t, err)
 	h, err := MountHandler(srv, MountOptions{})
 	require.NoError(t, err)

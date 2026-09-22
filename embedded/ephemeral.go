@@ -44,7 +44,7 @@ type EphemeralStore interface {
 // transport reuses it so a host that wired Redis on the engine doesn't also have
 // to pass it to authhttp — one Redis client, no split-brain ephemeral state
 // (authkit #210). The type assertion is also THE redis-vs-memory discriminator.
-func (s *Runtime) EphemeralRedisClient() *redis.Client {
+func (s *engine) EphemeralRedisClient() *redis.Client {
 	if s == nil {
 		return nil
 	}
@@ -56,7 +56,7 @@ func (s *Runtime) EphemeralRedisClient() *redis.Client {
 
 // resolveEphemeralStore turns Deps.Redis into the namespaced Redis store once
 // the (normalized) config is known (#307).
-func (s *Runtime) resolveEphemeralStore() {
+func (s *engine) resolveEphemeralStore() {
 	if s.redisClient == nil {
 		return
 	}
@@ -65,11 +65,11 @@ func (s *Runtime) resolveEphemeralStore() {
 
 // RedisKeyPrefix is the namespace every Redis key of this deployment is written
 // under (ephemeral store, OIDC/SIWS caches, rate-limit counters).
-func (s *Runtime) RedisKeyPrefix() string { return s.cfg.Ephemeral.KeyPrefix }
+func (s *engine) RedisKeyPrefix() string { return s.cfg.Ephemeral.KeyPrefix }
 
 // EphemeralBackend names the live ephemeral store: "redis", "memory", "custom"
 // (a host-supplied EphemeralStore) or "none".
-func (s *Runtime) EphemeralBackend() string {
+func (s *engine) EphemeralBackend() string {
 	switch s.ephemeralStore.(type) {
 	case nil:
 		return "none"
@@ -84,7 +84,7 @@ func (s *Runtime) EphemeralBackend() string {
 // checkEphemeralBackend refuses the per-process memory store unless
 // Ephemeral.AllowMemory opts in (#305), and logs which backend is live so a
 // mis-wired deployment is visible at startup.
-func (s *Runtime) checkEphemeralBackend(cfg Config) error {
+func (s *engine) checkEphemeralBackend(cfg Config) error {
 	backend := s.EphemeralBackend()
 	if backend == "memory" && !cfg.Ephemeral.AllowMemory {
 		return fmt.Errorf("authkit: in-memory ephemeral store without Ephemeral.AllowMemory: wire Redis, or set Ephemeral.AllowMemory for a single-instance deployment")
@@ -93,11 +93,11 @@ func (s *Runtime) checkEphemeralBackend(cfg Config) error {
 	return nil
 }
 
-func (s *Runtime) useEphemeralStore() bool {
+func (s *engine) useEphemeralStore() bool {
 	return s != nil && s.ephemeralStore != nil
 }
 
-func (s *Runtime) ephemSetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
+func (s *engine) ephemSetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
@@ -108,13 +108,13 @@ func (s *Runtime) ephemSetJSON(ctx context.Context, key string, value any, ttl t
 	return s.ephemeralStore.Set(ctx, key, b, ttl)
 }
 
-func (s *Runtime) ephemGetJSON(ctx context.Context, key string, out any) (bool, error) {
+func (s *engine) ephemGetJSON(ctx context.Context, key string, out any) (bool, error) {
 	_, ok, err := s.ephemReadJSON(ctx, key, out)
 	return ok, err
 }
 
 // ephemReadJSON retains the exact bytes for a later conditional claim.
-func (s *Runtime) ephemReadJSON(ctx context.Context, key string, out any) ([]byte, bool, error) {
+func (s *engine) ephemReadJSON(ctx context.Context, key string, out any) ([]byte, bool, error) {
 	if !s.useEphemeralStore() {
 		return nil, false, fmt.Errorf("ephemeral store unavailable")
 	}
@@ -128,7 +128,7 @@ func (s *Runtime) ephemReadJSON(ctx context.Context, key string, out any) ([]byt
 	return raw, true, nil
 }
 
-func (s *Runtime) claimProof(ctx context.Context, key string, expected []byte) error {
+func (s *engine) claimProof(ctx context.Context, key string, expected []byte) error {
 	if !s.useEphemeralStore() || len(expected) == 0 {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -142,14 +142,14 @@ func (s *Runtime) claimProof(ctx context.Context, key string, expected []byte) e
 	return nil
 }
 
-func (s *Runtime) ephemSetString(ctx context.Context, key, value string, ttl time.Duration) error {
+func (s *engine) ephemSetString(ctx context.Context, key, value string, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
 	return s.ephemeralStore.Set(ctx, key, []byte(value), ttl)
 }
 
-func (s *Runtime) ephemGetString(ctx context.Context, key string) (string, bool, error) {
+func (s *engine) ephemGetString(ctx context.Context, key string) (string, bool, error) {
 	if !s.useEphemeralStore() {
 		return "", false, fmt.Errorf("ephemeral store unavailable")
 	}
@@ -164,7 +164,7 @@ func (s *Runtime) ephemGetString(ctx context.Context, key string) (string, bool,
 // value into out. Use this — never ephemGetJSON + ephemDel — for credentials whose
 // KEY is the secret (passkey challenge, password-reset token): the atomic consume
 // guarantees at-most-once delivery so concurrent requests cannot replay the same key.
-func (s *Runtime) ephemConsumeJSON(ctx context.Context, key string, out any) (bool, error) {
+func (s *engine) ephemConsumeJSON(ctx context.Context, key string, out any) (bool, error) {
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store unavailable")
 	}
@@ -175,7 +175,7 @@ func (s *Runtime) ephemConsumeJSON(ctx context.Context, key string, out any) (bo
 	return true, json.Unmarshal(b, out)
 }
 
-func (s *Runtime) ephemConsumeString(ctx context.Context, key string) (string, bool, error) {
+func (s *engine) ephemConsumeString(ctx context.Context, key string) (string, bool, error) {
 	if !s.useEphemeralStore() {
 		return "", false, fmt.Errorf("ephemeral store unavailable")
 	}
@@ -186,14 +186,14 @@ func (s *Runtime) ephemConsumeString(ctx context.Context, key string) (string, b
 	return string(b), true, nil
 }
 
-func (s *Runtime) ephemIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+func (s *engine) ephemIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	if !s.useEphemeralStore() {
 		return 0, fmt.Errorf("ephemeral store unavailable")
 	}
 	return s.ephemeralStore.Incr(ctx, key, ttl)
 }
 
-func (s *Runtime) ephemDel(ctx context.Context, key string) error {
+func (s *engine) ephemDel(ctx context.Context, key string) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
@@ -202,7 +202,7 @@ func (s *Runtime) ephemDel(ctx context.Context, key string) error {
 
 // ClaimDPoPProof implements dpop.ReplayGuard using the configured shared
 // ephemeral store. Replay keys have a fixed length and expire within 121s.
-func (s *Runtime) ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+func (s *engine) ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	if len(key) != 43 || ttl <= 0 || ttl > 121*time.Second {
 		return false, fmt.Errorf("invalid DPoP replay claim")
 	}

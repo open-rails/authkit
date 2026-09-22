@@ -63,7 +63,7 @@ func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts
 	pool := testdb.Pool(t)
 	sender := &captureEmailSender{}
 	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
-	srv, err := New(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
+	srv, err := newTestService(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
 	require.NoError(t, err)
 	return srv, sender
 }

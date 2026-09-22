@@ -16,7 +16,7 @@ const sessionsGCBatchSize int64 = 5000
 
 // gcDeadSessions removes revoked/expired refresh sessions (history cascades)
 // in bounded batches until a short batch; it reports the batches issued.
-func (s *Runtime) gcDeadSessions(ctx context.Context, batchSize int64) (int, error) {
+func (s *engine) gcDeadSessions(ctx context.Context, batchSize int64) (int, error) {
 	batches := 0
 	for {
 		n, err := s.q.SessionsDeleteRevokedOrExpiredBatch(ctx, batchSize)
@@ -39,7 +39,7 @@ func (s *Runtime) gcDeadSessions(ctx context.Context, batchSize int64) (int, err
 // consumed-token history,
 // terminal keys/invites (retained terminalRetention after their first terminal event),
 // and session-event history past Config.SessionEventRetention (#245).
-func (s *Runtime) CleanupExpiredAuthState(ctx context.Context) error {
+func (s *engine) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

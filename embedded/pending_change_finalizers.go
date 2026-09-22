@@ -10,7 +10,7 @@ import (
 
 // finalizeChangeEmail applies a verified email change to an existing user,
 // revokes every other session and tells the previous address.
-func (s *Runtime) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
 		return "", errOrUnauthorized(err)
@@ -45,7 +45,7 @@ func (s *Runtime) finalizeChangeEmail(ctx context.Context, rec pendingChange, ke
 }
 
 // finalizeChangePhone is finalizeChangeEmail for the phone channel.
-func (s *Runtime) finalizeChangePhone(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
+func (s *engine) finalizeChangePhone(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
 		return "", errOrUnauthorized(err)
@@ -77,7 +77,7 @@ func (s *Runtime) finalizeChangePhone(ctx context.Context, rec pendingChange, ke
 // applyContactChange commits a recovery-identifier change and the revocation of
 // every other session in ONE transaction (as finishPasswordReset does, #199): a
 // hijacked contact must never go live while the sessions that hijacked it survive.
-func (s *Runtime) applyContactChange(ctx context.Context, rec pendingChange, keepSessionID *string, apply func(*db.Queries) error) error {
+func (s *engine) applyContactChange(ctx context.Context, rec pendingChange, keepSessionID *string, apply func(*db.Queries) error) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (s *Runtime) applyContactChange(ctx context.Context, rec pendingChange, kee
 // notifyContactChanged tells the previous address it was replaced. Best-effort:
 // the change is already committed, so a delivery failure is logged (without the
 // address) rather than reported as a failed confirmation.
-func (s *Runtime) notifyContactChanged(ctx context.Context, userID string, send func(context.Context) error) {
+func (s *engine) notifyContactChanged(ctx context.Context, userID string, send func(context.Context) error) {
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 	if err := s.withSendTimeout(sendCtx, send); err != nil {
 		stdlog.Printf("[authkit/security] contact-change notice to the previous address failed for user %s: %v", userID, err)

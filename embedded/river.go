@@ -74,7 +74,7 @@ type riverMaintenance struct {
 	closed     bool
 }
 
-func (s *Runtime) initRiver(ownership *RiverOwnership) error {
+func (s *engine) initRiver(ownership *RiverOwnership) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -93,7 +93,7 @@ func (s *Runtime) initRiver(ownership *RiverOwnership) error {
 // RiverJobs contributes AuthKit maintenance to one host-owned fleet. It does not
 // construct or start a client. Compose once, before serving requests, and close
 // the library if composition fails. The host controls Start and Stop.
-func (s *Runtime) RiverJobs() riverhelpers.Contribution {
+func (s *engine) RiverJobs() riverhelpers.Contribution {
 	claimed := false
 	return riverhelpers.NewContribution("authkit", func(_ context.Context, cfg *river.Config) error {
 		if s == nil || s.maintenance == nil {
@@ -132,7 +132,7 @@ func (s *Runtime) RiverJobs() riverhelpers.Contribution {
 	})
 }
 
-func (s *Runtime) registerRiver(cfg *river.Config) error {
+func (s *engine) registerRiver(cfg *river.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("authkit: host River config is required")
 	}
@@ -175,7 +175,7 @@ func (s *Runtime) registerRiver(cfg *river.Config) error {
 // performs no migrations. In host mode it checks registration only: the host
 // starts its shared client after composing every library's worker registry.
 // A client without PostgreSQL (for example verify-only tests) has no jobs.
-func (s *Runtime) Start(ctx context.Context) error {
+func (s *engine) Start(ctx context.Context) error {
 	if s == nil || s.maintenance == nil {
 		return nil
 	}
@@ -194,7 +194,7 @@ func (s *Runtime) Start(ctx context.Context) error {
 	return m.client.Start(ctx)
 }
 
-func (s *Runtime) closeRiver() {
+func (s *engine) closeRiver() {
 	if s.maintenance == nil {
 		return
 	}
@@ -218,7 +218,7 @@ func (cleanupAuthStateArgs) Kind() string { return "authkit_cleanup_expired_auth
 
 type cleanupAuthStateWorker struct {
 	river.WorkerDefaults[cleanupAuthStateArgs]
-	client *Runtime
+	client *engine
 }
 
 func (w *cleanupAuthStateWorker) Timeout(*river.Job[cleanupAuthStateArgs]) time.Duration {

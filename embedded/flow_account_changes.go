@@ -26,7 +26,7 @@ import (
 // pending-change store under kind/target/userID with ttl, and returns the
 // plaintext code and link token for delivery. Re-storing supersedes any prior
 // record for the same user/kind.
-func (s *Runtime) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
+func (s *engine) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
 	code = randAlphanumeric(6)
 	linkToken = RandB64(32)
 	if err := s.storePendingChange(ctx, pendingChange{
@@ -43,7 +43,7 @@ func (s *Runtime) newPendingContactChange(ctx context.Context, kind PendingChang
 
 // confirmContactChangeCode finalizes the caller's own pending change when the
 // typed code matches and (if supplied) the target is the one being changed to.
-func (s *Runtime) confirmContactChangeCode(ctx context.Context, kind PendingChangeKind, userID, target, code string, keepSessionID *string) error {
+func (s *engine) confirmContactChangeCode(ctx context.Context, kind PendingChangeKind, userID, target, code string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -65,7 +65,7 @@ func (s *Runtime) confirmContactChangeCode(ctx context.Context, kind PendingChan
 // through the channel's sender, enriching the context with the user's preferred
 // language and bounding it with the send timeout. When no sender is configured
 // it is a no-op in development and returns unavailable otherwise.
-func (s *Runtime) sendContactChangeVerification(ctx context.Context, userID string, senderConfigured bool, send func(context.Context) error, wrapErr func(error) error, unavailable error) error {
+func (s *engine) sendContactChangeVerification(ctx context.Context, userID string, senderConfigured bool, send func(context.Context) error, wrapErr func(error) error, unavailable error) error {
 	if senderConfigured {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, send); err != nil {
@@ -81,7 +81,7 @@ func (s *Runtime) sendContactChangeVerification(ctx context.Context, userID stri
 
 // RequestPhoneChange initiates a phone number change by sending a verification code to the new phone.
 // The current phone is NOT changed until the user confirms via ConfirmPhoneChange.
-func (s *Runtime) RequestPhoneChange(ctx context.Context, userID, newPhone string) error {
+func (s *engine) RequestPhoneChange(ctx context.Context, userID, newPhone string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -123,12 +123,12 @@ func (s *Runtime) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 // ConfirmPhoneChange verifies the code and applies the new phone. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
-func (s *Runtime) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
+func (s *engine) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
 	return s.confirmContactChangeCode(ctx, KindChangePhone, userID, phone, code, keepSessionID)
 }
 
 // ConfirmPhoneChangeByToken applies a pending phone change using its high-entropy link token.
-func (s *Runtime) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
+func (s *engine) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
 	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangePhone)
 }
 
@@ -136,7 +136,7 @@ func (s *Runtime) ConfirmPhoneChangeByToken(ctx context.Context, token string) (
 // The current email is NOT changed until the user confirms via ConfirmEmailChange.
 // The old address is not notified by AuthKit (only a security log line); a host
 // that wants that notification sends it itself.
-func (s *Runtime) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
+func (s *engine) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -184,11 +184,11 @@ func (s *Runtime) RequestEmailChange(ctx context.Context, userID, newEmail strin
 
 // ConfirmEmailChange verifies the code and applies the new email. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
-func (s *Runtime) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
+func (s *engine) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
 	return s.confirmContactChangeCode(ctx, KindChangeEmail, userID, email, code, keepSessionID)
 }
 
 // ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
-func (s *Runtime) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
+func (s *engine) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
 	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangeEmail)
 }

@@ -28,7 +28,7 @@ const (
 // obligation every required site acknowledged — the purge-ready set. An
 // unacknowledged account is retained and never listed, and the backlog is not
 // walked, so the page advances whatever the backlog size.
-func (s *Runtime) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
+func (s *engine) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -40,14 +40,14 @@ func (s *Runtime) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, 
 
 // HardDeleteUser permanently deletes the user row and dependent AuthKit rows
 // via ON DELETE CASCADE; the erasure obligation survives until acknowledged.
-func (s *Runtime) HardDeleteUser(ctx context.Context, userID string) error {
+func (s *engine) HardDeleteUser(ctx context.Context, userID string) error {
 	return s.AdminDeleteUser(ctx, userID)
 }
 
 // ListErasureObligations pages the obligations site has not acknowledged over
 // the (created_at, user_id) keyset; after is "" for the first page and next is
 // "" on the last one.
-func (s *Runtime) ListErasureObligations(ctx context.Context, site, after string, limit int) ([]authkit.ErasureObligation, string, error) {
+func (s *engine) ListErasureObligations(ctx context.Context, site, after string, limit int) ([]authkit.ErasureObligation, string, error) {
 	if s.pg == nil {
 		return nil, "", nil
 	}
@@ -87,7 +87,7 @@ func (s *Runtime) ListErasureObligations(ctx context.Context, site, after string
 // once the identity is purged and no acknowledgement is outstanding. The
 // obligation row is locked so concurrent final acknowledgements cannot both
 // miss the close.
-func (s *Runtime) AcknowledgeErasure(ctx context.Context, site, userID string) error {
+func (s *engine) AcknowledgeErasure(ctx context.Context, site, userID string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func (s *Runtime) AcknowledgeErasure(ctx context.Context, site, userID string) e
 }
 
 // ErasureBacklog reports unacknowledged obligations per site.
-func (s *Runtime) ErasureBacklog(ctx context.Context) ([]authkit.ErasureSiteBacklog, error) {
+func (s *engine) ErasureBacklog(ctx context.Context) ([]authkit.ErasureSiteBacklog, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -138,7 +138,7 @@ func (s *Runtime) ErasureBacklog(ctx context.Context) ([]authkit.ErasureSiteBack
 
 // raiseErasureObligationTx records userID's obligation (identifiers captured
 // from the still-present users row) and requires every account issuer.
-func (s *Runtime) raiseErasureObligationTx(ctx context.Context, q *db.Queries, userID string) error {
+func (s *engine) raiseErasureObligationTx(ctx context.Context, q *db.Queries, userID string) error {
 	if err := q.ErasureObligationRecord(ctx, userID); err != nil {
 		return err
 	}

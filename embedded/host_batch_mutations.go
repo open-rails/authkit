@@ -12,7 +12,7 @@ import (
 // remain on the internal Runtime for the HTTP handlers (self-delete and the
 // admin delete route act on exactly one subject).
 
-func (s *Runtime) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+func (s *engine) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
 		out = append(out, authkit.OpResult{ID: id, Err: s.HardDeleteUser(ctx, id)})
@@ -20,7 +20,7 @@ func (s *Runtime) HardDeleteUsers(ctx context.Context, userIDs []string) ([]auth
 	return out, nil
 }
 
-func (s *Runtime) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+func (s *engine) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
 		out = append(out, authkit.OpResult{ID: id, Err: s.SoftDeleteUser(ctx, id)})
@@ -32,7 +32,7 @@ func (s *Runtime) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]auth
 // authority path (#136) PER ITEM: the actor may hold authority over some targets
 // and not others, so each item carries its own authz outcome.
 
-func (s *Runtime) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
+func (s *engine) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
 		out = append(out, authkit.OpResult{ID: id, Err: s.AssignRoleBySlugAs(ctx, actorUserID, id, role)})
@@ -40,7 +40,7 @@ func (s *Runtime) AssignRolesBySlugAs(ctx context.Context, actorUserID string, u
 	return out, nil
 }
 
-func (s *Runtime) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
+func (s *engine) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role authkit.Role) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
 		out = append(out, authkit.OpResult{ID: id, Err: s.RemoveRoleBySlugAs(ctx, actorUserID, id, role)})

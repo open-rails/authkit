@@ -54,7 +54,7 @@ func TestManagedRiverMaintenance(t *testing.T) {
 			assertMigrationRuntimeUser(t, runtimePool)
 			cfg := maintenanceConfig()
 			cfg.River = RiverConfig{Schema: schema, CleanupInterval: time.Second}
-			core, err := New(cfg, Deps{Postgres: runtimePool})
+			core, err := newEngine(cfg, Deps{Postgres: runtimePool})
 			require.NoError(t, err)
 			t.Cleanup(core.Close)
 			id := expiredEvent(t, pg.Pool)
@@ -98,7 +98,7 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 	var riverExists bool
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT to_regclass('public.river_job') IS NOT NULL").Scan(&riverExists))
 	require.False(t, riverExists, "host mode must not migrate River")
-	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: ownership})
+	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, River: ownership})
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
 	require.Nil(t, core.maintenance.client, "host mode must not construct another River client")
@@ -147,7 +147,7 @@ func TestRiverConstructionFailureDoesNotStartOrOwnHostPool(t *testing.T) {
 	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
 	cfg := maintenanceConfig()
 	cfg.Ephemeral.AllowMemory = false
-	core, err := New(cfg, Deps{Postgres: pg.Pool})
+	core, err := newEngine(cfg, Deps{Postgres: pg.Pool})
 	require.Error(t, err)
 	require.Nil(t, core)
 	require.NoError(t, pg.Pool.Ping(t.Context()))
@@ -157,7 +157,7 @@ func TestRiverConstructionFailureDoesNotStartOrOwnHostPool(t *testing.T) {
 }
 
 func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
-	core, err := New(maintenanceConfig(), Deps{})
+	core, err := newEngine(maintenanceConfig(), Deps{})
 	require.NoError(t, err)
 	defer core.Close()
 	require.NoError(t, core.Start(t.Context()))
@@ -168,18 +168,18 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	require.ErrorContains(t, err, "requires PostgreSQL")
 	cfg := maintenanceConfig()
 	cfg.River.Schema = "invalid;schema"
-	_, err = New(cfg, Deps{})
+	_, err = newEngine(cfg, Deps{})
 	require.ErrorContains(t, err, "River.Schema")
 	cfg = maintenanceConfig()
 	cfg.River.CleanupInterval = -time.Hour
-	_, err = New(cfg, Deps{})
+	_, err = newEngine(cfg, Deps{})
 	require.ErrorContains(t, err, "CleanupInterval")
 }
 
 func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
-	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	defer core.Close()
 	fail := riverhelpers.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, riverhelpers.Binding) error { return fmt.Errorf("binding failed") }, func() error { return nil })
@@ -196,7 +196,7 @@ func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testin
 func TestClosedRiverJobsCannotCompose(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
-	core, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	core.Close()
 	_, err = riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs())

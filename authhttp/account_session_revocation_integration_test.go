@@ -48,8 +48,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	siteB := site(issuerB, time.Hour, issuerA, issuerB)
 	siteC := site(issuerC, time.Hour)
 	require.Equal(t, []string{issuerA, issuerB}, siteA.svc.Config().Token.AccountIssuers)
-	require.NoError(t, siteA.svc.SeedPermissionGroupContainment(ctx))
-	_, err := siteA.svc.EnsureRootGroup(ctx)
+	require.NoError(t, fixtureBackend(siteA.svc).SeedPermissionGroupContainment(ctx))
+	_, err := fixtureBackend(siteA.svc).EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	type tokens struct {
@@ -99,7 +99,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	victimID, victimEmail, victimPass := user("victim")
 	_, bystanderEmail, bystanderPass := user("bystander")
 	operatorID, operatorEmail, operatorPass := user("operator")
-	require.NoError(t, siteA.svc.AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+	require.NoError(t, fixtureBackend(siteA.svc).AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
 
 	bystanderA, bystanderB := login(siteA, bystanderEmail, bystanderPass), login(siteB, bystanderEmail, bystanderPass)
 	key := make([]byte, 32)

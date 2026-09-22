@@ -50,7 +50,7 @@ type passwordlessChallenge struct {
 	AccountInviteToken string `json:"account_invite_token,omitempty"`
 }
 
-func (s *Runtime) StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error) {
+func (s *engine) StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
 		return PasswordlessStartResult{}, ErrPasswordlessDisabled
 	}
@@ -151,7 +151,7 @@ type PasswordlessLoginInput struct {
 	IP         string
 }
 
-func (s *Runtime) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error) {
+func (s *engine) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
 		return LoginOutcome{}, ErrPasswordlessDisabled
 	}
@@ -213,7 +213,7 @@ func (s *Runtime) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInp
 // storePasswordlessChallenge issues one challenge per (channel, identifier),
 // superseding any outstanding one. The code hash stays inside the record; only
 // the 256-bit link token gets a global pointer (#301).
-func (s *Runtime) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
+func (s *engine) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
 	rec.ID = RandB64(16)
 	key := passwordlessKey(rec.Channel, rec.Identifier)
 	s.deletePasswordlessChallenge(ctx, key)
@@ -226,25 +226,25 @@ func (s *Runtime) storePasswordlessChallenge(ctx context.Context, rec passwordle
 	return nil
 }
 
-func (s *Runtime) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
+func (s *engine) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
 	var rec passwordlessChallenge
 	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
 	rec.expected = raw
 	return rec, ok && rec.ID != "", err
 }
 
-func (s *Runtime) deletePasswordlessChallenge(ctx context.Context, key string) {
+func (s *engine) deletePasswordlessChallenge(ctx context.Context, key string) {
 	rec, ok, _ := s.loadPasswordlessChallenge(ctx, key)
 	if ok && s.claimProof(ctx, key, rec.expected) == nil && rec.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
 	}
 }
 
-func (s *Runtime) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
+func (s *engine) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
 	s.deletePasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
 }
 
-func (s *Runtime) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
+func (s *engine) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -257,7 +257,7 @@ func (s *Runtime) RecordFailedPasswordlessCode(ctx context.Context, identifier s
 	}
 }
 
-func (s *Runtime) clearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
+func (s *engine) clearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -268,7 +268,7 @@ func (s *Runtime) clearPasswordlessCodeAttempts(ctx context.Context, identifier 
 	_ = s.ephemDel(ctx, keyPasswordlessAttempts+channel+":"+normalized)
 }
 
-func (s *Runtime) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
+func (s *engine) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
 	if err := s.claimProof(ctx, passwordlessKey(rec.Channel, rec.Identifier), rec.expected); err != nil {
 		return registeredAccount{}, err
 	}
@@ -284,7 +284,7 @@ func (s *Runtime) consumePasswordlessChallenge(ctx context.Context, rec password
 	return s.verifyContactProof(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier)
 }
 
-func (s *Runtime) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string) (registeredAccount, error) {
+func (s *engine) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string) (registeredAccount, error) {
 	if version <= 0 {
 		return registeredAccount{}, jwt.ErrTokenUnverifiable
 	}
@@ -325,7 +325,7 @@ func (s *Runtime) verifyContactProof(ctx context.Context, userID string, version
 	return registeredAccount{ID: u.ID, Version: current.CredentialVersion}, nil
 }
 
-func (s *Runtime) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
+func (s *engine) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
 	username := rec.GeneratedUsername
 	if username == "" || ValidateUsername(username) != nil {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
@@ -350,7 +350,7 @@ func (s *Runtime) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 	return user, nil
 }
 
-func (s *Runtime) sendPasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, code, linkURL string) error {
+func (s *engine) sendPasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, code, linkURL string) error {
 	msg := VerificationMessage{Code: code, LinkURL: linkURL, Purpose: "passwordless_login"}
 	if err := msg.Validate(); err != nil {
 		return err
@@ -376,7 +376,7 @@ func (s *Runtime) sendPasswordlessChallenge(ctx context.Context, rec passwordles
 	}
 }
 
-func (s *Runtime) passwordlessAutoRegistrationAllowed() bool {
+func (s *engine) passwordlessAutoRegistrationAllowed() bool {
 	if s == nil || !s.cfg.Registration.PasswordlessAutoRegistration {
 		return false
 	}
@@ -384,7 +384,7 @@ func (s *Runtime) passwordlessAutoRegistrationAllowed() bool {
 	return err == nil && mode != RegistrationModeClosed
 }
 
-func (s *Runtime) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {
+func (s *engine) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {
 	base := "user"
 	if channel == PasswordlessChannelEmail {
 		if at := strings.IndexByte(identifier, '@'); at > 0 {

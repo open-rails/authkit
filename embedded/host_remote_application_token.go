@@ -44,7 +44,7 @@ type RemoteApplicationAccessParams = authkit.RemoteApplicationAccessParams
 // MintRemoteApplicationAccessToken signs a remote application access token using the
 // Runtime's internal signer. When p.Issuer is empty it defaults to the Runtime's
 // configured Issuer.
-func (s *Runtime) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
+func (s *engine) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner

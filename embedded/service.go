@@ -100,8 +100,8 @@ var (
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
 
-// Runtime is the core auth service used by HTTP adapters.
-type Runtime struct {
+// engine owns local business logic and resources behind Runtime and Client.
+type engine struct {
 	httpMu      sync.Mutex
 	httpFrozen  bool
 	httpSurface HTTPSurface
@@ -160,7 +160,7 @@ type Runtime struct {
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.
-func (s *Runtime) SendWelcome(ctx context.Context, userID string) {
+func (s *engine) SendWelcome(ctx context.Context, userID string) {
 	if s.email == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
 		return
 	}
@@ -178,7 +178,7 @@ func (s *Runtime) SendWelcome(ctx context.Context, userID string) {
 }
 
 // HasPassword reports whether the user has a local password set.
-func (s *Runtime) HasPassword(ctx context.Context, userID string) (bool, error) {
+func (s *engine) HasPassword(ctx context.Context, userID string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
 	}
@@ -188,7 +188,7 @@ func (s *Runtime) HasPassword(ctx context.Context, userID string) (bool, error) 
 // ListEntitlements returns current entitlement names for a user (fresh from
 // the provider — a one-element batch, #221). A provider failure is logged and
 // returned as none — callers (admin user views) degrade rather than fail.
-func (s *Runtime) ListEntitlements(ctx context.Context, userID string) []string {
+func (s *engine) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
@@ -213,7 +213,7 @@ type PendingRegistration struct {
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
-func (s *Runtime) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
+func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -231,7 +231,7 @@ func (s *Runtime) GetPendingRegistrationByEmail(ctx context.Context, email strin
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
 // (PendingRegistration.Email carries the phone for phone registrations, preserving prior behavior.)
-func (s *Runtime) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
+func (s *engine) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -249,7 +249,7 @@ func (s *Runtime) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone 
 
 // VerifyPendingPassword checks if the provided password matches the pending registration's hash.
 // Returns true if password is correct, false otherwise.
-func (s *Runtime) VerifyPendingPassword(ctx context.Context, email, pass string) bool {
+func (s *engine) VerifyPendingPassword(ctx context.Context, email, pass string) bool {
 	pr, err := s.GetPendingRegistrationByEmail(ctx, email)
 	if err != nil || pr == nil {
 		return false
@@ -262,7 +262,7 @@ func (s *Runtime) VerifyPendingPassword(ctx context.Context, email, pass string)
 
 // VerifyPendingPhonePassword checks if the provided password matches the pending
 // phone registration's hash. Returns true if password is correct, false otherwise.
-func (s *Runtime) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
+func (s *engine) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
 	pr, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
 	if err != nil || pr == nil {
 		return false
@@ -279,7 +279,7 @@ func (s *Runtime) VerifyPendingPhonePassword(ctx context.Context, phone, pass st
 
 // requirePG returns an error when no Postgres pool is configured (verify-only /
 // config-only construction). Store-backed methods guard on it.
-func (s *Runtime) requirePG() error {
+func (s *engine) requirePG() error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}

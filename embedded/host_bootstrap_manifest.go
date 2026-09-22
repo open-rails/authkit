@@ -78,7 +78,7 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 
 // ApplyBootstrapManifest commits seed data and its StartupOnly completion claim
 // together. All manifests in one schema serialize, regardless of their names.
-func (s *Runtime) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (result BootstrapManifestResult, err error) {
+func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (result BootstrapManifestResult, err error) {
 	if err = s.requirePG(); err != nil {
 		return result, err
 	}
@@ -235,7 +235,7 @@ func (s *Runtime) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 	return result, nil
 }
 
-func (s *Runtime) bootstrapApplyName(name string) string {
+func (s *engine) bootstrapApplyName(name string) string {
 	if name = strings.TrimSpace(name); name != "" {
 		return name
 	}
@@ -248,7 +248,7 @@ func (s *Runtime) bootstrapApplyName(name string) string {
 // graph is accounted for and a new name records itself as already applied
 // instead of refusing. Only a non-empty graph with an EMPTY claim table is
 // refused.
-func (s *Runtime) claimBootstrapApply(ctx context.Context, q db.DBTX, name string) (already bool, err error) {
+func (s *engine) claimBootstrapApply(ctx context.Context, q db.DBTX, name string) (already bool, err error) {
 	name = s.bootstrapApplyName(name)
 	var nameClaimed, anyClaimed, graphEmpty bool
 	if err := q.QueryRow(ctx, `
@@ -293,7 +293,7 @@ func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS boo
 	return nil
 }
 
-func (s *Runtime) applyBootstrapRemoteApplication(ctx context.Context, groups *PermissionGroupStore, rootID string, app BootstrapManifestRemoteApplication) error {
+func (s *engine) applyBootstrapRemoteApplication(ctx context.Context, groups *PermissionGroupStore, rootID string, app BootstrapManifestRemoteApplication) error {
 	ra, err := s.upsertRemoteApplication(ctx, groups, RemoteApplication{
 		Slug:              strings.TrimSpace(app.Slug),
 		PermissionGroupID: rootID,
@@ -348,7 +348,7 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 	return nil
 }
 
-func (s *Runtime) applyBootstrapUser(ctx context.Context, tx pgx.Tx, user BootstrapManifestUser) (*User, bool, error) {
+func (s *engine) applyBootstrapUser(ctx context.Context, tx pgx.Tx, user BootstrapManifestUser) (*User, bool, error) {
 	q := s.qtx(tx)
 	existing, err := s.findBootstrapUser(ctx, q, user)
 	if err != nil {
@@ -363,7 +363,7 @@ func (s *Runtime) applyBootstrapUser(ctx context.Context, tx pgx.Tx, user Bootst
 	return applied, false, err
 }
 
-func (s *Runtime) findBootstrapUser(ctx context.Context, q *db.Queries, user BootstrapManifestUser) (*User, error) {
+func (s *engine) findBootstrapUser(ctx context.Context, q *db.Queries, user BootstrapManifestUser) (*User, error) {
 	if username := strings.TrimSpace(user.Username); username != "" {
 		resolution, err := q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: username, AtTime: s.namingNow()})
 		if err == nil {
@@ -431,7 +431,7 @@ func prepareBootstrapPassword(p BootstrapUserPassword) (out db.UserPasswordUpser
 	return out, err
 }
 
-func (s *Runtime) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, userID string, p BootstrapUserPassword, prepared db.UserPasswordUpsertParams) (bool, []revokedSession, error) {
+func (s *engine) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, userID string, p BootstrapUserPassword, prepared db.UserPasswordUpsertParams) (bool, []revokedSession, error) {
 	// Use the same lock order as every credential mutation, including the no-op
 	// comparison, so another password change cannot slip between read and write.
 	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); err != nil {

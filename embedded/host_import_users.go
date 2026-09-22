@@ -64,7 +64,7 @@ type preparedImportRow struct {
 // Each input may carry an optional pre-hashed PasswordHash; for inserted rows it
 // is validated before insertion; unsupported work factors require an explicit
 // HashAlgoLegacyResetRequired marker.
-func (s *Runtime) ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error) {
+func (s *engine) ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error) {
 	res := ImportUsersResult{Results: make([]ImportUserResult, len(inputs))}
 	if len(inputs) == 0 {
 		return res, nil
@@ -171,7 +171,7 @@ func (s *Runtime) ImportUsers(ctx context.Context, inputs []ImportUserInput) (Im
 
 // bulkInsertUsers inserts a chunk via one multi-row INSERT and returns the set of
 // ids that actually landed (ON CONFLICT DO NOTHING drops racing duplicates).
-func (s *Runtime) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow) (map[string]struct{}, error) {
+func (s *engine) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow) (map[string]struct{}, error) {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (s *Runtime) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow
 // bulkInsertPasswordHashes stores pre-hashed credentials for freshly-inserted
 // users in one multi-row INSERT. ON CONFLICT (user_id) DO NOTHING since the user
 // was just created.
-func (s *Runtime) bulkInsertPasswordHashes(ctx context.Context, rows []preparedImportRow) error {
+func (s *engine) bulkInsertPasswordHashes(ctx context.Context, rows []preparedImportRow) error {
 	var b strings.Builder
 	b.WriteString("INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ")
 	args := make([]any, 0, len(rows)*3)
