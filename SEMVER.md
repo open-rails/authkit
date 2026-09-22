@@ -2,8 +2,7 @@
 
 AuthKit currently ships on the v0 release line. The premature v1.0.0 is
 retracted, together with the administrative v1.0.1 tag that publishes its
-retraction metadata. These tags are not supported releases; v0.108.2 remains
-the current maintenance release. Retractions let Go select the supported v0
+retraction metadata. These tags are not supported releases; the maintained release line remains v0. Retractions let Go select the supported v0
 line even when module proxies retain a deleted v1 tag. Existing published
 versions are never moved or rewritten.
 
@@ -68,8 +67,8 @@ generated or canonical sources named below, not here.
 | Import path | Package | Tier | Role |
 |---|---|---|---|
 | `github.com/open-rails/authkit` | `authkit` | Stable | `Client` interface, domain/wire types, typed identifiers, error catalog, verify-only primitives |
-| `…/embedded` | `embedded` | Stable | The engine: `New(cfg, deps) (*Client, error)` |
-| `…/authhttp` | `authhttp` | Stable | HTTP transport: `New(client, Config)`, `MountHandler`, `NewMount` and its route catalog |
+| `…/embedded` | `embedded` | Stable | Local engine: `New(cfg, deps) (*Runtime, error)`; `Runtime.Client()` exposes application operations |
+| `…/authhttp` | `authhttp` | Stable | Runtime HTTP configuration and lower-level `New(runtime, Config)`, `MountHandler`, `NewMount` |
 | `…/verify` | `verify` | Stable (verify-only) | Verifier, `Claims`, middleware, permission/liveness gates |
 | `…/dpop` | `dpop` | Stable (verify-only) | RFC 9449 sender-proof verification and atomic replay callback |
 | `…/documents` | `documents` | Stable | Signed-document envelopes, publisher/resolver, service |
@@ -79,6 +78,7 @@ generated or canonical sources named below, not here.
 | `…/ratelimit` (+ `/memory`, `/redis`) | `ratelimit` | Stable / Provided | `Limit`/`Result` and the two backends |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
+| `…/adapters/http` | `authkithttp` | Provided | Configured runtime route bundle for net/http and Chi; part of the root module |
 | `…/adapters/gin`, `…/adapters/fiber`, `…/adapters/riverjobs` | `authkitgin`, `authkitfiber`, `riverjobs` | Provided | Own modules |
 | `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
@@ -87,19 +87,22 @@ Renaming an import path or package name is MAJOR; adding a package is MINOR.
 exported signatures as well as the documented host compile fixtures.
 
 **Nested modules.** `adapters/gin`, `adapters/fiber` and `adapters/riverjobs`
-are their own modules so Gin, Fiber and River never enter the root `go.mod`.
+are their own modules. Gin and Fiber framework dependencies remain isolated;
+the embedded runtime itself uses River and `github.com/open-rails/helpers/river`
+for shared host composition.
 Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`,
 `adapters/riverjobs/vX.Y.Z`. Release order: tag the root, bump each nested
 `require github.com/open-rails/authkit` to it, tag the adapters.
 
 ### 3.2 Rules
 
-- **Use `*embedded.Client` or a consumer-owned interface.** The constructor,
-  configuration, trusted host operations, bootstrap/import, document store and
-  passkey ceremonies documented in README and the host compile fixtures are
-  covered. `authkit.Client` is a convenient subset, not the stability boundary.
-  Methods used only to compose AuthKit's transport are implementation seams;
-  an exported helper alone does not establish a supported host workflow.
+- **Use `authkit.Client` for application operations and `*embedded.Runtime` for
+  local engine ownership.** `Runtime.Client()` returns the operation view without
+  pool, configuration or lifecycle access. Construction, bootstrap/import,
+  document publication, passkey ceremonies, `ConfigureHTTP`, `RiverJobs`, and
+  `Start`/`Close` remain documented Runtime responsibilities. Both public
+  contracts are covered; there is no `embedded.Client` compatibility alias.
+  AuthKit does not yet provide a remote Client transport.
 - **`Client` membership.** Adding a method is MAJOR (fakes implement it). A
   method belongs only when a server calls it in-process; browser flows belong
   to the HTTP layer. Lifecycle pairs stay together (`MintAPIKeyWithOptions` ⇒
@@ -127,7 +130,8 @@ bootstrap/import/provisioning, never for forwarding an untrusted role request.
 The host owns this boundary even when it obtains the client through an interface.
 
 **Concrete host families.** In addition to `authkit.Client`: `New`/`NewWithKeys`,
-`Config`/`Deps`, `Genesis`, manifest loading/parsing, document publication via
+`Config`/`Deps`, `Runtime.Client`, `ConfigureHTTP`, `RiverJobs`, `Start`/`Close`,
+`Genesis`, manifest loading/parsing, document publication via
 `DocumentStore`, and the passkey begin/finish/list/rename/delete operations are
 supported. AuthKit keeps the signer/key-source extension points in `jwtkit`:
 document signing and host-managed keys consume them directly. Their external
@@ -136,8 +140,13 @@ an otherwise compatible AuthKit release.
 
 ## 4. Plane B — HTTP route surface
 
-- Routes are prefix-neutral. `authhttp.MountHandler(svc, MountOptions)` serves
-  the whole surface: JSON API under `APIPrefix` (default `/api/v1`), browser
+- Configure HTTP once through `Runtime.ConfigureHTTP(authhttp.Config)`, then
+  obtain a framework bundle with `authkithttp.Routes(runtime)`,
+  `authkitgin.Routes(runtime)` or `authkitfiber.Routes(runtime)` and mount it on
+  the root router. HTTP policy belongs to the runtime configuration, not each
+  mount. These bundle APIs are covered.
+- `authhttp.MountHandler(svc, MountOptions)` remains a lower-level surface:
+  JSON API under `APIPrefix` (default `/api/v1`), browser
   OIDC at `/oidc`, JWKS at `/.well-known/jwks.json`, documents at
   `/.well-known/authkit/documents/{digest}`.
 - Covered: `MountOptions{Groups, APIPrefix, ExcludeRoutes, Wrap, RefreshCookie}`,

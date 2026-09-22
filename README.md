@@ -391,7 +391,7 @@ token until it expires (at most one access TTL). For a surface that cannot
 accept that window:
 
 ```go
-// authhttp.New(client, cfg) already wires the client as the liveness source.
+// authhttp.New(runtime, cfg) already wires its operation client as the liveness source.
 requiredLive, err := authkitgin.RequiredLive(srv.Verifier()) // verify.RequiredLive for net/http
 ```
 
