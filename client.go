@@ -17,6 +17,9 @@ type Client interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByPhone(ctx context.Context, phone string) (*User, error)
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	// GetUserMetadata reads application-owned JSON under trusted host authority.
+	// Hosts select public fields explicitly; the metadata map is not a public profile.
+	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
 	// {Hard,Soft}DeleteUsers are batch-native admin bulk mutations (#219/#222):
 	// per-item BEST-EFFORT — the returned OpResults pinpoint the failures; the
 	// outer error is a whole-call failure only (e.g. no store).
