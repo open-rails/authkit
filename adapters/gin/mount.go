@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // Mount registers AuthKit's configured routes directly on router. Each route,
@@ -39,17 +38,27 @@ func Mount(router *gin.Engine, svc *authhttp.Service, options ...authhttp.MountO
 	if err != nil {
 		return err
 	}
-	routes := make([]embedded.HTTPRoute, 0, len(mount.Routes()))
-	for _, r := range mount.Routes() {
-		routes = append(routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+	routes := mount.Routes()
+	for i := range routes {
+		routes[i].Path, err = ginRoutePath(routes[i].Path)
+		if err != nil {
+			return err
+		}
 	}
-	return mountHTTPRoutes(router, routes)
+	if err := validateMountRoutes(router, routes); err != nil {
+		return err
+	}
+	handler := gin.WrapH(mount)
+	for _, route := range routes {
+		router.Handle(route.Method, route.Path, handler)
+	}
+	return nil
 }
 
 // Gin rejects incompatible wildcard branches by panicking. Replay the proposed
 // tree on a scratch engine so configuration errors cannot partially mount the
 // real application. Reuse Gin's own rules rather than maintaining a matcher.
-func validateMountRoutes(router *gin.Engine, routes []embedded.HTTPRoute) (err error) {
+func validateMountRoutes(router *gin.Engine, routes []authhttp.MountedRoute) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("authkitgin: incompatible route configuration: %v; use MountOptions.ExcludeRoutes for host replacements", recovered)
@@ -89,26 +98,4 @@ func ginRoutePath(routePath string) (string, error) {
 		}
 	}
 	return strings.Join(parts, "/"), nil
-}
-
-func mountHTTPRoutes(router *gin.Engine, routes []embedded.HTTPRoute) error {
-	if router == nil {
-		return errors.New("authkitgin: Mount requires a Gin engine")
-	}
-	routes = append([]embedded.HTTPRoute(nil), routes...)
-
-	for i := range routes {
-		converted, err := ginRoutePath(routes[i].Path)
-		if err != nil {
-			return err
-		}
-		routes[i].Path = converted
-	}
-	if err := validateMountRoutes(router, routes); err != nil {
-		return err
-	}
-	for _, route := range routes {
-		router.Handle(route.Method, route.Path, gin.WrapH(route.Handler))
-	}
-	return nil
 }

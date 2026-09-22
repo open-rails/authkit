@@ -30,7 +30,7 @@ type purgeFixture struct {
 	}
 }
 
-func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) *embedded.Runtime {
+func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) *embedded.Client {
 	t.Helper()
 	svc, err := embedded.New(embedded.Config{
 		Token: embedded.TokenConfig{
