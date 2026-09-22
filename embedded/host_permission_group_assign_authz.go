@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 )
 
 var (
@@ -64,20 +65,16 @@ func (s *engine) authorizeRoleChange(ctx context.Context, st *PermissionGroupSto
 }
 
 func (s *engine) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona authkit.Persona, gid, actorUserID string, capabilityPerm authkit.Perm, targetRole authkit.Role) error {
-	actorUserID = strings.TrimSpace(actorUserID)
-	if actorUserID == "" {
-		return ErrInsufficientRoleAuthority
-	}
+	return s.authorizeGroupActorRole(ctx, st, sch, persona, gid, groupMutationActor{userID: actorUserID}, capabilityPerm, targetRole)
+}
 
-	present, err := authorizationActorPresent(ctx, st.q, actorUserID)
+func (s *engine) authorizeGroupActorRole(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona authkit.Persona, gid string, actor groupMutationActor, capabilityPerm authkit.Perm, targetRole authkit.Role) error {
+	subject, err := s.groupMutationSubject(ctx, st, persona, gid, actor)
 	if err != nil {
 		return err
 	}
-	if !present {
-		return ErrInsufficientRoleAuthority
-	}
 	// Resolve the actor's effective grants in this group (additive walk-up union).
-	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, authkit.UserSubject(actorUserID), true)
+	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, subject, true)
 	if err != nil {
 		return err
 	}
@@ -86,7 +83,7 @@ func (s *engine) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 	// (1) capability: the actor must hold the operation's management permission.
 	// owner (<persona>:*) holds it via the wildcard; a bounded admin without it
 	// cannot grant authority through that operation.
-	if !anyGrantCovers(actorGrants, capabilityPerm) {
+	if !anyGrantCovers(actorGrants, capabilityPerm) || (actor.remote != nil && !actor.remote.HasPermission(capabilityPerm)) {
 		return ErrInsufficientRoleAuthority
 	}
 	// (2) no step-up: the actor must already hold every perm the target confers.
@@ -101,7 +98,7 @@ func (s *engine) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStor
 	if err != nil {
 		return err
 	}
-	if !grantsCoverAll(actorGrants, targetGrants) {
+	if !grantsCoverAll(actorGrants, targetGrants) || (actor.remote != nil && !grantsCoverAll(actor.remote.Permissions, targetGrants)) {
 		return ErrRoleAssignmentEscalation
 	}
 	return nil
@@ -168,6 +165,20 @@ func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *PermissionGr
 // callers (HTTP role-management endpoints) use this; genesis paths (bootstrap,
 // migration) keep using the unchecked AssignGroupRole.
 func (s *engine) AssignGroupRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	return s.assignGroupRoleForActor(ctx, groupMutationActor{userID: actorUserID}, group, subject, role)
+}
+
+// AssignGroupRoleFromClaims is available only to the local HTTP transport. The
+// transport must supply claims produced by its verifier, never request fields.
+func (s *engine) AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
+	actor, err := groupActorFromClaims(claims)
+	if err != nil {
+		return err
+	}
+	return s.assignGroupRoleForActor(ctx, actor, group, subject, role)
+}
+
+func (s *engine) assignGroupRoleForActor(ctx context.Context, actor groupMutationActor, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error {
 	role = authkit.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
@@ -179,7 +190,7 @@ func (s *engine) AssignGroupRoleAs(ctx context.Context, actorUserID string, grou
 		return err
 	}
 	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
-		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
+		if err := s.authorizeGroupActorRole(ctx, st, sch, group.Persona, gid, actor, PermMembersManage(group.Persona), role); err != nil {
 			return err
 		}
 		old, err := st.directRole(ctx, gid, subject)
@@ -187,7 +198,7 @@ func (s *engine) AssignGroupRoleAs(ctx context.Context, actorUserID string, grou
 			return err
 		}
 		if old != "" && old != role {
-			if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, old); err != nil {
+			if err := s.authorizeGroupActorRole(ctx, st, sch, group.Persona, gid, actor, PermMembersManage(group.Persona), old); err != nil {
 				return err
 			}
 			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
@@ -235,6 +246,18 @@ func (s *engine) UnassignGroupRoleAs(ctx context.Context, actorUserID string, gr
 // holds before stripping them, so a bounded admin cannot remove a member whose
 // authority it does not itself hold (e.g. a non-owner cannot remove an owner).
 func (s *engine) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group authkit.GroupRef, subject authkit.Subject) error {
+	return s.removeGroupSubjectForActor(ctx, groupMutationActor{userID: actorUserID}, group, subject)
+}
+
+func (s *engine) RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject) error {
+	actor, err := groupActorFromClaims(claims)
+	if err != nil {
+		return err
+	}
+	return s.removeGroupSubjectForActor(ctx, actor, group, subject)
+}
+
+func (s *engine) removeGroupSubjectForActor(ctx context.Context, actor groupMutationActor, group authkit.GroupRef, subject authkit.Subject) error {
 	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
@@ -250,7 +273,7 @@ func (s *engine) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, g
 		if role == "" {
 			return nil
 		}
-		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
+		if err := s.authorizeGroupActorRole(ctx, st, sch, group.Persona, gid, actor, PermMembersManage(group.Persona), role); err != nil {
 			return err
 		}
 		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {

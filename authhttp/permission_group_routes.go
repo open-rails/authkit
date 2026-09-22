@@ -171,7 +171,9 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
-		if !ok || claims.UserID == "" {
+		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, verify.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
+		remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
+		if !ok || (claims.UserID == "" && !(remoteSelf && remoteOperation)) {
 			unauthorized(w, authkit.CodeNotAuthenticated)
 			return
 		}
@@ -189,8 +191,18 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		}
 		r = r.WithContext(embedded.WithResolvedGroup(r.Context(), instance, instanceSlug))
 
-		// Authorize: the caller (a user) must hold route.Perm on this group.
-		allowed, err := s.groupCan(r, claims.UserID, group, gr.Perm)
+		// Native authority is live. Remote self credentials additionally remain
+		// bound to their controlling group and verified permission ceiling.
+		var allowed bool
+		if remoteSelf {
+			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
+			err = nil
+			if allowed {
+				allowed, err = s.svc.Can(r.Context(), authkit.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)
+			}
+		} else {
+			allowed, err = s.groupCan(r, claims.UserID, group, gr.Perm)
+		}
 		if err != nil {
 			serverErr(w, authkit.CodeDatabaseError)
 			return
