@@ -132,7 +132,7 @@ remote applications, and group role assignments.
 | POST | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{api}/delegated/token` | delegated | required | `delegated_token_mint` | Delegated.Audiences |
 | POST | `{api}/applications/register` | applications | signed request (domain proof) | `application_register` | Applications.SelfRegistration |
-| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:recover` | `admin_user_sessions_revoke_all` |  |
+| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:recover` | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users` | admin | `root:resources:read` | `auth_admin_user_sessions_list` |  |
 | DELETE | `{api}/admin/users/{user_id}` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}` | admin | `root:resources:read` |  |  |

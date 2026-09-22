@@ -18,8 +18,9 @@ import (
 )
 
 func TestMaintenanceQueueNames(t *testing.T) {
-	// Construction does not connect. Exercise River's own queue/periodic-ID
-	// validation through both library paths without requiring a database server.
+	// Registration validates River's queue/periodic IDs without connecting.
+	// Binding additionally registers durable lifecycle destinations, so the
+	// managed and host binding paths use real databases in the workflow below.
 	pool, err := pgxpool.New(t.Context(), "postgres://localhost/authkit_queue_validation")
 	require.NoError(t, err)
 	defer pool.Close()
@@ -38,15 +39,13 @@ func TestMaintenanceQueueNames(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
 			cfg.Ephemeral.KeyPrefix = "queue-test:" // This independent namespace need not include the full schema name.
-			managed, err := newEngine(cfg, Deps{Postgres: pool})
-			require.NoError(t, err, "managed constructor must accept every valid schema")
-			managed.Close()
 			hosted, err := newEngine(cfg, Deps{Postgres: pool, River: RiverFromHost()})
 			require.NoError(t, err)
 			defer hosted.Close()
 			riverCfg := &river.Config{Schema: "public"}
-			_, err = riverhelpers.New(t.Context(), pool, riverCfg, hosted.RiverJobs())
-			require.NoError(t, err, "host constructor validates queue and periodic ID")
+			require.NoError(t, hosted.registerRiver(riverCfg))
+			_, err = river.NewClient(riverpgxv5.New(pool), riverCfg)
+			require.NoError(t, err, "River validates every worker queue and periodic ID")
 		})
 	}
 }
