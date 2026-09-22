@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	utilsstrings "github.com/gofiber/utils/v2/strings"
 	"github.com/open-rails/authkit/authhttp"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // RouteNamePrefix identifies routes registered by Mount in app.GetRoutes().
@@ -43,7 +44,43 @@ func Mount(app *fiber.App, svc *authhttp.Service, options ...authhttp.MountOptio
 	if err != nil {
 		return err
 	}
-	routes := mount.Routes()
+	routes := make([]embedded.HTTPRoute, 0, len(mount.Routes()))
+	for _, r := range mount.Routes() {
+		routes = append(routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+	}
+	return mountHTTPRoutes(app, routes)
+}
+
+// fiberRoutePath translates the segment wildcards used by AuthKit's route
+// registry. Reject broader ServeMux patterns rather than silently changing
+// their meaning under Fiber's routing rules.
+func fiberRoutePath(path string) (string, error) {
+	unsupported := func() (string, error) {
+		return "", fmt.Errorf("authkitfiber: unsupported HTTP route pattern %q", path)
+	}
+	if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return unsupported()
+	}
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			name := part[1 : len(part)-1]
+			if !token.IsIdentifier(name) {
+				return unsupported()
+			}
+			parts[i] = ":" + name
+		} else if strings.ContainsAny(part, "{}:*+?<>\\%") {
+			return unsupported()
+		}
+	}
+	return strings.Join(parts, "/"), nil
+}
+
+func mountHTTPRoutes(app *fiber.App, routes []embedded.HTTPRoute) error {
+	if app == nil {
+		return errors.New("authkitfiber: Mount requires a Fiber app")
+	}
+	var err error
 	paths := make([]string, len(routes))
 	config := app.Config()
 	normalizePath := func(path string) string {
@@ -77,35 +114,9 @@ func Mount(app *fiber.App, svc *authhttp.Service, options ...authhttp.MountOptio
 			return fmt.Errorf("authkitfiber: route %s %s already registered; use MountOptions.ExcludeRoutes for host replacements", route.Method, paths[i])
 		}
 	}
-	handler := httpHandler(mount)
 	for i, route := range routes {
-		app.Add([]string{route.Method}, paths[i], handler).
+		app.Add([]string{route.Method}, paths[i], httpHandler(route.Handler)).
 			Name(RouteNamePrefix + route.Method + " " + paths[i])
 	}
 	return nil
-}
-
-// fiberRoutePath translates the segment wildcards used by AuthKit's route
-// registry. Reject broader ServeMux patterns rather than silently changing
-// their meaning under Fiber's routing rules.
-func fiberRoutePath(path string) (string, error) {
-	unsupported := func() (string, error) {
-		return "", fmt.Errorf("authkitfiber: unsupported HTTP route pattern %q", path)
-	}
-	if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
-		return unsupported()
-	}
-	parts := strings.Split(path, "/")
-	for i, part := range parts {
-		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			name := part[1 : len(part)-1]
-			if !token.IsIdentifier(name) {
-				return unsupported()
-			}
-			parts[i] = ":" + name
-		} else if strings.ContainsAny(part, "{}:*+?<>\\%") {
-			return unsupported()
-		}
-	}
-	return strings.Join(parts, "/"), nil
 }
