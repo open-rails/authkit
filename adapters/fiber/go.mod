@@ -6,7 +6,7 @@ require (
 	github.com/gofiber/fiber/v3 v3.5.0
 	github.com/gofiber/utils/v2 v2.4.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.117.0-rc.1
+	github.com/open-rails/authkit v0.117.0
 	github.com/stretchr/testify v1.12.1
 )
 
