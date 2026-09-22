@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.108.2
+	github.com/open-rails/authkit v0.115.0
 	github.com/riverqueue/river v0.47.0
 )
 
@@ -27,9 +27,11 @@ require (
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/open-rails/migratekit v1.0.4 // indirect
+	github.com/open-rails/riverkit v0.2.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/riverqueue/river/riverdriver v0.47.0 // indirect
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.47.0 // indirect
 	github.com/riverqueue/river/rivershared v0.47.0 // indirect
 	github.com/riverqueue/river/rivertype v0.47.0 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
