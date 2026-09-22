@@ -44,7 +44,14 @@ required = {
                  'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
                  'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
                  'TestWorkflowRateLimits'),
-    'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow', 'TestErasureHandoffAcrossSites'),
+    'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
+                 'TestAccountDeletionGenerationOrderingAndFinalization',
+                 'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
+                 'TestAccountDeletionUpgradePreservesPendingSites',
+                 'TestAccountRecoveryAndFinalizerSerializeAtDeadline',
+                 'TestAccountCallbackFailureAndConcurrentRescue',
+                 'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
+                 'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer'),
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests
