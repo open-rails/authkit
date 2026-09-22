@@ -43,7 +43,9 @@ required = {
     'authhttp': ('TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
                  'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
                  'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
-                 'TestWorkflowRateLimits'),
+                 'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
+                 'TestAccountRecoveryPasswordConfirmationBoundary',
+                 'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
     'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
@@ -51,7 +53,9 @@ required = {
                  'TestAccountRecoveryAndFinalizerSerializeAtDeadline',
                  'TestAccountCallbackFailureAndConcurrentRescue',
                  'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
-                 'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer'),
+                 'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer',
+                 'TestAccountCallbackCanObserveBindingDuringManagedShutdown',
+                 'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge'),
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests

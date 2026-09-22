@@ -227,13 +227,17 @@ func (s *engine) closeRiver() {
 	}
 	m := s.maintenance
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
+		m.mu.Unlock()
 		return
 	}
 	m.closed = true
-	if m.client != nil && !m.fromHost {
-		_ = m.client.StopAndCancel(context.Background())
+	client, owned := m.client, !m.fromHost
+	m.mu.Unlock()
+	// Active lifecycle workers may still read the binding as cancellation
+	// propagates. Never wait for their shutdown while holding that mutex.
+	if client != nil && owned {
+		_ = client.StopAndCancel(context.Background())
 	}
 }
 
