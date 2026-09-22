@@ -28,7 +28,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	group := authkit.GroupRef{Persona: "org", Instance: "owner-flow"}
 	w := postOrg(srv, token, `{"slug":"owner-flow"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	require.NoError(t, client.AdminAssignGroupRole(ctx, group, authkit.UserSubject(manager), "manager"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, authkit.UserSubject(manager), "manager"))
 	assign := func(actor, id, role string) int {
 		w := serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/members/"+id+"/roles/"+role, "", actor)
 		return w.Code

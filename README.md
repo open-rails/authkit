@@ -160,8 +160,9 @@ AuthKit on the host root router. No catch-all is installed.
 `embedded.New` initializes explicitly declared group containment and the root
 singleton in one transaction. Omitted or empty RBAC leaves shared topology intact. Apply migrations before constructing a database-backed
 runtime. Construction never grants user roles or restores revoked permissions.
-Use `client.AdminAssignGroupRole` and `client.AdminUnassignGroupRole` for explicit
+Use `client.OperatorAssignGroupRole` and `client.OperatorUnassignGroupRole` for explicit
 trusted operator commands; request paths use the actor-checked `*As` methods.
+`Operator` describes the host's authority; it is not a built-in persona or role.
 
 The runtime wraps a private engine and exposes only lifecycle, route, verifier,
 job and construction dependencies. It has no public business methods, Genesis,

@@ -254,7 +254,7 @@ The YAML schema (`users`, `remote_applications`, password modes `plaintext` /
 `LoadBootstrapManifestFile` / `ParseBootstrapManifestYAML` is a wire contract;
 removing or renaming a field is MAJOR.
 
-`Client.AdminApplyBootstrapManifest` commits the complete manifest in one transaction.
+`Client.OperatorApplyBootstrapManifest` commits the complete manifest in one transaction.
 `StartupOnly` is once per database schema: names label completion receipts,
 and another name does not run an additional genesis. Failed or canceled seed
 writes roll back with the receipt; a corrected attempt can retry. Separate

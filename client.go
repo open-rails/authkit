@@ -75,18 +75,20 @@ type Client interface {
 	// AdminRevokeAccountSessions revokes the user's refresh sessions on every
 	// account issuer plus device keys. Unchecked: the host authorizes the actor.
 	AdminRevokeAccountSessions(ctx context.Context, userID string) (AccountSessionRevocation, error)
-	// AdminApplyBootstrapManifest reconciles authority under explicit trusted operator authority.
-	// It is never invoked implicitly by runtime construction or exposed over HTTP.
-	AdminApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
 	AdminSetPassword(ctx context.Context, userID, new string) error
-	// AdminAssignGroupRole and AdminUnassignGroupRole use trusted host-operator
-	// authority, like AdminSetPassword. Hosts authorize the operator; request
-	// actors use the corresponding actor-checked *As methods. Subject MFA and
-	// final-owner invariants still apply. These methods add no HTTP exposure.
-	AdminAssignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
-	AdminUnassignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
 	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
 	UnbanUser(ctx context.Context, userID string) error
+
+	// --- trusted host operator operations ---
+	// OperatorApplyBootstrapManifest reconciles authority under explicit trusted operator authority.
+	// It is never invoked implicitly by runtime construction or exposed over HTTP.
+	OperatorApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
+	// OperatorAssignGroupRole and OperatorUnassignGroupRole use trusted host-operator
+	// authority, not a persona or role named operator. Hosts authorize the operator; request
+	// actors use the corresponding actor-checked *As methods. Subject MFA and
+	// final-owner invariants still apply. These methods add no HTTP exposure.
+	OperatorAssignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
+	OperatorUnassignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
 
 	// --- root roles (actor-checked) ---
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation
