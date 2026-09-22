@@ -29,9 +29,9 @@ func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T
 		if i == 4 {
 			terminal = time.Now()
 		}
-		_, err := pg.Pool.Exec(t.Context(), `INSERT INTO profiles.account_deletions(id,user_id,deleted_at,purge_at,state,restored_at,purged_at,jobs_enqueued)
+		_, err := pg.Pool.Exec(t.Context(), `INSERT INTO profiles.account_deletions(id,user_id,deleted_at,purge_at,state,restored_at,purged_at)
  VALUES ($1::uuid,$2::uuid,$3,$3::timestamptz+interval '720 hours',$4,
- CASE WHEN $4='restored' THEN $3::timestamptz ELSE NULL END,CASE WHEN $4='purged' THEN $3::timestamptz ELSE NULL END,true)`, ids[i], uuid.NewString(), terminal, state)
+ CASE WHEN $4='restored' THEN $3::timestamptz ELSE NULL END,CASE WHEN $4='purged' THEN $3::timestamptz ELSE NULL END)`, ids[i], uuid.NewString(), terminal, state)
 		require.NoError(t, err)
 		if i == 0 || i == 2 {
 			var receipt int64
