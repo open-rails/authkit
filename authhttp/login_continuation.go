@@ -14,6 +14,9 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 	switch out.Kind {
 	case embedded.LoginSessionIssued:
 		return false
+	case embedded.LoginRecoveryRequired:
+		w.Header().Set("Cache-Control", "no-store")
+		sendErrData(w, http.StatusConflict, authkit.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
 	case embedded.LoginTwoFactorRequired:
 		metadata := loginChallengeMetadata(out.UserID, out.Challenge)
 		for key, value := range extra {

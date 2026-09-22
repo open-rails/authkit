@@ -58,14 +58,6 @@ type Passkey struct {
 	LastUsedAt              *time.Time `json:"last_used_at,omitempty"`
 }
 
-type PasskeyLoginResult struct {
-	UserID       string
-	SessionID    string
-	RefreshToken string
-	AccessToken  string
-	ExpiresAt    time.Time
-}
-
 // VerifiedPasskey is the identity proof a discoverable assertion yields: the
 // stable user and the credential that signed. It carries no session, token,
 // cookie or claim; the host binds it to its own pending operation.
@@ -291,21 +283,16 @@ func (s *engine) BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAss
 
 // FinishPasskeyLogin composes the verification primitive with the browser
 // session issuance; it is the only passkey path that mints a session.
-func (s *engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error) {
+func (s *engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (LoginOutcome, error) {
 	verified, err := s.finishDiscoverableAssertion(ctx, passkeyPurposeLogin, response)
 	if err != nil {
-		return PasskeyLoginResult{}, err
+		return LoginOutcome{}, err
 	}
 	address := ""
 	if ip != nil {
 		address = ip.String()
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{Version: verified.credentialVersion, PasskeyID: verified.PasskeyID, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: verified.UserID, UserAgent: userAgent, IP: address, Event: "passkey_login", AuthMethods: []string{"swk", "mfa"}}})
-	if err != nil {
-		return PasskeyLoginResult{UserID: verified.UserID}, err
-	}
-	session := out.Session
-	return PasskeyLoginResult{UserID: verified.UserID, SessionID: session.SessionID, RefreshToken: session.RefreshToken, AccessToken: session.AccessToken, ExpiresAt: session.AccessExpiresAt}, nil
+	return s.finishFirstFactor(ctx, loginProof{Version: verified.credentialVersion, PasskeyID: verified.PasskeyID, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: verified.UserID, UserAgent: userAgent, IP: address, Event: "passkey_login", AuthMethods: []string{"swk", "mfa"}}})
 }
 
 // BeginDiscoverablePasskeyVerification starts an identity-proof ceremony: the
@@ -350,7 +337,7 @@ func (s *engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 		return VerifiedPasskey{}, err
 	}
 	webUser, cred, err := wa.ValidatePasskeyLogin(func(_, userHandle []byte) (webauthn.User, error) {
-		return s.passkeyUserByHandle(ctx, userHandle)
+		return s.passkeyUserByHandle(ctx, userHandle, purpose == passkeyPurposeLogin)
 	}, session, parsed)
 	if err != nil {
 		return VerifiedPasskey{}, err
@@ -524,11 +511,19 @@ func (s *engine) consumePasskeySession(ctx context.Context, challenge string) (p
 }
 
 func (s *engine) passkeyUser(ctx context.Context, userID string, createHandle bool) (passkeyUser, error) {
+	return s.passkeyUserForProof(ctx, userID, createHandle, false)
+}
+
+func (s *engine) passkeyUserForProof(ctx context.Context, userID string, createHandle, allowRecovery bool) (passkeyUser, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil || u == nil {
 		return passkeyUser{}, errOrUnauthorized(err)
 	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
+	checkAccess := s.ensureUserAccess
+	if allowRecovery {
+		checkAccess = s.ensureLoginProofAccess
+	}
+	if err := checkAccess(ctx, u); err != nil {
 		return passkeyUser{}, err
 	}
 	handle, err := s.passkeyHandle(ctx, userID, createHandle)
@@ -548,7 +543,7 @@ func (s *engine) passkeyUser(ctx context.Context, userID string, createHandle bo
 	return passkeyUser{id: userID, handle: handle, name: name, displayName: name, credentials: creds}, nil
 }
 
-func (s *engine) passkeyUserByHandle(ctx context.Context, handle []byte) (passkeyUser, error) {
+func (s *engine) passkeyUserByHandle(ctx context.Context, handle []byte, allowRecovery bool) (passkeyUser, error) {
 	var userID string
 	err := s.pg.QueryRow(ctx, `SELECT user_id FROM user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
 	if err != nil {
@@ -558,7 +553,7 @@ func (s *engine) passkeyUserByHandle(ctx context.Context, handle []byte) (passke
 	if err != nil {
 		return passkeyUser{}, err
 	}
-	user, err := s.passkeyUser(ctx, userID, false)
+	user, err := s.passkeyUserForProof(ctx, userID, false, allowRecovery)
 	user.credentialVersion = version.CredentialVersion
 	return user, err
 }

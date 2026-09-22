@@ -104,6 +104,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/token", Group: RouteAuth, Auth: AuthPublic, Bucket: RLAuthToken, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteAuth, Auth: AuthRequired, Bucket: RLAuthLogout, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/password/login", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/account/recovery/confirm", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handleAccountRecoveryConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordlessStart, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
 		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasswordlessConfirm, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RouteAuth, Auth: AuthPublic, Bucket: RLPasskeyLogin, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
