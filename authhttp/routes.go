@@ -336,7 +336,7 @@ func (r RouteSpec) Requires() string {
 		return "WithDocuments"
 	case r.Group == RouteBrowserOIDC, isOIDCPath(r.Path):
 		return "Identity.Providers"
-	case r.Group == RoutePermissionGroups, r.Path == "/me/groups":
+	case r.Group == RoutePermissionGroups:
 		return "RBAC persona profile"
 	case isPasskeyPath(r.Path):
 		return "Passkeys.RPID"
