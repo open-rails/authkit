@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
@@ -30,7 +31,7 @@ type purgeFixture struct {
 	}
 }
 
-func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) *embedded.Client {
+func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) authkit.Client {
 	t.Helper()
 	svc, err := embedded.New(embedded.Config{
 		Token: embedded.TokenConfig{
@@ -44,6 +45,7 @@ func newPurgeService(t *testing.T, pool *pgxpool.Pool, issuer string) *embedded.
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
+	t.Cleanup(svc.Close)
 	return svc
 }
 
