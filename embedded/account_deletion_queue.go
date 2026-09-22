@@ -1,0 +1,211 @@
+package embedded
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
+	"github.com/riverqueue/river"
+)
+
+type accountFinalizeArgs struct {
+	Schema     string `json:"schema"`
+	DeletionID string `json:"deletion_id"`
+	Purge      bool   `json:"purge,omitempty"`
+}
+
+func (accountFinalizeArgs) Kind() string { return "authkit_account_finalize" }
+
+type accountDeliveryArgs struct {
+	Schema     string `json:"schema"`
+	Issuer     string `json:"issuer"`
+	DeliveryID int64  `json:"delivery_id"`
+}
+
+func (accountDeliveryArgs) Kind() string { return "authkit_account_delivery" }
+
+func accountDeliveryQueue(schema, issuer string) string {
+	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
+	return "authkit_accounts-" + hex.EncodeToString(digest[:20])
+}
+
+func accountFinalizerQueue(schema string) string {
+	digest := sha256.Sum256([]byte(schema))
+	return "authkit_finalization-" + hex.EncodeToString(digest[:20])
+}
+
+func (s *engine) deletionRiver() (*river.Client[pgx.Tx], error) {
+	if s.maintenance == nil {
+		return nil, errors.New("authkit: account lifecycle requires River")
+	}
+	s.maintenance.mu.Lock()
+	defer s.maintenance.mu.Unlock()
+	if s.maintenance.closed || s.maintenance.failed || s.maintenance.client == nil {
+		return nil, errors.New("authkit: compose RiverJobs before accepting account lifecycle operations")
+	}
+	return s.maintenance.client, nil
+}
+
+func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, purge bool) error {
+	scheduled := deletion.PurgeAt
+	if purge {
+		scheduled = time.Time{}
+	}
+	_, err := client.InsertTx(ctx, tx, accountFinalizeArgs{Schema: s.dbSchema(), DeletionID: deletion.ID, Purge: purge}, &river.InsertOpts{Queue: accountFinalizerQueue(s.dbSchema()), ScheduledAt: scheduled})
+	return err
+}
+
+// The delivery receipt and River row are one transaction. An existing receipt
+// therefore already has its durable job; no independent polling queue exists.
+func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, issuers []string, stage string) error {
+	for _, issuer := range issuers {
+		var id int64
+		err := tx.QueryRow(ctx, `INSERT INTO account_deletion_deliveries(deletion_id,user_id,issuer,stage)
+ VALUES ($1::uuid,$2::uuid,$3,$4) ON CONFLICT(deletion_id,issuer,stage) DO NOTHING RETURNING id`, deletion.ID, deletion.UserID, issuer, stage).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		_, err = client.InsertTx(ctx, tx, accountDeliveryArgs{Schema: s.dbSchema(), Issuer: issuer, DeliveryID: id}, &river.InsertOpts{Queue: accountDeliveryQueue(s.dbSchema(), issuer)})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type accountDeliveryWorker struct {
+	river.WorkerDefaults[accountDeliveryArgs]
+	engine *engine
+}
+
+func (w *accountDeliveryWorker) Work(ctx context.Context, job *river.Job[accountDeliveryArgs]) error {
+	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
+		return river.JobCancel(errors.New("authkit: account delivery routed to a different application"))
+	}
+	err := w.engine.deliverAccountEvent(ctx, job.Args.DeliveryID)
+	if err == nil {
+		return nil
+	}
+	var snooze *river.JobSnoozeError
+	if errors.As(err, &snooze) {
+		return err
+	}
+	// Lifecycle callback failure never exhausts the attempt budget and drops
+	// cleanup. River owns the scheduled retry; the receipt remains pending.
+	slog.ErrorContext(ctx, "authkit: account callback will retry", "delivery_id", job.Args.DeliveryID, "error", err)
+	return river.JobSnooze(time.Minute)
+}
+
+func (s *engine) deliverAccountEvent(ctx context.Context, id int64) error {
+	var deletion authkit.UserDeletion
+	var issuer, stage string
+	var completed *time.Time
+	err := s.pg.QueryRow(ctx, `SELECT d.id::text,d.user_id::text,d.deleted_at,d.purge_at,e.issuer,e.stage,e.completed_at
+ FROM account_deletion_deliveries e JOIN account_deletions d ON d.id=e.deletion_id WHERE e.id=$1`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt, &issuer, &stage, &completed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if completed != nil {
+		return nil
+	}
+	if issuer != s.cfg.Token.Issuer {
+		return errors.New("authkit: account delivery issuer mismatch")
+	}
+	var preceding bool
+	err = s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE user_id=$1::uuid AND issuer=$2 AND id<$3 AND completed_at IS NULL)`, deletion.UserID, issuer, id).Scan(&preceding)
+	if err != nil {
+		return err
+	}
+	if preceding {
+		return river.JobSnooze(time.Second)
+	}
+	var hook func(context.Context, authkit.UserDeletion) error
+	switch stage {
+	case "soft":
+		hook = s.onSoftDelete
+	case "hard":
+		hook = s.onHardDelete
+	case "restore":
+		hook = s.onRestore
+	default:
+		return fmt.Errorf("authkit: unsupported account lifecycle stage %q", stage)
+	}
+	// No pool connection or database transaction is held while application
+	// code runs. A hook may safely call the Client with a one-slot pool.
+	if hook != nil {
+		if err := invokeAccountHook(ctx, hook, deletion); err != nil {
+			return err
+		}
+	}
+	client, err := s.deletionRiver()
+	if err != nil {
+		return err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var state string
+	if err := tx.QueryRow(ctx, "SELECT state FROM account_deletions WHERE id=$1::uuid FOR UPDATE", deletion.ID).Scan(&state); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, "UPDATE account_deletion_deliveries SET completed_at=statement_timestamp() WHERE id=$1 AND completed_at IS NULL", id)
+	if err != nil {
+		return err
+	}
+	if stage == "hard" && state == "finalizing" && result.RowsAffected() == 1 {
+		var pending bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND stage='hard' AND completed_at IS NULL)", deletion.ID).Scan(&pending); err != nil {
+			return err
+		}
+		if !pending {
+			if err := s.enqueueAccountFinalizer(ctx, tx, client, deletion, true); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func invokeAccountHook(ctx context.Context, hook func(context.Context, authkit.UserDeletion) error, deletion authkit.UserDeletion) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("account lifecycle callback panicked: %v", recovered)
+		}
+	}()
+	return hook(ctx, deletion)
+}
+
+type accountFinalizeWorker struct {
+	river.WorkerDefaults[accountFinalizeArgs]
+	engine *engine
+}
+
+func (w *accountFinalizeWorker) Work(ctx context.Context, job *river.Job[accountFinalizeArgs]) error {
+	if job.Args.Schema != w.engine.dbSchema() {
+		return river.JobCancel(errors.New("authkit: account finalizer schema mismatch"))
+	}
+	err := w.engine.finalizeAccountDeletion(ctx, job.Args.DeletionID, job.Args.Purge)
+	if err == nil {
+		return nil
+	}
+	var snooze *river.JobSnoozeError
+	if errors.As(err, &snooze) {
+		return err
+	}
+	slog.ErrorContext(ctx, "authkit: account finalization will retry", "deletion_id", job.Args.DeletionID, "error", err)
+	return river.JobSnooze(time.Minute)
+}

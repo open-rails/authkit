@@ -55,6 +55,7 @@ var (
 	CodeAccessTokenWrongTyp               = def("access_token_wrong_typ", 401, "The token type is wrong for an access token.")
 	CodeAccountAuthorityEscalation        = def("account_authority_escalation", 403, "That account holds authority you do not.")
 	CodeAccountDisabled                   = def("account_disabled", 401, "This account is disabled.")
+	CodeAccountRecoveryExpired            = def("account_recovery_expired", 409, "The account recovery window has ended.")
 	CodeAccountExistsLinkRequired         = def("account_exists_link_required", 409, "An account with this email already exists. Sign in and link the provider.")
 	CodeAccountRegistrationInviteNotFound = def("account_registration_invite_not_found", 404, "The registration invite was not found.")
 	CodeAddressMismatch                   = def("address_mismatch", 400, "The address does not match.")

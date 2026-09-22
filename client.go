@@ -89,6 +89,9 @@ type Client interface {
 	// final-owner invariants still apply. These methods add no HTTP exposure.
 	OperatorAssignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
 	OperatorUnassignGroupRole(ctx context.Context, group GroupRef, subject Subject, role Role) error
+	// OperatorRestoreUsers restores soft-deleted accounts before their fixed
+	// recovery deadline under explicit trusted host authority.
+	OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 
 	// --- root roles (actor-checked) ---
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation

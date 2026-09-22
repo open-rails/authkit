@@ -108,7 +108,10 @@ type engine struct {
 	closed      bool
 	closeOnce   sync.Once
 
-	maintenance *riverMaintenance
+	maintenance  *riverMaintenance
+	onSoftDelete func(context.Context, authkit.UserDeletion) error
+	onHardDelete func(context.Context, authkit.UserDeletion) error
+	onRestore    func(context.Context, authkit.UserDeletion) error
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
