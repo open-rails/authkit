@@ -174,11 +174,16 @@ type DocumentReader struct {
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
-	Issuer               string
-	IssuedAudiences      []string // tokens issued will contain ALL of these audiences
-	ExpectedAudiences    []string // audiences accepted at verification; empty defaults to IssuedAudiences
-	AccessTokenDuration  time.Duration
-	RefreshTokenDuration time.Duration
+	// RootPermissionSnapshot opts native user access tokens into a bounded
+	// snapshot of effective root-group grants. Off by default. Complete negative
+	// snapshots remain negative until refresh; sensitive positives should still
+	// use live permission and account checks. Other groups are not included.
+	RootPermissionSnapshot bool
+	Issuer                 string
+	IssuedAudiences        []string // tokens issued will contain ALL of these audiences
+	ExpectedAudiences      []string // audiences accepted at verification; empty defaults to IssuedAudiences
+	AccessTokenDuration    time.Duration
+	RefreshTokenDuration   time.Duration
 	// SessionMaxPerUser caps concurrent refresh sessions per user. 0 (unset)
 	// applies the default of 3; any negative value (e.g. -1) means unlimited.
 	// Eviction is always evict-oldest.
