@@ -403,12 +403,18 @@ func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *U
 // lockLoginAccount serializes proof completion with credential recovery. Zero
 // expectedVersion is reserved for trusted host issuance, never an in-flight proof.
 func (s *engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*User, error) {
+	return s.lockAuthenticationAccount(ctx, q, userID, expectedVersion, false)
+}
+
+// Only verified first-factor completion may consider a deleted account. Normal
+// session issuance and refresh retain the strict gate above.
+func (s *engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64, allowDeleted bool) (*User, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
+	if (!allowDeleted && account.DeletedAt != nil) || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
 		return nil, ErrUserBanned
 	}
 	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {

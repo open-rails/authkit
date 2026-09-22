@@ -57,7 +57,8 @@ type HTTPBackend interface {
 	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error)
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error)
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error)
-	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error)
+	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (LoginOutcome, error)
+	ConfirmAccountRecovery(ctx context.Context, token string) error
 	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error)
 	GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error)
@@ -133,5 +134,5 @@ type HTTPBackend interface {
 	VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error)
 	VerifyPendingPassword(ctx context.Context, email, pass string) bool
 	VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool
-	VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error)
+	VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error)
 }

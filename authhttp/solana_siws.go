@@ -112,20 +112,23 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	accessToken, expiresAt, refreshToken, userID, created, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsChallenges, output, nil)
+	out, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsChallenges, output, nil)
 	if err != nil {
 		writeError(w, fallback(remap(err, siwsCodes), authkit.CodeAuthenticationFailed))
 		return
 	}
 
-	if created {
-		go s.svc.SendWelcome(context.Background(), userID)
+	if s.writeLoginContinuation(w, r, out, nil) {
+		return
+	}
+	if out.Created {
+		go s.svc.SendWelcome(context.Background(), out.UserID)
 	}
 
-	s.writeTokenSetWith(w, r, http.StatusOK, authkit.NewTokenSet(accessToken, refreshToken, expiresAt), map[string]any{
-		"created": created,
+	s.writeTokenSetWith(w, r, http.StatusOK, out.Session.TokenSet(), map[string]any{
+		"created": out.Created,
 		"user": map[string]any{
-			"id":             userID,
+			"id":             out.UserID,
 			"solana_address": output.Account.Address,
 		},
 	})

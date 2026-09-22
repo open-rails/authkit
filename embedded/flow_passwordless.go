@@ -294,7 +294,7 @@ func (s *engine) verifyContactProof(ctx context.Context, userID string, version 
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	u, err := s.lockLoginAccount(ctx, q, userID, version)
+	u, err := s.lockAuthenticationAccount(ctx, q, userID, version, true)
 	if err != nil {
 		return registeredAccount{}, err
 	}
