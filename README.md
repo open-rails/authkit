@@ -12,7 +12,7 @@ for PostgreSQL maintenance; the root and `verify` packages remain engine-free.
 
 For local tests, run `scripts/check.sh`. Applications call
 `embedded.ApplyMigrations` with migration credentials before constructing the
-engine, then call `client.Start(ctx)` before serving and `client.Close()` at shutdown.
+engine, then call `runtime.Start(ctx)` before serving and `runtime.Close()` at shutdown.
 
 See [verification trust and key ownership](docs/verification.md) for local versus
 external identity, application delegation boundaries, and key rotation.
@@ -38,7 +38,7 @@ runtimePool, _ := pgxpool.New(ctx, applicationDSN)
 err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{
 	RuntimePool: runtimePool,
 })
-// Pass runtimePool to embedded.Deps{Postgres: runtimePool} when constructing the client.
+// Pass runtimePool to embedded.Deps{Postgres: runtimePool} when constructing the runtime.
 ```
 
 AuthKit owns the embedded migration source, migratekit runner, migration
@@ -67,7 +67,7 @@ erasure acknowledgements and the host's `BeforeUserHardDelete` policy.
 
 With no River dependency supplied, `ApplyMigrations` also applies River's own
 migrations to `public`. `New` constructs an owned worker client without starting
-it or running DDL. Call `client.Start(ctx)` before serving; `client.Close()`
+it or running DDL. Call `runtime.Start(ctx)` before serving; `runtime.Close()`
 cancels its workers and releases only AuthKit-owned resources. Runtime pools
 need data access, while initialization uses separate migration credentials.
 `Config.River.Schema` and `MigrationOptions.RiverSchema` select a custom managed
@@ -81,12 +81,12 @@ err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOp
 	River: ownership, RuntimePool: runtimePool,
 })
 // The host initializes its River schema through River's migrator.
-client, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
+runtime, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
 jobs, err := riverkit.New(ctx, runtimePool, &river.Config{Schema: "public"},
-    client.RiverJobs(), billing.RiverJobs())
-err = client.Start(ctx) // checks composition; never starts the host client
+    runtime.RiverJobs(), billing.RiverJobs())
+err = runtime.Start(ctx) // checks composition; never starts the host client
 err = jobs.Start(ctx)
-// On shutdown: stop jobs before client.Close().
+// On shutdown: stop jobs before runtime.Close().
 ```
 
 `RiverJobs` contributes AuthKit's worker, queue and periodic schedule to the
@@ -106,115 +106,68 @@ appropriate when its replicas all run the same AuthKit workers and schedules.
 
 ## Construction
 
-`embedded.New(cfg, deps)` builds the engine (`*embedded.Client`, which
-implements `authkit.Client`); `authhttp.New(client, cfg)` builds the HTTP
-transport; `authhttp.MountHandler` returns the whole surface — JWKS at
-`/.well-known/jwks.json`, browser OIDC under `/oidc`, the JSON API under
-`APIPrefix` (default `/api/v1`) — as one `http.Handler`. Every dev-only
-behaviour is an explicit field whose default is the safe one
-(`Keys.AllowEphemeralDevKeys`, `Ephemeral.AllowMemory` when no Redis is wired,
-`Applications.AllowPrivateNetworkJWKS`, `Registration.AllowMissingSenders`),
-and `authhttp.Config` always needs a client-IP posture: `TrustedProxies`,
-`CloudflareProxies`, `DirectPeerIP` or `ClientIP`.
+`embedded.New(cfg, deps)` returns the local `*embedded.Runtime`, which owns
+pools, keys, River and lifecycle. `runtime.Client()` returns the engine-free
+`authkit.Client` operation view. That view does not expose local configuration,
+bootstrap or resource access. Creating it starts no additional engine.
+
+Configure HTTP once after provisioning, then obtain and mount its routes:
 
 ```go
-import (
-	"net/http"
-	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
-
-	"github.com/open-rails/authkit"
-	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/verify"
-)
-
-func setupAuth(pg *pgxpool.Pool, rdb *redis.Client, mailer embedded.EmailSender) (*gin.Engine, *embedded.Client, error) {
-	cfg := embedded.Config{
-		Token: embedded.TokenConfig{
-			Issuer:              "https://app.example.com",
-			IssuedAudiences:     []string{"myapp"},
-			ExpectedAudiences:   []string{"myapp"},
-			AccessTokenDuration: 15 * time.Minute,
-		},
-		Frontend:     embedded.FrontendConfig{BaseURL: "https://app.example.com"},
-		Registration: embedded.RegistrationConfig{Verification: authkit.RegistrationVerificationRequired},
-		Keys:         embedded.KeysConfig{Path: "/vault/auth"}, // keys.json + totp.key; AllowEphemeralDevKeys only in dev
-		TwoFactor:    embedded.TwoFactorConfig{Mode: authkit.TwoFactorOptional},
-		Passkeys:     embedded.PasskeyConfig{RPID: "app.example.com", Origins: []string{"https://app.example.com"}},
-		RBAC: []embedded.PersonaDef{{
-			Name:   "org",
-			Parent: authkit.RootPersona,
-			Roles:  []embedded.RoleDef{{Name: "admin", Permissions: []string{"org:members:read", "org:members:manage"}}},
-		}},
-	}
-	client, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
-	if err != nil {
-		return nil, nil, err
-	}
-	srv, err := authhttp.New(client, authhttp.Config{
-		TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP: true when nothing sits in front
-	})
-	if err != nil {
-        client.Close()
-		return nil, nil, err
-	}
-	router := gin.New()
-
-	requireAuth := authkitgin.Required(srv.Verifier())
-	orgScope := func(c *gin.Context) verify.PermissionScope {
-		g, err := client.GroupInstanceForSlug(c.Request.Context(), authkit.GroupRef{Persona: "org", Instance: c.Param("org")})
-		if err != nil {
-			return verify.PermissionScope{} // an empty scope denies
-		}
-		return verify.PermissionScope{GroupID: g.ID, AuthorityIssuer: cfg.Token.Issuer, Persona: g.Persona, Instance: g.InstanceSlug}
-	}
-	router.GET("/api/v1/orgs/:org/members", requireAuth,
-		authkitgin.RequirePermission(client, authkit.Perm("org:members:read"), orgScope),
-		func(c *gin.Context) {
-			claims, _ := authkitgin.UserClaims(c)
-			c.JSON(http.StatusOK, gin.H{"user_id": claims.UserID, "org": c.Param("org")})
-		})
-	if err := authkitgin.Mount(router, srv, authhttp.MountOptions{RefreshCookie: true}); err != nil {
-        client.Close()
-		return nil, nil, err
-	}
-	return router, client, nil // caller starts and closes the client
+runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
+if err != nil {
+    return err
 }
+defer runtime.Close()
+client := runtime.Client() // application user/group/token operations
+
+err = runtime.ConfigureHTTP(authhttp.Config{
+    TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
+    Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
+})
+if err != nil {
+    return err
+}
+routes, err := authkitgin.Routes(runtime)
+if err != nil {
+    return err
+}
+router := gin.New()
+if err := routes.Mount(router); err != nil {
+    return err
+}
+// Compose runtime.RiverJobs() with the host fleet, or start managed workers.
+// Application middleware uses runtime.Verifier(); domain code uses client.
 ```
 
-`MountOptions`: `Groups` selects route groups (`auth`, `registration`,
-`account`, `device_keys`, `admin`, `permission_groups`, `browser_oidc`,
-`applications`, `delegated`, `documents`), `APIPrefix` anchors the API,
-`ExcludeRoutes` drops routes the host shadows, `Wrap` decorates every route.
-Gin hosts call `authkitgin.Mount(router, service)` and Fiber hosts call
-`authkitfiber.Mount(app, service)`, with an optional `MountOptions` value.
-Both register ordinary native routes and build the canonical HTTP mount
-internally. Gin routes appear in `router.Routes()`; no `NoRoute` fallback is
-installed. Gin mounting takes the root `*gin.Engine`, keeps JWKS/OIDC at their
-standard root paths, and validates route conflicts before registration. Use
-`ExcludeRoutes` when replacing an AuthKit endpoint with a host route.
-Unmatched paths/methods and redirects follow the host router's configuration.
-The existing `Fallback` helpers remain available for compatibility.
+Use the same pattern with `authkitfiber.Routes(runtime).Mount(app)` or
+`authkithttp.Routes(runtime).Mount(mux)` for a standard `http.ServeMux` or Chi
+router. Handle the error returned by `Routes` before calling `Mount`.
+The `adapters/http` package is included in the core module; Gin and Fiber are
+separate modules.
 
-Standard `net/http` routers, including Chi, can use `authhttp.MountHandler`
-directly. Fiber's adapter usage is shown below.
+`ConfigureHTTP` is one-shot. A failed build consumes the attempt and closes
+partial HTTP resources; the operation client remains available. Calling
+`HTTPRoutes` before configuration seals HTTP disabled and returns an error.
+Configure before obtaining route bundles; configuration after Close is refused.
+The runtime closes its HTTP resources before its engine resources.
 
-Framework adapters can use `authhttp.NewMount(service, options)` to obtain the
-canonical HTTP handler together with `Routes()`: a copy of the endpoints
-actually registered, with full paths and automatic HEAD entries. The catalog
-includes JWKS and enabled document/OIDC endpoints and follows group selection,
-exclusions and the API prefix. It is produced during registration, so adapters
-do not maintain another list of AuthKit endpoints. `MountHandler` remains the
-simple `http.Handler` entry point for hosts that do not need the catalog.
+The HTTP policy chooses groups, API prefix, exclusions, wrappers and refresh
+cookies once through `authhttp.Config.Mount`. The runtime derives concrete
+routes from that policy and enabled identity features. Native route inspection
+shows the actual inventory. JWKS remains at `/.well-known/jwks.json`, browser
+OIDC under `/oidc`, and published documents at their standard root path; mount
+AuthKit on the host root router. No catch-all is installed.
+
+`authhttp.New(runtime, config)` and `authhttp.NewMount` remain lower-level
+constructors for hosts explicitly managing HTTP lifetime themselves. The
+runtime-configured path owns that work automatically. Neither constructor
+accepts a portable or remote operation Client as a server backend. This release
+adds no remote AuthKit client or standalone service.
 
 ## Verification in a host
 
-`srv.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
+`runtime.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
 Redis, so a pure resource server depends on it alone.
 `verify.Required`/`Optional` and their `authkitgin` and `authkitfiber` equivalents
 put `verify.Claims` in the request context. `Optional` permits a missing
@@ -238,47 +191,32 @@ Install the separate adapter module:
 go get github.com/open-rails/authkit/adapters/fiber
 ```
 
-The middleware and typed accessors mirror the Gin adapter. Pass the same
-`authhttp.Service` to `authkitfiber.Mount`; it registers AuthKit's endpoints as
-ordinary Fiber routes and builds the canonical HTTP pipeline internally:
+The middleware and typed accessors mirror the Gin adapter. Configure the local
+runtime once as above, then register its inventory:
 
 ```go
-import (
-	"github.com/gofiber/fiber/v3"
-	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
-	"github.com/open-rails/authkit/authhttp"
-)
-
-func setupFiber(srv *authhttp.Service) (*fiber.App, error) {
-	app := fiber.New()
-	app.Get("/api/viewer", authkitfiber.Optional(srv.Verifier()), func(c fiber.Ctx) error {
-		user, ok := authkitfiber.UserClaims(c)
-		return c.JSON(fiber.Map{"authenticated_user": ok, "user_id": user.UserID})
-	})
-	app.Get("/api/me", authkitfiber.Required(srv.Verifier()), func(c fiber.Ctx) error {
-		user, ok := authkitfiber.UserClaims(c)
-		if !ok {
-			return fiber.ErrUnauthorized
-		}
-		return c.JSON(fiber.Map{"user_id": user.UserID})
-	})
-	if err := authkitfiber.Mount(app, srv); err != nil {
-		return nil, err
-	}
-	return app, nil
+routes, err := authkitfiber.Routes(runtime)
+if err != nil {
+    return err
+}
+app := fiber.New()
+app.Get("/api/me", authkitfiber.Required(runtime.Verifier()), func(c fiber.Ctx) error {
+    user, ok := authkitfiber.UserClaims(c)
+    if !ok {
+        return fiber.ErrUnauthorized
+    }
+    return c.JSON(fiber.Map{"user_id": user.UserID})
+})
+if err := routes.Mount(app); err != nil {
+    return err
 }
 ```
 
-All installed endpoints appear in `app.GetRoutes(true)`, with names beginning
-with `authkitfiber.RouteNamePrefix`. The app does not create a separate HTTP
-mount, translate parameters, or register a catch-all. `Mount` takes the root
-`*fiber.App`; pass an optional `authhttp.MountOptions` to configure API prefixes,
-groups, exclusions, wrappers, or refresh cookies. JWKS and OIDC keep their
-standard root paths. Exact method/path conflicts (using Fiber's case and slash
-settings), unsupported route patterns, and disabled HTTP methods are rejected
-before registration. Use `ExcludeRoutes` for endpoints the host replaces, and
-keep broad host catch-alls after mounting. Unmatched paths and methods follow
-Fiber's routing behavior. `Fallback` remains available for existing integrations.
+All installed endpoints appear in `app.GetRoutes(true)`, named with
+`authkitfiber.RouteNamePrefix`. `Mount` takes the root `*fiber.App`; HTTP policy
+was already supplied to `ConfigureHTTP`. Exact method/path conflicts, unsupported
+patterns and disabled HTTP methods are rejected before registration. Put host
+catch-alls after mounting. Unmatched requests follow Fiber's native routing.
 
 `Claims(c)` returns all verified claims, `UserClaims(c)` returns only user
 claims, and `Principal(c)` exposes the authenticated principal. They read the
@@ -432,7 +370,7 @@ manage keys; a revoked machine cannot revoke its replacement.
 ## Passkey primitives
 
 `/api/v1/passkeys/*` covers browser login, registration and management. A host
-that drives WebAuthn itself calls the same ceremonies on `*embedded.Client`;
+that drives WebAuthn itself calls the same ceremonies on `*embedded.Runtime`;
 every finish consumes its ceremony once and only for the purpose it was begun
 with:
 

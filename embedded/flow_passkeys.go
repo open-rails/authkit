@@ -38,7 +38,7 @@ const (
 // WebAuthn ceremony fails closed (the origin must match the RPID). The HTTP
 // transport uses this to skip mounting the /passkeys/* routes entirely rather
 // than exposing endpoints that can only error.
-func (s *Client) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
+func (s *Runtime) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
 
 var (
 	ErrPasskeyNotFound                 = authkit.ErrPasskeyNotFound
@@ -150,7 +150,7 @@ func normalizePasskeyUserVerification(value string) string {
 	}
 }
 
-func (s *Client) passkeyUserVerification() protocol.UserVerificationRequirement {
+func (s *Runtime) passkeyUserVerification() protocol.UserVerificationRequirement {
 	switch normalizePasskeyUserVerification(s.cfg.Passkeys.UserVerification) {
 	case string(protocol.VerificationRequired):
 		return protocol.VerificationRequired
@@ -161,7 +161,7 @@ func (s *Client) passkeyUserVerification() protocol.UserVerificationRequirement 
 	}
 }
 
-func (s *Client) webAuthn() (*webauthn.WebAuthn, error) {
+func (s *Runtime) webAuthn() (*webauthn.WebAuthn, error) {
 	return webauthn.New(&webauthn.Config{
 		RPID:                  s.cfg.Passkeys.RPID,
 		RPDisplayName:         s.cfg.Passkeys.RPDisplayName,
@@ -179,7 +179,7 @@ func (s *Client) webAuthn() (*webauthn.WebAuthn, error) {
 // BeginPasskeyRegistration starts adding a passkey to an already identified
 // user. The same ceremony finishes as either FinishPasskeyRegistration (add)
 // or FinishPasskeyReplacement (replace all).
-func (s *Client) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
+func (s *Runtime) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
 	u, err := s.passkeyUser(ctx, strings.TrimSpace(userID), true)
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func (s *Client) BeginPasskeyRegistration(ctx context.Context, userID string) (*
 	return s.beginPasskeyCreation(ctx, u, passkeyPurposeRegister, s.passkeyUserVerification())
 }
 
-func (s *Client) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialCreation, error) {
+func (s *Runtime) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialCreation, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (s *Client) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 	return creation, s.storePasskeySession(ctx, session, purpose, u.id)
 }
 
-func (s *Client) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
+func (s *Runtime) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
 		return Passkey{}, err
@@ -220,7 +220,7 @@ func (s *Client) FinishPasskeyRegistration(ctx context.Context, userID string, r
 // FinishPasskeyReplacement registers the new credential and tombstones every
 // other active passkey of the user in the same transaction, for hosts with a
 // single-passkey policy. Any failure leaves the prior passkeys active.
-func (s *Client) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
+func (s *Runtime) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
 	userID = strings.TrimSpace(userID)
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
@@ -246,7 +246,7 @@ WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL AND id<>$3`, userID, s.cfg.P
 	return p, nil
 }
 
-func (s *Client) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
+func (s *Runtime) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
 	userID = strings.TrimSpace(userID)
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
 	if err != nil {
@@ -266,7 +266,7 @@ func (s *Client) finishPasskeyCreation(ctx context.Context, userID string, respo
 	return s.createCredential(u, session, parsed)
 }
 
-func (s *Client) createCredential(u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
+func (s *Runtime) createCredential(u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
@@ -285,13 +285,13 @@ func (s *Client) createCredential(u passkeyUser, session webauthn.SessionData, p
 // allowCredentials list (AK2-PK-002): scoping it to a known identifier would
 // leak account existence and credential ids to an unauthenticated caller.
 // The asserted credential's user handle resolves the user at finish.
-func (s *Client) BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error) {
+func (s *Runtime) BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error) {
 	return s.beginDiscoverableAssertion(ctx, passkeyPurposeLogin, s.passkeyUserVerification())
 }
 
 // FinishPasskeyLogin composes the verification primitive with the browser
 // session issuance; it is the only passkey path that mints a session.
-func (s *Client) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error) {
+func (s *Runtime) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (PasskeyLoginResult, error) {
 	verified, err := s.finishDiscoverableAssertion(ctx, passkeyPurposeLogin, response)
 	if err != nil {
 		return PasskeyLoginResult{}, err
@@ -311,17 +311,17 @@ func (s *Client) FinishPasskeyLogin(ctx context.Context, response []byte, userAg
 // BeginDiscoverablePasskeyVerification starts an identity-proof ceremony: the
 // public response is identical for every caller, and user verification is
 // required because the passkey is the only factor.
-func (s *Client) BeginDiscoverablePasskeyVerification(ctx context.Context) (*protocol.CredentialAssertion, error) {
+func (s *Runtime) BeginDiscoverablePasskeyVerification(ctx context.Context) (*protocol.CredentialAssertion, error) {
 	return s.beginDiscoverableAssertion(ctx, passkeyPurposeVerify, protocol.VerificationRequired)
 }
 
 // FinishDiscoverablePasskeyVerification validates the assertion and returns the
 // verified user/credential without minting any session or token.
-func (s *Client) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (VerifiedPasskey, error) {
+func (s *Runtime) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (VerifiedPasskey, error) {
 	return s.finishDiscoverableAssertion(ctx, passkeyPurposeVerify, response)
 }
 
-func (s *Client) beginDiscoverableAssertion(ctx context.Context, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialAssertion, error) {
+func (s *Runtime) beginDiscoverableAssertion(ctx context.Context, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialAssertion, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
@@ -333,7 +333,7 @@ func (s *Client) beginDiscoverableAssertion(ctx context.Context, purpose string,
 	return assertion, s.storePasskeySession(ctx, session, purpose, "")
 }
 
-func (s *Client) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (VerifiedPasskey, error) {
+func (s *Runtime) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (VerifiedPasskey, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
 		return VerifiedPasskey{}, err
@@ -381,7 +381,7 @@ func (s *Client) finishDiscoverableAssertion(ctx context.Context, purpose string
 // BeginPasskeyAccount starts a passkey-only account: it mints the user id (no
 // row yet), uses its bytes as the discoverable user handle, and requires user
 // verification. Allowed only while public native registration is open.
-func (s *Client) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount, error) {
+func (s *Runtime) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount, error) {
 	if err := s.requirePG(); err != nil {
 		return PendingPasskeyAccount{}, err
 	}
@@ -404,7 +404,7 @@ func (s *Client) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount
 // then inserts the user (no email/username/password), its handle and the
 // passkey in one transaction. A replayed or concurrent finish cannot create a
 // second user because the ceremony consume is atomic.
-func (s *Client) FinishPasskeyAccount(ctx context.Context, response []byte) (*User, Passkey, error) {
+func (s *Runtime) FinishPasskeyAccount(ctx context.Context, response []byte) (*User, Passkey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, Passkey{}, err
 	}
@@ -458,7 +458,7 @@ func passkeyAccountUser(id uuid.UUID) passkeyUser {
 	return passkeyUser{id: id.String(), handle: id[:], name: id.String(), displayName: id.String()}
 }
 
-func (s *Client) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
+func (s *Runtime) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
 	rows, err := s.pg.Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
 FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
@@ -481,7 +481,7 @@ FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY 
 	return out, rows.Err()
 }
 
-func (s *Client) RenamePasskey(ctx context.Context, userID, id, label string) error {
+func (s *Runtime) RenamePasskey(ctx context.Context, userID, id, label string) error {
 	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND deleted_at IS NULL`, nullable(strings.TrimSpace(label)), strings.TrimSpace(id), strings.TrimSpace(userID))
 	if err != nil {
 		return err
@@ -492,7 +492,7 @@ func (s *Client) RenamePasskey(ctx context.Context, userID, id, label string) er
 	return nil
 }
 
-func (s *Client) DeletePasskey(ctx context.Context, userID, id string) error {
+func (s *Runtime) DeletePasskey(ctx context.Context, userID, id string) error {
 	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, strings.TrimSpace(id), strings.TrimSpace(userID))
 	if err != nil {
 		return err
@@ -503,7 +503,7 @@ func (s *Client) DeletePasskey(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-func (s *Client) storePasskeySession(ctx context.Context, session *webauthn.SessionData, purpose, userID string) error {
+func (s *Runtime) storePasskeySession(ctx context.Context, session *webauthn.SessionData, purpose, userID string) error {
 	b, err := json.Marshal(session)
 	if err != nil {
 		return err
@@ -511,7 +511,7 @@ func (s *Client) storePasskeySession(ctx context.Context, session *webauthn.Sess
 	return s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{Purpose: purpose, UserID: strings.TrimSpace(userID), Session: b}, passkeyCeremonyTTL)
 }
 
-func (s *Client) consumePasskeySession(ctx context.Context, challenge string) (passkeyCeremonyData, webauthn.SessionData, error) {
+func (s *Runtime) consumePasskeySession(ctx context.Context, challenge string) (passkeyCeremonyData, webauthn.SessionData, error) {
 	data, err := s.consumePasskeyCeremony(ctx, challenge)
 	if err != nil {
 		return data, webauthn.SessionData{}, err
@@ -523,7 +523,7 @@ func (s *Client) consumePasskeySession(ctx context.Context, challenge string) (p
 	return data, session, nil
 }
 
-func (s *Client) passkeyUser(ctx context.Context, userID string, createHandle bool) (passkeyUser, error) {
+func (s *Runtime) passkeyUser(ctx context.Context, userID string, createHandle bool) (passkeyUser, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil || u == nil {
 		return passkeyUser{}, errOrUnauthorized(err)
@@ -548,7 +548,7 @@ func (s *Client) passkeyUser(ctx context.Context, userID string, createHandle bo
 	return passkeyUser{id: userID, handle: handle, name: name, displayName: name, credentials: creds}, nil
 }
 
-func (s *Client) passkeyUserByHandle(ctx context.Context, handle []byte) (passkeyUser, error) {
+func (s *Runtime) passkeyUserByHandle(ctx context.Context, handle []byte) (passkeyUser, error) {
 	var userID string
 	err := s.pg.QueryRow(ctx, `SELECT user_id FROM user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
 	if err != nil {
@@ -563,7 +563,7 @@ func (s *Client) passkeyUserByHandle(ctx context.Context, handle []byte) (passke
 	return user, err
 }
 
-func (s *Client) passkeyHandle(ctx context.Context, userID string, create bool) ([]byte, error) {
+func (s *Runtime) passkeyHandle(ctx context.Context, userID string, create bool) ([]byte, error) {
 	var handle []byte
 	err := s.pg.QueryRow(ctx, `SELECT user_handle FROM user_passkey_handles WHERE user_id=$1`, userID).Scan(&handle)
 	if err == nil {
@@ -580,7 +580,7 @@ func (s *Client) passkeyHandle(ctx context.Context, userID string, create bool) 
 	return handle, err
 }
 
-func (s *Client) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
+func (s *Runtime) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
 	rows, err := s.pg.Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt
 FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
@@ -635,7 +635,7 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 	}, nil
 }
 
-func (s *Client) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
+func (s *Runtime) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
 	var p Passkey
 	var flags []byte
 	err := q.QueryRow(ctx, `INSERT INTO user_passkeys
@@ -652,7 +652,7 @@ RETURNING id, user_id, transports, authenticator_attachment, flags, label, creat
 	return p, err
 }
 
-func (s *Client) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
+func (s *Runtime) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
 	var id string
 	err := s.pg.QueryRow(ctx, `UPDATE user_passkeys
 SET sign_count=$1, clone_warning=$2, flags=$3, last_used_at=NOW()

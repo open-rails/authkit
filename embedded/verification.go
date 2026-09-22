@@ -10,7 +10,7 @@ import (
 )
 
 // getUserByPhone returns a user by phone number (if any)
-func (s *Client) getUserByPhone(ctx context.Context, phone string) (*User, error) {
+func (s *Runtime) getUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -22,7 +22,7 @@ func (s *Client) getUserByPhone(ctx context.Context, phone string) (*User, error
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.
-func (s *Client) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
+func (s *Runtime) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
 	email = NormalizeEmail(email)
 	if err := ValidateEmail(email); err != nil {
 		return err
@@ -47,7 +47,7 @@ func (s *Client) RequestEmailVerification(ctx context.Context, email string, ttl
 	return ErrUserNotFound
 }
 
-func (s *Client) sendEmailVerificationToUser(ctx context.Context, u *User, ttl time.Duration) error {
+func (s *Runtime) sendEmailVerificationToUser(ctx context.Context, u *User, ttl time.Duration) error {
 	if u == nil {
 		return ErrUserNotFound
 	}
@@ -87,7 +87,7 @@ func (s *Client) sendEmailVerificationToUser(ctx context.Context, u *User, ttl t
 }
 
 // GetUserByPhone looks up a user by phone number.
-func (s *Client) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
+func (s *Runtime) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -106,7 +106,7 @@ func (s *Client) GetUserByPhone(ctx context.Context, phone string) (*User, error
 
 // RequestPhoneVerification looks up the user by phone number and sends a verification code.
 // This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
-func (s *Client) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
+func (s *Runtime) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
 	phone = NormalizePhone(phone)
 	if err := ValidatePhone(phone); err != nil {
 		return err
@@ -140,7 +140,7 @@ func (s *Client) RequestPhoneVerification(ctx context.Context, phone string, ttl
 // SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
 // Use RequestPhoneVerification if you only have a phone number and need to look up the user.
 // Always returns nil for security.
-func (s *Client) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
+func (s *Runtime) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
 	}

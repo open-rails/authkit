@@ -71,7 +71,7 @@ type TrustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
-func (s *Client) trustSourcePolicy() TrustSourcePolicy {
+func (s *Runtime) trustSourcePolicy() TrustSourcePolicy {
 	return TrustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
@@ -216,7 +216,7 @@ func remoteAppFromRow(row remoteAppRow) *RemoteApplication {
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
 // issuer. An existing issuer can only be updated by its controlling group.
-func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
+func (s *Runtime) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func (s *Client) UpsertRemoteApplication(ctx context.Context, in RemoteApplicati
 	return out, err
 }
 
-func (s *Client) upsertRemoteApplication(ctx context.Context, st *PermissionGroupStore, in RemoteApplication) (*RemoteApplication, error) {
+func (s *Runtime) upsertRemoteApplication(ctx context.Context, st *PermissionGroupStore, in RemoteApplication) (*RemoteApplication, error) {
 	q := db.New(st.q)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	issuer := strings.TrimSpace(in.Issuer)
@@ -304,7 +304,7 @@ func (s *Client) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
-func (s *Client) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
+func (s *Runtime) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (s *Client) GetRemoteApplication(ctx context.Context, issuer string) (*Remo
 }
 
 // GetRemoteApplicationBySlug returns a remote_application by slug.
-func (s *Client) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
+func (s *Runtime) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -349,7 +349,7 @@ func (s *Client) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*
 
 // ListRemoteApplications returns every registered remote_application,
 // enabled or not (the admin read).
-func (s *Client) ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
+func (s *Runtime) ListRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func (s *Client) ListRemoteApplications(ctx context.Context) ([]RemoteApplicatio
 
 // ListEnabledRemoteApplications returns only the enabled remote_applications:
 // the verification-facing snapshot a Verifier trusts issuers from.
-func (s *Client) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
+func (s *Runtime) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -386,7 +386,7 @@ func (s *Client) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApp
 // instanceSlug) (#111). It resolves the group via the store, then filters
 // remote_applications by permission_group_id so a per-persona management caller
 // sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *Client) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
+func (s *Runtime) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func (s *Client) ListRemoteApplicationsForGroup(ctx context.Context, group authk
 }
 
 // DeleteRemoteApplication removes a remote_application by OIDC issuer URL.
-func (s *Client) DeleteRemoteApplication(ctx context.Context, issuer string) error {
+func (s *Runtime) DeleteRemoteApplication(ctx context.Context, issuer string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

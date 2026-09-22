@@ -29,7 +29,7 @@ type oidcStateCache interface {
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
 	dpopRequestURL      func(*http.Request) string
-	svc                 *embedded.Client
+	svc                 *embedded.Runtime
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter

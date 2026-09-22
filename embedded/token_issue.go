@@ -14,7 +14,7 @@ import (
 // Includes core registered claims plus:
 // - entitlements (authoritative short-lived snapshot)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
-func (s *Client) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+func (s *Runtime) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	return s.mintAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
 }
 
@@ -62,7 +62,7 @@ var reservedAccessTokenClaims = map[string]struct{}{
 // and computes MFAStatus, then delegates to mintAccessTokenForUser. Callers that
 // already hold a loaded+gated *User (and its MFAStatus) — the hot login / refresh /
 // 2FA paths — should call mintAccessTokenForUser directly to avoid the re-read (#227).
-func (s *Client) mintAccessToken(ctx context.Context, userID string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+func (s *Runtime) mintAccessToken(ctx context.Context, userID string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	// Keep the live-user gate even though profile fields no longer ride in the
 	// token: banned/deleted users must not receive fresh access tokens.
 	if s.pg != nil {
@@ -82,7 +82,7 @@ func (s *Client) mintAccessToken(ctx context.Context, userID string, extra map[s
 		}
 		return s.mintAccessTokenForUser(ctx, u, mfa, extra, ttl)
 	}
-	// Verify-only / pg-less Client: no live-user gate, no MFA lookup — mint from
+	// Verify-only / pg-less Runtime: no live-user gate, no MFA lookup — mint from
 	// the userID alone (matches the historical s.pg == nil behavior). The synthetic
 	// row carries only the ID; mintAccessTokenForUser reads no other user field and
 	// its sid/freshness + mfa branches are already guarded by s.pg != nil / mfa != nil.
@@ -96,7 +96,7 @@ func (s *Client) mintAccessToken(ctx context.Context, userID string, extra map[s
 // mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.
-func (s *Client) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+func (s *Runtime) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, extra, ttl, nil)
 }
 
@@ -108,7 +108,7 @@ type accessTokenAssurance struct {
 	DeviceKeyID string
 }
 
-func (s *Client) mintAccessTokenForUserWithAssurance(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
+func (s *Runtime) mintAccessTokenForUserWithAssurance(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
@@ -188,7 +188,7 @@ func (s *Client) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return "", time.Time{}, ErrMissingSigner // #87: verify-only Client cannot mint
+		return "", time.Time{}, ErrMissingSigner // #87: verify-only Runtime cannot mint
 	}
 	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err
@@ -197,7 +197,7 @@ func (s *Client) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Use
 // mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
 // assurance claims are server-owned, not passed through MintAccessToken's host
 // extras, so callers cannot forge an authentication method.
-func (s *Client) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof, mfaProof bool) (string, time.Time, error) {
+func (s *Runtime) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof, mfaProof bool) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", time.Time{}, err

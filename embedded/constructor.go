@@ -22,7 +22,7 @@ import (
 var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
 
 // Construction and Config validation. There is ONE config type (Config, #237)
-// and ONE normalization pass (normalizeConfig): the Client reads the
+// and ONE normalization pass (normalizeConfig): the Runtime reads the
 // normalized Config directly, so a knob cannot exist internally without being
 // settable by hosts. New is THE host construction path (key/TOTP
 // resolution + required-field checks); NewWithKeys is the module-internal
@@ -36,7 +36,7 @@ const (
 	defaultFrontendInvitePath        = "/accept-invite"
 )
 
-// normalizeConfig is the single defaulting/validation pass every Client's
+// normalizeConfig is the single defaulting/validation pass every Runtime's
 // Config goes through, exactly once, at construction. It returns a normalized
 // COPY: trimmed strings, defaulted paths/TTLs/limits, canonical enum values.
 // Required-field presence (Issuer, audiences) is New's job — sparse
@@ -176,9 +176,9 @@ func normalizeConfig(cfg Config) (Config, error) {
 
 // NewWithKeys is the low-level constructor: explicit Keyset, no key/TOTP
 // resolution, no required-field checks, no memory-store default. The Keyset
-// is fixed for the lifetime of the Client — hosts that need hot-reloaded
+// is fixed for the lifetime of the Runtime — hosts that need hot-reloaded
 // signing keys construct via New with a live jwtkit.KeySource (#238).
-func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Client, error) {
+func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
 	if err := deps.validate(); err != nil {
 		return nil, err
 	}
@@ -196,12 +196,12 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Client, error) {
 	return newClient(norm, src, gs, deps)
 }
 
-// newService assembles a Client from an already-normalized Config. keys is
+// newService assembles a Runtime from an already-normalized Config. keys is
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
-// the Client exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*Client, error) {
-	s := &Client{
+// the Runtime exists.
+func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*Runtime, error) {
+	s := &Runtime{
 		cfg:               norm,
 		keys:              keys,
 		schema:            norm.Schema,
@@ -229,7 +229,7 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 // explicit Config.Ephemeral.AllowMemory opt-in (#305). If Keys.Source is nil,
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
-func New(cfg Config, deps Deps) (_ *Client, err error) {
+func New(cfg Config, deps Deps) (_ *Runtime, err error) {
 	if err := deps.validate(); err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func New(cfg Config, deps Deps) (_ *Client, err error) {
 	}
 	// keySource is held live, NOT snapshotted into a Keyset: a reloadable file
 	// source hot-swaps its active signer/public keys behind an atomic pointer
-	// as keys.json rotates, and the Client must keep observing it for the
+	// as keys.json rotates, and the Runtime must keep observing it for the
 	// rest of the process lifetime (#238) rather than freezing the keys seen
 	// at construction time.
 
@@ -294,7 +294,7 @@ func New(cfg Config, deps Deps) (_ *Client, err error) {
 
 	// #232: TOTP secret-encryption key — explicit override (validated) or
 	// <Keys.Path>/totp.key; nil (no key configured) fails closed at enrollment.
-	// The resolved key is written back into the normalized Config: the Client
+	// The resolved key is written back into the normalized Config: the Runtime
 	// reads Config, so what it reads IS what was resolved.
 	totpSecretKey, err := resolveTOTPSecretKey(norm)
 	if err != nil {
@@ -327,7 +327,7 @@ func New(cfg Config, deps Deps) (_ *Client, err error) {
 	}
 
 	// Deps.Postgres MAY be nil at the core layer (verify-only construction or
-	// config-only unit tests need no store): a nil pool yields a Client with
+	// config-only unit tests need no store): a nil pool yields a Runtime with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
 	// host-facing authhttp constructor, not here.
 	if deps.Redis == nil && deps.EphemeralStore == nil {
@@ -433,11 +433,11 @@ func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 }
 
 // Registration-policy reads. The stored Config is normalized at construction,
-// but these re-normalize defensively: some tests build a zero Client{}.
+// but these re-normalize defensively: some tests build a zero Runtime{}.
 
 // RegistrationVerificationPolicy returns the effective registration
 // verification policy ("none" when unset/invalid).
-func (s *Client) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
+func (s *Runtime) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
 	v, err := normalizeRegistrationVerification(s.cfg.Registration.Verification)
 	if err != nil {
 		return RegistrationVerificationNone
@@ -445,24 +445,24 @@ func (s *Client) RegistrationVerificationPolicy() RegistrationVerificationPolicy
 	return v
 }
 
-func (s *Client) RegistrationVerificationRequired() bool {
+func (s *Runtime) RegistrationVerificationRequired() bool {
 	return s.RegistrationVerificationPolicy() == RegistrationVerificationRequired
 }
 
-func (s *Client) RegistrationVerificationEnabled() bool {
+func (s *Runtime) RegistrationVerificationEnabled() bool {
 	return s.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
 // self-registration / auto-registration is allowed.
-func (s *Client) PublicNativeUserRegistrationEnabled() bool {
+func (s *Runtime) PublicNativeUserRegistrationEnabled() bool {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	return err == nil && mode == RegistrationModeOpen
 }
 
 // requireMFAEnrollment reports whether every user must enroll a second factor
 // before establishing/refreshing a session (TwoFactor.Mode == "required").
-func (s *Client) requireMFAEnrollment() bool {
+func (s *Runtime) requireMFAEnrollment() bool {
 	return s.cfg.TwoFactor.Mode == TwoFactorRequired
 }
 
