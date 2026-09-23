@@ -6,8 +6,9 @@ documents and delegated tokens, running in your process against your Postgres
 (18+) and Redis. Tests exercise the embedded HTTP handlers directly; AuthKit
 owns its PostgreSQL migration source and runs it through migratekit.
 
-Modules: `github.com/open-rails/authkit`, plus `adapters/gin` and `adapters/fiber`
-as separate modules. The embedded engine uses River
+One module, `github.com/open-rails/authkit`, includes the core and every adapter.
+One root release tag versions them together; adapter import paths are unchanged.
+Framework dependencies enter an application's build only when it imports the corresponding adapter. The embedded engine uses River
 for PostgreSQL maintenance; the root and `verify` packages remain engine-free.
 
 For local tests, run `scripts/check.sh`. Applications call
@@ -140,8 +141,7 @@ if err := routes.Mount(router); err != nil {
 Use the same pattern with `authkitfiber.Routes(runtime).Mount(app)` or
 `authkithttp.Routes(runtime).Mount(mux)` for a standard `http.ServeMux` or Chi
 router. Handle the error returned by `Routes` before calling `Mount`.
-The `adapters/http` package is included in the core module; Gin and Fiber are
-separate modules.
+The net/http, Gin, and Fiber adapters all ship in the root module.
 
 Prefer `Config.HTTP` for policy known at construction. `ConfigureHTTP` supports
 provisioning dependencies that become available later and is one-shot. A failed build consumes the attempt and closes
@@ -236,11 +236,10 @@ ambient context claims. Retain the resulting principal only for that request.
 
 ### Fiber v3
 
-Install the separate adapter module:
-
-```sh
-go get github.com/open-rails/authkit/adapters/fiber
-```
+Install AuthKit at the chosen root version, then import
+`github.com/open-rails/authkit/adapters/fiber`. See the
+[single-module upgrade instructions](SEMVER.md#single-module-upgrade) if the
+application previously required an adapter module.
 
 The middleware and typed accessors mirror the Gin adapter. Configure the local
 runtime once as above, then register its inventory:

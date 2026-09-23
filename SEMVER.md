@@ -79,20 +79,37 @@ generated or canonical sources named below, not here.
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/jwtkit` | `jwtkit` | Advanced | Key sources, signers, JWKS |
 | `…/adapters/http` | `authkithttp` | Provided | Configured runtime route bundle for net/http and Chi; part of the root module |
-| `…/adapters/gin`, `…/adapters/fiber` | `authkitgin`, `authkitfiber` | Provided | Own modules |
+| `…/adapters/gin`, `…/adapters/fiber` | `authkitgin`, `authkitfiber` | Provided | Part of the root module |
 | `…/adapters/twilio/{email,sms}` | `twilio` | Provided | Senders |
 
 Renaming an import path or package name is MAJOR; adding a package is MINOR.
 `go doc` is the live enumeration; the compatibility comparison in §8 checks
 exported signatures as well as the documented host compile fixtures.
 
-**Nested modules.** `adapters/gin` and `adapters/fiber`
-are their own modules. Gin and Fiber framework dependencies remain isolated;
-the embedded runtime itself uses River and `github.com/open-rails/helpers/river`
-for shared host composition.
-Tags: `vX.Y.Z` (root), `adapters/gin/vX.Y.Z`, `adapters/fiber/vX.Y.Z`.
-Release order: tag the root, bump each nested
-`require github.com/open-rails/authkit` to it, tag the adapters.
+**One module and release.** The root `github.com/open-rails/authkit` module
+contains the core, net/http, Gin, Fiber, and sender adapters. Publish only the
+root `vX.Y.Z` tag; do not create new adapter-specific release tags. Existing
+historical adapter tags remain immutable. The root module records framework
+dependencies, but Go only builds their packages when a consumer imports the
+corresponding adapter. The embedded runtime's River dependencies are unchanged.
+
+#### Single-module upgrade
+
+Keep existing adapter import paths. Before upgrading to a unified root release,
+remove explicit requirements on the old nested modules; otherwise Go sees the
+same adapter package in two modules and reports an ambiguous import:
+
+```sh
+go mod edit -droprequire=github.com/open-rails/authkit/adapters/gin
+go mod edit -droprequire=github.com/open-rails/authkit/adapters/fiber
+# Set AUTHKIT_VERSION to the selected published root version.
+go get github.com/open-rails/authkit@"$AUTHKIT_VERSION"
+go mod tidy
+```
+
+A dependency that still requires an old adapter module must also be upgraded to
+its single-module-compatible release. Do not add local replacements or retain
+separate adapter version pins as a workaround.
 
 ### 3.2 Rules
 
