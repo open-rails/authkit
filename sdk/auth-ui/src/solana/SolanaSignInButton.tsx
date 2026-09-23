@@ -7,14 +7,22 @@ import type { Translator } from "../i18n/messages.ts"
 import { useAuthClient } from "../react/context.ts"
 import { Button } from "../ui/button.tsx"
 import { Spinner } from "../ui/spinner.tsx"
-import { isSolanaWalletError, type WalletAdapterLike } from "./core.ts"
+import {
+  isSolanaWalletError,
+  type SolanaSigner,
+  type WalletAdapterLike,
+} from "./core.ts"
 import { useSolanaAuth } from "./useSolanaAuth.ts"
 
 export type SolanaSignInButtonProps = {
   // wallet-adapter's useWallet(), or any WalletAdapterLike.
-  wallet: WalletAdapterLike | null | undefined
+  wallet?: WalletAdapterLike | null
   // Open the wallet picker; sign-in resumes once a wallet connects.
   onConnectRequest?: () => void
+  // For hosts that load the wallet stack on demand: resolves a connected
+  // signer when pressed (used instead of `wallet`). Reject with
+  // SolanaWalletError("rejected") when the picker is dismissed.
+  acquireSigner?: () => Promise<SolanaSigner>
   // Pass the renderSolana slot's onOutcome so 2FA etc. continue in the form.
   onOutcome: (outcome: AuthOutcome) => void
   mode?: "login" | "register"
@@ -69,6 +77,7 @@ function SolanaMark() {
 export function SolanaSignInButton({
   wallet,
   onConnectRequest,
+  acquireSigner,
   onOutcome,
   mode = "login",
   username,
@@ -79,6 +88,7 @@ export function SolanaSignInButton({
   const { t } = messages
   const solana = useSolanaAuth(useAuthClient(), wallet, {
     onConnectRequest,
+    acquireSigner,
     onSignIn: onOutcome,
     username,
   })

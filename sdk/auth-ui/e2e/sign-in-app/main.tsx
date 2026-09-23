@@ -11,7 +11,11 @@ import {
   SignInDialog,
 } from "../../dist/index.js"
 import { AuthProvider, useSession, useUser } from "../../dist/react.js"
-import { SolanaSignInButton } from "../../dist/solana.js"
+import {
+  SolanaSignInButton,
+  SolanaWalletError,
+  type SolanaSigner,
+} from "../../dist/solana.js"
 
 const params = new URLSearchParams(location.search)
 const theme = params.get("theme") === "dark" ? "dark" : "light"
@@ -26,6 +30,26 @@ document.body.style.fontFamily = font
 const client = createAuthClient()
 const signedIn: (string | null)[] = []
 Object.assign(window, { signedIn, authClient: client })
+
+// solana.spec.ts sets window.walletAddress and exposes walletSign (an Ed25519
+// key held by the test), standing in for a lazily loaded wallet stack.
+type TestWallet = {
+  walletAddress?: string
+  walletSign?: (address: string, message: string) => Promise<string>
+}
+async function acquireSigner(): Promise<SolanaSigner> {
+  const w = window as TestWallet
+  const address = w.walletAddress
+  const sign = w.walletSign
+  if (!address || !sign) throw new SolanaWalletError("not_connected")
+  return {
+    publicKey: address,
+    signMessage: async (m) => {
+      const sig = await sign(address, btoa(String.fromCharCode(...m)))
+      return Uint8Array.from(atob(sig), (c) => c.charCodeAt(0))
+    },
+  }
+}
 
 function Backdrop() {
   const tone = theme === "dark" ? "#23262d" : "#e4e6ea"
@@ -76,7 +100,7 @@ function Home() {
         onSignedIn={({ returnTo }) => signedIn.push(returnTo ?? null)}
         renderSolana={({ mode, onOutcome, disabled }) => (
           <SolanaSignInButton
-            wallet={null}
+            acquireSigner={acquireSigner}
             mode={mode}
             onOutcome={onOutcome}
             disabled={disabled}

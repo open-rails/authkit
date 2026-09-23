@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../client/client.ts"
 import { json, jwt, stubFetch } from "../client/testing.ts"
-import type { WalletAdapterLike } from "./core.ts"
+import { SolanaWalletError, type WalletAdapterLike } from "./core.ts"
 import { useSolanaAuth, type UseSolanaAuthOptions } from "./useSolanaAuth.ts"
 
 const SIG = new Uint8Array(64).fill(1)
@@ -72,4 +72,39 @@ it("without a connect handler, a missing wallet is an error", async () => {
   })
   expect(result.current.error).toMatchObject({ reason: "not_connected" })
   expect(result.current.awaitingWallet).toBeNull()
+})
+
+it("acquireSigner: signs in with the acquired signer and ignores a dismissed picker", async () => {
+  const auth = client()
+  const onSignIn = vi.fn()
+  const acquireSigner = vi
+    .fn()
+    .mockRejectedValueOnce(new SolanaWalletError("rejected"))
+    .mockResolvedValueOnce({ publicKey: "W", signMessage: async () => SIG })
+  const { result } = renderHook(() =>
+    useSolanaAuth(auth, null, { acquireSigner, onSignIn })
+  )
+  await act(async () => {
+    expect(await result.current.signIn()).toBeNull()
+  })
+  expect(result.current).toMatchObject({ busy: null, error: null })
+
+  await act(async () => {
+    expect(await result.current.signIn()).toEqual({ kind: "session" })
+  })
+  expect(onSignIn).toHaveBeenCalledWith({ kind: "session" })
+  expect(auth.getSnapshot()).toMatchObject({ userId: "U" })
+})
+
+it("acquireSigner: a wallet that fails to load is an error", async () => {
+  const failure = new Error("chunk failed")
+  const { result } = renderHook(() =>
+    useSolanaAuth(client(), null, {
+      acquireSigner: () => Promise.reject(failure),
+    })
+  )
+  await act(async () => {
+    await result.current.signIn()
+  })
+  expect(result.current).toMatchObject({ busy: null, error: failure })
 })

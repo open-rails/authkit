@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `SolanaSignInButton` (and `useSolanaAuth`) take `acquireSigner` for hosts
+  that load their wallet stack on demand, like `SolanaLinkRow`. The wallet
+  outcome feeds `renderSolana`'s `onOutcome`, so 2FA, account recovery and
+  verification continue in the dialog. Rejecting with
+  `SolanaWalletError("rejected")` (picker dismissed) ends the attempt quietly.
+
 ## 0.3.1
 
 Requires AuthKit v0.132.0 or newer.

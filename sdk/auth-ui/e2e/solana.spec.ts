@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import type { AuthClient } from "../src/client/index.ts"
 import type { SolanaAuth } from "../src/solana/index.ts"
-import { registerVerified } from "./support/api"
+import { registerVerified, totp } from "./support/api"
 
 type Win = {
   auth: AuthClient
@@ -15,6 +15,7 @@ type Win = {
 type Result = { ok: true; value: unknown } | { ok: false; code: string }
 
 const app = path.resolve(import.meta.dirname, ".react-app/solana.js")
+const signInApp = path.resolve(import.meta.dirname, ".react-app/sign-in.js")
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 function base58(bytes: Uint8Array): string {
@@ -45,12 +46,9 @@ const wallet = () => {
   return w
 }
 
-// The packaged entries, bundled with their real dependencies.
-async function loadSolana(page: Page) {
-  await page.route("**/__auth-ui/solana-app.js", (route) =>
-    route.fulfill({ path: app, contentType: "text/javascript" })
-  )
-  await page.exposeFunction(
+// The in-page signer calls back into the test's Ed25519 keys.
+function exposeWallet(page: Page) {
+  return page.exposeFunction(
     "walletSign",
     (address: string, message: string): string => {
       const key = wallets.get(address)
@@ -58,6 +56,14 @@ async function loadSolana(page: Page) {
       return sign(null, Buffer.from(message, "base64"), key).toString("base64")
     }
   )
+}
+
+// The packaged entries, bundled with their real dependencies.
+async function loadSolana(page: Page) {
+  await page.route("**/__auth-ui/solana-app.js", (route) =>
+    route.fulfill({ path: app, contentType: "text/javascript" })
+  )
+  await exposeWallet(page)
   await page.goto("/")
   await page.addScriptTag({ url: "/__auth-ui/solana-app.js", type: "module" })
   await page.waitForFunction(() => "solana" in window)
@@ -188,4 +194,77 @@ test("link, conflict, unlink and relink a wallet", async ({
   await signOut(page)
   expect(await call(page, "signIn", c.address)).toMatchObject({ ok: true })
   expect(await userId(page)).toBe(owner)
+})
+
+test("SignInDialog: wallet sign-in continues to the TOTP prompt", async ({
+  page,
+}) => {
+  await page.route("**/__auth-ui/sign-in.js", (route) =>
+    route.fulfill({ path: signInApp, contentType: "text/javascript" })
+  )
+  await exposeWallet(page)
+  await page.goto("/")
+  await page.addScriptTag({ url: "/__auth-ui/sign-in.js", type: "module" })
+  const status = page.getByTestId("status")
+  await expect(status).toHaveText("anonymous")
+  const a = wallet()
+  await page.evaluate((address) => {
+    Object.assign(window, { walletAddress: address })
+  }, a.address)
+
+  const dialog = page.getByRole("dialog")
+  const walletSignIn = async () => {
+    await page.getByRole("button", { name: "open sign in" }).click()
+    await dialog.getByRole("button", { name: "Continue with Solana" }).click()
+  }
+  type Client = {
+    enableTwoFactor(input: { method: string; code?: string }): Promise<{
+      secret?: string
+    }>
+    getSnapshot(): { status: string; userId?: string }
+  }
+  const owned = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { authClient: Client }).authClient.getSnapshot()
+          .userId
+    )
+  const enroll = (code?: string) =>
+    page.evaluate(
+      async (code) =>
+        (
+          await (
+            window as unknown as { authClient: Client }
+          ).authClient.enableTwoFactor({ method: "totp", code })
+        ).secret ?? "",
+      code
+    )
+
+  // First wallet sign-in creates the account.
+  await walletSignIn()
+  await expect(dialog).toBeHidden()
+  await expect(status).toHaveText("authenticated")
+  const owner = await owned()
+
+  // Enroll TOTP early in a step so the login code can use the next one.
+  const into = Date.now() % 30_000
+  if (into > 20_000) await page.waitForTimeout(30_500 - into)
+  const now = Date.now()
+  const secret = await enroll()
+  await enroll(totp(secret, now))
+  await page.getByRole("button", { name: "sign out" }).click()
+  await expect(status).toHaveText("anonymous")
+
+  // Wallet sign-in → AuthKit 2fa_required → the dialog's TOTP prompt.
+  await walletSignIn()
+  await expect(
+    dialog.getByRole("heading", { name: "Verify it's you" })
+  ).toBeVisible()
+  await expect(status).toHaveText("anonymous")
+  await dialog
+    .getByRole("textbox", { name: "Verification code" })
+    .fill(totp(secret, now + 30_000))
+  await expect(dialog).toBeHidden()
+  await expect(status).toHaveText("authenticated")
+  expect(await owned()).toBe(owner)
 })

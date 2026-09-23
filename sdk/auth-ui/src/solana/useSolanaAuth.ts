@@ -5,6 +5,7 @@ import {
   createSolanaAuth,
   isSolanaWalletError,
   signerFromWallet,
+  type SolanaSigner,
   type WalletAdapterLike,
 } from "./core.ts"
 
@@ -14,6 +15,10 @@ export type UseSolanaAuthOptions = {
   // Open the host's wallet picker (e.g. wallet-adapter-react-ui setVisible(true)).
   // The requested action resumes once the wallet connects.
   onConnectRequest?: () => void
+  // For hosts that load their wallet stack on demand: resolves a connected
+  // signer per action, used instead of `wallet`. Rejecting with
+  // SolanaWalletError("rejected") (picker dismissed) ends the action quietly.
+  acquireSigner?: () => Promise<SolanaSigner>
   onSignIn?: (outcome: AuthOutcome) => void
   onLink?: (address: string) => void
   // Refuses a different wallet before prompting for a signature.
@@ -28,7 +33,8 @@ export type SolanaAuthState = {
   error: unknown
 }
 
-// Pass wallet-adapter's useWallet() (or any WalletAdapterLike) as `wallet`.
+// Pass wallet-adapter's useWallet() (or any WalletAdapterLike) as `wallet`,
+// or null with `options.acquireSigner`.
 export function useSolanaAuth(
   client: AuthClient,
   wallet: WalletAdapterLike | null | undefined,
@@ -58,29 +64,38 @@ export function useSolanaAuth(
   const run = useCallback(
     async <T>(
       action: Action,
-      perform: (
-        signer: ReturnType<typeof signerFromWallet>,
-        opts: UseSolanaAuthOptions
-      ) => Promise<T>
+      perform: (signer: SolanaSigner, opts: UseSolanaAuthOptions) => Promise<T>
     ): Promise<T | null> => {
       const { wallet: w, options: opts } = latest.current
-      let signer
-      try {
-        signer = signerFromWallet(w)
-      } catch (err) {
-        if (
-          isSolanaWalletError(err) &&
-          err.reason === "not_connected" &&
-          opts.onConnectRequest
-        ) {
-          update({ awaitingWallet: action, error: null })
-          opts.onConnectRequest()
+      let signer: SolanaSigner
+      if (opts.acquireSigner) {
+        update({ busy: action, awaitingWallet: null, error: null })
+        try {
+          signer = await opts.acquireSigner()
+        } catch (err) {
+          const dismissed =
+            isSolanaWalletError(err) && err.reason === "rejected"
+          update({ busy: null, error: dismissed ? null : err })
           return null
         }
-        update({ error: err })
-        return null
+      } else {
+        try {
+          signer = signerFromWallet(w)
+        } catch (err) {
+          if (
+            isSolanaWalletError(err) &&
+            err.reason === "not_connected" &&
+            opts.onConnectRequest
+          ) {
+            update({ awaitingWallet: action, error: null })
+            opts.onConnectRequest()
+            return null
+          }
+          update({ error: err })
+          return null
+        }
+        update({ busy: action, awaitingWallet: null, error: null })
       }
-      update({ busy: action, awaitingWallet: null, error: null })
       try {
         const out = await perform(signer, opts)
         update({ busy: null })

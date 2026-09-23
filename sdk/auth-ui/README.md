@@ -171,6 +171,9 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   when a refresh answered with one) so the user finishes signing in there.
 - `modal={false}` while a host overlay (e.g. a wallet picker) is open above
   the dialog, so it stays clickable and does not dismiss the dialog.
+- A host that loads its wallet stack lazily passes `SolanaSignInButton`
+  `acquireSigner` (resolving a `SolanaSigner`) instead of `wallet`; 2FA and
+  other continuations after the wallet signature still run in the dialog.
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
 - OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
   finishes 2FA and other continuations in place.
