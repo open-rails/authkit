@@ -141,9 +141,9 @@ pnpm check
 ### UI primitives
 
 `src/ui/*` is shadcn (`base-vega`, see `components.json`), managed with
-`pnpm dlx shadcn@latest add <name> --overwrite`. After regenerating, swap
-`from "cn"` back to `from "#authui/lib/utils"` and re-apply the local deltas,
-each marked with a `// Local:` comment.
+`pnpm dlx shadcn@latest add <name> --overwrite`, importing `cn` from the
+[`cn`](https://github.com/shadcn-ui/cn) package. After regenerating, re-apply the
+local deltas, each marked with a `// Local:` comment.
 
 ### E2E
 

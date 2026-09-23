@@ -20,9 +20,8 @@ const EXTERNAL = [
   "@hugeicons/core-free-icons",
   "@hugeicons/react",
   "class-variance-authority",
-  "clsx",
+  "cn",
   "input-otp",
-  "tailwind-merge",
   "@solana/wallet-adapter-react",
 ]
 

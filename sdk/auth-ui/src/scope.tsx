@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react"
 
-import { cn } from "./lib/utils.ts"
+import { cn } from "cn"
 import { useScopeProps } from "./scope-context.ts"
 
 /** Every in-page auth-ui surface renders inside one of these. */

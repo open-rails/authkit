@@ -1,6 +1,8 @@
+"use client"
+
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
-import { cn } from "#authui/lib/utils"
+import { cn } from "cn"
 
 import { Button } from "#authui/ui/button"
 import { useScopeProps } from "#authui/scope-context"

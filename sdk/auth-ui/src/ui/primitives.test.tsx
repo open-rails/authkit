@@ -118,6 +118,18 @@ describe("primitives", () => {
     ).toBeInTheDocument()
   })
 
+  it("lets className win Tailwind conflicts over variant classes", () => {
+    render(<Button className="h-10 bg-secondary px-2">Go</Button>)
+    const cls = screen.getByRole("button", { name: "Go" }).className.split(" ")
+    expect(cls).toEqual(
+      expect.arrayContaining(["h-10", "bg-secondary", "px-2"])
+    )
+    expect(cls).toContain("hover:bg-primary-solid/80")
+    expect(cls).not.toContain("h-9")
+    expect(cls).not.toContain("px-2.5")
+    expect(cls).not.toContain("bg-primary-solid")
+  })
+
   it("renders alert dialogs in a scoped portal", () => {
     render(
       <AlertDialog open>

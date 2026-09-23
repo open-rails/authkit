@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- UI primitives import `cn` from the [`cn`](https://github.com/shadcn-ui/cn)
+  package (pinned `0.4.0`), replacing `clsx` and `tailwind-merge`.
 - `react`: headless React bindings. `AuthProvider` (with `onSessionChange` for
   host cache resets), `useSession`, `useUser` (shared `/me`, refetched per
   session generation), `usePermissions`, `useCapabilities`, and flow state
