@@ -1,12 +1,15 @@
-import { Cancel01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
-import * as React from "react"
+"use client"
 
-import { useMessages } from "../i18n/context.ts"
-import { cn } from "../lib/utils.ts"
-import { useScopeProps } from "../scope-context.ts"
-import { Button } from "./button.tsx"
+import * as React from "react"
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+import { cn } from "#authui/lib/utils"
+
+import { Button } from "#authui/ui/button"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Cancel01Icon } from "@hugeicons/core-free-icons"
+
+import { useMessages } from "#authui/i18n/context"
+import { useScopeProps } from "#authui/scope-context"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
@@ -16,7 +19,7 @@ function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
-// The portal leaves the host tree, so it carries its own styling root.
+// Local: the portal leaves the host tree, so it carries the `.authui` scope.
 function DialogPortal(
   props: Omit<DialogPrimitive.Portal.Props, "className" | "style">
 ) {
@@ -57,7 +60,7 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
-  const { t } = useMessages()
+  const { t } = useMessages() // Local: i18n close label.
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -81,7 +84,7 @@ function DialogContent({
               />
             }
           >
-            <HugeiconsIcon icon={Cancel01Icon} />
+            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
             <span className="sr-only">{t("common.close")}</span>
           </DialogPrimitive.Close>
         )}
@@ -100,7 +103,15 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
+function DialogFooter({
+  className,
+  showCloseButton = false,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  showCloseButton?: boolean
+}) {
+  const { t } = useMessages() // Local: i18n close label.
   return (
     <div
       data-slot="dialog-footer"
@@ -109,7 +120,14 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
         className
       )}
       {...props}
-    />
+    >
+      {children}
+      {showCloseButton && (
+        <DialogPrimitive.Close render={<Button variant="outline" />}>
+          {t("common.close")}
+        </DialogPrimitive.Close>
+      )}
+    </div>
   )
 }
 
@@ -117,7 +135,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-base leading-none font-medium", className)}
+      className={cn("leading-none font-medium", className)}
       {...props}
     />
   )

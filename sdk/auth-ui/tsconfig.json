@@ -14,7 +14,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vite/client", "vitest/globals"]
+    "types": ["vite/client", "vitest/globals"],
+    "paths": {
+      "#authui/*": ["./src/*"]
+    }
   },
   "include": [
     "src",

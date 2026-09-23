@@ -1,16 +1,19 @@
+import { cn } from "#authui/lib/utils"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Loading02Icon } from "@hugeicons/core-free-icons"
-import { useMessages } from "../i18n/context.ts"
-import { cn } from "../lib/utils.ts"
+import { Loading03Icon } from "@hugeicons/core-free-icons"
 
+import { useMessages } from "#authui/i18n/context"
+
+// Local: HugeiconsIcon props, since its strokeWidth rejects the svg string type.
 function Spinner({
   className,
   ...props
 }: Omit<React.ComponentProps<typeof HugeiconsIcon>, "icon">) {
-  const { t } = useMessages()
+  const { t } = useMessages() // Local: i18n "Loading" label.
   return (
     <HugeiconsIcon
-      icon={Loading02Icon}
+      icon={Loading03Icon}
+      strokeWidth={2}
       data-slot="spinner"
       role="status"
       aria-label={t("common.loading")}

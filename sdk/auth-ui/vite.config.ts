@@ -42,6 +42,9 @@ export default defineConfig({
     }),
     authUiCssPlugin({ entries: ["index"] }),
   ],
+  resolve: {
+    alias: { "#authui": path.resolve(root, "src") },
+  },
   build: {
     lib: {
       entry: {

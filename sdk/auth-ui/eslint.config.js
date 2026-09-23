@@ -19,4 +19,9 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // shadcn primitives export their cva variants alongside components.
+    files: ["src/ui/**"],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
 ])

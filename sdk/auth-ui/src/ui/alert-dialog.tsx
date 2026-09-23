@@ -1,9 +1,9 @@
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
+import { cn } from "#authui/lib/utils"
 
-import { cn } from "../lib/utils.ts"
-import { Button } from "./button.tsx"
-import { useScopeProps } from "../scope-context.ts"
+import { Button } from "#authui/ui/button"
+import { useScopeProps } from "#authui/scope-context"
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
@@ -15,7 +15,7 @@ function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
   )
 }
 
-// The portal leaves the host tree, so it carries its own styling root.
+// Local: the portal leaves the host tree, so it carries the `.authui` scope.
 function AlertDialogPortal(
   props: Omit<AlertDialogPrimitive.Portal.Props, "className" | "style">
 ) {

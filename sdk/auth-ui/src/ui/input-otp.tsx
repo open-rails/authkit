@@ -1,9 +1,8 @@
+import * as React from "react"
+import { cn } from "#authui/lib/utils"
+import { OTPInput, OTPInputContext } from "input-otp"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { MinusSignIcon } from "@hugeicons/core-free-icons"
-import * as React from "react"
-import { OTPInput, OTPInputContext } from "input-otp"
-
-import { cn } from "../lib/utils.ts"
 
 function InputOTP({
   className,
@@ -16,7 +15,7 @@ function InputOTP({
     <OTPInput
       data-slot="input-otp"
       containerClassName={cn(
-        "flex items-center has-disabled:opacity-50",
+        "cn-input-otp flex items-center has-disabled:opacity-50",
         containerClassName
       )}
       spellCheck={false}
@@ -77,7 +76,7 @@ function InputOTPSeparator({ ...props }: React.ComponentProps<"div">) {
       role="separator"
       {...props}
     >
-      <HugeiconsIcon icon={MinusSignIcon} />
+      <HugeiconsIcon icon={MinusSignIcon} strokeWidth={2} />
     </div>
   )
 }
