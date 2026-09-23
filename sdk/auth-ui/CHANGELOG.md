@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 - `SolanaSignInButton` (and `useSolanaAuth`) take `acquireSigner` for hosts
   that load their wallet stack on demand, like `SolanaLinkRow`. The wallet
