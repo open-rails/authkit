@@ -23,6 +23,7 @@ const EXTERNAL = [
   "clsx",
   "input-otp",
   "tailwind-merge",
+  "@solana/wallet-adapter-react",
 ]
 
 export default defineConfig({
@@ -50,6 +51,7 @@ export default defineConfig({
       entry: {
         index: src("index.ts"),
         client: src("client/index.ts"),
+        solana: src("solana/index.ts"),
         ...Object.fromEntries(
           LOCALES.map((l) => [`locales/${l}`, src(`locales/${l}.ts`)])
         ),

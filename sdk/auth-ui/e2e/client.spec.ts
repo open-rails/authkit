@@ -8,12 +8,16 @@ import { outbox, totp } from "./support/api"
 type Mod = typeof import("../src/client/index.ts")
 type Win = { auth: AuthClient; mod: Mod }
 
-const bundle = path.resolve(import.meta.dirname, "../dist/client.js")
+const dist = path.resolve(import.meta.dirname, "../dist")
 
-// Serves the built package and installs a fresh client as window.auth.
+// Serves the built package (and its shared chunks) and installs a fresh client
+// as window.auth.
 async function loadClient(page: Page) {
-  await page.route("**/__auth-ui/client.js", (route) =>
-    route.fulfill({ path: bundle, contentType: "text/javascript" })
+  await page.route("**/__auth-ui/*.js", (route, req) =>
+    route.fulfill({
+      path: path.join(dist, path.basename(new URL(req.url()).pathname)),
+      contentType: "text/javascript",
+    })
   )
   await page.goto("/")
   await page.evaluate(async () => {

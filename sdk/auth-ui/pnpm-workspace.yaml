@@ -7,6 +7,7 @@ strictDepBuilds: true
 verifyDepsBeforeRun: error
 enablePrePostScripts: false
 dangerouslyAllowAllBuilds: false
+autoInstallPeers: false
 
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true

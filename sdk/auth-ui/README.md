@@ -78,6 +78,25 @@ import { de } from "@openrails/auth-ui/locales/de"
   (`en de es ja ko zh`) are lazy-loadable subpaths. Interpolation is `{name}`.
   `useMessages().error(err)` maps AuthKit error codes, with a generic fallback.
 
+## Solana
+
+```ts
+import { createSolanaAuth, signerFromWallet } from "@openrails/auth-ui/solana"
+
+const solana = createSolanaAuth(auth)
+// Any { publicKey: base58, signMessage(bytes) } works; signerFromWallet adapts useWallet().
+const outcome = await solana.signIn(signerFromWallet(wallet)) // same outcomes as password login
+await solana.link(signer, { linkedAddress }) // needs a fresh session
+await solana.unlink({ password })
+```
+
+React: `useSolanaAuth(auth, useWallet(), { onConnectRequest: () => setVisible(true) })`
+returns `signIn`, `link`, `unlink`, `busy`, `error` and `awaitingWallet`; an
+action started without a wallet resumes once it connects. Wallet-side failures
+throw `SolanaWalletError` (`not_connected`, `unsupported`, `rejected`,
+`invalid_signature`, `busy`); AuthKit rejections throw `AuthKitError`.
+`@solana/wallet-adapter-react` is an optional peer and is never imported.
+
 ## Development
 
 ```sh
