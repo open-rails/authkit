@@ -426,6 +426,13 @@ nothing else — no refresh session. `GET /api/v1/device-keys`,
 `DELETE /api/v1/device-keys/{id}` and `POST /api/v1/device-keys/revoke-others`
 manage keys; a revoked machine cannot revoke its replacement.
 
+## Two-factor enrollment
+
+`POST /user/2fa` starts (`{method}`) and confirms (`{method, code}`) a TOTP,
+email or SMS factor. The confirming code verifies the enrolling session, so its
+next refresh returns tokens rather than `2fa_required`; other sessions must
+complete 2FA. See [API endpoints](docs/api-endpoints.md#two-factor-authentication).
+
 ## Passkey ceremonies
 
 `/api/v1/passkeys/*` covers browser login, registration and management. AuthKit's

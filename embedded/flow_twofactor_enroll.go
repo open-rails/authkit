@@ -1,7 +1,7 @@
 package embedded
 
 // Second-factor enrollment as ONE engine decision (ak#318): which factor slot
-// the caller may fill, the method/phone/code validation, the SMS setup code,
+// the caller may fill, the method/phone/code validation, the email/SMS setup code,
 // the TOTP secret hand-out and the final enable.
 
 import (
@@ -57,15 +57,17 @@ func (s *engine) BeginTwoFactorEnrollment(ctx context.Context, userID string, en
 // TwoFactorEnrollInput is one enrollment request.
 type TwoFactorEnrollInput struct {
 	LoginChallenge string
-	UserAgent      string
-	IP             string
-	UserID         string
-	Mode           FactorEnrollmentMode
-	Method         string // "email" | "sms" | "totp"; empty with FactorID+MakeDefault re-points the default
-	Code           string // SMS setup code / TOTP code; empty starts the method's setup
-	PhoneNumber    string
-	MakeDefault    bool
-	FactorID       string
+	// SessionID is the caller's session; a confirmed code marks it 2FA-verified.
+	SessionID   string
+	UserAgent   string
+	IP          string
+	UserID      string
+	Mode        FactorEnrollmentMode
+	Method      string // "email" | "sms" | "totp"; empty with FactorID+MakeDefault re-points the default
+	Code        string // email/SMS setup code or TOTP code; empty starts the method's setup
+	PhoneNumber string
+	MakeDefault bool
+	FactorID    string
 }
 
 // TwoFactorEnrollKind is the closed set of enrollment results.
@@ -73,20 +75,22 @@ type TwoFactorEnrollKind string
 
 const (
 	TwoFactorEnrollDefaultSet  TwoFactorEnrollKind = "default_set"
-	TwoFactorEnrollCodeSent    TwoFactorEnrollKind = "code_sent"    // SMS setup code delivered
+	TwoFactorEnrollCodeSent    TwoFactorEnrollKind = "code_sent"    // email/SMS setup code delivered
 	TwoFactorEnrollTOTPStarted TwoFactorEnrollKind = "totp_started" // secret + otpauth URI handed out
 	TwoFactorEnrollEnabled     TwoFactorEnrollKind = "enabled"
 )
 
 // TwoFactorEnrollOutcome carries the TOTP material for TwoFactorEnrollTOTPStarted
 // and the plaintext backup codes (shown once) for TwoFactorEnrollEnabled.
+// SessionVerified reports that the input session now holds 2FA assurance.
 type TwoFactorEnrollOutcome struct {
-	Login       *LoginOutcome
-	Kind        TwoFactorEnrollKind
-	Method      string
-	Secret      string
-	OTPAuthURI  string
-	BackupCodes []string
+	Login           *LoginOutcome
+	Kind            TwoFactorEnrollKind
+	Method          string
+	Secret          string
+	OTPAuthURI      string
+	BackupCodes     []string
+	SessionVerified bool
 }
 
 // EnrollTwoFactor runs the enrollment decision tree. Input problems:
@@ -111,8 +115,29 @@ func (s *engine) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 		return TwoFactorEnrollOutcome{}, ErrInvalidTwoFAMethod
 	}
 	code := strings.TrimSpace(in.Code)
+	sessionID := ""
+	if in.Mode == AllowAdditionalFactors {
+		sessionID = strings.TrimSpace(in.SessionID)
+	}
 	var phone *string
 	switch method {
+	case "email":
+		if code == "" {
+			if err := s.sendEmail2FASetupCode(ctx, in.UserID); err != nil {
+				if errors.Is(err, ErrInvalidTwoFAMethod) {
+					return TwoFactorEnrollOutcome{}, err
+				}
+				return TwoFactorEnrollOutcome{}, stageErr("send_email_2fa_setup", fmt.Errorf("%w: %w", ErrTwoFASetupCodeSendFailed, err))
+			}
+			return TwoFactorEnrollOutcome{Kind: TwoFactorEnrollCodeSent, Method: method}, nil
+		}
+		valid, err := s.verifyEmail2FASetupCode(ctx, in.UserID, code)
+		if err != nil {
+			return TwoFactorEnrollOutcome{}, enrollmentProofError("verify_email_setup", err)
+		}
+		if !valid {
+			return TwoFactorEnrollOutcome{}, ErrInvalidCode
+		}
 	case "sms":
 		p := strings.TrimSpace(in.PhoneNumber)
 		if p == "" {
@@ -140,28 +165,22 @@ func (s *engine) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 			}
 			return TwoFactorEnrollOutcome{Kind: TwoFactorEnrollTOTPStarted, Method: method, Secret: secret, OTPAuthURI: uri}, nil
 		}
-		backupCodes, err := s.EnableTOTP2FA(ctx, TOTPEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode})
+		backupCodes, verified, err := s.enableTOTP2FA(ctx, TOTPEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode}, sessionID)
 		if err != nil {
 			return TwoFactorEnrollOutcome{}, enrollmentProofError("enable_totp", err)
 		}
-		return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes})
+		return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
 	}
-	var (
-		backupCodes []string
-		err         error
-	)
-	if in.MakeDefault {
-		backupCodes, err = s.Enable2FADefault(ctx, in.UserID, method, phone, in.Mode)
-	} else {
-		backupCodes, err = s.Enable2FA(ctx, in.UserID, method, phone, in.Mode)
-	}
+	backupCodes, verified, err := s.enable2FA(ctx, factorEnable{
+		UserID: in.UserID, Method: method, Phone: phone, MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: sessionID,
+	})
 	if err != nil {
 		if errors.Is(err, ErrTwoFAFactorExists) {
 			return TwoFactorEnrollOutcome{}, err
 		}
 		return TwoFactorEnrollOutcome{}, stageErr("enable_factor", fmt.Errorf("%w: %w", ErrTwoFAEnableFailed, err))
 	}
-	return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes})
+	return s.completeFactorEnrollment(ctx, in, TwoFactorEnrollOutcome{Kind: TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
 }
 
 // startPhoneTwoFactorSetup sends the six-digit SMS setup code. Deliverability

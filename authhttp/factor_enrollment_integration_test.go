@@ -77,9 +77,12 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		original, err := f.service.svc.Get2FASettings(ctx, userID)
 		require.NoError(t, err)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT last_authenticated_at, auth_methods FROM refresh_sessions WHERE id=$1`, sid).Scan(&afterTime, &afterAMR))
-		require.Equal(t, beforeTime, afterTime, "enrollment cannot refresh authentication")
-		require.Equal(t, beforeAMR, afterAMR, "enrollment cannot add MFA assurance")
-		require.NotContains(t, afterAMR, "mfa")
+		require.True(t, afterTime.After(beforeTime), "the enrollment code is a fresh second-factor proof (#389)")
+		require.ElementsMatch(t, append(beforeAMR, "totp", "otp", "mfa"), afterAMR)
+		require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, unverifiedAccessClaims(t, enabled.Tokens.AccessToken)["amr"])
+		// Age the enrolling session so the step-up gates below apply again.
+		_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, sid)
+		require.NoError(t, err)
 		current, _, err := f.service.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 		require.NoError(t, err)
 		require.Equal(t, true, unverifiedAccessClaims(t, current)["mfa_enrolled"])
@@ -127,7 +130,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		mfa := f.expect(200, f.request("POST", "/step-up/2fa", current, map[string]any{"code": stepUpCode})).Tokens
 		claims = unverifiedAccessClaims(t, mfa.AccessToken)
 		require.NotEmpty(t, claims["auth_time"])
-		require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
+		require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 		require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
 		passwordAgain := f.expect(200, f.request("POST", "/step-up/password", mfa.AccessToken, map[string]any{"password": pass})).Tokens
 		require.ElementsMatch(t, claims["amr"], unverifiedAccessClaims(t, passwordAgain.AccessToken)["amr"], "password re-auth preserves actual MFA proof")

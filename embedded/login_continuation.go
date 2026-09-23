@@ -360,7 +360,7 @@ func (s *engine) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrol
 	if !ok {
 		return out, nil
 	}
-	if out.Method == "totp" || out.Method == "sms" {
+	if out.Method == "totp" || out.Method == "sms" || out.Method == "email" {
 		proof.Input.AuthMethods = append(append([]string(nil), proof.Input.AuthMethods...), out.Method, "otp", "mfa")
 	}
 	proof.Input.UserAgent = in.UserAgent

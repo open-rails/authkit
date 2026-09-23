@@ -80,38 +80,42 @@ type TOTPEnrollment struct {
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
 // the user, returning fresh backup codes.
 func (s *engine) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string, error) {
-	userID, code, makeDefault, mode := in.UserID, in.Code, in.MakeDefault, in.Mode
+	codes, _, err := s.enableTOTP2FA(ctx, in, "")
+	return codes, err
+}
+
+// enableTOTP2FA also marks provenSessionID 2FA-verified (see enable2FA).
+func (s *engine) enableTOTP2FA(ctx context.Context, in TOTPEnrollment, provenSessionID string) ([]string, bool, error) {
+	userID := in.UserID
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
-		return nil, Err2FAMethodUnavailable
+		return nil, false, Err2FAMethodUnavailable
 	}
 	var pending totpEnrollmentData
 	raw, ok, err := s.ephemReadJSON(ctx, keyTOTPEnrollment+userID, &pending)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !ok || len(pending.SealedSecret) == 0 {
-		return nil, jwt.ErrTokenUnverifiable
+		return nil, false, jwt.ErrTokenUnverifiable
 	}
 	secret, err := s.decryptTOTPSecret(pending.SealedSecret)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	step, validStep, err := matchingTOTPStep(secret, code, time.Now())
+	step, validStep, err := matchingTOTPStep(secret, in.Code, time.Now())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !validStep {
-		return nil, jwt.ErrTokenUnverifiable
+		return nil, false, jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimProof(ctx, keyTOTPEnrollment+userID, raw); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	codes, err := s.enable2FA(ctx, userID, "totp", nil, pending.SealedSecret, &step, makeDefault, mode)
-
-	if err != nil {
-		return nil, err
-	}
-	return codes, nil
+	return s.enable2FA(ctx, factorEnable{
+		UserID: userID, Method: "totp", TOTPSecret: pending.SealedSecret, LastTOTPStep: &step,
+		MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: provenSessionID,
+	})
 }
 
 func generateTOTPSecret() (string, error) {
@@ -241,7 +245,7 @@ func (s *engine) SendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	}
 
 	if s.sms != nil {
-		msg := VerificationMessage{Code: code}
+		msg := VerificationMessage{Code: code, Purpose: "2fa_setup"}
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
@@ -266,4 +270,81 @@ func (s *engine) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, cod
 		return true, nil
 	}
 	return false, fmt.Errorf("ephemeral store not configured")
+}
+
+const (
+	keyEmail2FASetup         = "2fa:email-setup:"
+	keyEmail2FASetupAttempts = "2fa:email-setup:attempts:"
+	email2FASetupTTL         = 10 * time.Minute
+	maxEmail2FASetupAttempts = 5
+)
+
+type email2FASetupData struct {
+	Email    string `json:"email"`
+	CodeHash string `json:"code_hash"`
+}
+
+// sendEmail2FASetupCode proves the account mailbox before it becomes a factor.
+func (s *engine) sendEmail2FASetupCode(ctx context.Context, userID string) error {
+	if !s.useEphemeralStore() {
+		return fmt.Errorf("ephemeral store not configured")
+	}
+	user, err := s.getUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil || user.Email == nil || strings.TrimSpace(*user.Email) == "" {
+		return ErrInvalidTwoFAMethod
+	}
+	code := randAlphanumeric(6)
+	email := NormalizeEmail(*user.Email)
+	if err := s.ephemSetJSON(ctx, keyEmail2FASetup+userID, email2FASetupData{Email: email, CodeHash: sha256Hex(code)}, email2FASetupTTL); err != nil {
+		return err
+	}
+	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
+	if s.email == nil {
+		return fmt.Errorf("email sender not configured")
+	}
+	username := ""
+	if user.Username != nil {
+		username = *user.Username
+	}
+	msg := VerificationMessage{Code: code, Purpose: "2fa_setup"}
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+	return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+		return s.email.SendVerification(sendCtx, email, username, msg)
+	}))
+}
+
+// verifyEmail2FASetupCode keeps the code on a miss; the attempt cap bounds
+// guessing. A changed account email invalidates the code.
+func (s *engine) verifyEmail2FASetupCode(ctx context.Context, userID, code string) (bool, error) {
+	key := keyEmail2FASetup + userID
+	var data email2FASetupData
+	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
+	if err != nil {
+		return false, err
+	}
+	if !ok || data.CodeHash == "" {
+		return false, nil
+	}
+	user, err := s.getUserByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if user == nil || user.Email == nil || NormalizeEmail(*user.Email) != data.Email {
+		_ = s.ephemDel(ctx, key)
+		return false, nil
+	}
+	if !SecretEqual(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+		if s.recordFailedAttempt(ctx, keyEmail2FASetupAttempts+userID, email2FASetupTTL, maxEmail2FASetupAttempts) {
+			_ = s.ephemDel(ctx, key)
+		}
+		return false, nil
+	}
+	if err := s.claimProof(ctx, key, raw); err != nil {
+		return false, nil
+	}
+	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
+	return true, nil
 }

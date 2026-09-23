@@ -276,10 +276,8 @@ Step-up updates the current refresh-session auth state but does not rotate the r
 - `403 2fa_enrollment_required` includes `user_id`, `allowed_methods`, and
   `token_set` containing an enrollment-only access token with no refresh token.
   Use it only to enroll at `POST /user/2fa`; it does not authorize normal account
-  use or factor management. Verified SMS/TOTP enrollment returns
+  use or factor management. Confirmed enrollment returns
   `{enabled, method, backup_codes?, token_set}` with the completed session.
-  Email enrollment first returns `2fa_required` with the new backup codes;
-  the user must complete the delivered email challenge.
 - AMR records the actual proofs (`pwd`, `email`, `sms`, `oauth`, `totp`,
   `backup_code`). An email/SMS first factor cannot use that same channel again
   as its second factor. A usable different factor or unused backup code is
@@ -443,6 +441,22 @@ best-effort/async).
 ---
 
 ## Two-Factor Authentication
+
+`POST /user/2fa` enrolls a factor in two steps. `{method}` starts it: TOTP
+returns `{secret, otpauth_uri}`; email and SMS (`phone_number` required) send a
+setup code and return `202`. `{method, code}` confirms it. Every factor is
+proven before it is stored. A full session must be fresh
+(`step_up_required` otherwise; MFA-fresh once any factor exists).
+
+The confirming session becomes 2FA-verified: its refresh session gains
+`<method>, otp, mfa` and a fresh authentication time, exactly as
+`POST /step-up/2fa` with the new factor would. The response then carries
+`{enabled, method, backup_codes?, token_set, fresh_auth}`; `token_set` has only
+an access token with the new `amr`/`acr`, and later `POST /token` refreshes
+return tokens, not `2fa_required`. An email/SMS factor on the channel that was
+the session's first factor is not independent and verifies nothing. Other
+sessions keep their proofs: their next refresh returns `2fa_required`, or
+`step_up_required` when older than ten minutes.
 
 Hosts may require 2FA for permission-group roles with
 `embedded.RoleDef{RequiresMFA: true}`. Assigning that role, or redeeming an invite link
