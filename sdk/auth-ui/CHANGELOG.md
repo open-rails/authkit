@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Built one file per module, and `@openrails/auth-ui/provider` exports
   `AuthUiProvider` alone: a host that lazy-loads the styled components keeps
