@@ -241,6 +241,16 @@ export const es: AuthUiMessageBundle = {
     failed: "La reautenticación falló.",
     noMethods:
       "No hay métodos de reautenticación disponibles para esta cuenta.",
+    chooseMethod: "Verificar con",
+    methodPassword: "Contraseña",
+    totpPrompt: "Introduce el código de 6 dígitos de tu app de autenticación.",
+    sendPrompt: "Enviaremos un código de un solo uso a tu {method}.",
+    codeSentTo: "Introduce el código que enviamos a {destination}.",
+    backupPrompt: "Introduce uno de tus códigos de respaldo sin usar.",
+    useBackup: "Usar un código de respaldo",
+    useCode: "Usar un código de verificación",
+    providerPrompt: "Te llevaremos a {provider} y te traeremos de vuelta aquí.",
+    submit: "Confirmar",
   },
   account: {
     security: {
@@ -248,6 +258,17 @@ export const es: AuthUiMessageBundle = {
       description: "Formas de iniciar sesión en tu cuenta",
     },
     contact: {
+      title: "Datos de contacto",
+      description:
+        "Se usan para iniciar sesión, recuperar tu cuenta y recibir alertas de seguridad.",
+      change: "Cambiar",
+      add: "Añadir",
+      verify: "Verificar",
+      codeSentTo: "Introduce el código que enviamos a {value}.",
+      codeBurned:
+        "Ese código ya no se puede usar. Envía un código nuevo para continuar.",
+      sendNewCode: "Enviar un código nuevo",
+      phoneHint: "Incluye el prefijo del país, p. ej. +34 612 345 678.",
       noneSet: "No establecido",
       pending: "Verificación pendiente para {value}.",
       resendVerification: "Reenviar verificación",
@@ -260,7 +281,7 @@ export const es: AuthUiMessageBundle = {
       changeTitle: "Actualizar dirección de correo",
       verifyTitle: "Verificar nuevo correo",
       changeDescription:
-        "Ingresa tu nuevo correo electrónico y contraseña actual para continuar.",
+        "Introduce tu nuevo correo electrónico. Te enviaremos un código para confirmarlo.",
       codeSentDescription:
         "Enviamos un código de 6 dígitos a {email}. Ingrésalo abajo para completar el cambio.",
       newEmail: "Nueva dirección de correo",
@@ -286,7 +307,7 @@ export const es: AuthUiMessageBundle = {
       changeTitle: "Actualizar número de teléfono",
       verifyTitle: "Verificar número de teléfono",
       changeDescription:
-        "Ingresa tu nuevo número de teléfono y contraseña actual para recibir un código de verificación.",
+        "Introduce tu nuevo número de teléfono. Te enviaremos un código por SMS para confirmarlo.",
       changeWarning:
         "Se enviará un código de verificación a tu nuevo número de teléfono por SMS.",
       codeSent: "Se ha enviado un código de verificación a tu teléfono.",
@@ -298,6 +319,11 @@ export const es: AuthUiMessageBundle = {
         "El envío de SMS no está disponible en este momento, por lo que cambiar tu número de teléfono está deshabilitado temporalmente.",
     },
     password: {
+      title: "Contraseña",
+      isSet: "Establecida",
+      notSet: "Sin establecer",
+      setHint:
+        "Añade una contraseña para iniciar sesión también con tu correo o teléfono.",
       changeTitle: "Cambiar contraseña",
       setTitle: "Establecer contraseña",
       changeDescription:
@@ -321,6 +347,11 @@ export const es: AuthUiMessageBundle = {
       unlink: "Desvincular",
       unlinking: "Desvinculando...",
       unlinked: "Cuenta desvinculada correctamente",
+      unlinkConfirmTitle: "¿Desvincular {provider}?",
+      unlinkConfirmDescription:
+        "No podrás iniciar sesión con {provider} hasta que lo vuelvas a vincular.",
+      lastMethodHint:
+        "Añade una contraseña o vincula otra opción de inicio de sesión antes de desvincular esta.",
     },
     wallet: {
       title: "Billetera Solana",
@@ -341,6 +372,41 @@ export const es: AuthUiMessageBundle = {
       linkedSuccess: "Billetera vinculada correctamente",
       verifiedSuccess: "Billetera verificada correctamente",
       unlinkedSuccess: "Billetera desvinculada correctamente",
+      notConnected: "Primero conecta una billetera.",
+      unsupported: "Esta billetera no puede firmar mensajes.",
+    },
+    twoFactor: {
+      title: "Autenticación en dos pasos",
+      description:
+        "Pide un segundo paso al iniciar sesión para que una contraseña robada no sea suficiente.",
+      on: "Activada",
+      off: "Desactivada",
+      default: "Predeterminado",
+      makeDefault: "Hacer predeterminado",
+      remove: "Quitar",
+      removeTitle: "¿Quitar {method}?",
+      removeDescription:
+        "Ya no podrás verificar inicios de sesión con este método.",
+      add: "Añadir un método",
+      enable: "Activar",
+      chooseMethod: "Elige un método de verificación",
+      confirmTotp:
+        "Introduce el código de 6 dígitos que muestra la app para terminar.",
+      codeSentTo: "Introduce el código que enviamos a {destination}.",
+      yourEmail: "tu correo electrónico",
+      activate: "Activar",
+      disable: "Desactivar",
+      disableTitle: "¿Desactivar la autenticación en dos pasos?",
+      disableDescription:
+        "Se quitarán todos los métodos de verificación y códigos de respaldo. Solo tu contraseña protegerá tu cuenta.",
+      removedRoles:
+        "Se quitaron los roles que requieren autenticación en dos pasos: {roles}.",
+      backupTitle: "Códigos de respaldo",
+      backupRemaining: "Quedan {count} códigos sin usar",
+      regenerate: "Generar códigos nuevos",
+      regenerateTitle: "¿Generar nuevos códigos de respaldo?",
+      regenerateDescription:
+        "Tus códigos de respaldo actuales dejarán de funcionar de inmediato.",
     },
     sessions: {
       title: "Sesiones activas",
@@ -350,6 +416,16 @@ export const es: AuthUiMessageBundle = {
       revoke: "Cerrar sesión",
       revokeAll: "Cerrar todas las demás sesiones",
       revoked: "Sesión cerrada",
+      revokeSelected: "Cerrar las seleccionadas ({count})",
+      revokeEverywhere: "Cerrar sesión en todas partes",
+      revokeEverywhereTitle: "¿Cerrar sesión en todas partes?",
+      revokeEverywhereDescription:
+        "Se cerrará la sesión en todos los dispositivos, incluido este.",
+      selectSession: "Seleccionar {device}",
+      unknownDevice: "Dispositivo desconocido",
+      device: "{browser} en {os}",
+      signedIn: "Sesión iniciada {time}",
+      noOthers: "No has iniciado sesión en ningún otro lugar.",
     },
     delete: {
       title: "Eliminar cuenta",

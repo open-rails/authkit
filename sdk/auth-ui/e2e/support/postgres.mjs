@@ -51,8 +51,9 @@ export function stopPostgres(name) {
   }
 }
 
+// Generous: `docker exec` alone can take seconds on a loaded host.
 async function waitReady(name) {
-  const deadline = Date.now() + 60_000
+  const deadline = Date.now() + 180_000
   while (Date.now() < deadline) {
     try {
       // -h forces TCP so the init-time unix-socket server doesn't count as ready.

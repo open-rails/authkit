@@ -70,6 +70,19 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rt.Outbox.List(r.URL.Query().Get("to")))
 	})
+	// Ages the user's sessions past the sensitive-action window, so the next
+	// refreshed token demands a step-up.
+	mux.HandleFunc("POST /__test/stale-sessions", func(w http.ResponseWriter, r *http.Request) {
+		_, err := pool.Exec(r.Context(), `UPDATE `+harness.Schema+`.refresh_sessions
+			SET last_authenticated_at = now() - interval '1 hour'
+			WHERE user_id = (SELECT id FROM `+harness.Schema+`.users WHERE email = $1)`,
+			r.URL.Query().Get("email"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	if static != "" {
 		mux.Handle("GET /", http.FileServer(http.Dir(static)))
 	}

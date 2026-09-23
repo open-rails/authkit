@@ -243,6 +243,17 @@ export const de: AuthUiMessageBundle = {
     failed: "Erneute Authentifizierung fehlgeschlagen.",
     noMethods:
       "Für dieses Konto sind keine Methoden zur erneuten Authentifizierung verfügbar.",
+    chooseMethod: "Bestätigen mit",
+    methodPassword: "Passwort",
+    totpPrompt: "Gib den 6-stelligen Code aus deiner Authenticator-App ein.",
+    sendPrompt: "Wir senden einen Einmalcode an deine {method}.",
+    codeSentTo: "Gib den Code ein, den wir an {destination} gesendet haben.",
+    backupPrompt: "Gib einen deiner unbenutzten Backup-Codes ein.",
+    useBackup: "Stattdessen einen Backup-Code verwenden",
+    useCode: "Stattdessen einen Bestätigungscode verwenden",
+    providerPrompt:
+      "Du wirst zu {provider} weitergeleitet und danach hierher zurückgebracht.",
+    submit: "Bestätigen",
   },
   account: {
     security: {
@@ -250,6 +261,17 @@ export const de: AuthUiMessageBundle = {
       description: "Möglichkeiten, sich bei Ihrem Konto anzumelden",
     },
     contact: {
+      title: "Kontaktdaten",
+      description:
+        "Für die Anmeldung, die Kontowiederherstellung und Sicherheitshinweise.",
+      change: "Ändern",
+      add: "Hinzufügen",
+      verify: "Bestätigen",
+      codeSentTo: "Gib den Code ein, den wir an {value} gesendet haben.",
+      codeBurned:
+        "Dieser Code kann nicht erneut verwendet werden. Fordere einen neuen Code an, um fortzufahren.",
+      sendNewCode: "Neuen Code senden",
+      phoneHint: "Mit Ländervorwahl, z. B. +49 151 23456789.",
       noneSet: "Nicht festgelegt",
       pending: "Verifizierung ausstehend für {value}.",
       resendVerification: "Verifizierung erneut senden",
@@ -262,7 +284,7 @@ export const de: AuthUiMessageBundle = {
       changeTitle: "E-Mail-Adresse aktualisieren",
       verifyTitle: "Neue E-Mail verifizieren",
       changeDescription:
-        "Geben Sie Ihre neue E-Mail-Adresse und Ihr aktuelles Passwort ein, um fortzufahren.",
+        "Gib deine neue E-Mail-Adresse ein. Wir senden dir einen Code zur Bestätigung.",
       codeSentDescription:
         "Wir haben einen 6-stelligen Code an {email} gesendet. Geben Sie ihn unten ein, um die Änderung abzuschließen.",
       newEmail: "Neue E-Mail-Adresse",
@@ -288,7 +310,7 @@ export const de: AuthUiMessageBundle = {
       changeTitle: "Telefonnummer aktualisieren",
       verifyTitle: "Telefonnummer verifizieren",
       changeDescription:
-        "Geben Sie Ihre neue Telefonnummer und Ihr aktuelles Passwort ein, um einen Verifizierungscode zu erhalten.",
+        "Gib deine neue Telefonnummer ein. Wir senden dir per SMS einen Code zur Bestätigung.",
       changeWarning:
         "Ein Verifizierungscode wird per SMS an Ihre neue Telefonnummer gesendet.",
       codeSent: "Ein Verifizierungscode wurde an Ihr Telefon gesendet.",
@@ -300,6 +322,11 @@ export const de: AuthUiMessageBundle = {
         "Der SMS-Versand ist derzeit nicht verfügbar, daher kann Ihre Telefonnummer vorübergehend nicht geändert werden.",
     },
     password: {
+      title: "Passwort",
+      isSet: "Festgelegt",
+      notSet: "Nicht festgelegt",
+      setHint:
+        "Lege ein Passwort fest, um dich auch mit E-Mail oder Telefonnummer anzumelden.",
       changeTitle: "Passwort ändern",
       setTitle: "Passwort festlegen",
       changeDescription:
@@ -323,6 +350,11 @@ export const de: AuthUiMessageBundle = {
       unlink: "Verknüpfung lösen",
       unlinking: "Wird getrennt...",
       unlinked: "Konto erfolgreich getrennt",
+      unlinkConfirmTitle: "{provider} trennen?",
+      unlinkConfirmDescription:
+        "Du kannst dich erst wieder mit {provider} anmelden, wenn du es erneut verknüpfst.",
+      lastMethodHint:
+        "Lege ein Passwort fest oder verknüpfe eine andere Anmeldeoption, bevor du diese trennst.",
     },
     wallet: {
       title: "Solana-Wallet",
@@ -343,6 +375,41 @@ export const de: AuthUiMessageBundle = {
       linkedSuccess: "Wallet erfolgreich verknüpft",
       verifiedSuccess: "Wallet erfolgreich bestätigt",
       unlinkedSuccess: "Wallet erfolgreich getrennt",
+      notConnected: "Verbinde zuerst eine Wallet.",
+      unsupported: "Diese Wallet kann keine Nachrichten signieren.",
+    },
+    twoFactor: {
+      title: "Zwei-Faktor-Authentifizierung",
+      description:
+        "Verlange bei der Anmeldung einen zweiten Schritt, damit ein gestohlenes Passwort nicht ausreicht.",
+      on: "An",
+      off: "Aus",
+      default: "Standard",
+      makeDefault: "Als Standard festlegen",
+      remove: "Entfernen",
+      removeTitle: "{method} entfernen?",
+      removeDescription:
+        "Du kannst Anmeldungen dann nicht mehr mit dieser Methode bestätigen.",
+      add: "Methode hinzufügen",
+      enable: "Aktivieren",
+      chooseMethod: "Bestätigungsmethode wählen",
+      confirmTotp:
+        "Gib den 6-stelligen Code aus der App ein, um die Einrichtung abzuschließen.",
+      codeSentTo: "Gib den Code ein, den wir an {destination} gesendet haben.",
+      yourEmail: "deine E-Mail-Adresse",
+      activate: "Aktivieren",
+      disable: "Deaktivieren",
+      disableTitle: "Zwei-Faktor-Authentifizierung deaktivieren?",
+      disableDescription:
+        "Alle Bestätigungsmethoden und Backup-Codes werden entfernt. Dein Konto ist dann nur noch durch dein Passwort geschützt.",
+      removedRoles:
+        "Rollen, die Zwei-Faktor-Authentifizierung erfordern, wurden entfernt: {roles}.",
+      backupTitle: "Backup-Codes",
+      backupRemaining: "{count} unbenutzte Codes übrig",
+      regenerate: "Neue Codes erzeugen",
+      regenerateTitle: "Neue Backup-Codes erzeugen?",
+      regenerateDescription:
+        "Deine bisherigen Backup-Codes funktionieren dann sofort nicht mehr.",
     },
     sessions: {
       title: "Aktive Sitzungen",
@@ -352,6 +419,16 @@ export const de: AuthUiMessageBundle = {
       revoke: "Abmelden",
       revokeAll: "Von allen anderen Sitzungen abmelden",
       revoked: "Sitzung abgemeldet",
+      revokeSelected: "Ausgewählte abmelden ({count})",
+      revokeEverywhere: "Überall abmelden",
+      revokeEverywhereTitle: "Überall abmelden?",
+      revokeEverywhereDescription:
+        "Alle Geräte werden abgemeldet, auch dieses.",
+      selectSession: "{device} auswählen",
+      unknownDevice: "Unbekanntes Gerät",
+      device: "{browser} auf {os}",
+      signedIn: "Angemeldet {time}",
+      noOthers: "Du bist nirgendwo sonst angemeldet.",
     },
     delete: {
       title: "Konto löschen",

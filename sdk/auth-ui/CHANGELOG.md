@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Styled account security: `AccountSecurity` and standalone `ContactPanel`,
+  `PasswordPanel`, `LinkedProvidersPanel`, `TwoFactorPanel` (TOTP QR enrollment,
+  email/SMS factors, default factor, backup codes), `SessionsPanel` (batch
+  sign-out) and `DeleteAccountPanel`, sharing one `StepUpProvider` /
+  `StepUpDialog`. A burned email/SMS code offers a new one. `solana` adds
+  `SolanaLinkRow`. `useDeleteAccount` takes `onDeleted`.
 - Styled sign-in: `SignInDialog`, `SignInPanel`, `LoginForm`, `RegisterForm`,
   `ForgotPasswordForm`, `ResetPasswordForm`, `TwoFactorChallenge`,
   `TwoFactorEnrollment`, `BackupCodes`, `TotpSetup` and `AuthCallback`;

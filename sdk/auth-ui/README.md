@@ -160,6 +160,26 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
 - OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
   finishes 2FA and other continuations in place.
+### Account security
+
+```tsx
+import { AccountSecurity } from "@openrails/auth-ui"
+import { SolanaLinkRow } from "@openrails/auth-ui/solana"
+
+;<AccountSecurity
+  linkedAccountRows={<SolanaLinkRow wallet={useWallet()} />}
+  onDeleted={() => navigate("/")}
+/>
+```
+
+`AccountSecurity` stacks `ContactPanel`, `PasswordPanel`,
+`LinkedProvidersPanel`, `TwoFactorPanel`, `SessionsPanel` and
+`DeleteAccountPanel` (pick with `sections`); each also works alone. Every
+sensitive action runs through one `StepUpProvider`, whose `StepUpDialog` offers
+password, TOTP/email/SMS code, backup code or OIDC re-authentication and then
+retries the action. Wrap a page in your own `StepUpProvider` to share it, and
+use `useStepUpGuard()` for host actions. A panel outside any provider brings its
+own.
 
 ## Solana
 

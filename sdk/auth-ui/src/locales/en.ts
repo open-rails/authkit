@@ -230,6 +230,16 @@ export const en = {
     confirming: "Confirming...",
     failed: "Reauthentication failed.",
     noMethods: "No reauthentication methods are available for this account.",
+    chooseMethod: "Verify with",
+    methodPassword: "Password",
+    totpPrompt: "Enter the 6-digit code from your authenticator app.",
+    sendPrompt: "We'll send a one-time code to your {method}.",
+    codeSentTo: "Enter the code we sent to {destination}.",
+    backupPrompt: "Enter one of your unused backup codes.",
+    useBackup: "Use a backup code instead",
+    useCode: "Use a verification code instead",
+    providerPrompt: "You'll be sent to {provider} and brought back here.",
+    submit: "Confirm",
   },
   account: {
     security: {
@@ -237,6 +247,16 @@ export const en = {
       description: "Ways you can sign in to your account",
     },
     contact: {
+      title: "Contact details",
+      description:
+        "Used to sign in, recover your account and receive security alerts.",
+      change: "Change",
+      add: "Add",
+      verify: "Verify",
+      codeSentTo: "Enter the code we sent to {value}.",
+      codeBurned: "That code can't be used again. Send a new code to continue.",
+      sendNewCode: "Send a new code",
+      phoneHint: "Include your country code, e.g. +1 555 123 4567.",
       noneSet: "None set",
       pending: "Verification pending for {value}.",
       resendVerification: "Resend verification",
@@ -249,7 +269,7 @@ export const en = {
       changeTitle: "Update email address",
       verifyTitle: "Verify new email",
       changeDescription:
-        "Enter your new email and current password to continue.",
+        "Enter your new email address. We'll send a code to confirm it.",
       codeSentDescription:
         "We sent a 6-digit code to {email}. Enter it below to complete the change.",
       newEmail: "New email address",
@@ -274,7 +294,7 @@ export const en = {
       changeTitle: "Update phone number",
       verifyTitle: "Verify phone number",
       changeDescription:
-        "Enter your new phone number and current password to receive a verification code.",
+        "Enter your new phone number. We'll text a code to confirm it.",
       changeWarning:
         "A verification code will be sent to your new phone number via SMS.",
       codeSent: "A verification code has been sent to your phone.",
@@ -286,6 +306,10 @@ export const en = {
         "SMS delivery is currently unavailable, so changing your phone number is temporarily disabled.",
     },
     password: {
+      title: "Password",
+      isSet: "Set",
+      notSet: "Not set",
+      setHint: "Add a password to also sign in with your email or phone.",
       changeTitle: "Change password",
       setTitle: "Set password",
       changeDescription:
@@ -309,6 +333,11 @@ export const en = {
       unlink: "Unlink",
       unlinking: "Unlinking...",
       unlinked: "Account unlinked successfully",
+      unlinkConfirmTitle: "Unlink {provider}?",
+      unlinkConfirmDescription:
+        "You won't be able to sign in with {provider} until you link it again.",
+      lastMethodHint:
+        "Add a password or link another sign-in option before unlinking this one.",
     },
     wallet: {
       title: "Solana wallet",
@@ -329,6 +358,40 @@ export const en = {
       linkedSuccess: "Wallet linked successfully",
       verifiedSuccess: "Wallet verified successfully",
       unlinkedSuccess: "Wallet unlinked successfully",
+      notConnected: "Connect a wallet first.",
+      unsupported: "This wallet can't sign messages.",
+    },
+    twoFactor: {
+      title: "Two-factor authentication",
+      description:
+        "Require a second step when you sign in, so a stolen password isn't enough.",
+      on: "On",
+      off: "Off",
+      default: "Default",
+      makeDefault: "Make default",
+      remove: "Remove",
+      removeTitle: "Remove {method}?",
+      removeDescription:
+        "You'll no longer be able to verify sign-ins with this method.",
+      add: "Add a method",
+      enable: "Turn on",
+      chooseMethod: "Choose a verification method",
+      confirmTotp: "Enter the 6-digit code shown in the app to finish setup.",
+      codeSentTo: "Enter the code we sent to {destination}.",
+      yourEmail: "your email address",
+      activate: "Activate",
+      disable: "Turn off",
+      disableTitle: "Turn off two-factor authentication?",
+      disableDescription:
+        "All verification methods and backup codes will be removed. Your password alone will protect your account.",
+      removedRoles:
+        "Roles that require two-factor authentication were removed: {roles}.",
+      backupTitle: "Backup codes",
+      backupRemaining: "{count} unused codes left",
+      regenerate: "Generate new codes",
+      regenerateTitle: "Generate new backup codes?",
+      regenerateDescription:
+        "Your existing backup codes will stop working immediately.",
     },
     sessions: {
       title: "Active sessions",
@@ -338,6 +401,16 @@ export const en = {
       revoke: "Sign out",
       revokeAll: "Sign out of all other sessions",
       revoked: "Session signed out",
+      revokeSelected: "Sign out selected ({count})",
+      revokeEverywhere: "Sign out everywhere",
+      revokeEverywhereTitle: "Sign out everywhere?",
+      revokeEverywhereDescription:
+        "Every device will be signed out, including this one.",
+      selectSession: "Select {device}",
+      unknownDevice: "Unknown device",
+      device: "{browser} on {os}",
+      signedIn: "Signed in {time}",
+      noOthers: "You're not signed in anywhere else.",
     },
     delete: {
       title: "Delete account",

@@ -16,3 +16,4 @@ export {
   SolanaSignInButton,
   type SolanaSignInButtonProps,
 } from "./SolanaSignInButton.tsx"
+export { SolanaLinkRow, type SolanaLinkRowProps } from "./SolanaLinkRow.tsx"

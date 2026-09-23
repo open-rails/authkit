@@ -42,8 +42,11 @@ export async function outbox(
 }
 
 // Registers and verifies a fresh email account; the page must be on the app origin.
-export async function registerVerified(page: Page, request: APIRequestContext) {
-  const id = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
+export async function registerVerified(
+  page: Page,
+  request: APIRequestContext,
+  id = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
+) {
   const email = `e2e-${id}@example.test`
   const password = "Correct-horse-battery-9"
   const reg = await api(page, "POST", "/register", {

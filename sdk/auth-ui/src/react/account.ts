@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { AuthKitError } from "../client/errors.ts"
 import type { UserSession } from "../client/types.ts"
@@ -85,18 +85,26 @@ export function useChangePassword(options: GuardOptions = {}) {
   }
 }
 
-export function useDeleteAccount(options: GuardOptions = {}) {
+export function useDeleteAccount(
+  options: GuardOptions & { onDeleted?: () => void } = {}
+) {
   const client = useAuthClient()
   const guard = options.guard ?? unguarded
   const { busy, error, run } = useTask()
   const [deleted, setDeleted] = useState(false)
+  const onDeleted = useRef(options.onDeleted)
+  useEffect(() => {
+    onDeleted.current = options.onDeleted
+  })
 
-  // Soft delete; the session ends. Signing in later offers recovery.
+  // Soft delete; the session ends (often unmounting the caller, hence
+  // onDeleted). Signing in later offers recovery.
   const deleteAccount = useCallback(
     (input: { password?: string } = {}) =>
       run(async () => {
         await guard(() => client.deleteAccount(input))
         setDeleted(true)
+        onDeleted.current?.()
       }),
     [client, guard, run]
   )

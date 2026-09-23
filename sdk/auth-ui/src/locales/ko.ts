@@ -228,6 +228,16 @@ export const ko: AuthUiMessageBundle = {
     confirming: "확인 중...",
     failed: "재인증에 실패했습니다.",
     noMethods: "이 계정에는 사용 가능한 재인증 방법이 없습니다.",
+    chooseMethod: "인증 방법",
+    methodPassword: "비밀번호",
+    totpPrompt: "인증 앱에 표시된 6자리 코드를 입력하세요.",
+    sendPrompt: "{method}(으)로 일회용 코드를 보내드립니다.",
+    codeSentTo: "{destination}(으)로 보낸 코드를 입력하세요.",
+    backupPrompt: "사용하지 않은 백업 코드 중 하나를 입력하세요.",
+    useBackup: "백업 코드 사용",
+    useCode: "인증 코드 사용",
+    providerPrompt: "{provider}(으)로 이동한 뒤 이 페이지로 돌아옵니다.",
+    submit: "확인",
   },
   account: {
     security: {
@@ -235,6 +245,16 @@ export const ko: AuthUiMessageBundle = {
       description: "계정에 로그인하는 방법",
     },
     contact: {
+      title: "연락처 정보",
+      description: "로그인, 계정 복구, 보안 알림에 사용됩니다.",
+      change: "변경",
+      add: "추가",
+      verify: "인증",
+      codeSentTo: "{value}(으)로 보낸 코드를 입력하세요.",
+      codeBurned:
+        "이 코드는 다시 사용할 수 없습니다. 새 코드를 받아 계속하세요.",
+      sendNewCode: "새 코드 보내기",
+      phoneHint: "국가 번호를 포함하세요. 예: +82 10 1234 5678",
       noneSet: "설정되지 않음",
       pending: "{value}에 대한 인증이 대기 중입니다.",
       resendVerification: "인증 재전송",
@@ -246,7 +266,8 @@ export const ko: AuthUiMessageBundle = {
       add: "이메일 주소 추가",
       changeTitle: "이메일 주소 변경",
       verifyTitle: "새 이메일 인증",
-      changeDescription: "새 이메일 주소와 현재 비밀번호를 입력하세요.",
+      changeDescription:
+        "새 이메일 주소를 입력하세요. 확인 코드를 보내드립니다.",
       codeSentDescription:
         "{email}로 6자리 인증 코드를 보냈습니다. 아래에 입력하여 변경을 완료하세요.",
       newEmail: "새 이메일 주소",
@@ -271,7 +292,7 @@ export const ko: AuthUiMessageBundle = {
       changeTitle: "전화번호 업데이트",
       verifyTitle: "전화번호 인증",
       changeDescription:
-        "새 전화번호와 현재 비밀번호를 입력하여 인증 코드를 받으세요.",
+        "새 전화번호를 입력하세요. 확인 코드를 문자로 보내드립니다.",
       changeWarning: "새 전화번호로 SMS 인증 코드가 전송됩니다.",
       codeSent: "인증 코드가 휴대폰으로 전송되었습니다.",
       verified: "전화번호 인증 완료!",
@@ -282,6 +303,11 @@ export const ko: AuthUiMessageBundle = {
         "현재 SMS를 보낼 수 없어 전화번호 변경이 일시적으로 비활성화되었습니다.",
     },
     password: {
+      title: "비밀번호",
+      isSet: "설정됨",
+      notSet: "설정 안 됨",
+      setHint:
+        "비밀번호를 설정하면 이메일이나 전화번호로도 로그인할 수 있습니다.",
       changeTitle: "비밀번호 변경",
       setTitle: "비밀번호 설정",
       changeDescription:
@@ -304,6 +330,11 @@ export const ko: AuthUiMessageBundle = {
       unlink: "연결 해제",
       unlinking: "해제 중...",
       unlinked: "계정 연동 해제 완료",
+      unlinkConfirmTitle: "{provider} 연동을 해제할까요?",
+      unlinkConfirmDescription:
+        "다시 연동하기 전까지 {provider}(으)로 로그인할 수 없습니다.",
+      lastMethodHint:
+        "연동을 해제하기 전에 비밀번호를 설정하거나 다른 로그인 방법을 연동하세요.",
     },
     wallet: {
       title: "Solana 지갑",
@@ -323,6 +354,37 @@ export const ko: AuthUiMessageBundle = {
       linkedSuccess: "지갑 연동 완료",
       verifiedSuccess: "지갑 인증 완료",
       unlinkedSuccess: "지갑 연동 해제 완료",
+      notConnected: "먼저 지갑을 연결하세요.",
+      unsupported: "이 지갑은 메시지에 서명할 수 없습니다.",
+    },
+    twoFactor: {
+      title: "2단계 인증",
+      description:
+        "로그인할 때 두 번째 확인을 요구해 비밀번호가 유출되어도 계정을 보호합니다.",
+      on: "켜짐",
+      off: "꺼짐",
+      default: "기본",
+      makeDefault: "기본으로 설정",
+      remove: "삭제",
+      removeTitle: "{method}을(를) 삭제할까요?",
+      removeDescription: "더 이상 이 방법으로 로그인을 인증할 수 없습니다.",
+      add: "방법 추가",
+      enable: "켜기",
+      chooseMethod: "인증 방법 선택",
+      confirmTotp: "앱에 표시된 6자리 코드를 입력해 설정을 완료하세요.",
+      codeSentTo: "{destination}(으)로 보낸 코드를 입력하세요.",
+      yourEmail: "이메일 주소",
+      activate: "활성화",
+      disable: "끄기",
+      disableTitle: "2단계 인증을 끌까요?",
+      disableDescription:
+        "모든 인증 방법과 백업 코드가 삭제되며, 계정은 비밀번호로만 보호됩니다.",
+      removedRoles: "2단계 인증이 필요한 역할이 제거되었습니다: {roles}",
+      backupTitle: "백업 코드",
+      backupRemaining: "사용하지 않은 코드 {count}개 남음",
+      regenerate: "새 코드 생성",
+      regenerateTitle: "새 백업 코드를 생성할까요?",
+      regenerateDescription: "기존 백업 코드는 즉시 사용할 수 없게 됩니다.",
     },
     sessions: {
       title: "활성 세션",
@@ -332,6 +394,16 @@ export const ko: AuthUiMessageBundle = {
       revoke: "로그아웃",
       revokeAll: "다른 모든 세션에서 로그아웃",
       revoked: "세션에서 로그아웃했습니다",
+      revokeSelected: "선택한 세션 로그아웃 ({count})",
+      revokeEverywhere: "모든 기기에서 로그아웃",
+      revokeEverywhereTitle: "모든 기기에서 로그아웃할까요?",
+      revokeEverywhereDescription:
+        "이 기기를 포함한 모든 기기에서 로그아웃됩니다.",
+      selectSession: "{device} 선택",
+      unknownDevice: "알 수 없는 기기",
+      device: "{os}의 {browser}",
+      signedIn: "로그인: {time}",
+      noOthers: "다른 곳에서는 로그인되어 있지 않습니다.",
     },
     delete: {
       title: "계정 삭제",

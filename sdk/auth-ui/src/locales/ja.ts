@@ -229,6 +229,16 @@ export const ja: AuthUiMessageBundle = {
     confirming: "確認中...",
     failed: "再認証に失敗しました。",
     noMethods: "このアカウントで利用できる再認証方法はありません。",
+    chooseMethod: "確認方法",
+    methodPassword: "パスワード",
+    totpPrompt: "認証アプリに表示される6桁のコードを入力してください。",
+    sendPrompt: "{method}にワンタイムコードを送信します。",
+    codeSentTo: "{destination} に送信したコードを入力してください。",
+    backupPrompt: "未使用のバックアップコードを1つ入力してください。",
+    useBackup: "バックアップコードを使う",
+    useCode: "確認コードを使う",
+    providerPrompt: "{provider} に移動し、完了後にこのページへ戻ります。",
+    submit: "確認",
   },
   account: {
     security: {
@@ -236,6 +246,17 @@ export const ja: AuthUiMessageBundle = {
       description: "アカウントにログインする方法",
     },
     contact: {
+      title: "連絡先",
+      description:
+        "ログイン、アカウントの復旧、セキュリティ通知に使用されます。",
+      change: "変更",
+      add: "追加",
+      verify: "確認",
+      codeSentTo: "{value} に送信したコードを入力してください。",
+      codeBurned:
+        "このコードは再利用できません。新しいコードを送信して続行してください。",
+      sendNewCode: "新しいコードを送信",
+      phoneHint: "国番号を含めて入力してください（例: +81 90 1234 5678）。",
       noneSet: "未設定",
       pending: "{value} の認証待ちです。",
       resendVerification: "認証メールを再送信",
@@ -248,7 +269,7 @@ export const ja: AuthUiMessageBundle = {
       changeTitle: "メールアドレスを更新",
       verifyTitle: "新しいメールアドレスを認証",
       changeDescription:
-        "続行するには、新しいメールアドレスと現在のパスワードを入力してください。",
+        "新しいメールアドレスを入力してください。確認用のコードをお送りします。",
       codeSentDescription:
         "{email}に6桁のコードを送信しました。変更を完了するには、以下に入力してください。",
       newEmail: "新しいメールアドレス",
@@ -273,7 +294,7 @@ export const ja: AuthUiMessageBundle = {
       changeTitle: "電話番号を更新",
       verifyTitle: "電話番号を認証",
       changeDescription:
-        "認証コードを受け取るには、新しい電話番号と現在のパスワードを入力してください。",
+        "新しい電話番号を入力してください。確認用のコードをSMSでお送りします。",
       changeWarning: "新しい電話番号にSMSで認証コードが送信されます。",
       codeSent: "お使いの電話に認証コードを送信しました。",
       verified: "電話番号を認証しました！",
@@ -284,6 +305,11 @@ export const ja: AuthUiMessageBundle = {
         "現在SMSを送信できないため、電話番号の変更は一時的に無効になっています。",
     },
     password: {
+      title: "パスワード",
+      isSet: "設定済み",
+      notSet: "未設定",
+      setHint:
+        "パスワードを設定すると、メールアドレスや電話番号でもログインできます。",
       changeTitle: "パスワードを変更",
       setTitle: "パスワードを設定",
       changeDescription:
@@ -307,6 +333,11 @@ export const ja: AuthUiMessageBundle = {
       unlink: "連携解除",
       unlinking: "解除中...",
       unlinked: "アカウントの連携を解除しました",
+      unlinkConfirmTitle: "{provider} の連携を解除しますか？",
+      unlinkConfirmDescription:
+        "再度連携するまで {provider} でログインできなくなります。",
+      lastMethodHint:
+        "連携を解除する前に、パスワードを設定するか別のログイン方法を連携してください。",
     },
     wallet: {
       title: "Solanaウォレット",
@@ -326,6 +357,39 @@ export const ja: AuthUiMessageBundle = {
       linkedSuccess: "ウォレットを連携しました",
       verifiedSuccess: "ウォレットを確認しました",
       unlinkedSuccess: "ウォレット連携を解除しました",
+      notConnected: "まずウォレットを接続してください。",
+      unsupported: "このウォレットはメッセージに署名できません。",
+    },
+    twoFactor: {
+      title: "二要素認証",
+      description:
+        "ログイン時に2つ目の確認を求め、パスワードが盗まれても不正にログインされないようにします。",
+      on: "オン",
+      off: "オフ",
+      default: "デフォルト",
+      makeDefault: "デフォルトにする",
+      remove: "削除",
+      removeTitle: "{method}を削除しますか？",
+      removeDescription: "この方法でログインを確認できなくなります。",
+      add: "方法を追加",
+      enable: "有効にする",
+      chooseMethod: "確認方法を選択",
+      confirmTotp:
+        "アプリに表示される6桁のコードを入力して設定を完了してください。",
+      codeSentTo: "{destination} に送信したコードを入力してください。",
+      yourEmail: "メールアドレス",
+      activate: "有効にする",
+      disable: "オフにする",
+      disableTitle: "二要素認証をオフにしますか？",
+      disableDescription:
+        "すべての確認方法とバックアップコードが削除され、アカウントはパスワードのみで保護されます。",
+      removedRoles: "二要素認証が必要なロールが削除されました: {roles}",
+      backupTitle: "バックアップコード",
+      backupRemaining: "未使用のコード: 残り{count}個",
+      regenerate: "新しいコードを生成",
+      regenerateTitle: "新しいバックアップコードを生成しますか？",
+      regenerateDescription:
+        "現在のバックアップコードはすぐに使えなくなります。",
     },
     sessions: {
       title: "アクティブなセッション",
@@ -335,6 +399,16 @@ export const ja: AuthUiMessageBundle = {
       revoke: "ログアウト",
       revokeAll: "他のすべてのセッションからログアウト",
       revoked: "セッションからログアウトしました",
+      revokeSelected: "選択したセッションからログアウト（{count}）",
+      revokeEverywhere: "すべての端末からログアウト",
+      revokeEverywhereTitle: "すべての端末からログアウトしますか？",
+      revokeEverywhereDescription:
+        "この端末を含むすべての端末からログアウトします。",
+      selectSession: "{device} を選択",
+      unknownDevice: "不明なデバイス",
+      device: "{os} の {browser}",
+      signedIn: "ログイン: {time}",
+      noOthers: "他の端末ではログインしていません。",
     },
     delete: {
       title: "アカウントを削除",

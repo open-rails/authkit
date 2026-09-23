@@ -65,6 +65,7 @@ async function buildReactApp() {
   const apps = {
     app: "react-app/main.tsx",
     "sign-in": "sign-in-app/main.tsx",
+    account: "account-app/main.tsx",
     solana: "solana-app/main.ts",
   }
   for (const [name, entry] of Object.entries(apps)) {
@@ -78,6 +79,9 @@ async function buildReactApp() {
         minify: false,
         rollupOptions: {
           input: path.join(root, "e2e", entry),
+          onwarn(warning, warn) {
+            if (warning.code !== "MODULE_LEVEL_DIRECTIVE") warn(warning)
+          },
           output: { entryFileNames: `${name}.js` },
         },
       },
