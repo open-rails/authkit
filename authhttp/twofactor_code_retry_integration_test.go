@@ -88,10 +88,11 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 			f.expect(401, verify(body, wrong(code)))
 		}
 		f.expect(401, verify(body, code))
-		f.expect(200, verify(login()))
+		// The default 3-session cap has evicted the first session by now.
+		latest := f.expect(200, verify(login()))
 
 		// Step-up on the signed-in session: same rules, the code CAS is the only guard.
-		access := signed.TokenSet.AccessToken
+		access := latest.TokenSet.AccessToken
 		stepUp := func(code string) flowResponse {
 			return f.request("POST", "/step-up/2fa", access, map[string]any{"code": code})
 		}
