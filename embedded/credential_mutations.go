@@ -56,7 +56,11 @@ func (s *engine) changePassword(ctx context.Context, userID, new string, current
 	if strings.TrimSpace(userID) == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
-	if err := s.ValidatePassword(new); err != nil {
+	identifiers, err := s.passwordIdentifiers(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.ValidatePassword(new, identifiers...); err != nil {
 		return err
 	}
 	phc, err := password.HashArgon2id(new)

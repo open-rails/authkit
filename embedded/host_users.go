@@ -170,6 +170,10 @@ func (s *engine) createUser(ctx context.Context, email, username string) (*User,
 	if s.pg == nil {
 		return nil, nil
 	}
+	username = strings.TrimSpace(username)
+	if err := s.cfg.Username.ValidateImport(username); err != nil {
+		return nil, err
+	}
 	userID, err := newUUIDV7String()
 	if err != nil {
 		return nil, err
@@ -190,7 +194,7 @@ func (s *engine) CreateUser(ctx context.Context, email, username string) (*User,
 	return s.createUser(ctx, email, username)
 }
 
-func normalizeImportUserInput(input ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+func (s *engine) normalizeImportUserInput(input ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
 		if err := ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
@@ -206,7 +210,7 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
-	if err := validateImportUsername(username); err != nil {
+	if err := s.cfg.Username.ValidateImport(username); err != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
@@ -241,7 +245,7 @@ func (s *engine) ImportUser(ctx context.Context, input ImportUserInput) (*User, 
 }
 
 func (s *engine) importUser(ctx context.Context, q *db.Queries, input ImportUserInput) (*User, error) {
-	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +306,7 @@ func (s *engine) UpdateImportedUser(ctx context.Context, userID string, input Im
 }
 
 func (s *engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input ImportUserInput) (*User, error) {
-	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +555,7 @@ func (s *engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 		return nil
 	}
 	if authority == normalRename {
-		if err := ValidateUsername(username); err != nil {
+		if err := s.ValidateUsername(username); err != nil {
 			return err
 		}
 	}

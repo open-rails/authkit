@@ -74,7 +74,7 @@ func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
 			client, err := newEngineWithKeys(cfg, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}, Deps{Postgres: runtimePool, River: opts.River})
 			require.NoError(t, err)
 			t.Cleanup(client.Close)
-			registered, err := client.Register(ctx, RegisterInput{Identifier: "runtime@example.test", Username: "runtimeuser", Password: "Runtime-Test-Password-49!"})
+			registered, err := client.Register(ctx, RegisterInput{Identifier: "runtime@example.test", Username: "runtimeuser", Password: "Pool-Test-Password-49!"})
 			require.NoError(t, err)
 			require.Equal(t, RegisterSessionIssued, registered.Kind)
 			require.NotEmpty(t, registered.Session.AccessToken)

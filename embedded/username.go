@@ -9,7 +9,7 @@ import (
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
 func (s *engine) GenerateAvailableUsername(ctx context.Context, base string) string {
-	base = cleanUsername(base)
+	base = s.cfg.Username.Derive(base)
 	if base == "" {
 		base = "user"
 	}
@@ -19,28 +19,19 @@ func (s *engine) GenerateAvailableUsername(ctx context.Context, base string) str
 	}
 	// Try numbered suffixes
 	for i := 1; i <= 999; i++ {
-		candidate := usernameWithSuffix(base, fmt.Sprintf("%d", i))
+		candidate := s.cfg.Username.WithSuffix(base, fmt.Sprintf("%d", i))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
 	// Fallback: base + random 4 digits (global rand is auto-seeded since Go 1.20)
 	for tries := 0; tries < 100; tries++ {
-		candidate := usernameWithSuffix(base, fmt.Sprintf("%04d", rand.Intn(10000)))
+		candidate := s.cfg.Username.WithSuffix(base, fmt.Sprintf("%04d", rand.Intn(10000)))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
-	return usernameWithSuffix(base, "_user")
-}
-
-// usernameWithSuffix appends suffix, trimming base so the result stays within
-// usernameMaxLen and remains valid for createUser.
-func usernameWithSuffix(base, suffix string) string {
-	if max := usernameMaxLen - len(suffix); len(base) > max {
-		base = base[:max]
-	}
-	return base + suffix
+	return s.cfg.Username.WithSuffix(base, "_user")
 }
 
 // usernameAvailable reports whether username is free. getUserByUsername returns
@@ -82,35 +73,4 @@ func (s *engine) DeriveUsernameForOAuth(ctx context.Context, provider, preferred
 		base = "user"
 	}
 	return s.GenerateAvailableUsername(ctx, base+"_user")
-}
-
-// cleanUsername normalizes to lowercase, keeps [a-z0-9_], ensures a letter
-// prefix, and keeps length within [usernameMinLen, usernameMaxLen] so derived
-// usernames always satisfy ValidateUsername.
-func cleanUsername(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
-			b.WriteRune(r)
-		}
-	}
-	out := b.String()
-	if out == "" {
-		out = "user"
-	}
-	if out[0] < 'a' || out[0] > 'z' {
-		out = "u" + out
-	}
-	if len(out) > usernameMaxLen {
-		out = out[:usernameMaxLen]
-	}
-	if len(out) < usernameMinLen {
-		out += "_user"
-	}
-	return out
 }

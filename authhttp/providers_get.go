@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
@@ -13,6 +14,7 @@ import (
 type AuthCapabilities struct {
 	Registration           AuthRegistrationCapabilities `json:"registration"`
 	ExternalLoginProviders []AuthProviderSummary        `json:"external_login_providers"`
+	Username               AuthUsernameCapabilities     `json:"username"`
 	Password               AuthPasswordCapabilities     `json:"password"`
 	Passwordless           AuthPasswordlessCapabilities `json:"passwordless"`
 	Passkeys               AuthPasskeyCapabilities      `json:"passkeys"`
@@ -34,10 +36,25 @@ type AuthProviderSummary struct {
 	SupportsLink         bool   `json:"supports_link"`
 }
 
+// AuthUsernameCapabilities publishes the interactive username rule. Pattern is
+// the fixed character rule; length is bounded separately.
+type AuthUsernameCapabilities struct {
+	MinLength int    `json:"min_length"`
+	MaxLength int    `json:"max_length"`
+	Pattern   string `json:"pattern"`
+}
+
+// AuthPasswordCapabilities publishes everything a browser needs to
+// pre-validate a new password except the blocklist itself.
 type AuthPasswordCapabilities struct {
-	Login     bool `json:"login"`
-	MinLength int  `json:"min_length"`
-	MaxLength int  `json:"max_length"`
+	Login            bool `json:"login"`
+	MinLength        int  `json:"min_length"`
+	MaxLength        int  `json:"max_length"`
+	RequireUppercase bool `json:"require_uppercase"`
+	RequireLowercase bool `json:"require_lowercase"`
+	RequireDigit     bool `json:"require_digit"`
+	RequireSymbol    bool `json:"require_symbol"`
+	RejectCommon     bool `json:"reject_common"`
 }
 
 type AuthPasswordlessCapabilities struct {
@@ -82,10 +99,20 @@ func (s *Service) capabilities() AuthCapabilities {
 			InviteTokenRequired: cfg.Registration.NativeUserMode == embedded.RegistrationModeInviteOnly,
 		},
 		ExternalLoginProviders: s.providerSummaries(),
+		Username: AuthUsernameCapabilities{
+			MinLength: cfg.Username.MinLength,
+			MaxLength: cfg.Username.MaxLength,
+			Pattern:   authkit.UsernamePattern,
+		},
 		Password: AuthPasswordCapabilities{
-			Login:     true,
-			MinLength: cfg.Password.MinLength,
-			MaxLength: cfg.Password.MaxLength,
+			Login:            true,
+			MinLength:        cfg.Password.MinLength,
+			MaxLength:        cfg.Password.MaxLength,
+			RequireUppercase: cfg.Password.RequireUppercase,
+			RequireLowercase: cfg.Password.RequireLowercase,
+			RequireDigit:     cfg.Password.RequireDigit,
+			RequireSymbol:    cfg.Password.RequireSymbol,
+			RejectCommon:     !cfg.Password.AllowCommon,
 		},
 		Passwordless: AuthPasswordlessCapabilities{
 			Enabled:  cfg.Registration.PasswordlessLogin,
