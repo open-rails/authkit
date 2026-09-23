@@ -84,6 +84,9 @@ jobs:
       - name: Check generated contract
         run: pnpm contract:check
 
+      - name: Build package
+        run: pnpm build
+
       - name: Run Playwright
         run: pnpm test:e2e
 

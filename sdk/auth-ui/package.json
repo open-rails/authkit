@@ -1,5 +1,5 @@
 {
-  "name": "@open-rails/auth-ui",
+  "name": "@openrails/auth-ui",
   "version": "0.0.0",
   "description": "Shared browser client, React hooks and UI for AuthKit.",
   "type": "module",
