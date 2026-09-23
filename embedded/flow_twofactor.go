@@ -449,10 +449,10 @@ func (s *engine) send2FACodeForUser(ctx context.Context, user *User, sessionID s
 		return "", fmt.Errorf("ephemeral store not configured")
 	}
 	if strings.TrimSpace(sessionID) == "" {
-		if err := s.storeMFACode(ctx, userID, hash, factor.Method, destination, 10*time.Minute); err != nil {
+		if err := s.storeMFACode(ctx, userID, hash, factor.Method, destination); err != nil {
 			return "", err
 		}
-	} else if err := s.storeMFAStepUpCode(ctx, userID, sessionID, hash, factor.Method, destination, 10*time.Minute); err != nil {
+	} else if err := s.storeMFAStepUpCode(ctx, userID, sessionID, hash, factor.Method, destination); err != nil {
 		return "", err
 	}
 
