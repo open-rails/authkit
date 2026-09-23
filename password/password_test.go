@@ -34,26 +34,31 @@ func TestArgon2id_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestValidate_LengthBoundary(t *testing.T) {
-	tests := []struct {
-		name       string
-		password   string
-		wantErr    bool
-		wantErrMsg string
-	}{
-		{"7 chars — too short", "1234567", true, "password_too_short"},
-		{"8 chars — minimum valid", "12345678", false, ""},
+func TestPolicyValidateCountsCharacters(t *testing.T) {
+	p, err := Policy{MinLength: 4, MaxLength: 6}.Normalize()
+	if err != nil {
+		t.Fatal(err)
 	}
+	for pw, want := range map[string]error{
+		"abc": ErrTooShort, "abcd": nil, "ééé": ErrTooShort, "éééé": nil,
+		"😀😀😀😀😀😀": nil, "abcdefg": ErrTooLong,
+	} {
+		if got := p.Validate(pw); got != want {
+			t.Errorf("Validate(%q) = %v, want %v", pw, got, want)
+		}
+	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := Validate(tt.password)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Validate(%q) error = %v, wantErr = %v", tt.password, err, tt.wantErr)
-			}
-			if tt.wantErr && err.Error() != tt.wantErrMsg {
-				t.Errorf("Validate(%q) error message = %q, want %q", tt.password, err.Error(), tt.wantErrMsg)
-			}
-		})
+func TestPolicyNormalize(t *testing.T) {
+	if p, err := (Policy{}).Normalize(); err != nil || p != (Policy{DefaultMinLength, DefaultMaxLength}) {
+		t.Fatalf("default = %+v, %v", p, err)
+	}
+	if p, err := (Policy{MinLength: 200}).Normalize(); err != nil || p.MaxLength != 200 {
+		t.Fatalf("min above default max = %+v, %v", p, err)
+	}
+	for _, bad := range []Policy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: MaxLengthCeiling + 1}} {
+		if _, err := bad.Normalize(); err == nil {
+			t.Errorf("Normalize(%+v) accepted", bad)
+		}
 	}
 }

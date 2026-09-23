@@ -78,6 +78,9 @@ func normalizeConfig(cfg Config) (Config, error) {
 	if cfg.namingPolicy, err = cfg.Naming.Normalize(); err != nil {
 		return Config{}, err
 	}
+	if cfg.Password, err = cfg.Password.Normalize(); err != nil {
+		return Config{}, err
+	}
 	if cfg.Frontend.OIDCReturnPath, err = normalizeFrontendPath("OIDCReturnPath", cfg.Frontend.OIDCReturnPath, defaultOIDCReturnPath); err != nil {
 		return Config{}, err
 	}

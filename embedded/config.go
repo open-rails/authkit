@@ -7,6 +7,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/password"
 )
 
 // Config is the host-provided configuration for an AuthKit Runtime. Fields are
@@ -32,6 +33,9 @@ type Config struct {
 	Frontend FrontendConfig
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig
+	// Password is the length policy every password write enforces; zero fields
+	// default to 8..128 characters. Published by GET {api}/capabilities.
+	Password password.Policy
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
 	// Ephemeral governs the short-lived state backend (2FA codes, pending

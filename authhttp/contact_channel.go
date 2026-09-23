@@ -278,13 +278,13 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	if err := embedded.ValidatePassword(req.NewPassword); err != nil {
+	if err := s.svc.ValidatePassword(req.NewPassword); err != nil {
 		writeError(w, err)
 		return
 	}
 	if _, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword); err != nil {
-		if code := embedded.ValidationErrorCode(err); code != "" {
-			badRequest(w, code)
+		if embedded.ValidationErrorCode(err) != "" {
+			writeError(w, err)
 			return
 		}
 		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {

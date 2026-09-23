@@ -198,6 +198,7 @@ var (
 	CodePasswordChangeFailed              = def("password_change_failed", 400, "The password could not be changed.")
 	CodePasswordResetRequired             = def("password_reset_required", 401, "A password reset is required before you can sign in.")
 	CodePasswordTooShort                  = defParam("password_too_short", 400, "password", "The password is too short.")
+	CodePasswordTooLong                   = defParam("password_too_long", 400, "password", "The password is too long.")
 	CodePasswordlessDisabled              = def("passwordless_disabled", 403, "Passwordless login is disabled.")
 	CodePendingRegistrationNotFound       = def("pending_registration_not_found", 404, "No pending registration was found.")
 	CodeGroupNotFound                     = def("permission_group_not_found", 404, "The permission group was not found.")

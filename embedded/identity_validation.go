@@ -16,7 +16,7 @@ var validationCodes = map[authkit.Code]bool{
 	authkit.CodeUsernameTooShort: true, authkit.CodeUsernameTooLong: true, authkit.CodeUsernameMustStartWithLetter: true,
 	authkit.CodeUsernameCannotContainAt: true, authkit.CodeUsernameCannotStartWithPlus: true, authkit.CodeUsernameInvalidCharacters: true,
 	authkit.CodeOwnerSlugTaken: true, authkit.CodeUsernameNotAllowed: true, authkit.CodeRenameRateLimited: true,
-	authkit.CodeInvalidEmail: true, authkit.CodeInvalidPhoneNumber: true, authkit.CodePasswordTooShort: true,
+	authkit.CodeInvalidEmail: true, authkit.CodeInvalidPhoneNumber: true, authkit.CodePasswordTooShort: true, authkit.CodePasswordTooLong: true,
 	authkit.CodeInvalidPreferredLanguage: true,
 }
 
@@ -154,11 +154,21 @@ func ValidatePhone(phone string) error {
 	return nil
 }
 
-func ValidatePassword(value string) error {
-	if err := password.Validate(value); err != nil {
-		return authkit.E(authkit.CodePasswordTooShort)
+// ValidatePassword applies the configured password policy. Failures carry
+// min_length and max_length metadata.
+func (s *engine) ValidatePassword(value string) error {
+	return validatePassword(s.cfg.Password, value)
+}
+
+func validatePassword(p password.Policy, value string) error {
+	code := authkit.CodePasswordTooShort
+	switch err := p.Validate(value); err {
+	case nil:
+		return nil
+	case password.ErrTooLong:
+		code = authkit.CodePasswordTooLong
 	}
-	return nil
+	return authkit.E(code, authkit.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
 }
 
 // validateUsernameForUser validates a desired username and confirms no OTHER

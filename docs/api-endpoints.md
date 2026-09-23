@@ -27,7 +27,9 @@ AuthKit returns stable error codes — the `authkit.Code` catalog, enumerated by
 `authkit.Codes()` — such as `username_too_short`,
 `username_must_start_with_letter`, `username_invalid_characters`,
 `owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
-`invalid_email`, `invalid_phone_number`, and `password_too_short`.
+`invalid_email`, `invalid_phone_number`, `password_too_short` and `password_too_long`.
+Password length is the host-configured `embedded.Config.Password` policy,
+published in `GET {api}/capabilities` (see [capabilities](capabilities.md)).
 
 **Success shapes (#313):** session routes return `authkit.TokenSet`
 (`{access_token, token_type, expires_in, refresh_token?}`) alone, or under `token_set` beside

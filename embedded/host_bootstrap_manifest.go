@@ -85,6 +85,13 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 	if err = validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
 		return result, err
 	}
+	for _, user := range manifest.Users {
+		if user.Password != nil && strings.TrimSpace(user.Password.Plaintext) != "" {
+			if err = s.ValidatePassword(strings.TrimSpace(user.Password.Plaintext)); err != nil {
+				return result, err
+			}
+		}
+	}
 	schema := s.groupSchemaOrDefault()
 	checkRole := func(raw string) error {
 		role := normalizeRootRoleSlug(authkit.Role(raw))
@@ -321,9 +328,6 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 	modes := 0
 	if strings.TrimSpace(p.Plaintext) != "" {
 		modes++
-		if err := ValidatePassword(p.Plaintext); err != nil {
-			return err
-		}
 	}
 	if strings.TrimSpace(p.Hash) != "" || strings.TrimSpace(p.HashAlgo) != "" {
 		modes++
