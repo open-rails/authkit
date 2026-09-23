@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.1
+
+Pre-release: `client`, `react`, `solana`, UI foundation and locales. Styled sign-in and account components follow in 0.1.0.
+
 - UI primitives import `cn` from the [`cn`](https://github.com/shadcn-ui/cn)
   package (pinned `0.4.0`), replacing `clsx` and `tailwind-merge`.
 - `react`: headless React bindings. `AuthProvider` (with `onSessionChange` for

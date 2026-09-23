@@ -1,6 +1,6 @@
 {
   "name": "@openrails/auth-ui",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "Shared browser client, React hooks and UI for AuthKit.",
   "type": "module",
   "license": "MIT",
