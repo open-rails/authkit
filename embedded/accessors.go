@@ -116,9 +116,10 @@ func (s *engine) close() {
 		s.ownedKeySource = nil
 	}
 	if s.pg != nil {
+		// Keep database handles immutable: background last-used writes may still
+		// be starting. pgxpool safely rejects work after Close; clearing the
+		// handles instead races readers and can turn that error into a panic.
 		s.pg.Close()
-		s.pg = nil
-		s.q = nil
 	}
 }
 
