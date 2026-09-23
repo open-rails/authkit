@@ -57,70 +57,88 @@ const (
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
 func (s *engine) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
-	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false, mode)
+	codes, _, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phoneNumber, Mode: mode})
+	return codes, err
 }
 
 func (s *engine) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode FactorEnrollmentMode) ([]string, error) {
-	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true, mode)
+	codes, _, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phoneNumber, MakeDefault: true, Mode: mode})
+	return codes, err
 }
 
-func (s *engine) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
+// factorEnable is one factor insert. ProvenSessionID names the session whose
+// holder just proved possession of the new factor with a code (#389).
+type factorEnable struct {
+	UserID          string
+	Method          string
+	Phone           *string
+	TOTPSecret      []byte
+	LastTOTPStep    *int64
+	MakeDefault     bool
+	Mode            FactorEnrollmentMode
+	ProvenSessionID string
+}
+
+// enable2FA returns the new plaintext backup codes (if any) and whether
+// ProvenSessionID was marked 2FA-verified.
+func (s *engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool, error) {
+	userID, method, phoneNumber, totpSecret, lastTOTPStep, makeDefault, mode := in.UserID, in.Method, in.Phone, in.TOTPSecret, in.LastTOTPStep, in.MakeDefault, in.Mode
 	if s.pg == nil {
-		return nil, fmt.Errorf("postgres not configured")
+		return nil, false, fmt.Errorf("postgres not configured")
 	}
 
 	if mode != FirstFactorOnly && mode != AllowAdditionalFactors {
-		return nil, fmt.Errorf("invalid factor enrollment mode")
+		return nil, false, fmt.Errorf("invalid factor enrollment mode")
 	}
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method != "email" && method != "sms" && method != "totp" {
-		return nil, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
+		return nil, false, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
 	}
 	if method == "sms" && (phoneNumber == nil || *phoneNumber == "") {
-		return nil, fmt.Errorf("phone number required for SMS 2FA")
+		return nil, false, fmt.Errorf("phone number required for SMS 2FA")
 	}
 	if method == "totp" && len(totpSecret) == 0 {
-		return nil, fmt.Errorf("totp secret required for TOTP 2FA")
+		return nil, false, fmt.Errorf("totp secret required for TOTP 2FA")
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
 	if proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof); ok {
 		if _, err := s.lockLoginAccount(ctx, qtx, userID, proof.Version); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if _, err := s.loadLoginProof(ctx, userID, proof.nonce); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	} else if _, err := qtx.MFALockUser(ctx, userID); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var currentBackupCodes []string
 	if settings, err := qtx.MFASettingsByUser(ctx, userID); err == nil && settings.Enabled {
 		currentBackupCodes = settings.BackupCodes
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return nil, false, err
 	}
 
 	factors, err := qtx.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	firstFactor := len(factors) == 0
 	if mode == FirstFactorOnly && !firstFactor {
-		return nil, authkit.ErrTwoFAFactorExists
+		return nil, false, authkit.ErrTwoFAFactorExists
 	}
 	for _, factor := range factors {
 		if factor.Method == method {
-			return nil, authkit.ErrTwoFAFactorExists
+			return nil, false, authkit.ErrTwoFAFactorExists
 		}
 	}
 	makeDefault = makeDefault || firstFactor
@@ -132,7 +150,7 @@ func (s *engine) enable2FA(ctx context.Context, userID, method string, phoneNumb
 
 	if makeDefault {
 		if err := qtx.MFAClearDefaultFactors(ctx, userID); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	_, err = qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
@@ -144,7 +162,7 @@ func (s *engine) enable2FA(ctx context.Context, userID, method string, phoneNumb
 		IsDefault:    makeDefault,
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Settings holds only the account-level gate + backup codes (#125).
@@ -152,12 +170,40 @@ func (s *engine) enable2FA(ctx context.Context, userID, method string, phoneNumb
 		UserID:      userID,
 		BackupCodes: currentBackupCodes,
 	}); err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	verified, err := s.markEnrollingSessionTx(ctx, qtx, userID, in.ProvenSessionID, method)
+	if err != nil {
+		return nil, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return plaintextCodes, nil
+	return plaintextCodes, verified, nil
+}
+
+// markEnrollingSessionTx records the enrollment code as the session's second
+// factor, exactly as POST /step-up/2fa with the new factor would. An email/SMS
+// factor on the channel that was the session's first factor is not independent.
+func (s *engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, userID, sessionID, method string) (bool, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return false, nil
+	}
+	fresh, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !independentFactor(loginProof{Input: LoginSessionInput{AuthMethods: fresh.AuthMethods}}, TwoFactorFactor{Method: method}) {
+		return false, nil
+	}
+	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
+		SessionID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer,
+		AuthMethods: normalizeAuthMethods([]string{method, "otp", "mfa"}),
+	})
+	return n > 0, err
 }
 
 // Disable2FAWithRemovedRoles disables account MFA and removes active user role

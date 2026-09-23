@@ -112,6 +112,10 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		if s.rateLimited(w, r, RL2FAStartTOTP) {
 			return
 		}
+	case method == "email" && starting:
+		if s.rateLimited(w, r, RL2FAStartEmail) || s.rateLimitedByIdentifier(w, r, RL2FAStartEmail, claims.UserID) {
+			return
+		}
 	}
 
 	challenge := ""
@@ -119,7 +123,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		challenge = claims.JTI
 	}
 	out, err := s.svc.EnrollTwoFactor(r.Context(), embedded.TwoFactorEnrollInput{
-		LoginChallenge: challenge, UserAgent: r.UserAgent(), IP: s.requestIP(r),
+		LoginChallenge: challenge, SessionID: claims.SessionID, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 		UserID: claims.UserID, Mode: scope.Mode, Method: method, Code: req.Code,
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
 	})
@@ -153,6 +157,19 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			}
 			s.writeTokenSetWith(w, r, http.StatusOK, out.Login.Session.TokenSet(), resp)
 			return
+		}
+		// The confirmed code verified this session: hand back a token whose
+		// assurance claims match what its next refresh will carry (#389).
+		if out.SessionVerified {
+			freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+			fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+			if err != nil {
+				serverErr(w, authkit.CodeTokenIssueFailed)
+				return
+			}
+			for k, v := range fresh {
+				resp[k] = v
+			}
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
