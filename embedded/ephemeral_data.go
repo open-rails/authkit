@@ -18,6 +18,9 @@ const (
 	keyEmailVerifyCodeAttempts = "email_verify:attempts:"
 	maxPhoneVerifyCodeAttempts = 5
 	keyPhoneVerifyCodeAttempts = "phone_verify:attempts:"
+	maxTwoFactorCodeAttempts   = 5
+	keyTwoFactorCodeAttempts   = "2fa:attempts:" // +<code record key>
+	twoFactorCodeTTL           = 10 * time.Minute
 
 	// A short code is never part of a key (#301): a verification record lives
 	// under the identity it was issued for and carries its code hash inside. Only
@@ -329,47 +332,53 @@ func (s *engine) consumePasswordReset(ctx context.Context, tokenHash string) (pa
 	return data, nil
 }
 
-func (s *engine) storeMFACode(ctx context.Context, userID, codeHash, method, destination string, ttl time.Duration) error {
-	data := twoFactorData{CodeHash: codeHash, Method: method, Destination: destination}
-	return s.ephemSetJSON(ctx, keyTwoFactor+userID, data, ttl)
+func (s *engine) storeMFACode(ctx context.Context, userID, codeHash, method, destination string) error {
+	return s.storeTwoFactorCode(ctx, keyTwoFactor+userID, twoFactorData{CodeHash: codeHash, Method: method, Destination: destination})
 }
 
 func (s *engine) consumeMFACode(ctx context.Context, userID, codeHash string) (bool, error) {
-	var data twoFactorData
-	// Atomic single-use consume (#199 F2/plan015): get+del as ONE op so the same
-	// code cannot authenticate two concurrent requests racing a Get-then-Del. Same
-	// class as the password-reset/passkey consume. Trade-off: a presented code is
-	// spent even on hash mismatch (one attempt per issued code — resend to retry),
-	// which also bounds online brute force of the short numeric code.
-	ok, err := s.ephemConsumeJSON(ctx, keyTwoFactor+userID, &data)
-	if err != nil || !ok {
-		return false, nil
-	}
-	if !SecretEqual(data.CodeHash, codeHash) {
-		return false, nil
-	}
-	return true, nil
+	return s.consumeTwoFactorCode(ctx, keyTwoFactor+userID, codeHash, "")
 }
 
-func (s *engine) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string, ttl time.Duration) error {
-	data := twoFactorData{CodeHash: codeHash, Method: method, Destination: destination}
-	return s.ephemSetJSON(ctx, keyTwoFactorStepUp+userID+":"+sessionID, data, ttl)
+func (s *engine) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string) error {
+	return s.storeTwoFactorCode(ctx, keyTwoFactorStepUp+userID+":"+sessionID, twoFactorData{CodeHash: codeHash, Method: method, Destination: destination})
 }
 
 func (s *engine) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
+	return s.consumeTwoFactorCode(ctx, keyTwoFactorStepUp+userID+":"+sessionID, codeHash, method)
+}
+
+// storeTwoFactorCode issues a fresh code with a fresh wrong-guess budget.
+func (s *engine) storeTwoFactorCode(ctx context.Context, key string, data twoFactorData) error {
+	if err := s.ephemSetJSON(ctx, key, data, twoFactorCodeTTL); err != nil {
+		return err
+	}
+	return s.ephemDel(ctx, keyTwoFactorCodeAttempts+key)
+}
+
+// consumeTwoFactorCode spends the stored code only on a match (#387). The
+// compare-and-delete on the exact record read gives concurrent correct
+// submissions one winner and fails if a resend replaced the code meanwhile. A
+// wrong guess keeps the code; the maxTwoFactorCodeAttempts-th burns it.
+func (s *engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method string) (bool, error) {
 	var data twoFactorData
-	key := keyTwoFactorStepUp + userID + ":" + sessionID
-	// Atomic single-use consume (#199 F2/plan015) — see consumeMFACode.
-	ok, err := s.ephemConsumeJSON(ctx, key, &data)
+	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
 	if err != nil || !ok {
+		return false, err
+	}
+	match := SecretEqual(data.CodeHash, codeHash) &&
+		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
+	if !match {
+		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {
+			_, _ = s.ephemeralStore.CompareAndConsume(ctx, key, raw)
+		}
 		return false, nil
 	}
-	if !SecretEqual(data.CodeHash, codeHash) {
-		return false, nil
+	claimed, err := s.ephemeralStore.CompareAndConsume(ctx, key, raw)
+	if err != nil || !claimed {
+		return false, err
 	}
-	if method != "" && !strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)) {
-		return false, nil
-	}
+	_ = s.ephemDel(ctx, keyTwoFactorCodeAttempts+key)
 	return true, nil
 }
 

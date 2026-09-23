@@ -29,10 +29,9 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Per-identifier check: a 2FA code is 6 numeric digits with a 10-minute TTL,
-	// and a failed attempt does not consume it. Capping per user_id (not just per
-	// IP) prevents distributed brute-force against one account's second factor
-	// from many IPs, each spending their own per-IP budget.
+	// A 2FA code is 6 digits with a 10-minute TTL; a wrong guess keeps it and the
+	// engine burns it after 5 misses. Capping per user_id (not just per IP) also
+	// bounds distributed guessing across codes and factors.
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
 		return
 	}
