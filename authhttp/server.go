@@ -97,7 +97,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	}); err != nil {
 		return nil, err
 	}
-	ver.WithService(coreSvc).WithLiveness(coreSvc)
+	ver.WithService(coreSvc).WithLiveness(coreSvc).WithPermissionChecker(coreSvc, cfg.Token.Issuer)
 	s.verifier = ver
 
 	providers, err := providerRegistry(cfg.Identity.Providers)

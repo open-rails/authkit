@@ -215,6 +215,25 @@ authorized from its own `permissions`. `AuthorityIssuer` is this deployment's
 `Token.Issuer`; `verify.PermissionScopeFromContext` hands the handler the
 authorized scope.
 
+For a consumer's provider-neutral interface, the same verifier implements
+`AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)`
+using `github.com/open-rails/helpers/auth`. The result exposes immutable identity
+metadata and optional `auth.PermissionChecker` access. `Can` checks a host-resolved
+`auth.Scope{Authority: issuer, ID: immutableGroupID}` and permission against live
+native assignments or the verified machine credential's exact scope and ceiling.
+The runtime wires its native checker automatically. Verify-only hosts can use
+`WithPermissionChecker(client, authorityIssuer)`. Neither identity nor scope
+selects an application's billing account or grants permission by itself.
+
+`AuthenticateRequestLive` explicitly applies immediate account liveness; the
+ordinary method retains the stateless user-session policy. Hosts that already
+verified the request with trusted middleware may explicitly call
+`PrincipalFromVerifiedClaims` after their admission policy. Those claims must come
+from complete verification of this same unchanged request under the host's
+intended issuer, audience, assurance and sender-proof policy. This handoff avoids
+consuming a single-use DPoP proof twice. Ordinary authentication never trusts
+ambient context claims. Retain the resulting principal only for that request.
+
 ### Fiber v3
 
 Install the separate adapter module:

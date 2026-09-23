@@ -54,7 +54,9 @@ type Verifier struct {
 
 	// liveness is the optional account-liveness backend for VerifyRequestLive /
 	// RequiredLive (#267). Nil on the stateless default path; guarded by mu.
-	liveness LivenessSource
+	liveness            LivenessSource
+	permissionChecker   PermissionChecker
+	permissionAuthority string
 
 	// requireMFAEnrollment, when set, turns on the per-request forced-2FA-enrollment
 	// gate in VerifyRequest (#148). Set from TwoFactor.Mode == Required.
@@ -265,6 +267,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		}
 	}
 	return Claims{
+		APIKeyID:    resolved.APIKeyID,
 		Permissions: resolved.Permissions,
 		TokenType:   APIKeyPrincipalType,
 		// Bind the key's authority to the group instance it was minted on (#248).
