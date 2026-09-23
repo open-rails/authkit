@@ -164,7 +164,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 			fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 			if err != nil {
-				serverErr(w, authkit.CodeTokenIssueFailed)
+				serverErr(w, authkit.CodeTokenIssueFailed, err)
 				return
 			}
 			for k, v := range fresh {
@@ -234,7 +234,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 
 	backupCodes, err := s.svc.RegenerateBackupCodes(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeRegenerateCodesFailed)
+		serverErr(w, authkit.CodeRegenerateCodesFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})

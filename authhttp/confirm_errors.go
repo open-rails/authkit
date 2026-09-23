@@ -33,6 +33,6 @@ func (s *Service) confirmBackendFailed(w http.ResponseWriter, r *http.Request, r
 		return false
 	}
 	s.logInternalError(r, route, stage, "database_error", err)
-	serverErr(w, authkit.CodeDatabaseError)
+	serverErr(w, authkit.CodeDatabaseError, nil)
 	return true
 }

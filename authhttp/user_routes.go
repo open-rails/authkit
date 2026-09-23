@@ -31,7 +31,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, authkit.ErrRenameRateLimited) {
 			state, stateErr := s.svc.UserNamingState(r.Context(), claims.UserID)
 			if stateErr != nil {
-				serverErr(w, authkit.CodeDatabaseError)
+				serverErr(w, authkit.CodeDatabaseError, stateErr)
 				return
 			}
 			sendErrData(w, http.StatusTooManyRequests, authkit.CodeRenameRateLimited, map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(s.svc.NamingPolicy().RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": ActionUpdateUsername})
@@ -42,12 +42,12 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 	state, err := s.svc.UserNamingState(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError, err)
 		return
 	}
 	users, err := s.svc.PublicUsersByIDs(r.Context(), []string{claims.UserID})
 	if err != nil {
-		serverErr(w, authkit.CodeDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"username": users[claims.UserID].Username, "naming": state})
@@ -90,7 +90,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 	}
 	preferred, err := s.svc.GetPreferredLanguage(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodePreferredLanguageLookupFailed)
+		serverErr(w, authkit.CodePreferredLanguageLookupFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": preferred.Language})
@@ -123,7 +123,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.svc.SoftDeleteUser(r.Context(), claims.UserID); err != nil {
-		serverErr(w, authkit.CodeFailedToDelete)
+		serverErr(w, authkit.CodeFailedToDelete, err)
 		return
 	}
 	noContent(w)
@@ -152,7 +152,7 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 	}
 	removed, err := s.svc.UnlinkProviderUnlessLast(r.Context(), claims.UserID, provider)
 	if err != nil {
-		serverErr(w, authkit.CodeFailedToUnlink)
+		serverErr(w, authkit.CodeFailedToUnlink, err)
 		return
 	}
 	if !removed {

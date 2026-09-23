@@ -150,7 +150,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, authkit.CodeAbandonFailed)
+				serverErr(w, authkit.CodeAbandonFailed, nil)
 				return
 			}
 		}
@@ -162,7 +162,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, authkit.CodeAbandonFailed)
+			serverErr(w, authkit.CodeAbandonFailed, nil)
 			return
 		}
 	}

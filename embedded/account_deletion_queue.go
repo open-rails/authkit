@@ -125,7 +125,23 @@ func (s *engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.warnUnboundAccountIssuers(ctx)
+	return nil
+}
+
+// Account deletion fails closed until every account issuer has started once
+// against this database; say so at startup, not only in a failed request.
+func (s *engine) warnUnboundAccountIssuers(ctx context.Context) {
+	var unbound []string
+	err := s.pg.QueryRow(ctx, `SELECT coalesce(array_agg(i ORDER BY i),'{}') FROM unnest($1::text[]) i
+ WHERE NOT EXISTS (SELECT 1 FROM account_delivery_fleets f WHERE f.issuer=i)`, s.accountIssuers()).Scan(&unbound)
+	if err != nil || len(unbound) == 0 {
+		return
+	}
+	slog.WarnContext(ctx, "authkit: account deletion fails until these account issuers start against this database", "issuers", unbound)
 }
 
 // Fence a previously bound runtime after a quiescent schema switch. Holding

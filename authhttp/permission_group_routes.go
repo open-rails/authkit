@@ -204,7 +204,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			allowed, err = s.groupCan(r, claims.UserID, group, gr.Perm)
 		}
 		if err != nil {
-			serverErr(w, authkit.CodeDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError, err)
 			return
 		}
 		if !allowed {

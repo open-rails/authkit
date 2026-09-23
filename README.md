@@ -546,7 +546,8 @@ River retries errors without losing the cleanup. Nil means no application work
 for that stage. The host does not poll a backlog or acknowledge events.
 
 `Token.AccountIssuers` identifies deployments sharing account lifecycle. Each
-issuer must compose its River fleet once before deletion affects it; AuthKit
+issuer must compose its River fleet once before deletion affects it (until
+then deletion fails with a logged cause, and startup warns naming it); AuthKit
 remembers that issuer's River schema and queues callbacks directly into it,
 even while the application is offline. Separate River schemas are supported,
 but AuthKit and every participating fleet must address the same physical

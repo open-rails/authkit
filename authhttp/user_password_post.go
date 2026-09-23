@@ -49,14 +49,14 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, authkit.CodeStepUpFailed)
+			serverErr(w, authkit.CodeStepUpFailed, err)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		var err error
 		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, authkit.CodeTokenIssueFailed)
+			serverErr(w, authkit.CodeTokenIssueFailed, err)
 			return
 		}
 		delete(authMeta, "ok")
@@ -65,7 +65,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	keep := keepSession(claims)
 	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError, err)
 		return
 	}
 	var changeErr error
