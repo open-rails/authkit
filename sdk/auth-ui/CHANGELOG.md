@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Sign-out race: requests that can set the refresh cookie wait for the
   logout response, which clears it. A sign-in answered first used to lose its
