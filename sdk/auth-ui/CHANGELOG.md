@@ -5,6 +5,8 @@
 - Built one file per module, and `@openrails/auth-ui/provider` exports
   `AuthUiProvider` alone: a host that lazy-loads the styled components keeps
   them out of its entry chunk.
+- Solana sign-in and linking send `account.publicKey` beside the address (the
+  full SIWS output shape).
 
 ## 0.2.0
 

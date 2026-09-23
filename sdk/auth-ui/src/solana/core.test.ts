@@ -5,6 +5,7 @@ import { AuthKitError, AuthSessionChangedError } from "../client/errors.ts"
 import { authError, deferred, json, jwt, stubFetch } from "../client/testing.ts"
 import {
   createSolanaAuth,
+  fromBase58,
   signerFromWallet,
   SolanaWalletError,
 } from "./core.ts"
@@ -71,7 +72,7 @@ describe("signIn", () => {
     expect(header(login, "Authorization")).toBeUndefined()
     expect(bodyOf(login)).toEqual({
       output: {
-        account: { address: "W" },
+        account: { address: "W", publicKey: b64(Uint8Array.of(29)) },
         signature: b64(SIG),
         signedMessage: b64(bytes),
       },
@@ -177,7 +178,10 @@ describe("link", () => {
     })
     await expect(solana.link(signer())).resolves.toEqual({ address: "W" })
     expect(header(link, "Authorization")).toBe(`Bearer ${jwt("A")}`)
-    expect(bodyOf(link).output.account).toEqual({ address: "W" })
+    expect(bodyOf(link).output.account).toEqual({
+      address: "W",
+      publicKey: b64(Uint8Array.of(29)),
+    })
   })
 
   it("requires a session and refuses a wallet change before signing", async () => {
@@ -251,5 +255,18 @@ describe("signerFromWallet", () => {
     expect(() => signerFromWallet(wallet)).toThrow(
       expect.objectContaining({ reason })
     )
+  })
+})
+
+describe("fromBase58", () => {
+  it("decodes addresses to their 32 key bytes", () => {
+    expect(fromBase58("11111111111111111111111111111111")).toEqual(
+      new Uint8Array(32)
+    )
+    const key = Uint8Array.from({ length: 32 }, (_, i) => i + 1)
+    expect(fromBase58("4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw")).toEqual(
+      key
+    )
+    expect(fromBase58("0OIl")).toBeNull()
   })
 })
