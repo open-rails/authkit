@@ -35,7 +35,9 @@ type AuthProviderSummary struct {
 }
 
 type AuthPasswordCapabilities struct {
-	Login bool `json:"login"`
+	Login     bool `json:"login"`
+	MinLength int  `json:"min_length"`
+	MaxLength int  `json:"max_length"`
 }
 
 type AuthPasswordlessCapabilities struct {
@@ -81,7 +83,9 @@ func (s *Service) capabilities() AuthCapabilities {
 		},
 		ExternalLoginProviders: s.providerSummaries(),
 		Password: AuthPasswordCapabilities{
-			Login: true,
+			Login:     true,
+			MinLength: cfg.Password.MinLength,
+			MaxLength: cfg.Password.MaxLength,
 		},
 		Passwordless: AuthPasswordlessCapabilities{
 			Enabled:  cfg.Registration.PasswordlessLogin,
