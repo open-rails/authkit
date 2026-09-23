@@ -251,6 +251,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     }
   }
 
+  // The logout response clears the refresh cookie. Cookie-bearing requests
+  // wait for it, or a sign-in answered first would have its cookie wiped.
+  let signingOut: Promise<void> | null = null
+  const cookieFetch: typeof fetch = async (...args) => {
+    while (signingOut) await signingOut
+    return doFetch(...args)
+  }
+
   const refreshOnce = async (gen: number): Promise<boolean> => {
     const current = session.status === "authenticated" ? session : null
     const body: Rec = { grant_type: "refresh_token" }
@@ -258,7 +266,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     if (stored) body.refresh_token = stored
     let res: Response
     try {
-      res = await doFetch(url(baseUrl, "/token"), {
+      res = await cookieFetch(url(baseUrl, "/token"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -408,7 +416,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const headers: Record<string, string> = { Accept: "application/json" }
     if (opts.body !== undefined) headers["Content-Type"] = "application/json"
     if (bearer) headers.Authorization = `Bearer ${bearer}`
-    return doFetch(target, {
+    return cookieFetch(target, {
       method,
       headers,
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -505,15 +513,17 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const bearer = accessToken()
     clear("signed_out")
     if (!bearer) return
-    try {
-      await doFetch(url(baseUrl, "/logout"), {
-        method: "DELETE",
-        credentials: "include",
-        headers: { Authorization: `Bearer ${bearer}` },
-      })
-    } catch {
-      // local sign-out already happened
-    }
+    const done = doFetch(url(baseUrl, "/logout"), {
+      method: "DELETE",
+      credentials: "include",
+      headers: { Authorization: `Bearer ${bearer}` },
+    }).then(
+      () => undefined,
+      () => undefined // local sign-out already happened
+    )
+    signingOut = done
+    await done
+    if (signingOut === done) signingOut = null
   }
 
   // --- OIDC ------------------------------------------------------------------

@@ -162,3 +162,27 @@ it("checks profile ownership again after its body resolves", async () => {
   body.resolve(JSON.stringify({ id: "A" }))
   expect(await fetching).toBeNull()
 })
+
+it("holds a sign-in until the previous logout answered", async () => {
+  // The logout response clears the refresh cookie; a login answered before it
+  // would lose its fresh cookie.
+  const logout = deferred<Response>()
+  const order: string[] = []
+  const fetch = vi.fn((url: RequestInfo | URL) => {
+    const path = new URL(String(url), "http://x").pathname
+    order.push(path)
+    return path.endsWith("/logout")
+      ? logout.promise
+      : Promise.resolve(tokens("B"))
+  })
+  const client = await signedIn(fetch, "A")
+  const out = client.signOut()
+  const signIn = client.signInWithPassword({ identifier: "b", password: "pw" })
+  await Promise.resolve()
+  expect(order).toEqual(["/api/v1/logout"])
+  logout.resolve(new Response(null, { status: 204 }))
+  await out
+  await signIn
+  expect(order).toEqual(["/api/v1/logout", "/api/v1/password/login"])
+  expect(userId(client)).toBe("B")
+})

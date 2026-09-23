@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Sign-out race: requests that can set the refresh cookie wait for the
+  logout response, which clears it. A sign-in answered first used to lose its
+  cookie, so the next reload or refresh signed the user out.
 - `VerifyLink` (and headless `useVerifyLink`) for the AuthKit verification
   link landing route: confirms the link token once and finishes any
   continuation in place.
