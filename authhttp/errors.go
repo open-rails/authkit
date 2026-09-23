@@ -105,9 +105,9 @@ func forbidden(w http.ResponseWriter, code authkit.Code) { sendErr(w, http.Statu
 func notFound(w http.ResponseWriter, code authkit.Code)  { sendErr(w, http.StatusNotFound, code) }
 
 // serverErr emits a 500: on the wire always internal_error, in the log the
-// code names the failed operation.
-func serverErr(w http.ResponseWriter, code authkit.Code) {
-	sendErr(w, http.StatusInternalServerError, code)
+// code names the failed operation and cause says why.
+func serverErr(w http.ResponseWriter, code authkit.Code, cause error) {
+	writeError(w, authkit.E(code, authkit.WithStatus(http.StatusInternalServerError), authkit.WithCause(cause)))
 }
 
 // registrationDisabled writes the stable registration-disabled rejection used by

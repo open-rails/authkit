@@ -62,7 +62,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 			if code == "" {
 				// Not a validation error — an internal failure.
 				s.logInternalError(r, "register_availability", "username", "database_error", err)
-				serverErr(w, authkit.CodeDatabaseError)
+				serverErr(w, authkit.CodeDatabaseError, nil)
 				return
 			}
 			resp.Username = &registrationAvailabilityField{Available: false, Error: code.String()}
@@ -84,7 +84,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), checkEmail, checkUsername)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "identifier", "database_error", err)
-			serverErr(w, authkit.CodeDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError, nil)
 			return
 		}
 		if usernameNeedsConflictCheck {
@@ -107,7 +107,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationPhoneAvailability(r, phone)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "phone_number", "database_error", err)
-			serverErr(w, authkit.CodeDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError, nil)
 			return
 		}
 		resp.PhoneNumber = field

@@ -62,7 +62,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 			u = nil
 		} else if err != nil {
 			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
-			serverErr(w, authkit.CodeDatabaseError)
+			serverErr(w, authkit.CodeDatabaseError, nil)
 			return
 		}
 		if u == nil {

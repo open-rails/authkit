@@ -18,7 +18,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 	}
 	sessions, err := s.svc.ListUserSessions(r.Context(), cl.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeFailedToList)
+		serverErr(w, authkit.CodeFailedToList, err)
 		return
 	}
 	arr := make([]map[string]any, 0, len(sessions))
@@ -49,7 +49,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
-		serverErr(w, authkit.CodeFailedToRevoke)
+		serverErr(w, authkit.CodeFailedToRevoke, err)
 		return
 	}
 	noContent(w)
@@ -63,7 +63,7 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, nil); err != nil {
-		serverErr(w, authkit.CodeFailedToRevokeAll)
+		serverErr(w, authkit.CodeFailedToRevokeAll, err)
 		return
 	}
 	noContent(w)

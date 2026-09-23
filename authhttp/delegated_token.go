@@ -105,7 +105,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		thumbprint, err = dpop.VerifyRequest(r, target, parent[1], nil, s.svc.ClaimDPoPProof)
 		if err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
-				serverErr(w, authkit.CodeInternalError)
+				serverErr(w, authkit.CodeInternalError, err)
 			} else {
 				w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
 				unauthorized(w, authkit.CodeSenderProofRequired)
@@ -172,11 +172,11 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		ConfirmationJWKThumbprintSHA256: jwkBinding,
 	})
 	if err != nil {
-		serverErr(w, authkit.CodeDelegatedMintFailed)
+		serverErr(w, authkit.CodeDelegatedMintFailed, err)
 		return
 	}
 	if len(token) > maxDelegatedTokenBytes {
-		serverErr(w, authkit.CodeDelegatedTokenTooLarge)
+		serverErr(w, authkit.CodeDelegatedTokenTooLarge, nil)
 		return
 	}
 

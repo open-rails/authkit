@@ -20,7 +20,7 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 	}
 	creation, err := s.svc.BeginPasskeyRegistration(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodePasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, creation)
@@ -58,7 +58,7 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 	}
 	assertion, err := s.svc.BeginPasskeyLogin(r.Context())
 	if err != nil {
-		serverErr(w, authkit.CodePasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, assertion)
@@ -90,7 +90,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 	}
 	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodePasskeyFailed)
+		serverErr(w, authkit.CodePasskeyFailed, err)
 		return
 	}
 	writeList(w, passkeys, "")

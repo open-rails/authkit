@@ -22,7 +22,7 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonLogout)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
-		serverErr(w, authkit.CodeFailedToLogout)
+		serverErr(w, authkit.CodeFailedToLogout, err)
 		return
 	}
 	// ak#271: the server-side session is gone, so the jar value must go too —

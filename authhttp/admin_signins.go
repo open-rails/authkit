@@ -16,7 +16,7 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 	}
 	events, err := s.svc.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
 	if err != nil {
-		serverErr(w, authkit.CodeFailedToListSignins)
+		serverErr(w, authkit.CodeFailedToListSignins, err)
 		return
 	}
 

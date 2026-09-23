@@ -103,7 +103,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), s.siwsChallenges, domain, address, req.Username)
 	if err != nil {
-		serverErr(w, authkit.CodeChallengeFailed)
+		serverErr(w, authkit.CodeChallengeFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

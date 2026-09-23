@@ -101,7 +101,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 		case strings.TrimSpace(claims.UserID) != "":
 			allowed, err := s.svc.CanOnGroup(r.Context(), authkit.UserSubject(claims.UserID), group.ID, perm)
 			if err != nil {
-				serverErr(w, authkit.CodeDatabaseError)
+				serverErr(w, authkit.CodeDatabaseError, err)
 				return
 			}
 			if allowed {
@@ -207,7 +207,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.svc.UnbanUser(r.Context(), userID); err != nil {
-		serverErr(w, authkit.CodeFailedToUnban)
+		serverErr(w, authkit.CodeFailedToUnban, err)
 		return
 	}
 	noContent(w)

@@ -43,13 +43,13 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, authkit.CodeStepUpFailed)
+		serverErr(w, authkit.CodeStepUpFailed, err)
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 	if err != nil {
-		serverErr(w, authkit.CodeTokenIssueFailed)
+		serverErr(w, authkit.CodeTokenIssueFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -115,13 +115,13 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"}); err != nil {
-		serverErr(w, authkit.CodeStepUpFailed)
+		serverErr(w, authkit.CodeStepUpFailed, err)
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 	if err != nil {
-		serverErr(w, authkit.CodeTokenIssueFailed)
+		serverErr(w, authkit.CodeTokenIssueFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -236,13 +236,13 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 			return false, nil
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, authkit.CodeStepUpFailed)
+			serverErr(w, authkit.CodeStepUpFailed, err)
 			return false, nil
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, authkit.CodeTokenIssueFailed)
+			serverErr(w, authkit.CodeTokenIssueFailed, err)
 			return false, nil
 		}
 		return true, body
@@ -254,7 +254,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
 	methods, err := s.stepUpMethods(r, claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeDatabaseError)
+		serverErr(w, authkit.CodeDatabaseError, err)
 		return
 	}
 	metadata := map[string]any{
