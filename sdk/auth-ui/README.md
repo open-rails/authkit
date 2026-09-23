@@ -28,5 +28,13 @@ pnpm install
 pnpm check
 ```
 
+### E2E
+
+`pnpm test:e2e` builds `e2e/server` (a real AuthKit mount pinned in
+`e2e/server/go.mod`), starts it on a throwaway `postgres:18` Docker container and
+runs Playwright against it (`pnpm exec playwright install chromium` once).
+Needs Go and Docker. `pnpm contract` regenerates `src/client/generated` from the
+same pin; CI runs `pnpm contract:check`. Captured email/SMS: `GET /__test/outbox`.
+
 Releases are published to npm when a `vX.Y.Z` GitHub release matching
 `package.json` is published.
