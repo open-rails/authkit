@@ -46,6 +46,7 @@ func defParam(code string, status int, param, message string) Code {
 
 // The catalog: every wire code with its HTTP status and message.
 var (
+	CodeTwoFACodeExpired                  = def("2fa_code_expired", 400, "The code has expired or was used up. Request a new one.")
 	CodeTwoFAEnrollmentRequired           = def("2fa_enrollment_required", 403, "Two-factor authentication must be enrolled to continue.")
 	CodeTwoFAFactorExists                 = def("2fa_factor_exists", 409, "A two-factor authentication method is already enrolled. Remove it before enrolling a replacement.")
 	CodeTwoFAMethodUnavailable            = def("2fa_method_unavailable", 400, "That two-factor method is unavailable.")
@@ -382,6 +383,7 @@ var (
 	ErrPhoneNumberRequired               = E(CodePhoneNumberRequired)
 	ErrPhoneNumberMustBeE164             = E(CodePhoneNumberMustBeE164)
 	ErrInvalidCode                       = E(CodeInvalidCode)
+	ErrTwoFACodeExpired                  = E(CodeTwoFACodeExpired)
 	ErrPhoneTwoFAUnavailable             = E(CodePhoneTwoFAUnavailable)
 	ErrTwoFASetupCodeSendFailed          = E(CodeTwoFASetupCodeSendFailed)
 	ErrTwoFAEnableFailed                 = E(CodeTwoFAEnableFailed)

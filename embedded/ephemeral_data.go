@@ -359,24 +359,32 @@ func (s *engine) storeTwoFactorCode(ctx context.Context, key string, data twoFac
 // consumeTwoFactorCode spends the stored code only on a match (#387). The
 // compare-and-delete on the exact record read gives concurrent correct
 // submissions one winner and fails if a resend replaced the code meanwhile. A
-// wrong guess keeps the code; the maxTwoFactorCodeAttempts-th burns it.
+// wrong guess keeps the code; the maxTwoFactorCodeAttempts-th burns it. No live
+// code (expired, never sent, spent, or burned by this miss) is ErrTwoFACodeExpired.
 func (s *engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method string) (bool, error) {
 	var data twoFactorData
 	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
-	if err != nil || !ok {
+	if err != nil {
 		return false, err
+	}
+	if !ok {
+		return false, ErrTwoFACodeExpired
 	}
 	match := SecretEqual(data.CodeHash, codeHash) &&
 		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
 	if !match {
 		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {
 			_, _ = s.ephemeralStore.CompareAndConsume(ctx, key, raw)
+			return false, ErrTwoFACodeExpired
 		}
 		return false, nil
 	}
 	claimed, err := s.ephemeralStore.CompareAndConsume(ctx, key, raw)
-	if err != nil || !claimed {
+	if err != nil {
 		return false, err
+	}
+	if !claimed {
+		return false, ErrTwoFACodeExpired
 	}
 	_ = s.ephemDel(ctx, keyTwoFactorCodeAttempts+key)
 	return true, nil

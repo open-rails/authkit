@@ -22,6 +22,7 @@ var (
 	ErrPhoneNumberRequired      = authkit.ErrPhoneNumberRequired
 	ErrPhoneNumberMustBeE164    = authkit.ErrPhoneNumberMustBeE164
 	ErrInvalidCode              = authkit.ErrInvalidCode
+	ErrTwoFACodeExpired         = authkit.ErrTwoFACodeExpired
 	ErrPhoneTwoFAUnavailable    = authkit.ErrPhoneTwoFAUnavailable
 	ErrTwoFASetupCodeSendFailed = authkit.ErrTwoFASetupCodeSendFailed
 	ErrTwoFAEnableFailed        = authkit.ErrTwoFAEnableFailed
@@ -95,7 +96,7 @@ type TwoFactorEnrollOutcome struct {
 
 // EnrollTwoFactor runs the enrollment decision tree. Input problems:
 // ErrInvalidTwoFAMethod, ErrPhoneNumberRequired, ErrPhoneNumberMustBeE164,
-// ErrInvalidCode, ErrTwoFAFactorExists; engine failures carry a stage
+// ErrInvalidCode, ErrTwoFACodeExpired, ErrTwoFAFactorExists; engine failures carry a stage
 // prefix wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
 // the delivery sentinel) / ErrTwoFAEnableFailed.
 func (s *engine) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error) {
