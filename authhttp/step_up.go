@@ -110,7 +110,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		valid, err = s.svc.Verify2FAStepUpMethodCode(r.Context(), claims.UserID, claims.SessionID, method, strings.TrimSpace(body.Code))
 	}
 	if err != nil || !valid {
-		unauthorized(w, authkit.CodeInvalidCode)
+		unauthorized(w, codeRejection(err))
 		return
 	}
 

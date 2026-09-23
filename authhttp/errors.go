@@ -92,6 +92,15 @@ func badRequest(w http.ResponseWriter, code authkit.Code) { sendErr(w, http.Stat
 func unauthorized(w http.ResponseWriter, code authkit.Code) {
 	sendErr(w, http.StatusUnauthorized, code)
 }
+
+// codeRejection distinguishes a retryable wrong code from one with no live code.
+func codeRejection(err error) authkit.Code {
+	if errors.Is(err, authkit.ErrTwoFACodeExpired) {
+		return authkit.CodeTwoFACodeExpired
+	}
+	return authkit.CodeInvalidCode
+}
+
 func forbidden(w http.ResponseWriter, code authkit.Code) { sendErr(w, http.StatusForbidden, code) }
 func notFound(w http.ResponseWriter, code authkit.Code)  { sendErr(w, http.StatusNotFound, code) }
 

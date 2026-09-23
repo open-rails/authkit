@@ -29,9 +29,9 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// A 2FA code is 6 digits with a 10-minute TTL; a wrong guess keeps it and the
-	// engine burns it after 5 misses. Capping per user_id (not just per IP) also
-	// bounds distributed guessing across codes and factors.
+	// A 2FA code is 6 digits with a 10-minute TTL; a wrong guess keeps it
+	// (invalid_code) and the 5th burns it (2fa_code_expired). Capping per user_id
+	// (not just per IP) also bounds distributed guessing across codes and factors.
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
 		return
 	}
@@ -39,7 +39,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	out, err := s.svc.CompleteLoginChallenge(r.Context(), embedded.LoginChallengeInput{UserID: userID, Challenge: challenge, FactorID: strings.TrimSpace(req.FactorID), Code: code, BackupCode: req.BackupCode, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
 		logLoginFailed(s, r, userID, "invalid_challenge_or_code")
-		unauthorized(w, authkit.CodeInvalidCode)
+		unauthorized(w, codeRejection(err))
 		return
 	}
 	if s.writeLoginContinuation(w, r, out, nil) {

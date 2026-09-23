@@ -433,6 +433,10 @@ email or SMS factor. The confirming code verifies the enrolling session, so its
 next refresh returns tokens rather than `2fa_required`; other sessions must
 complete 2FA. See [API endpoints](docs/api-endpoints.md#two-factor-authentication).
 
+An email/SMS 2FA code survives a wrong guess (`invalid_code`). The fifth miss
+burns it; that miss and any later submission until a resend return
+`2fa_code_expired`, as does an expired or unsent code.
+
 ## Passkey ceremonies
 
 `/api/v1/passkeys/*` covers browser login, registration and management. AuthKit's

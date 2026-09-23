@@ -1,4 +1,5 @@
 {
+  "2fa_code_expired": 400,
   "2fa_enrollment_required": 403,
   "2fa_factor_exists": 409,
   "2fa_method_unavailable": 400,
