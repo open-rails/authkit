@@ -10,12 +10,15 @@ type Win = { auth: AuthClient; mod: Mod }
 
 const dist = path.resolve(import.meta.dirname, "../dist")
 
-// Serves the built package (and its shared chunks) and installs a fresh client
+// Serves the built package (one file per module) and installs a fresh client
 // as window.auth.
 async function loadClient(page: Page) {
-  await page.route("**/__auth-ui/*.js", (route, req) =>
+  await page.route("**/__auth-ui/**/*.js", (route, req) =>
     route.fulfill({
-      path: path.join(dist, path.basename(new URL(req.url()).pathname)),
+      path: path.join(
+        dist,
+        new URL(req.url()).pathname.replace(/^\/__auth-ui\//, "")
+      ),
       contentType: "text/javascript",
     })
   )

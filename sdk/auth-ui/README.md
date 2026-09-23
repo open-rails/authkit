@@ -106,6 +106,9 @@ import { de } from "@openrails/auth-ui/locales/de"
 
 - Styles install from the entry and are scoped under `.authui`; `./styles.css`
   is the same sheet for SSR.
+- Lazy-loading the components? Import `AuthUiProvider` from
+  `@openrails/auth-ui/provider` in eager code so the root entry (and every
+  component) stays out of the host's entry chunk.
 - `theme`: `light`, `dark`, `auto` (OS) or `inherit` (host shadcn tokens and
   `.dark` class). `variables` override single `--authui-*` tokens.
 - Messages: English is complete and the fallback for every key; locales

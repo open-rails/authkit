@@ -51,6 +51,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: src("index.ts"),
+        provider: src("provider.tsx"),
         client: src("client/index.ts"),
         react: src("react/index.ts"),
         solana: src("solana/index.ts"),
@@ -65,6 +66,12 @@ export default defineConfig({
     rollupOptions: {
       external: (id) =>
         EXTERNAL.some((dep) => id === dep || id.startsWith(`${dep}/`)),
+      // One file per source module, so a host bundler can put components in
+      // the lazy chunks that use them instead of its entry chunk.
+      output: {
+        preserveModules: true,
+        preserveModulesRoot: "src",
+      },
     },
   },
 })

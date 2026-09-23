@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Built one file per module, and `@openrails/auth-ui/provider` exports
+  `AuthUiProvider` alone: a host that lazy-loads the styled components keeps
+  them out of its entry chunk.
+
 ## 0.2.0
 
 - Sign-out race: requests that can set the refresh cookie wait for the
