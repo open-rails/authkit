@@ -21,3 +21,22 @@ be orphaned when their application owner belongs to the retiring subtree.
 The existing hard DeleteGroupInstanceByID remains the explicit trusted purge
 operation. Retention duration and due-time validation belong to the application;
 AuthKit does not read application tables or enforce an application-specific clock.
+
+The public descriptor's `DeletedAt` is returned by trusted ID reads for cleanup
+and diagnosis. Name lookup, membership discovery and ordinary HTTP authorization
+exclude retired groups. `verify.Allow` and the neutral principal's scoped machine
+`Can` require the checker's existing `GroupInstanceByID` capability; absence or
+lookup failure fails closed. This reads group liveness without resolving the
+credential or consuming sender proof again. Runtime composition wires the same
+engine automatically; manually constructed scoped verifiers must supply it with
+`WithPermissionChecker`. Captured permission ceilings still cannot expand.
+
+The library-owned 0002 migration upgrades the exact published 0001 baseline and
+preserves its rows and name claims. The demo's separate application schema remains
+one fresh baseline. No legacy ledger adoption or automatic database reset occurs.
+
+Local PostgreSQL/race proofs cover retained rows/names, descendant retirement,
+original timestamps on retry, active-sibling owner veto, retirement/account-delete
+races, rollback of external owner loss, API-key and existing native-session denial,
+permission mutation and child creation refusal, and upgrade from the published
+baseline. Full authority suites and exact-commit CI remain qualification gates.

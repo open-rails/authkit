@@ -62,7 +62,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (boo
 	case SubjectKindUser:
 		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
 	case SubjectKindRemoteApp:
-		query = `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled)`
+		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL)`
 	default:
 		return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
 	}
@@ -101,8 +101,12 @@ func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, 
 
 func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding authkit.Subject) error {
 	var persona authkit.Persona
-	if err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona); err != nil {
+	var inactive bool
+	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona, &inactive); err != nil {
 		return err
+	}
+	if inactive {
+		return nil
 	}
 	owner, _ := s.groupSchemaOrDefault().Role(persona, OwnerRoleName)
 	needsMFA := s.TwoFactorEnabled() && (s.requireMFAEnrollment() || owner.RequiresMFA)
@@ -115,7 +119,7 @@ func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupS
  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL
  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id)`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
+ WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
 	if err != nil {
 		return err
 	}
@@ -197,7 +201,7 @@ func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore
 // A subtree deletion can also delete applications owning other groups. Check
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.
-func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
+func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *PermissionGroupStore, gid string) ([]string, error) {
 	rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
       SELECT id FROM permission_groups WHERE id=$1::uuid
       UNION ALL SELECT g.id FROM permission_groups g JOIN subtree p ON g.parent_id=p.id)
@@ -206,19 +210,27 @@ func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gi
       WHERE a.permission_group_id IN (SELECT id FROM subtree) AND a.enabled AND r.role='owner'
       AND r.permission_group_id NOT IN (SELECT id FROM subtree)`, gid)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var surviving []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return err
+			return nil, err
 		}
 		surviving = append(surviving, id)
 	}
 	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	return surviving, nil
+}
+
+func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
+	surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err
 	}

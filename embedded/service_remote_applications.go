@@ -269,6 +269,9 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 	if t == "" {
 		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", ErrInvalidRemoteApplication)
 	}
+	if err := lockPermissionGroup(ctx, st.q, t); err != nil {
+		return nil, err
+	}
 	groupID := &t
 	existing, err := q.RemoteApplicationByIssuer(ctx, issuer)
 	if err == nil && existing.PermissionGroupID != t {
@@ -323,6 +326,13 @@ func (s *engine) GetRemoteApplication(ctx context.Context, issuer string) (*Remo
 	// closed on the next request, not at the next reconcile (#323). Admin reads
 	// use GetRemoteApplicationBySlug / ListRemoteApplications.
 	if !row.Enabled {
+		return nil, ErrRemoteApplicationNotFound
+	}
+	group, err := s.groupStore().GroupInstanceByID(ctx, row.PermissionGroupID)
+	if err != nil {
+		return nil, err
+	}
+	if group.DeletedAt != nil {
 		return nil, ErrRemoteApplicationNotFound
 	}
 	return remoteAppFromRow(remoteAppRow(row)), nil

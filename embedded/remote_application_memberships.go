@@ -127,7 +127,7 @@ func (s *engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 		`SELECT ra.permission_group_id::text, pg.persona, COALESCE(pg.instance_slug, '')
 		 FROM remote_applications ra
 		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
-		 WHERE ra.id = $1::uuid`,
+		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL`,
 		appID).Scan(&gid, &out.Persona, &out.InstanceSlug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authkit.RemoteApplicationAuthority{}, ErrRemoteApplicationNotFound

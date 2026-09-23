@@ -22,6 +22,14 @@ type authoritySource struct {
 	app                  *authkit.RemoteApplication
 	authority            authkit.RemoteApplicationAuthority
 	getErr, authorityErr error
+	deletedAt            *time.Time
+}
+
+func (s *authoritySource) CanOnGroup(context.Context, authkit.Subject, string, authkit.Perm) (bool, error) {
+	return false, nil
+}
+func (s *authoritySource) GroupInstanceByID(_ context.Context, id string) (authkit.GroupInstance, error) {
+	return authkit.GroupInstance{ID: id, DeletedAt: s.deletedAt}, nil
 }
 
 func (s *authoritySource) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
@@ -47,7 +55,7 @@ func storedVerifier(t *testing.T) (*Verifier, *authoritySource, *jwtkit.RSASigne
 	src := &authoritySource{app: &app, authority: authkit.RemoteApplicationAuthority{
 		Permissions: []string{"repo:read"}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo", InstanceSlug: "alpha",
 	}}
-	v := NewVerifier().WithService(src)
+	v := NewVerifier().WithService(src).WithPermissionChecker(src, "https://local.example")
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"resource"}))
 	return v, src, signer
 }
@@ -138,7 +146,7 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 		"different issuer": {GroupID: "group-alpha", AuthorityIssuer: "https://other.example", Persona: "repo"},
 		"absent":           {},
 	} {
-		allowed, err := Allow(ctx, nil, cl, "repo:read", scope)
+		allowed, err := Allow(ctx, src, cl, "repo:read", scope)
 		require.NoError(t, err)
 		require.Equal(t, name == "own", allowed, name)
 	}
@@ -247,7 +255,7 @@ func TestApplicationRegistrationCannotReplaceExplicitIssuerTrust(t *testing.T) {
 	_, src, applicationSigner := storedVerifier(t)
 	platformSigner, err := jwtkit.NewRSASigner(2048, applicationSigner.KID())
 	require.NoError(t, err)
-	v := NewVerifier().WithService(src)
+	v := NewVerifier().WithService(src).WithPermissionChecker(src, "https://local.example")
 	require.NoError(t, v.AddIssuer(src.app.Issuer, []string{"resource"}, IssuerOptions{RawKeys: map[string]crypto.PublicKey{platformSigner.KID(): platformSigner.PublicKey()}}))
 	require.Error(t, v.LoadRemoteApplications(ctx, src, []string{"resource"}), "application registrations cannot change an explicitly trusted platform key")
 	_, err = v.Verify(ctx, mintStatelessAccess(t, platformSigner, src.app.Issuer, "resource", "external-user"))

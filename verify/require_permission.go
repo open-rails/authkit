@@ -2,13 +2,18 @@ package verify
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/open-rails/authkit"
+	authprotocol "github.com/open-rails/helpers/auth"
 )
 
 // PermissionChecker checks live authority on an already resolved immutable group.
 // Hosts resolve a name once at their request boundary and reuse its GroupID.
+// Scoped machine checks additionally require GroupInstanceByID on the same
+// checker, so a retained inactive group cannot grant captured token authority.
 type PermissionChecker interface {
 	CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error)
 }
@@ -28,7 +33,23 @@ type PermissionScope struct {
 // A missing or mismatched machine binding never falls back to human authority.
 func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm, scope PermissionScope) (bool, error) {
 	if cl.BoundToPermissionGroup() {
-		return cl.HasPermission(perm) && cl.PermissionGroupAllows(scope), nil
+		if !cl.HasPermission(perm) || !cl.PermissionGroupAllows(scope) {
+			return false, nil
+		}
+		reader, ok := checker.(interface {
+			GroupInstanceByID(context.Context, string) (authkit.GroupInstance, error)
+		})
+		if !ok {
+			return false, fmt.Errorf("%w: scoped machine permissions require group liveness", authprotocol.ErrUnavailable)
+		}
+		group, err := reader.GroupInstanceByID(ctx, scope.GroupID)
+		if errors.Is(err, authkit.ErrGroupNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return group.ID == scope.GroupID && group.DeletedAt == nil, nil
 	}
 	if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) {
 		return true, nil

@@ -223,7 +223,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 	st := s.groupStoreFor(tx)
 	var persona authkit.Persona
 	var current string
-	if err := st.q.QueryRow(ctx, `SELECT persona,COALESCE(instance_slug,'') FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &current); err != nil {
+	if err := st.q.QueryRow(ctx, `SELECT persona,COALESCE(instance_slug,'') FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(&persona, &current); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return out, ErrGroupNotFound
 		}

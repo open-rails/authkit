@@ -118,41 +118,42 @@ func (st *PermissionGroupStore) CreateGroupNamed(ctx context.Context, g authkit.
 
 // SetGroupDisplayName updates a group's free-form display name.
 func (st *PermissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID, displayName string) error {
-	_, err := st.q.Exec(ctx,
-		`UPDATE permission_groups SET display_name = $2 WHERE id = $1::uuid`,
+	tag, err := st.q.Exec(ctx,
+		`UPDATE permission_groups SET display_name = $2 WHERE id = $1::uuid AND deleted_at IS NULL`,
 		groupID, displayName)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrGroupNotFound
+	}
 	return err
 }
 
-// DeleteGroup deletes the whole subtree in the caller's transaction. It reserves
-// every final canonical name unless explicitly released; prior aliases keep
-// their existing deadlines. Parent locks block new FK children while each next
-// level is read from a fresh statement snapshot and locked against renames.
-func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
+// lockGroupSubtree serializes lifecycle changes with new children and renames.
+// Each level is read after its parents are locked, using a fresh snapshot.
+func (st *PermissionGroupStore) lockGroupSubtree(ctx context.Context, groupID string) ([]string, error) {
 	var persona authkit.Persona
 	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrGroupNotFound
+		return nil, ErrGroupNotFound
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if persona == RootPersona {
-		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
+		return nil, fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}
 	ids, frontier := []string{groupID}, []string{groupID}
 	seen := map[string]bool{groupID: true}
 	for len(frontier) > 0 {
 		rows, err := st.q.Query(ctx, `SELECT id::text FROM permission_groups WHERE parent_id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, frontier)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var next []string
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
 				rows.Close()
-				return err
+				return nil, err
 			}
 			if !seen[id] {
 				seen[id] = true
@@ -163,9 +164,17 @@ func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 		err = rows.Err()
 		rows.Close()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		frontier = next
+	}
+	return ids, nil
+}
+
+func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
+	ids, err := st.lockGroupSubtree(ctx, groupID)
+	if err != nil {
+		return err
 	}
 	if !opts.ReleaseSlug {
 		if _, err := st.q.Exec(ctx, `UPDATE name_claims SET canonical=false,expires_at=NULL WHERE owner_kind='group' AND owner_id=ANY($1::uuid[]) AND canonical`, ids); err != nil {
@@ -189,7 +198,7 @@ func (st *PermissionGroupStore) renameGroupSlug(ctx context.Context, groupID, ne
 	var persona string
 	var old *string
 	var last *time.Time
-	err := st.q.QueryRow(ctx, `SELECT persona,instance_slug,last_renamed_at FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona, &old, &last)
+	err := st.q.QueryRow(ctx, `SELECT persona,instance_slug,last_renamed_at FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(&persona, &old, &last)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrGroupNotFound
 	}
@@ -216,7 +225,7 @@ func (st *PermissionGroupStore) renameGroupSlug(ctx context.Context, groupID, ne
 
 func (st *PermissionGroupStore) ResolveGroupSlug(ctx context.Context, g authkit.GroupRef) (authkit.NameResolution, error) {
 	var out authkit.NameResolution
-	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona, g.Instance, st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
+	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE g.deleted_at IS NULL AND c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona, g.Instance, st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrGroupNotFound
 	}
@@ -237,7 +246,7 @@ func (st *PermissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g a
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM permission_groups
-		 WHERE persona = $1 AND instance_slug = $2`,
+		 WHERE persona = $1 AND instance_slug = $2 AND deleted_at IS NULL`,
 		g.Persona, g.Instance).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrGroupNotFound
@@ -286,14 +295,15 @@ func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID str
 		return nil, nil, err
 	}
 	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH RECURSIVE chain AS (
- SELECT id,persona,parent_id FROM permission_groups WHERE id=$1::uuid
- UNION ALL SELECT p.id,p.persona,p.parent_id FROM permission_groups p JOIN chain c ON p.id=c.parent_id)
+ SELECT id,persona,parent_id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL
+ UNION ALL SELECT p.id,p.persona,p.parent_id FROM permission_groups p JOIN chain c ON p.id=c.parent_id WHERE p.deleted_at IS NULL)
  SELECT c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
  JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
  LEFT JOIN group_custom_roles r ON r.permission_group_id=c.id AND $3
- WHERE NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
- AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb)
- ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions, requirePresentUser)
+ WHERE (NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
+ AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb))
+ AND ($5 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
+ ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions, requirePresentUser, subject.Kind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -372,7 +382,7 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	if err != nil {
 		return err
 	}
-	tag, err := st.q.Exec(ctx, fmt.Sprintf(`WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid FOR UPDATE)
+	tag, err := st.q.Exec(ctx, fmt.Sprintf(`WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
  INSERT INTO %s (permission_group_id, %s, role)
  SELECT id, $2::uuid, $3 FROM locked
  ON CONFLICT (permission_group_id, %s)
@@ -430,7 +440,7 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // capability is set; the caller enforces that + validates each grant pattern
 // against the group's persona.
 func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authkit.CustomRoleDef) error {
-	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid FOR UPDATE)
+	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
  INSERT INTO group_custom_roles(permission_group_id,role,permissions,requires_mfa)
  SELECT id,$2,$3,$4 FROM locked
  ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,requires_mfa=EXCLUDED.requires_mfa,updated_at=now()`, groupID, def.Role, def.Permissions, def.RequiresMFA)
@@ -570,7 +580,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject authk
 		fmt.Sprintf(`SELECT g.id::text, g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
 		 FROM %s a
 		 JOIN permission_groups g ON g.id = a.permission_group_id
-		 WHERE a.%s = $1::uuid
+		 WHERE a.%s = $1::uuid AND g.deleted_at IS NULL
 		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subject.ID)
 	if err != nil {
 		return nil, err
@@ -594,9 +604,9 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject authk
 func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
 	var g GroupInstance
 	err := st.q.QueryRow(ctx,
-		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, '')
+		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, ''), deleted_at
 		   FROM permission_groups WHERE id = $1::uuid`,
-		groupID).Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName)
+		groupID).Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName, &g.DeletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return GroupInstance{}, ErrGroupNotFound
 	}
@@ -646,7 +656,7 @@ func (st *PermissionGroupStore) SearchGroupInstances(ctx context.Context, person
 		return nil, fmt.Errorf("group search limit must be between 1 and 200")
 	}
 	rows, err := st.q.Query(ctx, `SELECT id::text,persona,instance_slug,COALESCE(display_name,'')
- FROM permission_groups WHERE persona=$1 AND instance_slug IS NOT NULL
+ FROM permission_groups WHERE persona=$1 AND instance_slug IS NOT NULL AND deleted_at IS NULL
  AND strpos(instance_slug,$2)>0
  AND ($3='' OR (instance_slug,id)>($3,NULLIF($4,'')::uuid))
  ORDER BY instance_slug,id LIMIT $5`, persona, query, afterSlug, afterID, limit)

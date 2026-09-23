@@ -11,7 +11,7 @@ import (
 	"github.com/open-rails/helpers/auth"
 )
 
-// WithPermissionChecker configures live native-user permission checks on the
+// WithPermissionChecker configures live scoped permission checks on the
 // generic request principal. authorityIssuer identifies the checker's authority,
 // not a value taken from the incoming credential. authhttp wires its runtime
 // automatically; verify-only hosts may pass their embedded or remote Client.

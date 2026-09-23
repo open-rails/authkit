@@ -51,3 +51,31 @@ func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 	}
 	return tx.Commit(ctx)
 }
+
+// SoftDeleteGroupInstanceByID retains the entire subtree while making it
+// inactive. Group retirement and account deletion share the authority lock.
+func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (authkit.GroupInstance, error) {
+	var out authkit.GroupInstance
+	groupID = strings.TrimSpace(groupID)
+	err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+		ids, err := st.lockGroupSubtree(ctx, groupID)
+		if err != nil {
+			return err
+		}
+		surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, groupID)
+		if err != nil {
+			return err
+		}
+		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=COALESCE(deleted_at,$2),updated_at=CASE WHEN deleted_at IS NULL THEN $2 ELSE updated_at END WHERE id=ANY($1::uuid[])`, ids, st.now()); err != nil {
+			return err
+		}
+		for _, id := range surviving {
+			if err := s.requireRemainingOwner(ctx, st, id, authkit.Subject{}); err != nil {
+				return err
+			}
+		}
+		out, err = st.GroupInstanceByID(ctx, groupID)
+		return err
+	})
+	return out, err
+}
