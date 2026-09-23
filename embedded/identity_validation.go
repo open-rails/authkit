@@ -17,6 +17,7 @@ var validationCodes = map[authkit.Code]bool{
 	authkit.CodeUsernameCannotContainAt: true, authkit.CodeUsernameCannotStartWithPlus: true, authkit.CodeUsernameInvalidCharacters: true,
 	authkit.CodeOwnerSlugTaken: true, authkit.CodeUsernameNotAllowed: true, authkit.CodeRenameRateLimited: true,
 	authkit.CodeInvalidEmail: true, authkit.CodeInvalidPhoneNumber: true, authkit.CodePasswordTooShort: true, authkit.CodePasswordTooLong: true,
+	authkit.CodePasswordTooCommon: true, authkit.CodePasswordContainsIdentifier: true, authkit.CodePasswordRequirementsUnmet: true,
 	authkit.CodeInvalidPreferredLanguage: true,
 }
 
@@ -29,89 +30,10 @@ func ValidationErrorCode(err error) authkit.Code {
 	return ""
 }
 
-// Username length bounds shared by ValidateUsername and the automatic
-// derivation in cleanUsername, so derived usernames always pass validation.
-const (
-	usernameMinLen = 4
-	usernameMaxLen = 30
-)
-
-func ValidateUsername(username string) error {
-	username = strings.TrimSpace(username)
-	if len(username) < usernameMinLen {
-		return authkit.E(authkit.CodeUsernameTooShort)
-	}
-	if len(username) > usernameMaxLen {
-		return authkit.E(authkit.CodeUsernameTooLong)
-	}
-	first := username[0]
-	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
-		return authkit.E(authkit.CodeUsernameMustStartWithLetter)
-	}
-	if strings.Contains(username, "@") {
-		return authkit.E(authkit.CodeUsernameCannotContainAt)
-	}
-	if strings.HasPrefix(username, "+") {
-		return authkit.E(authkit.CodeUsernameCannotStartWithPlus)
-	}
-	for i := 0; i < len(username); i++ {
-		ch := username[i]
-		switch {
-		case ch >= 'a' && ch <= 'z':
-		case ch >= 'A' && ch <= 'Z':
-		case ch >= '0' && ch <= '9':
-		case ch == '_':
-		default:
-			return authkit.E(authkit.CodeUsernameInvalidCharacters)
-		}
-	}
-	return nil
-}
-
-// importUsernameMaxLen bounds operator-provisioned usernames. The import /
-// bootstrap path is for operator-provisioned identities and historically
-// accepted the slug shape (lowercase alnum + internal hyphens), unlike the
-// stricter interactive-registration ValidateUsername. There is no DB-level
-// length cap (username is citext), so this is the only bound.
-const importUsernameMaxLen = 64
-
-// validateImportUsername validates an OPERATOR-provisioned username (ImportUser /
-// bootstrap manifest). It is deliberately more permissive than ValidateUsername:
-// it also accepts hyphens (the historical slug shape) and a larger length cap,
-// because these names are minted by an operator, not chosen interactively. It
-// still requires a letter prefix and rejects '@' / leading '+' (login-identifier
-// ambiguity).
-func validateImportUsername(username string) error {
-	username = strings.TrimSpace(username)
-	if len(username) < usernameMinLen {
-		return authkit.E(authkit.CodeUsernameTooShort)
-	}
-	if len(username) > importUsernameMaxLen {
-		return authkit.E(authkit.CodeUsernameTooLong)
-	}
-	first := username[0]
-	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
-		return authkit.E(authkit.CodeUsernameMustStartWithLetter)
-	}
-	if strings.Contains(username, "@") {
-		return authkit.E(authkit.CodeUsernameCannotContainAt)
-	}
-	if strings.HasPrefix(username, "+") {
-		return authkit.E(authkit.CodeUsernameCannotStartWithPlus)
-	}
-	for i := 0; i < len(username); i++ {
-		ch := username[i]
-		switch {
-		case ch >= 'a' && ch <= 'z':
-		case ch >= 'A' && ch <= 'Z':
-		case ch >= '0' && ch <= '9':
-		case ch == '_':
-		case ch == '-':
-		default:
-			return authkit.E(authkit.CodeUsernameInvalidCharacters)
-		}
-	}
-	return nil
+// ValidateUsername applies the configured username policy and fixed
+// authkit.UsernamePattern.
+func (s *engine) ValidateUsername(username string) error {
+	return s.cfg.Username.Validate(username)
 }
 
 func NormalizeEmail(email string) string {
@@ -154,21 +76,56 @@ func ValidatePhone(phone string) error {
 	return nil
 }
 
-// ValidatePassword applies the configured password policy. Failures carry
-// min_length and max_length metadata.
-func (s *engine) ValidatePassword(value string) error {
-	return validatePassword(s.cfg.Password, value)
+// ValidatePassword applies the configured password policy. identifiers are
+// the account's username and email address when known. Length failures carry
+// min_length/max_length; requirement failures carry the missing classes.
+func (s *engine) ValidatePassword(value string, identifiers ...string) error {
+	return validatePassword(s.cfg.Password, value, identifiers...)
 }
 
-func validatePassword(p password.Policy, value string) error {
-	code := authkit.CodePasswordTooShort
-	switch err := p.Validate(value); err {
-	case nil:
+func validatePassword(p password.Policy, value string, identifiers ...string) error {
+	ids := make([]string, 0, len(identifiers))
+	for _, id := range identifiers {
+		if local := password.EmailLocalPart(id); local != "" {
+			id = local
+		}
+		ids = append(ids, id)
+	}
+	err := p.Validate(value, ids...)
+	var unmet *password.RequirementsError
+	switch {
+	case err == nil:
 		return nil
-	case password.ErrTooLong:
+	case errors.As(err, &unmet):
+		return authkit.E(authkit.CodePasswordRequirementsUnmet, authkit.WithMeta("missing", unmet.Missing))
+	case errors.Is(err, password.ErrTooCommon):
+		return authkit.E(authkit.CodePasswordTooCommon)
+	case errors.Is(err, password.ErrContainsIdentifier):
+		return authkit.E(authkit.CodePasswordContainsIdentifier)
+	}
+	code := authkit.CodePasswordTooShort
+	if errors.Is(err, password.ErrTooLong) {
 		code = authkit.CodePasswordTooLong
 	}
 	return authkit.E(code, authkit.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
+}
+
+// passwordIdentifiers loads the account identifiers a new password may not contain.
+func (s *engine) passwordIdentifiers(ctx context.Context, userID string) ([]string, error) {
+	u, err := s.getUserByID(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) || u == nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, v := range []*string{u.Username, u.Email} {
+		if v != nil {
+			ids = append(ids, *v)
+		}
+	}
+	return ids, nil
 }
 
 // validateUsernameForUser validates a desired username and confirms no OTHER
@@ -177,11 +134,11 @@ func validatePassword(p password.Policy, value string) error {
 // the signature for dependent adapters but is always empty under the
 // permission-group model.
 func (s *engine) validateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeGroupID string, err error) {
-	if err := ValidateUsername(username); err != nil {
+	if err := s.ValidateUsername(username); err != nil {
 		return "", "", err
 	}
 	slug = strings.ToLower(strings.TrimSpace(username))
-	if s == nil || s.pg == nil {
+	if s.pg == nil {
 		return slug, "", nil
 	}
 	existing, err := s.getUserByUsername(ctx, username)

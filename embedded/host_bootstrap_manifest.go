@@ -87,7 +87,7 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 	}
 	for _, user := range manifest.Users {
 		if user.Password != nil && strings.TrimSpace(user.Password.Plaintext) != "" {
-			if err = s.ValidatePassword(strings.TrimSpace(user.Password.Plaintext)); err != nil {
+			if err = s.ValidatePassword(strings.TrimSpace(user.Password.Plaintext), user.Username, user.Email); err != nil {
 				return result, err
 			}
 		}
@@ -101,7 +101,7 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		return nil
 	}
 	for _, user := range manifest.Users {
-		if _, _, _, _, _, _, _, err = normalizeImportUserInput(bootstrapImportUserInput(user)); err != nil {
+		if _, _, _, _, _, _, _, err = s.normalizeImportUserInput(bootstrapImportUserInput(user)); err != nil {
 			return result, err
 		}
 		if err = checkRole(user.RootRole); err != nil {

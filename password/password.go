@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -44,51 +43,6 @@ func VerifyArgon2id(encoded, password string) (bool, error) {
 	}
 	dk := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(sum)))
 	return subtle.ConstantTimeCompare(dk, sum) == 1, nil
-}
-
-// Default password length bounds, in characters (Unicode code points).
-const (
-	DefaultMinLength = 8
-	DefaultMaxLength = 128
-	// MaxLengthCeiling bounds MaxLength so request bodies and KDF input stay small.
-	MaxLengthCeiling = 1024
-)
-
-var (
-	ErrTooShort = errors.New("password_too_short")
-	ErrTooLong  = errors.New("password_too_long")
-)
-
-// Policy is the operator-configured password rule. Zero fields take defaults.
-type Policy struct {
-	MinLength int
-	MaxLength int
-}
-
-// Normalize fills defaults and rejects an inconsistent policy.
-func (p Policy) Normalize() (Policy, error) {
-	if p.MinLength == 0 {
-		p.MinLength = DefaultMinLength
-	}
-	if p.MaxLength == 0 {
-		p.MaxLength = max(DefaultMaxLength, p.MinLength)
-	}
-	if p.MinLength < 1 || p.MaxLength < p.MinLength || p.MaxLength > MaxLengthCeiling {
-		return Policy{}, fmt.Errorf("authkit: invalid password policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", p.MinLength, p.MaxLength, MaxLengthCeiling)
-	}
-	return p, nil
-}
-
-// Validate checks pw's length in characters against a normalized policy.
-func (p Policy) Validate(pw string) error {
-	n := utf8.RuneCountInString(pw)
-	if n < p.MinLength {
-		return ErrTooShort
-	}
-	if n > p.MaxLength {
-		return ErrTooLong
-	}
-	return nil
 }
 
 func phcEncode(p Params, salt, sum []byte) string {

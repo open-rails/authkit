@@ -687,19 +687,3 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userSoftDelete, id)
 	return err
 }
-
-const userUsernameExists = `-- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1::text) AND (canonical OR expires_at IS NULL OR expires_at>$2::timestamptz))
-`
-
-type UserUsernameExistsParams struct {
-	Username string
-	AtTime   time.Time
-}
-
-func (q *Queries) UserUsernameExists(ctx context.Context, arg UserUsernameExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, userUsernameExists, arg.Username, arg.AtTime)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}

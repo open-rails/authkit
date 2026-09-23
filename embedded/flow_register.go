@@ -72,7 +72,7 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	if identifier == "" || username == "" {
 		return RegisterOutcome{}, authkit.ErrInvalidIdentifier
 	}
-	if err := s.ValidatePassword(in.Password); err != nil {
+	if err := s.ValidatePassword(in.Password, username, identifier); err != nil {
 		return RegisterOutcome{}, err
 	}
 	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {

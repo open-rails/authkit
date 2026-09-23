@@ -333,7 +333,7 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 
 func (s *engine) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
 	username := rec.GeneratedUsername
-	if username == "" || ValidateUsername(username) != nil {
+	if username == "" || s.ValidateUsername(username) != nil {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
 	in := ImportUserInput{Username: username}

@@ -129,7 +129,8 @@ type HTTPBackend interface {
 	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error)
 	UserNamingState(ctx context.Context, id string) (authkit.NamingState, error)
 	UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error)
-	ValidatePassword(value string) error
+	ValidatePassword(value string, identifiers ...string) error
+	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)
 	ValidateVerificationConfiguration() error
 	Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error)

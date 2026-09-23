@@ -89,6 +89,13 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if strings.TrimSpace(req.Username) != "" {
+		if err := s.svc.ValidateUsername(req.Username); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+
 	// #143: the SIWS domain is derived from config (frontend BaseURL host, else
 	// issuer host), with request-based fallback. There is no WithSolanaDomain option.
 	cfg := s.svc.Config()

@@ -86,7 +86,7 @@ func (s *engine) ImportUsers(ctx context.Context, inputs []ImportUserInput) (Imp
 				continue
 			}
 		}
-		email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(in)
+		email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(in)
 		if err != nil {
 			res.Results[i] = ImportUserResult{Index: i, Status: ImportStatusRejected, Reason: importRejectReason(err)}
 			res.Rejected++

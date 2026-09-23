@@ -133,9 +133,6 @@ UPDATE users SET email = lower(sqlc.arg(email)::text), email_verified = true, up
 -- name: UserApplyPhoneChange :exec
 UPDATE users SET phone_number = $2, phone_verified = true, updated_at = NOW() WHERE id = $1;
 
--- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));
-
 -- name: UserCredentialVersion :one
 SELECT credential_version, email, phone_number
 FROM users WHERE id = $1;

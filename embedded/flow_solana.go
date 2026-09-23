@@ -156,12 +156,13 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 		if !s.PublicNativeUserRegistrationEnabled() {
 			return LoginOutcome{}, ErrRegistrationDisabled
 		}
-		username := challengeData.Username
-		if username == "" {
-			username = s.deriveSolanaUsername(output.Account.Address)
+		username := strings.TrimSpace(challengeData.Username)
+		if username == "" || s.ValidateUsername(username) != nil || !s.usernameAvailable(ctx, username) {
+			if username == "" {
+				username = "u_" + output.Account.Address[:min(4, len(output.Account.Address))]
+			}
+			username = s.GenerateAvailableUsername(ctx, username)
 		}
-		// Ensure username is unique
-		username = s.ensureUniqueUsername(ctx, username)
 
 		// Create user with no email/phone
 		u, err := s.createUser(ctx, "", username)
@@ -387,35 +388,4 @@ func validateSolanaPublicKey(account siws.AccountInfo) error {
 		return fmt.Errorf("public key does not match address")
 	}
 	return nil
-}
-
-// deriveSolanaUsername creates a username from a Solana address.
-// Format: u_XXXX (first 4 chars of address)
-func (s *engine) deriveSolanaUsername(address string) string {
-	if len(address) < 4 {
-		return "u_" + address
-	}
-	return "u_" + strings.ToLower(address[:4])
-}
-
-// ensureUniqueUsername appends a random suffix if username is taken.
-func (s *engine) ensureUniqueUsername(ctx context.Context, username string) string {
-	original := username
-	for i := 0; i < 10; i++ {
-		exists, err := s.usernameExists(ctx, username)
-		if err != nil || !exists {
-			return username
-		}
-		// Append random suffix
-		username = original + "_" + randAlphanumeric(4)
-	}
-	// Last resort - use full random
-	return "u_" + randAlphanumeric(8)
-}
-
-func (s *engine) usernameExists(ctx context.Context, username string) (bool, error) {
-	if s.pg == nil {
-		return false, nil
-	}
-	return s.q.UserUsernameExists(ctx, db.UserUsernameExistsParams{Username: username, AtTime: s.namingNow()})
 }

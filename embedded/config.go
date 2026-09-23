@@ -36,6 +36,10 @@ type Config struct {
 	// Password is the length policy every password write enforces; zero fields
 	// default to 8..128 characters. Published by GET {api}/capabilities.
 	Password password.Policy
+	// Username bounds username length; zero fields default to 4..30. The
+	// character rule is fixed (authkit.UsernamePattern). Published by
+	// GET {api}/capabilities.
+	Username authkit.UsernamePolicy
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
 	// Ephemeral governs the short-lived state backend (2FA codes, pending
