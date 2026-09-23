@@ -1,10 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directories:
-      - "/"
-      - "/adapters/fiber"
-      - "/adapters/gin"
+    directory: "/"
     schedule:
       interval: weekly
     groups:

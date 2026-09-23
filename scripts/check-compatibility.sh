@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compare against an explicit release/candidate, including modules outside go.work.
+# Compare the single module against an explicit release/candidate.
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -86,39 +86,25 @@ PY
 
 tool=golang.org/x/exp/cmd/apidiff@v0.0.0-20260908205506-85c1c2202aba
 export GOWORK=off GOFLAGS=-mod=readonly
-for directory in . adapters/gin adapters/fiber; do
-  name=${directory//\//_}
-  module=$(cd "$root/$directory" && go list -m)
-  # GOWORK=off alone does not disable module-local replacements.
-  (cd "$root/$directory" && go mod edit -json) | python3 -c '
+module=$(go list -m)
+# GOWORK=off alone does not disable module-local replacements.
+go mod edit -json | python3 -c '
 import json, sys
 for replacement in json.load(sys.stdin).get("Replace", []) or []:
     raise SystemExit("module replacement defeats release validation: " + replacement["Old"]["Path"])
 '
-  if [[ -f "$report/base/$directory/go.mod" ]]; then
-    # A historical module may need its indirect graph normalized by the current
-    # Go toolchain. This writes only the extracted report copy, never a checkout.
-    (cd "$report/base/$directory" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/$name.export" "$module")
-    (cd "$root/$directory" && go run "$tool" -m -incompatible "$report/$name.export" "$module") > "$report/$name.diff"
-    # v0.x is still the pre-v1 candidate line: exported API hard cuts are
-    # intentional while the owner finalizes the contract. Keep the report for
-    # review, but only enforce apidiff once the baseline is v1 or newer.
-    if [[ -s "$report/$name.diff" && "$baseline" != v0.* ]]; then
-      cat "$report/$name.diff"
-      exit 1
-    fi
-    if [[ -s "$report/$name.diff" ]]; then
-      printf 'Pre-v1 API hard cut permitted for %s; advisory diff retained at %s\n' "$module" "$report/$name.diff"
-    fi
-  else
-    printf 'New module absent from compatibility baseline: %s\n' "$module"
-  fi
-  # Workspace workflows already run every adapter. Native HTTP routing bridges
-  # must also execute against their published core dependency.
-  if [[ "$directory" == adapters/fiber || "$directory" == adapters/gin ]]; then
-    (cd "$root/$directory" && go test -race -count=1 ./... && go vet ./...)
-  else
-    (cd "$root/$directory" && go test -run '^$' ./...)
-  fi
-  printf 'Go compatibility: %s\n' "$module"
-done
+# A historical module may need its indirect graph normalized by the current
+# Go toolchain. This writes only the extracted report copy, never a checkout.
+(cd "$report/base" && GOFLAGS=-mod=mod go run "$tool" -m -w "$report/root.export" "$module")
+go run "$tool" -m -incompatible "$report/root.export" "$module" > "$report/root.diff"
+# v0.x is the pre-v1 candidate line; retain intentional API hard cuts for review.
+if [[ -s "$report/root.diff" && "$baseline" != v0.* ]]; then
+  cat "$report/root.diff"
+  exit 1
+fi
+if [[ -s "$report/root.diff" ]]; then
+  printf 'Pre-v1 API hard cut permitted for %s; advisory diff retained at %s\n' "$module" "$report/root.diff"
+fi
+# Root workflow tests and vet cover every adapter once, in the same graph.
+go test -run '^$' ./...
+printf 'Go compatibility: %s\n' "$module"

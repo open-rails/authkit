@@ -20,13 +20,14 @@ else
 fi
 export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
 export GOMAXPROCS=${GOMAXPROCS:-2}
+export GOWORK=off
 go run ./cmd/authkit-migrate \
 	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
   export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}
-  go test -race -count=1 -p 1 -tags browser -json github.com/open-rails/authkit/... \
+  go test -race -count=1 -p 1 -tags browser -json ./... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 - <<'PY'
 import json
@@ -65,7 +66,7 @@ PY
 fi
 
 if [[ "$mode" != workflows ]]; then
-  go vet github.com/open-rails/authkit/...
+  go vet ./...
   go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
   go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet
   git diff --exit-code -- internal/db
