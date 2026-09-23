@@ -100,6 +100,9 @@ func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) 
 		return f.post("/register", map[string]any{"identifier": email, "username": username, "password": pass})
 	}
 	require.Nil(t, policyError(t, register("common@example.test", "commonuser", "QwertyUIOP"), "password_too_common", "password"))
+	for _, common := range []string{"password123", "Password1!", "qwerty12345", "iloveyou123"} {
+		policyError(t, register("common@example.test", "commonuser", common), "password_too_common", "password")
+	}
 	policyError(t, register("common@example.test", "commonuser", "my-commonuser-pass"), "password_contains_identifier", "password")
 	policyError(t, register("mailbox.owner@example.test", "someoneelse", "xx-MAILBOX.OWNER-xx"), "password_contains_identifier", "password")
 	tokens := f.expect(http.StatusAccepted, register("common@example.test", "commonuser", "violet-harbor-lantern")).Tokens

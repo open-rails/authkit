@@ -88,3 +88,32 @@ func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
 		t.Fatalf("a space is a symbol: %v", err)
 	}
 }
+
+func TestBlocklistCoversCommonLongPasswords(t *testing.T) {
+	p, _ := Policy{}.Normalize()
+	for _, pw := range []string{"password123", "Password1!", "qwerty12345", "iloveyou123", "PASSWORD", "qwertyuiop"} {
+		if err := p.Validate(pw); err != ErrTooCommon {
+			t.Errorf("Validate(%q) = %v, want ErrTooCommon", pw, err)
+		}
+	}
+	for _, pw := range []string{"violet-harbor-lantern", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "\U0010ffff"} {
+		if IsCommon(pw) {
+			t.Errorf("IsCommon(%q) = true", pw)
+		}
+	}
+	if !IsCommon("123456") {
+		t.Error("short 10k entries stay listed for hosts with a lower minimum")
+	}
+}
+
+func TestIsCommonFindsEveryListedEntry(t *testing.T) {
+	list := strings.Split(strings.TrimSuffix(commonList(), "\n"), "\n")
+	if len(list) < 500000 {
+		t.Fatalf("blocklist has %d entries", len(list))
+	}
+	for _, pw := range list {
+		if !IsCommon(pw) {
+			t.Fatalf("IsCommon(%q) = false", pw)
+		}
+	}
+}

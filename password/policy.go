@@ -1,10 +1,14 @@
 package password
 
 import (
+	"bytes"
+	"compress/gzip"
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -58,18 +62,44 @@ type Policy struct {
 	AllowCommon bool
 }
 
-//go:embed common_passwords.txt
-var commonList string
+//go:generate go run ./internal/commongen
 
-var common = func() map[string]struct{} {
-	m := make(map[string]struct{}, 10240)
-	for _, line := range strings.Split(commonList, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			m[line] = struct{}{}
+//go:embed common_passwords.txt.gz
+var commonGz []byte
+
+// commonList is the sorted, newline-terminated lowercase blocklist,
+// decompressed on first use.
+var commonList = sync.OnceValue(func() string {
+	zr, err := gzip.NewReader(bytes.NewReader(commonGz))
+	if err != nil {
+		panic(err)
+	}
+	b, err := io.ReadAll(zr)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+})
+
+// IsCommon reports whether pw (case-insensitive) is on the embedded blocklist.
+func IsCommon(pw string) bool {
+	list, want := commonList(), strings.ToLower(pw)
+	lo, hi := 0, len(list)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		start := strings.LastIndexByte(list[:mid], '\n') + 1
+		end := start + strings.IndexByte(list[start:], '\n')
+		switch line := list[start:end]; {
+		case line == want:
+			return true
+		case line < want:
+			lo = end + 1
+		default:
+			hi = start
 		}
 	}
-	return m
-}()
+	return false
+}
 
 // Normalize fills defaults and rejects an inconsistent policy.
 func (p Policy) Normalize() (Policy, error) {
@@ -107,7 +137,7 @@ func (p Policy) Validate(pw string, identifiers ...string) error {
 		}
 	}
 	if !p.AllowCommon {
-		if _, ok := common[lower]; ok {
+		if IsCommon(lower) {
 			return ErrTooCommon
 		}
 	}
