@@ -13,7 +13,7 @@ import {
   FieldTitle,
 } from "#authui/ui/field"
 import { RadioGroup, RadioGroupItem } from "#authui/ui/radio-group"
-import { useCodeBudget, useCooldown } from "./cooldown.ts"
+import { useSpentCode, useCooldown } from "./cooldown.ts"
 import { normalizeIdentifier } from "./identifier.ts"
 import { methodHint, methodLabel, type LoginController } from "./labels.ts"
 import {
@@ -52,11 +52,11 @@ export function TwoFactorEnrollment({
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
   const cooldown = useCooldown(30)
-  const budget = useCodeBudget(error)
+  const spentCode = useSpentCode(error)
   if (state.step !== "enrollment") return null
 
   const started = !!state.totp || !!state.codeSent
-  const spent = !!state.codeSent && budget.spent
+  const spent = !!state.codeSent && spentCode.spent
   const confirm = (value = code) => {
     if (!value.trim() || busy) return
     setCode("")
@@ -72,7 +72,7 @@ export function TwoFactorEnrollment({
           : undefined,
     })
     if (choice !== "totp") {
-      budget.renew()
+      spentCode.renew()
       cooldown.start()
     }
   }

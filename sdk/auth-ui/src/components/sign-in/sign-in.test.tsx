@@ -113,7 +113,7 @@ describe("LoginForm", () => {
       "POST /api/v1/password/login": [emailChallenge()],
       "POST /api/v1/2fa/verify": () =>
         ++misses <= 5
-          ? authError(401, "invalid_code")
+          ? authError(401, misses < 5 ? "invalid_code" : "2fa_code_expired")
           : session({ sub: "u1", sid: "s1" }),
       "POST /api/v1/2fa/challenge": () => emailChallenge("ch-2"),
     })

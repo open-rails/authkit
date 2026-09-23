@@ -1,6 +1,10 @@
 {
-  "authkit_version": "v0.131.0",
+  "authkit_version": "v0.132.0",
   "error_codes": [
+    {
+      "code": "2fa_code_expired",
+      "status": 400
+    },
     {
       "code": "2fa_enrollment_required",
       "status": 403

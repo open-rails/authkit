@@ -2,7 +2,7 @@
 
 Shared browser client, React hooks and UI for [AuthKit](https://github.com/open-rails/authkit).
 
-Pre-release; requires AuthKit v0.131.0 or newer. Layers:
+Pre-release; requires AuthKit v0.132.0 or newer. Layers:
 
 | Import                      | Contents                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
@@ -51,8 +51,9 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   (`code_sent`); resend the same call with `code` to confirm. Confirming
   re-issues the session token, so the session stays signed in and
   2FA-verified (`enabled` carries `freshAuth`).
-- A wrong email/SMS code can be retried; AuthKit invalidates it on the 5th
-  miss or after 10 minutes, and a resend issues a fresh code.
+- A wrong email/SMS 2FA code is `invalid_code` and can be retried. Once no
+  code is live (the 5th miss, expiry, already used) AuthKit answers
+  `2fa_code_expired`; resend to get a fresh code.
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword` / `stepUpWithTwoFactor` /
   `startOidcStepUp`.

@@ -445,7 +445,7 @@ export const ko: AuthUiMessageBundle = {
     codeSentTo: "{destination}(으)로 코드를 보냈습니다.",
     codeResent: "새 코드를 보냈습니다.",
     codeBurned:
-      "코드가 올바르지 않으며 다시 사용할 수 없습니다. 새 코드를 받아 다시 시도하세요.",
+      "코드가 만료되었거나 다시 사용할 수 없습니다. 새 코드를 받아 계속하세요.",
     sendNewCode: "새 코드 보내기",
     useFactor: "대신 {method} 사용",
   },
@@ -495,6 +495,8 @@ export const ko: AuthUiMessageBundle = {
     session_changed: "다른 탭에서 세션이 변경되었습니다. 다시 시도하세요.",
     generic: "문제가 발생했습니다. 다시 시도해주세요.",
     network: "네트워크 오류. 연결을 확인하세요.",
+    "2fa_code_expired":
+      "코드가 만료되었거나 다시 사용할 수 없습니다. 새 코드를 받으세요.",
     "2fa_enrollment_required":
       "로그인을 완료하려면 2단계 인증을 설정해야 합니다.",
     "2fa_factor_exists":

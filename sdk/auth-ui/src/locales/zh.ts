@@ -417,7 +417,7 @@ export const zh: AuthUiMessageBundle = {
   challenge: {
     codeSentTo: "我们已向 {destination} 发送了验证码。",
     codeResent: "新的验证码已发送。",
-    codeBurned: "该验证码无效且不能再次使用。请发送新的验证码后重试。",
+    codeBurned: "该验证码已过期或不能再次使用。请发送新的验证码后继续。",
     sendNewCode: "发送新验证码",
     useFactor: "改用{method}",
   },
@@ -464,6 +464,7 @@ export const zh: AuthUiMessageBundle = {
     session_changed: "您的会话已在其他标签页中更改，请重试。",
     generic: "出了点问题，请重试。",
     network: "网络错误。请检查您的连接。",
+    "2fa_code_expired": "该验证码已过期或不能再次使用。请发送新的验证码。",
     "2fa_enrollment_required": "需要设置双重验证才能完成登录。",
     "2fa_factor_exists": "已启用一种双重验证方式，请先移除后再添加其他方式。",
     "2fa_method_unavailable": "该双重验证方式不可用。",

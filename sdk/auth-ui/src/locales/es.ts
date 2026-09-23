@@ -470,7 +470,7 @@ export const es: AuthUiMessageBundle = {
     codeSentTo: "Enviamos un código a {destination}.",
     codeResent: "Hay un código nuevo en camino.",
     codeBurned:
-      "Ese código no funcionó y no se puede volver a usar. Envía un código nuevo para intentarlo de nuevo.",
+      "Ese código caducó o no se puede volver a usar. Envía un código nuevo para continuar.",
     sendNewCode: "Enviar un código nuevo",
     useFactor: "Usar {method} en su lugar",
   },
@@ -522,6 +522,8 @@ export const es: AuthUiMessageBundle = {
     session_changed: "Tu sesión cambió en otra pestaña. Inténtalo de nuevo.",
     generic: "Algo salió mal. Inténtalo de nuevo.",
     network: "Error de red. Por favor verifica tu conexión.",
+    "2fa_code_expired":
+      "Ese código caducó o no se puede volver a usar. Envía un código nuevo.",
     "2fa_enrollment_required":
       "Debes configurar la autenticación de dos factores para terminar de iniciar sesión.",
     "2fa_factor_exists":

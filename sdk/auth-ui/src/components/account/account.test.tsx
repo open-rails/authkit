@@ -160,7 +160,7 @@ describe("PasswordPanel", () => {
 })
 
 describe("StepUpDialog", () => {
-  it("sends an email code; a wrong code can be retried without a resend", async () => {
+  it("sends an email code; a wrong code is retryable, an expired one prompts a resend", async () => {
     const sent: unknown[] = []
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
       "GET /api/v1/user/2fa": () =>
@@ -191,7 +191,9 @@ describe("StepUpDialog", () => {
             method: "email",
             verification_id: "a***@x.test",
           })
-        return body.code === "111111" ? authError(401, "invalid_code") : fresh()
+        if (body.code === "111111") return authError(401, "invalid_code")
+        if (body.code === "333333") return authError(401, "2fa_code_expired")
+        return fresh()
       },
     })
     expect(await screen.findByText("8 unused codes left")).toBeInTheDocument()
@@ -216,7 +218,17 @@ describe("StepUpDialog", () => {
     expect(
       within(stepUp).queryByRole("button", { name: "Send a new code" })
     ).toBeNull()
-    await user.type(within(stepUp).getByRole("textbox"), "222222")
+    await user.type(within(stepUp).getByRole("textbox"), "333333")
+    expect(
+      await within(stepUp).findByText(
+        "That code can't be used again. Send a new code to continue."
+      )
+    ).toBeInTheDocument()
+    expect(within(stepUp).queryByRole("textbox")).toBeNull()
+    await user.click(
+      within(stepUp).getByRole("button", { name: "Send a new code" })
+    )
+    await user.type(await within(stepUp).findByRole("textbox"), "222222")
 
     const codes = await screen.findByRole("list", { name: "Backup codes" })
     expect(
@@ -227,6 +239,8 @@ describe("StepUpDialog", () => {
     expect(sent).toEqual([
       { method: "email" },
       { code: "111111", method: "email" },
+      { code: "333333", method: "email" },
+      { method: "email" },
       { code: "222222", method: "email" },
     ])
   })
@@ -284,7 +298,7 @@ describe("TwoFactorPanel", () => {
 })
 
 describe("ContactPanel", () => {
-  it("changes email with a code; a wrong code is retryable, a spent one prompts a resend", async () => {
+  it("changes email with a code; a wrong code stays retryable", async () => {
     const requested: unknown[] = []
     let confirms = 0
     const { user } = await renderSignedIn(
@@ -295,7 +309,7 @@ describe("ContactPanel", () => {
           return noContent()
         },
         "POST /api/v1/verify/confirm": () =>
-          ++confirms <= 5
+          ++confirms <= 2
             ? authError(400, "invalid_or_expired_code")
             : noContent(),
       }
@@ -310,41 +324,29 @@ describe("ContactPanel", () => {
     await user.type(screen.getByLabelText("New email address"), "b@x.test")
     await user.click(screen.getByRole("button", { name: "Send code" }))
 
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 2; i++) {
       const box = await screen.findByRole("textbox", {
         name: "Verification code",
       })
       await waitFor(() => expect(box).toBeEnabled())
       await user.type(box, "999999")
       await waitFor(() => expect(confirms).toBe(i))
-      if (i < 5) {
-        expect(
-          await screen.findByText(
-            "The verification code is invalid or has expired."
-          )
-        ).toBeInTheDocument()
-        expect(
-          screen.queryByRole("button", { name: "Send a new code" })
-        ).toBeNull()
-      }
+      expect(
+        await screen.findByText(
+          "The verification code is invalid or has expired."
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Send a new code" })
+      ).toBeNull()
     }
-    expect(
-      await screen.findByText(
-        "That code can't be used again. Send a new code to continue."
-      )
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Send a new code" }))
-    await user.type(
-      await screen.findByRole("textbox", { name: "Verification code" }),
-      "123456"
-    )
+    const box = screen.getByRole("textbox", { name: "Verification code" })
+    await waitFor(() => expect(box).toBeEnabled())
+    await user.type(box, "123456")
     expect(
       await screen.findByText("Email changed successfully!")
     ).toBeInTheDocument()
-    expect(requested).toEqual([
-      { identifier: "b@x.test" },
-      { identifier: "b@x.test" },
-    ])
+    expect(requested).toEqual([{ identifier: "b@x.test" }])
   })
 })
 

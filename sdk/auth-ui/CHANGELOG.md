@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+Requires AuthKit v0.132.0 or newer.
+
+- "Send a new code" becomes the primary action on AuthKit's
+  `2fa_code_expired` (5th miss, expired or used code) for login, step-up and
+  enrollment codes. The client-side miss counter and 10-minute timer are gone.
+- Contact-change codes get no spent signal from AuthKit, so they stay
+  retryable with resend as a secondary action.
+- `errors.2fa_code_expired` in all locales.
+
 ## 0.3.0
 
 Requires AuthKit v0.131.0 or newer.

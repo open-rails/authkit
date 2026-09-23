@@ -218,6 +218,34 @@ test("email 2FA: enroll with a setup code, then a wrong login code retries", asy
   await expect(dialog(page)).toBeHidden()
   await expect(page.getByTestId("status")).toHaveText("authenticated")
   expect((await outbox(request, email)).length).toBe(before + 1)
+  await signOut(page)
+
+  // The 5th miss burns the code: AuthKit's 2fa_code_expired makes a new code primary.
+  const burnBefore = (await outbox(request, email)).length
+  await signIn(page, email)
+  const burned = await nextCode(request, email, burnBefore)
+  const miss = burned === "000000" ? "111111" : "000000"
+  const submitMiss = async () => {
+    await expect(codeInput(page)).toBeEnabled()
+    const res = page.waitForResponse((r) => r.url().endsWith("/2fa/verify"))
+    await codeInput(page).fill(miss)
+    return (await (await res).json()).error.code
+  }
+  for (let i = 1; i <= 4; i++) {
+    expect(await submitMiss()).toBe("invalid_code")
+    await expect(dialog(page).getByRole("alert")).toContainText(
+      "Invalid verification code."
+    )
+  }
+  expect(await submitMiss()).toBe("2fa_code_expired")
+  await expect(dialog(page).getByRole("alert")).toContainText(
+    "can't be used again"
+  )
+  await dialog(page).getByRole("button", { name: "Send a new code" }).click()
+  const fresh = await nextCode(request, email, burnBefore + 1)
+  await codeInput(page).fill(fresh)
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
 })
 
 test("forgot password, reset from the link, sign in with it", async ({

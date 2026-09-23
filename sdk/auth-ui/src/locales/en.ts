@@ -454,7 +454,7 @@ export const en = {
     codeSentTo: "We sent a code to {destination}.",
     codeResent: "A new code is on its way.",
     codeBurned:
-      "That code didn't work, and it can't be used again. Send a new code to try again.",
+      "That code has expired or can't be used again. Send a new code to continue.",
     sendNewCode: "Send a new code",
     useFactor: "Use {method} instead",
   },
@@ -504,6 +504,8 @@ export const en = {
     popup_closed: "The sign-in window was closed.",
     popup_timeout: "The sign-in window timed out. Try again.",
     session_changed: "Your session changed in another tab. Please try again.",
+    "2fa_code_expired":
+      "This code has expired or can't be used again. Send a new code.",
     "2fa_enrollment_required":
       "Two-factor authentication setup is required to finish signing in.",
     "2fa_factor_exists":

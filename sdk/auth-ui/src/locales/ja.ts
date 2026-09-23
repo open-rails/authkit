@@ -451,7 +451,7 @@ export const ja: AuthUiMessageBundle = {
     codeSentTo: "{destination} にコードを送信しました。",
     codeResent: "新しいコードを送信しました。",
     codeBurned:
-      "このコードは正しくなく、再利用できません。新しいコードを送信してもう一度お試しください。",
+      "このコードは期限切れか、再利用できません。新しいコードを送信して続行してください。",
     sendNewCode: "新しいコードを送信",
     useFactor: "代わりに{method}を使用",
   },
@@ -503,6 +503,8 @@ export const ja: AuthUiMessageBundle = {
       "別のタブでセッションが変更されました。もう一度お試しください。",
     generic: "問題が発生しました。もう一度お試しください。",
     network: "ネットワークエラーです。接続をご確認ください。",
+    "2fa_code_expired":
+      "このコードは期限切れか、再利用できません。新しいコードを送信してください。",
     "2fa_enrollment_required":
       "ログインを完了するには二要素認証の設定が必要です。",
     "2fa_factor_exists":

@@ -473,7 +473,7 @@ export const de: AuthUiMessageBundle = {
     codeSentTo: "Wir haben einen Code an {destination} gesendet.",
     codeResent: "Ein neuer Code ist unterwegs.",
     codeBurned:
-      "Dieser Code war falsch und kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
+      "Dieser Code ist abgelaufen oder kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
     sendNewCode: "Neuen Code senden",
     useFactor: "Stattdessen {method} verwenden",
   },
@@ -526,6 +526,8 @@ export const de: AuthUiMessageBundle = {
       "Ihre Sitzung hat sich in einem anderen Tab geändert. Bitte versuchen Sie es erneut.",
     generic: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     network: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+    "2fa_code_expired":
+      "Dieser Code ist abgelaufen oder kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
     "2fa_enrollment_required":
       "Die Einrichtung der Zwei-Faktor-Authentifizierung ist erforderlich, um die Anmeldung abzuschließen.",
     "2fa_factor_exists":

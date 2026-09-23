@@ -31,7 +31,7 @@ import {
   InputOTPSlot,
 } from "../../ui/input-otp.tsx"
 import { Spinner } from "../../ui/spinner.tsx"
-import { useCodeBudget, useCooldown } from "../sign-in/cooldown.ts"
+import { useSpentCode, useCooldown } from "../sign-in/cooldown.ts"
 import { CODE_LENGTH } from "./lib.ts"
 
 export function PanelCard({
@@ -278,8 +278,8 @@ export function CodeStep({
   const [code, setCode] = useState("")
   const { left: wait, start: startWait } = useCooldown(30, !!onResend)
   const promptId = useId()
-  const budget = useCodeBudget(error)
-  const burned = !!onResend && budget.spent
+  const spentCode = useSpentCode(error)
+  const burned = !!onResend && spentCode.spent
 
   const submit = (value: string) => {
     if (busy || value.length < CODE_LENGTH) return
@@ -289,7 +289,7 @@ export function CodeStep({
   const resend = async () => {
     setCode("")
     startWait()
-    budget.renew()
+    spentCode.renew()
     await onResend?.()
   }
 
