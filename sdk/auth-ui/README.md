@@ -53,6 +53,31 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 - OIDC: `oidcLoginUrl`, `signInWithPopup` (call from a click) and
   `completeRedirect()` on the callback route.
 
+## Styled UI
+
+```tsx
+import { AuthUiProvider } from "@openrails/auth-ui"
+import { de } from "@openrails/auth-ui/locales/de"
+
+;<AuthUiProvider
+  appearance={{ theme: "inherit", variables: { radius: "0.5rem" } }}
+  messages={[de, { signIn: { title: "Willkommen" } }]}
+  t={(key, vars) =>
+    i18n.exists(`authUi.${key}`) ? i18n.t(`authUi.${key}`, vars) : undefined
+  }
+>
+  {children}
+</AuthUiProvider>
+```
+
+- Styles install from the entry and are scoped under `.authui`; `./styles.css`
+  is the same sheet for SSR.
+- `theme`: `light`, `dark`, `auto` (OS) or `inherit` (host shadcn tokens and
+  `.dark` class). `variables` override single `--authui-*` tokens.
+- Messages: English is complete and the fallback for every key; locales
+  (`en de es ja ko zh`) are lazy-loadable subpaths. Interpolation is `{name}`.
+  `useMessages().error(err)` maps AuthKit error codes, with a generic fallback.
+
 ## Development
 
 ```sh
