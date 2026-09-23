@@ -89,6 +89,9 @@ type Claims struct {
 	// Permissions but no UserID, so the live-user ban/enrichment gate is skipped
 	// (there is no user to look up).
 	TokenType string
+	// APIKeyID is the immutable credential ID returned by successful live key
+	// resolution. It is never read from a JWT or the presented key's display name.
+	APIKeyID string
 
 	// Permissions are the app-defined permission strings an API-key principal
 	// carries directly — the PBAC grant. Empty for user principals. authkit
