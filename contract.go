@@ -373,6 +373,8 @@ type SubjectGroupMembership struct {
 // being the case that forced it. Group ids never appear in a PATH; this type is
 // how a caller who already has authority over an instance LEARNS its id.
 type GroupInstance struct {
+	// DeletedAt marks retained inactive state; only trusted ID reads include it.
+	DeletedAt    *time.Time
 	ID           string
 	Persona      Persona
 	InstanceSlug string

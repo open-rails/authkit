@@ -109,7 +109,7 @@ func (s *principalAPIKeySource) ResolveAPIKeyDetailed(_ context.Context, key, se
 
 func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 	source := &principalAPIKeySource{resolved: authkit.ResolvedAPIKey{APIKeyID: "immutable-key-id", PermissionGroupID: "group-1", AuthorityIssuer: confirmationIssuer, Persona: "repo", Permissions: []string{"repo:read"}}}
-	v := NewVerifier().WithService(source)
+	v := NewVerifier().WithService(source).WithPermissionChecker(source, confirmationIssuer)
 	r := principalRequest(authkit.FormatAPIKey("", "presented", "secret"))
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
@@ -135,6 +135,12 @@ func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 	allowed, err := checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:write")
 	require.NoError(t, err)
 	require.False(t, allowed, "backend-owned slices cannot enlarge a captured credential ceiling")
+	deleted := time.Now()
+	source.deletedAt = &deleted
+	allowed, err = checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:read")
+	require.NoError(t, err)
+	require.False(t, allowed, "same captured credential observes group retirement")
+	require.Equal(t, 1, source.calls, "group liveness never repeats credential verification")
 	for _, failure := range []struct{ source, neutral error }{{authkit.ErrAccessTokenExpired, auth.ErrExpired}, {authkit.ErrAccessTokenRevoked, auth.ErrRevoked}} {
 		source.err = failure.source
 		_, err := v.AuthenticateRequest(r.Context(), r)
@@ -243,4 +249,15 @@ func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 			require.Zero(t, authority.calls, "non-native credentials must never look up a native user's authority")
 		})
 	}
+}
+
+func TestScopedMachinePermissionRequiresLiveGroupReader(t *testing.T) {
+	cl := Claims{PermissionGroupID: "group", PermissionGroupAuthorityIssuer: "https://issuer.test", PermissionGroupPersona: "repo", Permissions: []string{"repo:read"}, APIKeyID: "key"}
+	scope := PermissionScope{GroupID: "group", AuthorityIssuer: "https://issuer.test", Persona: "repo"}
+	allowed, err := Allow(t.Context(), nil, cl, "repo:read", scope)
+	require.ErrorIs(t, err, auth.ErrUnavailable)
+	require.False(t, allowed)
+	allowed, err = Allow(t.Context(), &principalAuthority{allowed: true}, cl, "repo:read", scope)
+	require.ErrorIs(t, err, auth.ErrUnavailable)
+	require.False(t, allowed)
 }

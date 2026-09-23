@@ -22,12 +22,14 @@ migration begins. With host-owned River, its grants remain host-owned too.
 
 ## Rebuild boundary
 
-`0001_schema.up.sql` is the only PostgreSQL migration and installs the complete
-current schema, including recoverable account deletion and delivery receipts.
-All prerelease databases are disposable and unsupported; provision a fresh
-database and call `embedded.ApplyMigrations`. There is no upgrade, backfill,
-ledger adoption, repair, or automatic reset path. River owns its independent
-migration chain. Published tags remain immutable.
+`0001_schema.up.sql` installs the fresh baseline, including recoverable account
+deletion and delivery receipts. `0002_group_soft_deletion.up.sql` adds retained
+inactive group state without rewriting that published baseline or existing rows.
+Call `embedded.ApplyMigrations` to initialize a fresh database or apply numbered
+follow-up migrations to that exact baseline. Earlier incompatible prerelease
+schemas still require a fresh database; there is no ledger adoption, repair,
+or automatic reset path. River owns its independent migration chain. Published
+tags remain immutable.
 
 The baseline refuses existing AuthKit-owned relation names. Empty precreated
 schemas and unrelated host tables are allowed and remain untouched. Repeated

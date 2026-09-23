@@ -277,7 +277,7 @@ func (s *engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 		 FROM api_keys t
 		 JOIN permission_groups pg ON pg.id = t.permission_group_id
  LEFT JOIN group_custom_roles r ON r.permission_group_id=t.permission_group_id AND r.role=t.role
-		 WHERE t.key_id = $1`, keyID).
+		 WHERE t.key_id = $1 AND pg.deleted_at IS NULL`, keyID).
 		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug, &customPermissions)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -85,6 +85,10 @@ type Client interface {
 	ResolveGroupIDForSlug(ctx context.Context, group GroupRef) (string, error)
 	GroupInstanceForSlug(ctx context.Context, group GroupRef) (GroupInstance, error)
 	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update GroupInstanceUpdate) (GroupInstance, error)
+	// SoftDeleteGroupInstanceByID retires a nonroot subtree without removing its
+	// rows or name reservations. Repeated calls retain the original DeletedAt.
+	// The trusted host owns admission, retention and eventual hard deletion.
+	SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	// DeleteGroupInstanceByID is a trusted host-operator mutation.
 	DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
