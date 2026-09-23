@@ -7,6 +7,7 @@ import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
+import { continuationFrom } from "../../client/continuation.ts"
 import { authError, json, stubFetch } from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
@@ -191,6 +192,79 @@ describe("SignInDialog", () => {
     )
     expect(onSignedIn).toHaveBeenCalledWith({ returnTo: undefined })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe("SignInDialog continuation", () => {
+  it("finishes a session continuation from a refresh in place", async () => {
+    const user = userEvent.setup()
+    const onSignedIn = vi.fn()
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "POST /api/v1/2fa/verify": [session({ sub: "u1", sid: "s2" })],
+    })
+    const continuation = continuationFrom("2fa_required", {
+      user_id: "u1",
+      challenge: "ch-refresh",
+      method: "totp",
+      default_factor: { id: "f-totp", method: "totp", is_default: true },
+    })
+    const { client } = renderUi(
+      <SignInDialog
+        open
+        onOpenChange={() => {}}
+        continuation={continuation}
+        onSignedIn={onSignedIn}
+      />,
+      fetch
+    )
+    await screen.findByRole("heading", { name: "Verify it's you" })
+    expect(screen.queryByRole("tablist")).toBeNull()
+    await user.type(screen.getByLabelText("Verification code"), "123456")
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
+    expect(client.getSnapshot().status).toBe("authenticated")
+    const verify = fetch.mock.calls.find(([url]) =>
+      String(url).endsWith("/2fa/verify")
+    )
+    expect(JSON.parse(String(verify?.[1]?.body))).toMatchObject({
+      challenge: "ch-refresh",
+      code: "123456",
+    })
+  })
+})
+
+describe("SignInDialog modal", () => {
+  // A host overlay (wallet picker) portalled outside the dialog.
+  const renderWithOverlay = (modal?: boolean) => {
+    const onOpenChange = vi.fn()
+    const onOverlay = vi.fn()
+    const fetch = stubFetch({ "GET /api/v1/capabilities": capabilities })
+    renderUi(
+      <>
+        <button onClick={onOverlay}>Wallet overlay</button>
+        <SignInDialog open onOpenChange={onOpenChange} modal={modal} />
+      </>,
+      fetch
+    )
+    return { onOpenChange, onOverlay }
+  }
+
+  it("dismisses on an outside click by default", async () => {
+    const user = userEvent.setup()
+    const { onOpenChange } = renderWithOverlay()
+    await screen.findByRole("button", { name: "Continue with GitHub" })
+    await user.click(document.body)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("leaves a host overlay usable and stays open when not modal", async () => {
+    const user = userEvent.setup()
+    const { onOpenChange, onOverlay } = renderWithOverlay(false)
+    await screen.findByRole("button", { name: "Continue with GitHub" })
+    await user.click(screen.getByRole("button", { name: "Wallet overlay" }))
+    expect(onOverlay).toHaveBeenCalledOnce()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 })
 

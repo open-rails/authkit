@@ -19,6 +19,9 @@ export type SignInDialogProps = Omit<SignInPanelProps, "initialTab"> & {
   onOpenChange: (open: boolean) => void
   // Read each time the dialog opens.
   initialTab?: SignInMode
+  // false while a host overlay (e.g. a wallet picker) sits above the dialog:
+  // the page stays interactive and an outside click does not dismiss it.
+  modal?: boolean
 }
 
 // Closes itself after sign-in (after backup codes are acknowledged); until
@@ -32,6 +35,7 @@ export function SignInDialog({
   header,
   className,
   onSignedIn,
+  modal = true,
   ...flow
 }: SignInDialogProps) {
   const { t } = useMessages()
@@ -42,7 +46,8 @@ export function SignInDialog({
   return (
     <Dialog
       open={open}
-      disablePointerDismissal={blocking}
+      modal={modal}
+      disablePointerDismissal={blocking || !modal}
       onOpenChange={(next) => {
         if (!next && blocking) return
         onOpenChange(next)

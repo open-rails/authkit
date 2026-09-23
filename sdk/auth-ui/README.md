@@ -160,6 +160,10 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   the user acknowledges them. The dialog closes itself then and can't be
   dismissed on that screen.
 - `providers` replaces (array) or edits (function) the `/capabilities` list.
+- `continuation` opens on a pending step: pass `session.continuation` (a
+  refresh that now needs 2FA) so the user finishes signing in there.
+- `modal={false}` while a host overlay (e.g. a wallet picker) is open above
+  the dialog, so it stays clickable and does not dismiss the dialog.
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
 - OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
   finishes 2FA and other continuations in place.

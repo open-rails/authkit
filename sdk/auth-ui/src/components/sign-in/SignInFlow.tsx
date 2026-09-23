@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { useMessages } from "#authui/i18n/context"
+import type { LoginContinuation } from "#authui/client/continuation"
 import type { LoginState } from "#authui/react/useLogin"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister } from "#authui/react/useRegister"
@@ -28,6 +29,9 @@ export type SignInFlowProps = SignInHostProps & {
   privacyUrl?: string
   // Current screen; "backup_codes" means signed in but not yet acknowledged.
   onStepChange?: (step: SignInStep) => void
+  // Opens on this continuation, e.g. session.continuation after a refresh
+  // that now needs 2FA.
+  continuation?: LoginContinuation | null
 }
 
 function DefaultLegal({ termsUrl, privacyUrl }: SignInFlowProps) {
@@ -54,6 +58,11 @@ export function SignInFlow(props: SignInFlowProps) {
   const { t } = useMessages()
   const signedIn = useSignedIn(props)
   const login = useLogin({ onSignedIn: signedIn })
+  const { resume } = login
+  const { continuation } = props
+  useEffect(() => {
+    if (continuation) resume(continuation)
+  }, [continuation, resume])
   const register = useRegister({
     onSignedIn: signedIn,
     accountInviteToken: props.accountInviteToken,
