@@ -13,8 +13,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../ui/dialog.tsx"
-import { Field, FieldError, FieldGroup, FieldLabel } from "../../ui/field.tsx"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "../../ui/field.tsx"
 import { Spinner } from "../../ui/spinner.tsx"
+import { usePasswordPolicy } from "../sign-in/password.ts"
 import { PanelRoot } from "./panel-root.tsx"
 import {
   ErrorNotice,
@@ -24,8 +31,6 @@ import {
   StatusBadge,
 } from "./shared.tsx"
 import { useStepUpGuard } from "./step-up-context.ts"
-
-const MIN_LENGTH = 8
 
 export interface PasswordPanelProps {
   className?: string
@@ -131,16 +136,12 @@ function PasswordForm({
   const newId = useId()
   const confirmId = useId()
 
-  const tooShort = password.length < MIN_LENGTH
+  const policy = usePasswordPolicy()
+  const issue = policy.issue(password)
   const mismatch = confirm !== password
-  const passwordError =
-    touched && tooShort
-      ? t("validation.passwordMinLength", { min: MIN_LENGTH })
-      : null
+  const passwordError = touched ? issue : null
   const confirmError =
-    touched && !tooShort && mismatch
-      ? t("validation.passwordsDoNotMatch")
-      : null
+    touched && !issue && mismatch ? t("validation.passwordsDoNotMatch") : null
 
   return (
     <form
@@ -149,7 +150,7 @@ function PasswordForm({
       onSubmit={(e) => {
         e.preventDefault()
         setTouched(true)
-        if (!tooShort && !mismatch) void onSubmit(password)
+        if (!issue && !mismatch) void onSubmit(password)
       }}
     >
       <DialogHeader>
@@ -176,7 +177,11 @@ function PasswordForm({
             aria-invalid={!!passwordError || undefined}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <FieldError>{passwordError}</FieldError>
+          {passwordError ? (
+            <FieldError>{passwordError}</FieldError>
+          ) : (
+            <FieldDescription>{policy.hint}</FieldDescription>
+          )}
         </Field>
         <Field data-invalid={!!confirmError || undefined}>
           <FieldLabel htmlFor={confirmId}>

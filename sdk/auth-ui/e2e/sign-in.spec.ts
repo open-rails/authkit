@@ -103,6 +103,9 @@ test("register, verify, then TOTP and backup-code sign-in", async ({
     totp(secret, now)
   )
   expect(backupCodes.length).toBeGreaterThan(0)
+  // Enrollment verified this session: a reload refreshes straight back in.
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
   await signOut(page)
 
   // Password → TOTP challenge → wrong code → right code.
@@ -141,7 +144,80 @@ test("register, verify, then TOTP and backup-code sign-in", async ({
     await page.evaluate(
       () => (window as unknown as { signedIn: unknown[] }).signedIn.length
     )
-  ).toBe(3)
+  ).toBe(2)
+})
+
+test("email 2FA: enroll with a setup code, then a wrong login code retries", async ({
+  page,
+  request,
+}) => {
+  await loadApp(page)
+  const id = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
+  const email = `email2fa-${id}@example.test`
+  await page.evaluate(
+    async (input) => {
+      const c = (window as unknown as { authClient: AuthClientLike }).authClient
+      await c.register(input)
+    },
+    { identifier: email, username: `m${id}`, password }
+  )
+  await page.evaluate(
+    async (input) => {
+      const c = (window as unknown as { authClient: AuthClientLike }).authClient
+      await c.confirmVerification(input)
+    },
+    { identifier: email, code: await nextCode(request, email, 0) }
+  )
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  // A session proven by an emailed code can't be verified by an email factor;
+  // start from a password session.
+  await signOut(page)
+  await signIn(page, email)
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+
+  // Email enrollment: start sends a setup code (202), confirm enables it and
+  // keeps this session signed in.
+  const seen = (await outbox(request, email)).length
+  const started = await page.evaluate(async () => {
+    const c = (window as unknown as { authClient: AuthClientLike }).authClient
+    return (await c.enableTwoFactor({ method: "email" })).kind
+  })
+  expect(started).toBe("code_sent")
+  const enabled = await page.evaluate(
+    async (code) => {
+      const c = (window as unknown as { authClient: AuthClientLike }).authClient
+      return c.enableTwoFactor({ method: "email", code })
+    },
+    await nextCode(request, email, seen)
+  )
+  expect(enabled).toMatchObject({ kind: "enabled", signedIn: true })
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  await signOut(page)
+
+  // Login: a wrong emailed code keeps the input; the same code then works.
+  const before = (await outbox(request, email)).length
+  await signIn(page, email)
+  await expect(
+    dialog(page).getByRole("heading", { name: "Verify it's you" })
+  ).toBeVisible()
+  const code = await nextCode(request, email, before)
+  await codeInput(page).fill(code === "000000" ? "111111" : "000000")
+  await expect(dialog(page).getByRole("alert")).toContainText(
+    "Invalid verification code."
+  )
+  await expect(
+    dialog(page).getByRole("button", { name: "Send a new code" })
+  ).toHaveCount(0)
+  await expect(
+    dialog(page).getByRole("button", { name: /Resend/ })
+  ).toBeVisible()
+  await expect(codeInput(page)).toBeEnabled()
+  await codeInput(page).fill(code)
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  expect((await outbox(request, email)).length).toBe(before + 1)
 })
 
 test("forgot password, reset from the link, sign in with it", async ({
@@ -280,10 +356,12 @@ for (const theme of ["light", "dark"] as const) {
 }
 
 type AuthClientLike = {
-  enableTwoFactor(input: {
-    method: string
-    code?: string
-  }): Promise<{ secret?: string; backupCodes?: string[] }>
+  enableTwoFactor(input: { method: string; code?: string }): Promise<{
+    kind: string
+    secret?: string
+    backupCodes?: string[]
+    signedIn?: boolean
+  }>
   register(input: {
     identifier: string
     username: string

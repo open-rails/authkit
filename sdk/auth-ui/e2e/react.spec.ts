@@ -63,8 +63,22 @@ test("React hooks: register, TOTP, step-up guarded action, 2FA login", async ({
   await page.getByRole("button", { name: "saved them" }).click()
   await expect(page.getByTestId("factors")).toHaveText("totp")
 
-  // The session predates the factor, so AuthKit demands a 2FA step-up; the
-  // guarded action retries by itself once it succeeds.
+  // A stale session needs a 2FA step-up; the guarded action retries by
+  // itself once it succeeds, and the email factor starts with a setup code.
+  await request.post(
+    `/__test/stale-sessions?email=${encodeURIComponent(email)}`
+  )
+  // Enrollment verified the session: its refresh still yields a token, not a
+  // continuation.
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { authClient: { refresh(): Promise<boolean> } }
+      ).authClient.refresh()
+    )
+  ).toBe(true)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  let seen = (await outbox(request, email)).length
   await page.getByRole("button", { name: "add email factor" }).click()
   await expect(page.getByTestId("stepup-step")).toHaveText("required")
   await expect(page.getByTestId("stepup-methods")).toHaveText("2fa")
@@ -74,6 +88,14 @@ test("React hooks: register, TOTP, step-up guarded action, 2FA login", async ({
   await page.getByTestId("stepup-code").fill(totp(secret!, now + 30_000))
   await page.getByRole("button", { name: "step up" }).click()
   await expect(page.getByTestId("stepup-step")).toHaveText("idle")
+  const setup = await nextCode(request, email, seen)
+  await page
+    .getByTestId("tf-code")
+    .fill(setup === "000000" ? "111111" : "000000")
+  await page.getByRole("button", { name: "confirm factor" }).click()
+  await expect(page.getByTestId("tf-error")).toHaveText("invalid_code")
+  await page.getByTestId("tf-code").fill(setup)
+  await page.getByRole("button", { name: "confirm factor" }).click()
   await expect(page.getByTestId("factors")).toHaveText(
     /totp.*email|email.*totp/
   )
@@ -87,24 +109,21 @@ test("React hooks: register, TOTP, step-up guarded action, 2FA login", async ({
   await page.getByRole("button", { name: "sign in" }).click()
   await expect(page.getByTestId("login-step")).toHaveText("two_factor")
   await expect(page.getByTestId("login-method")).toHaveText("totp")
-  let seen = (await outbox(request, email)).length
+  seen = (await outbox(request, email)).length
   await page.getByTestId("factor-email").click()
   await expect(page.getByTestId("login-method")).toHaveText("email")
   const first = await nextCode(request, email, seen)
-  // AuthKit consumes an emailed code on any attempt, so a miss needs a resend.
+  // A miss keeps the emailed code: the same code then signs in, no resend.
   await page
     .getByTestId("login-code")
     .fill(first === "000000" ? "111111" : "000000")
   await page.getByRole("button", { name: "verify code" }).click()
   await expect(page.getByTestId("login-error")).toHaveText("invalid_code")
-  seen = (await outbox(request, email)).length
-  await page.getByRole("button", { name: "resend code" }).click()
-  await page
-    .getByTestId("login-code")
-    .fill(await nextCode(request, email, seen))
+  await page.getByTestId("login-code").fill(first)
   await page.getByRole("button", { name: "verify code" }).click()
   await expect(page.getByTestId("status")).toHaveText("authenticated")
   await expect(page.getByTestId("email")).toHaveText(email)
+  expect((await outbox(request, email)).length).toBe(seen + 1)
 
   // onSessionChange fired per boundary, not per refresh.
   expect(

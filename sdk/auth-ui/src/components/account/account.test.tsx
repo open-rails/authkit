@@ -43,7 +43,7 @@ const profile = (extra: Record<string, unknown> = {}) =>
     ...extra,
   })
 
-const capabilities = () =>
+const capabilities = (password: Record<string, unknown> = {}) =>
   json(200, {
     registration: { mode: "open", invite_token_required: false },
     external_login_providers: [
@@ -55,7 +55,7 @@ const capabilities = () =>
         supports_link: true,
       },
     ],
-    password: { login: true },
+    password: { login: true, ...password },
     passwordless: { enabled: false },
     passkeys: { login: false },
     solana: { login: false },
@@ -93,13 +93,14 @@ const fresh = () =>
   })
 
 describe("PasswordPanel", () => {
-  it("validates, steps up with the password and retries the change", async () => {
+  it("validates against the advertised policy, steps up and retries", async () => {
     const bodies: unknown[] = []
     const { user } = await renderSignedIn(
       <StepUpProvider>
         <PasswordPanel />
       </StepUpProvider>,
       {
+        "GET /api/v1/capabilities": () => capabilities({ min_length: 12 }),
         "POST /api/v1/user/password": [
           stepUpRequired({ step_up_methods: ["password"] }),
           noContent(),
@@ -116,11 +117,12 @@ describe("PasswordPanel", () => {
       await screen.findByRole("button", { name: "Change password" })
     )
     const dialog = screen.getByRole("dialog", { name: "Change password" })
-    await user.type(within(dialog).getByLabelText("New password"), "short")
+    expect(dialog).toHaveTextContent("Use at least 12 characters.")
+    await user.type(within(dialog).getByLabelText("New password"), "short-pw-1")
     await user.click(
       within(dialog).getByRole("button", { name: "Update password" })
     )
-    expect(dialog).toHaveTextContent("Password must be at least 8 characters")
+    expect(dialog).toHaveTextContent("Password must be at least 12 characters")
 
     await user.clear(within(dialog).getByLabelText("New password"))
     await user.type(
@@ -158,7 +160,7 @@ describe("PasswordPanel", () => {
 })
 
 describe("StepUpDialog", () => {
-  it("sends an email code, and after a burned code offers a new one", async () => {
+  it("sends an email code; a wrong code can be retried without a resend", async () => {
     const sent: unknown[] = []
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
       "GET /api/v1/user/2fa": () =>
@@ -208,10 +210,13 @@ describe("StepUpDialog", () => {
     ).toBeInTheDocument()
 
     await user.type(within(stepUp).getByRole("textbox"), "111111")
-    await user.click(
-      await within(stepUp).findByRole("button", { name: "Send a new code" })
-    )
-    await user.type(await within(stepUp).findByRole("textbox"), "222222")
+    expect(
+      await within(stepUp).findByText("Invalid verification code.")
+    ).toBeInTheDocument()
+    expect(
+      within(stepUp).queryByRole("button", { name: "Send a new code" })
+    ).toBeNull()
+    await user.type(within(stepUp).getByRole("textbox"), "222222")
 
     const codes = await screen.findByRole("list", { name: "Backup codes" })
     expect(
@@ -222,7 +227,6 @@ describe("StepUpDialog", () => {
     expect(sent).toEqual([
       { method: "email" },
       { code: "111111", method: "email" },
-      { method: "email" },
       { code: "222222", method: "email" },
     ])
   })
@@ -280,8 +284,9 @@ describe("TwoFactorPanel", () => {
 })
 
 describe("ContactPanel", () => {
-  it("changes email with a code; a burned code prompts a resend", async () => {
+  it("changes email with a code; a wrong code is retryable, a spent one prompts a resend", async () => {
     const requested: unknown[] = []
+    let confirms = 0
     const { user } = await renderSignedIn(
       <ContactPanel channels={["email"]} />,
       {
@@ -289,10 +294,10 @@ describe("ContactPanel", () => {
           requested.push(JSON.parse(String(init.body)))
           return noContent()
         },
-        "POST /api/v1/verify/confirm": [
-          authError(400, "invalid_or_expired_code"),
-          noContent(),
-        ],
+        "POST /api/v1/verify/confirm": () =>
+          ++confirms <= 5
+            ? authError(400, "invalid_or_expired_code")
+            : noContent(),
       }
     )
     await user.click(await screen.findByRole("button", { name: "Change" }))
@@ -305,10 +310,24 @@ describe("ContactPanel", () => {
     await user.type(screen.getByLabelText("New email address"), "b@x.test")
     await user.click(screen.getByRole("button", { name: "Send code" }))
 
-    await user.type(
-      await screen.findByRole("textbox", { name: "Verification code" }),
-      "999999"
-    )
+    for (let i = 1; i <= 5; i++) {
+      const box = await screen.findByRole("textbox", {
+        name: "Verification code",
+      })
+      await waitFor(() => expect(box).toBeEnabled())
+      await user.type(box, "999999")
+      await waitFor(() => expect(confirms).toBe(i))
+      if (i < 5) {
+        expect(
+          await screen.findByText(
+            "The verification code is invalid or has expired."
+          )
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole("button", { name: "Send a new code" })
+        ).toBeNull()
+      }
+    }
     expect(
       await screen.findByText(
         "That code can't be used again. Send a new code to continue."

@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.130.1
+	github.com/open-rails/authkit v0.131.0
 )
 
 require (

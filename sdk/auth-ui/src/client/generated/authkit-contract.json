@@ -1,5 +1,5 @@
 {
-  "authkit_version": "v0.130.1",
+  "authkit_version": "v0.131.0",
   "error_codes": [
     {
       "code": "2fa_enrollment_required",

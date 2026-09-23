@@ -70,40 +70,71 @@ async function submitCredentials(
 }
 
 describe("LoginForm", () => {
-  it("offers a new code after a burned email code, then signs in", async () => {
+  it("retries a wrong email code without a resend", async () => {
     const user = userEvent.setup()
     const onSignedIn = vi.fn()
     const fetch = stubFetch({
       "GET /api/v1/capabilities": capabilities,
       "POST /api/v1/password/login": [emailChallenge()],
       "POST /api/v1/2fa/verify": [
-        authError(400, "invalid_code"),
+        authError(401, "invalid_code"),
         session({ sub: "u1", sid: "s1" }),
       ],
-      "POST /api/v1/2fa/challenge": () => emailChallenge("ch-2"),
     })
     renderUi(<LoginForm onSignedIn={onSignedIn} />, fetch)
     await submitCredentials(user)
 
     await screen.findByRole("heading", { name: "Verify it's you" })
-    expect(screen.getByText("We sent a code to a***@x.test.")).toBeVisible()
     await user.type(screen.getByLabelText("Verification code"), "111111")
+    await screen.findByText("Invalid verification code.")
+    expect(screen.queryByRole("button", { name: "Send a new code" })).toBeNull()
+    expect(screen.getByRole("button", { name: /Resend code/ })).toBeVisible()
 
-    await screen.findByText(/can't be used again/)
-    expect(screen.queryByRole("button", { name: /Resend code/ })).toBeNull()
-    await user.click(screen.getByRole("button", { name: "Send a new code" }))
-    await screen.findByText("A new code is on its way.")
-    expect(onSignedIn).not.toHaveBeenCalled()
-
+    await waitFor(() =>
+      expect(screen.getByLabelText("Verification code")).toBeEnabled()
+    )
     await user.type(screen.getByLabelText("Verification code"), "222222")
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
     const verify = fetch.mock.calls.filter(([url]) =>
       String(url).endsWith("/2fa/verify")
     )
     expect(JSON.parse(String(verify[1][1]?.body))).toMatchObject({
-      challenge: "ch-2",
+      challenge: "ch-1",
       code: "222222",
     })
+  })
+
+  it("makes a new code primary once the 5th miss spends it", async () => {
+    const user = userEvent.setup()
+    const onSignedIn = vi.fn()
+    let misses = 0
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "POST /api/v1/password/login": [emailChallenge()],
+      "POST /api/v1/2fa/verify": () =>
+        ++misses <= 5
+          ? authError(401, "invalid_code")
+          : session({ sub: "u1", sid: "s1" }),
+      "POST /api/v1/2fa/challenge": () => emailChallenge("ch-2"),
+    })
+    renderUi(<LoginForm onSignedIn={onSignedIn} />, fetch)
+    await submitCredentials(user)
+    await screen.findByRole("heading", { name: "Verify it's you" })
+
+    for (let i = 1; i <= 5; i++) {
+      await waitFor(() =>
+        expect(screen.getByLabelText("Verification code")).toBeEnabled()
+      )
+      await user.type(screen.getByLabelText("Verification code"), "111111")
+      await waitFor(() => expect(misses).toBe(i))
+    }
+    await screen.findByText(/can't be used again/)
+    expect(screen.queryByRole("button", { name: /Resend code/ })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Send a new code" }))
+    await screen.findByText("A new code is on its way.")
+
+    await user.type(screen.getByLabelText("Verification code"), "222222")
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
   })
 
   it("points legacy accounts at the reset form, prefilled", async () => {

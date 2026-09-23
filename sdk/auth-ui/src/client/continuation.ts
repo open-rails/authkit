@@ -17,7 +17,7 @@ export type LoginContinuation =
       verificationId: string
       defaultFactor?: TwoFactorFactor
       availableFactors: TwoFactorFactor[]
-      // Set when email 2FA enrollment issued codes before its challenge.
+      // Backup codes issued alongside this challenge (shown after sign-in).
       backupCodes: string[]
       returnTo?: string
     }

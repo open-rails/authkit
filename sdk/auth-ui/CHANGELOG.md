@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+Requires AuthKit v0.131.0 or newer.
+
+- A wrong email/SMS 2FA code no longer ends the attempt: the code input stays
+  and resend is a secondary action. Sending a new code becomes the primary
+  action only once AuthKit has invalidated the code (the 5th wrong guess, or
+  10 minutes). Applies to login, step-up, enrollment and contact codes.
+- Enabling a factor keeps the session signed in: the enroll response's
+  `token_set` is adopted and the session is 2FA-verified, so the next refresh
+  needs no continuation. `enabled` results carry `freshAuth`.
+- Email 2FA enrollment sends a setup code and confirms it, like SMS.
+- `ResetPasswordForm` and `PasswordPanel` validate against the `/capabilities`
+  password policy instead of a fixed 8-character minimum.
+
 ## 0.2.2
 
 - `SignInDialog` takes `modal={false}` while a host overlay such as a wallet

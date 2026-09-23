@@ -11,8 +11,8 @@ import { usePasswordReset } from "#authui/react/account"
 import { AuthUiRoot } from "#authui/scope"
 import { Button } from "#authui/ui/button"
 import { FormAlert, PasswordField, StepHeader, SubmitButton } from "./parts.tsx"
+import { usePasswordPolicy } from "./password.ts"
 
-const PASSWORD_MIN = 8
 const DEAD_LINK = new Set(["invalid_or_expired_token", "token_expired"])
 
 export type ResetPasswordFormProps = {
@@ -33,6 +33,7 @@ export function ResetPasswordForm({
 }: ResetPasswordFormProps) {
   const { t, error: describe } = useMessages()
   const reset = usePasswordReset({ token: token ?? undefined })
+  const policy = usePasswordPolicy()
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [touched, setTouched] = useState(false)
@@ -74,10 +75,8 @@ export function ResetPasswordForm({
       </AuthUiRoot>
     )
 
-  const passwordError =
-    touched && password.length < PASSWORD_MIN
-      ? t("validation.passwordMinLength", { min: PASSWORD_MIN })
-      : null
+  const passwordIssue = policy.issue(password)
+  const passwordError = touched ? passwordIssue : null
   const confirmError =
     touched && !confirm
       ? t("validation.confirmPasswordRequired")
@@ -93,7 +92,7 @@ export function ResetPasswordForm({
         onSubmit={(e) => {
           e.preventDefault()
           setTouched(true)
-          if (password.length < PASSWORD_MIN || confirm !== password) return
+          if (passwordIssue || confirm !== password) return
           void reset.confirm({ newPassword: password })
         }}
       >
@@ -120,7 +119,7 @@ export function ResetPasswordForm({
             autoFocus
             value={password}
             error={passwordError}
-            hint={t("register.passwordHint", { min: PASSWORD_MIN })}
+            hint={policy.hint}
             revealed={revealed}
             onRevealedChange={setRevealed}
             onChange={(e) => setPassword(e.target.value)}

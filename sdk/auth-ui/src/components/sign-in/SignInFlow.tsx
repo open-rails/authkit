@@ -29,8 +29,7 @@ export type SignInFlowProps = SignInHostProps & {
   privacyUrl?: string
   // Current screen; "backup_codes" means signed in but not yet acknowledged.
   onStepChange?: (step: SignInStep) => void
-  // Opens on this continuation, e.g. session.continuation after a refresh
-  // that now needs 2FA.
+  // Opens on this continuation, e.g. session.continuation from a refresh.
   continuation?: LoginContinuation | null
 }
 

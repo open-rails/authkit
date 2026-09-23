@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useMessages } from "#authui/i18n/context"
 import { AuthUiRoot } from "#authui/scope"
 import { Button } from "#authui/ui/button"
-import { useCooldown } from "./cooldown.ts"
+import { useCodeBudget, useCooldown } from "./cooldown.ts"
 import { methodLabel, sendsCode, type LoginController } from "./labels.ts"
 import {
   CodeField,
@@ -37,12 +37,13 @@ export function TwoFactorChallenge({
   const [resent, setResent] = useState(false)
   const method = state.step === "two_factor" ? state.challenge.method : ""
   const cooldown = useCooldown(RESEND_SECONDS, sendsCode(method))
+  const budget = useCodeBudget(error)
   if (state.step !== "two_factor") return null
 
   const { challenge, factorId } = state
   const canResend = sendsCode(method) && !backup
-  // AuthKit burns an emailed/texted code on a wrong guess: only a new one works.
-  const burned = canResend && error?.code === "invalid_code"
+  // A wrong code stays retryable; only a spent one needs a new code.
+  const burned = canResend && budget.spent
   const others = challenge.availableFactors.filter(
     (f) => f.id && f.id !== factorId && f.method !== method
   )
@@ -57,6 +58,7 @@ export function TwoFactorChallenge({
   const resend = async (id?: string) => {
     setCode("")
     setResent(false)
+    budget.renew()
     await controller.sendTwoFactorCode(id)
     setResent(true)
     cooldown.start()

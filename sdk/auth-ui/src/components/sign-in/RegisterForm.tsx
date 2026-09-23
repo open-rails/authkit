@@ -11,7 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type { Availability, PasswordPolicy } from "#authui/client/types"
+import type { Availability } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
@@ -23,6 +23,7 @@ import { InputGroupButton } from "#authui/ui/input-group"
 import { Spinner } from "#authui/ui/spinner"
 import { useCooldown } from "./cooldown.ts"
 import { useSignedIn, type SignInHostProps } from "./host.ts"
+import { usePasswordPolicy } from "./password.ts"
 import {
   identifierKind,
   isE164,
@@ -41,8 +42,6 @@ import {
   TextField,
 } from "./parts.tsx"
 import { ProviderButtons } from "./ProviderButtons.tsx"
-
-const PASSWORD_MIN = 8
 
 const IDENTIFIER_CODES = new Set([
   "email_in_use",
@@ -70,24 +69,6 @@ const fieldOf = (code: string) =>
       : PASSWORD_CODES.has(code)
         ? "password"
         : null
-
-const CLASSES = [
-  ["require_uppercase", /\p{Lu}/u],
-  ["require_lowercase", /\p{Ll}/u],
-  ["require_digit", /\p{Nd}/u],
-  ["require_symbol", /[^\p{L}\p{Nd}]/u],
-] as const
-
-// Client-side mirror of the advertised policy; AuthKit stays authoritative.
-function passwordIssue(policy: PasswordPolicy | undefined, value: string) {
-  const min = policy?.min_length ?? PASSWORD_MIN
-  if (value.length < min) return { code: "password_too_short", min }
-  if (policy?.max_length && value.length > policy.max_length)
-    return { code: "password_too_long", min }
-  if (CLASSES.some(([key, re]) => policy?.[key] && !re.test(value)))
-    return { code: "password_requirements_unmet", min }
-  return null
-}
 
 function usernameIssue(
   policy:
@@ -266,9 +247,8 @@ function RegisterFields({
 }) {
   const { t, error: describe } = useMessages()
   const { capabilities } = useCapabilities()
-  const passwordPolicy = capabilities?.password
+  const passwordPolicy = usePasswordPolicy()
   const usernamePolicy = capabilities?.username
-  const minPassword = passwordPolicy?.min_length ?? PASSWORD_MIN
   const [identifier, setIdentifier] = useState("")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -308,7 +288,7 @@ function RegisterFields({
         ? t("validation.emailInvalid")
         : null)
   const localUsername = usernameIssue(usernamePolicy, username.trim())
-  const localPassword = passwordIssue(passwordPolicy, password)
+  const localPassword = passwordPolicy.issue(password)
   const usernameError =
     server("username") ??
     unavailable(availability.username) ??
@@ -317,13 +297,7 @@ function RegisterFields({
       : touched && localUsername
         ? describe(localUsername)
         : null)
-  const passwordError =
-    server("password") ??
-    (touched && localPassword
-      ? localPassword.code === "password_too_short"
-        ? t("validation.passwordMinLength", { min: localPassword.min })
-        : describe(localPassword.code)
-      : null)
+  const passwordError = server("password") ?? (touched ? localPassword : null)
 
   return (
     <div className="flex flex-col gap-5">
@@ -389,7 +363,7 @@ function RegisterFields({
           autoComplete="new-password"
           value={password}
           error={passwordError}
-          hint={t("register.passwordHint", { min: minPassword })}
+          hint={passwordPolicy.hint}
           revealed={revealed}
           onRevealedChange={setRevealed}
           onChange={(e) => setPassword(e.target.value)}

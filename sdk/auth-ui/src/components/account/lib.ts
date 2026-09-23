@@ -1,10 +1,3 @@
-import type { AuthKitError } from "../../client/errors.ts"
-
-// AuthKit burns an email/SMS code on a wrong guess; a new one must be sent.
-const BURNED = new Set(["invalid_code", "invalid_or_expired_code"])
-export const isBurnedCode = (error: AuthKitError | null | undefined) =>
-  !!error && BURNED.has(error.code)
-
 export const CODE_LENGTH = 6
 
 export type Device = {

@@ -16,7 +16,7 @@ import {
 
 const client = createAuthClient()
 const sessionChanges: string[] = []
-Object.assign(window, { sessionChanges })
+Object.assign(window, { sessionChanges, authClient: client })
 
 function Field({ id }: { id: string }) {
   return <input data-testid={id} name={id} />

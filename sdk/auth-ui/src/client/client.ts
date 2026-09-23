@@ -97,7 +97,10 @@ export type TwoFactorEnrollResult =
       kind: "enabled"
       method: string
       backupCodes: string[]
+      // AuthKit returned a session token: the enrolling session is (still)
+      // signed in and now 2FA-verified.
       signedIn: boolean
+      freshAuth?: FreshAuth
     }
   | LoginContinuation
 
@@ -855,6 +858,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           ? (body.backup_codes as string[])
           : [],
         signedIn: !!tokens,
+        freshAuth: body.fresh_auth ? (body.fresh_auth as FreshAuth) : undefined,
       }
     },
 

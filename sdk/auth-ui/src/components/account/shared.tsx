@@ -31,8 +31,8 @@ import {
   InputOTPSlot,
 } from "../../ui/input-otp.tsx"
 import { Spinner } from "../../ui/spinner.tsx"
-import { useCooldown } from "../sign-in/cooldown.ts"
-import { CODE_LENGTH, isBurnedCode } from "./lib.ts"
+import { useCodeBudget, useCooldown } from "../sign-in/cooldown.ts"
+import { CODE_LENGTH } from "./lib.ts"
 
 export function PanelCard({
   icon,
@@ -255,7 +255,8 @@ export function CodeInput({
   )
 }
 
-// Enter a one-time code. With onResend, a burned email/SMS code offers a new one.
+// Enter a one-time code. With onResend, a wrong code stays retryable and a
+// spent email/SMS code makes sending a new one the primary action.
 export function CodeStep({
   prompt,
   busy,
@@ -277,7 +278,8 @@ export function CodeStep({
   const [code, setCode] = useState("")
   const { left: wait, start: startWait } = useCooldown(30, !!onResend)
   const promptId = useId()
-  const burned = !!onResend && isBurnedCode(error)
+  const budget = useCodeBudget(error)
+  const burned = !!onResend && budget.spent
 
   const submit = (value: string) => {
     if (busy || value.length < CODE_LENGTH) return
@@ -287,6 +289,7 @@ export function CodeStep({
   const resend = async () => {
     setCode("")
     startWait()
+    budget.renew()
     await onResend?.()
   }
 

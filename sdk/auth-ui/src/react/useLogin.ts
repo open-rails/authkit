@@ -56,7 +56,7 @@ export function useLogin(options: LoginOptions = {}) {
   const credentials = useRef<{ identifier: string; password: string } | null>(
     null
   )
-  // Backup codes issued before a 2FA challenge (email enrollment).
+  // Backup codes that arrived with a 2FA challenge.
   const pendingCodes = useRef<string[]>([])
   const onSignedIn = useRef(options.onSignedIn)
   useEffect(() => {
@@ -137,7 +137,7 @@ export function useLogin(options: LoginOptions = {}) {
   )
 
   // Enter the flow from an outcome produced elsewhere (OIDC popup/redirect,
-  // registration, a refresh that now needs 2FA).
+  // registration, a refresh that returned a continuation).
   const resume = useCallback(
     (outcome: AuthOutcome) => {
       clearError()

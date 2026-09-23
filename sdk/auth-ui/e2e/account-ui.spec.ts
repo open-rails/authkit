@@ -230,6 +230,92 @@ test("account panels: password, TOTP, backup codes, email, sessions, delete", as
   ).toContain("deleted")
 })
 
+// Enrolling a factor verifies the enrolling session (AuthKit v0.131): a reload
+// refreshes straight back to "authenticated". Wrong email codes are retryable.
+test("TOTP and email 2FA keep the session; wrong email codes retry", async ({
+  page,
+  request,
+  context,
+}) => {
+  test.setTimeout(120_000)
+  await route(page)
+  await page.goto("/")
+  const { email, password } = await registerVerified(page, request)
+  await context.clearCookies()
+  await loadApp(page)
+  await signIn(page, email, password)
+  const tf = page.locator('[data-slot="card"]', {
+    hasText: "Two-factor authentication",
+  })
+  const codeBox = tf.getByRole("textbox", { name: "Verification code" })
+  const wrongFor = (code: string) => (code === "000000" ? "111111" : "000000")
+
+  await tf.getByRole("button", { name: "Turn on" }).click()
+  await tf.getByRole("radio", { name: /Authenticator app/ }).check()
+  await freshTotpStep(page)
+  await tf.getByRole("button", { name: "Continue" }).click()
+  const secret = (await tf.getByLabel("Setup key").textContent())!.replace(
+    /\s/g,
+    ""
+  )
+  await codeBox.fill(totp(secret))
+  await tf.getByRole("button", { name: "I've saved my backup codes" }).click()
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  await expect(tf.getByText("On", { exact: true })).toBeVisible()
+
+  // Email factor: start sends a setup code; a wrong one keeps the input.
+  const seen = (await outbox(request, email)).length
+  await tf.getByRole("button", { name: "Add a method" }).click()
+  await tf.getByRole("radio", { name: /Email/ }).check()
+  await tf.getByRole("button", { name: "Continue" }).click()
+  await expect(
+    tf.getByText(`Enter the code we sent to ${email}.`)
+  ).toBeVisible()
+  const setupCode = await nextCode(request, email, seen)
+  await codeBox.fill(wrongFor(setupCode))
+  await expect(tf.getByText("Invalid verification code.")).toBeVisible()
+  await expect(tf.getByRole("button", { name: "Send a new code" })).toHaveCount(
+    0
+  )
+  await expect(codeBox).toBeEnabled()
+  await codeBox.fill(setupCode)
+  await expect(tf.getByText("Email", { exact: true })).toBeVisible()
+  expect((await outbox(request, email)).length).toBe(seen + 1)
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+
+  // Email step-up on a stale session: wrong code, then the same sent code.
+  await request.post(
+    `/__test/stale-sessions?email=${encodeURIComponent(email)}`
+  )
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  await tf.getByRole("button", { name: "Generate new codes" }).click()
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Generate new codes" })
+    .click()
+  const stepUp = page.getByRole("dialog", { name: "Confirm it's you" })
+  await stepUp.getByRole("tab", { name: "Email" }).click()
+  const sentBefore = (await outbox(request, email)).length
+  await stepUp.getByRole("button", { name: "Send code" }).click()
+  const stepUpCode = await nextCode(request, email, sentBefore)
+  const stepUpBox = stepUp.getByRole("textbox", { name: "Verification code" })
+  await stepUpBox.fill(wrongFor(stepUpCode))
+  await expect(stepUp.getByText("Invalid verification code.")).toBeVisible()
+  await expect(
+    stepUp.getByRole("button", { name: "Send a new code" })
+  ).toHaveCount(0)
+  await expect(stepUpBox).toBeEnabled()
+  await stepUpBox.fill(stepUpCode)
+  await expect(stepUp).toBeHidden()
+  await expect(
+    tf.getByRole("list", { name: "Backup codes" }).getByRole("listitem")
+  ).not.toHaveCount(0)
+  expect((await outbox(request, email)).length).toBe(sentBefore + 1)
+})
+
 for (const theme of ["light", "dark"] as const) {
   for (const [device, viewport] of [
     ["desktop", { width: 1280, height: 900 }],

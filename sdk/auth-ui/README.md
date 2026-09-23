@@ -2,7 +2,7 @@
 
 Shared browser client, React hooks and UI for [AuthKit](https://github.com/open-rails/authkit).
 
-Pre-release. Layers:
+Pre-release; requires AuthKit v0.131.0 or newer. Layers:
 
 | Import                      | Contents                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
@@ -19,7 +19,7 @@ holds no router, i18n or query-cache dependency.
 Until the npm org is live, install the archive attached to each GitHub release:
 
 ```json
-"@openrails/auth-ui": "https://github.com/open-rails/auth-ui/releases/download/v0.1.0/openrails-auth-ui-0.1.0.tgz"
+"@openrails/auth-ui": "https://github.com/open-rails/auth-ui/releases/download/v0.3.0/openrails-auth-ui-0.3.0.tgz"
 ```
 
 ## Client
@@ -47,6 +47,12 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 - Continuations (`2fa_required`, `2fa_enrollment_required`,
   `account_recovery_required`, `verification_required`) are returned, not
   thrown. Other failures throw `AuthKitError` with the AuthKit `code`.
+- `enableTwoFactor`: TOTP starts with a secret, email and SMS with a sent code
+  (`code_sent`); resend the same call with `code` to confirm. Confirming
+  re-issues the session token, so the session stays signed in and
+  2FA-verified (`enabled` carries `freshAuth`).
+- A wrong email/SMS code can be retried; AuthKit invalidates it on the 5th
+  miss or after 10 minutes, and a resend issues a fresh code.
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword` / `stepUpWithTwoFactor` /
   `startOidcStepUp`.
@@ -160,8 +166,8 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   the user acknowledges them. The dialog closes itself then and can't be
   dismissed on that screen.
 - `providers` replaces (array) or edits (function) the `/capabilities` list.
-- `continuation` opens on a pending step: pass `session.continuation` (a
-  refresh that now needs 2FA) so the user finishes signing in there.
+- `continuation` opens on a pending step: pass `session.continuation` (set
+  when a refresh answered with one) so the user finishes signing in there.
 - `modal={false}` while a host overlay (e.g. a wallet picker) is open above
   the dialog, so it stays clickable and does not dismiss the dialog.
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.

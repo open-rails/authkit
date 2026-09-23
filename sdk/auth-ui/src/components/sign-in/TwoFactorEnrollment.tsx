@@ -13,7 +13,7 @@ import {
   FieldTitle,
 } from "#authui/ui/field"
 import { RadioGroup, RadioGroupItem } from "#authui/ui/radio-group"
-import { useCooldown } from "./cooldown.ts"
+import { useCodeBudget, useCooldown } from "./cooldown.ts"
 import { normalizeIdentifier } from "./identifier.ts"
 import { methodHint, methodLabel, type LoginController } from "./labels.ts"
 import {
@@ -52,9 +52,11 @@ export function TwoFactorEnrollment({
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
   const cooldown = useCooldown(30)
+  const budget = useCodeBudget(error)
   if (state.step !== "enrollment") return null
 
   const started = !!state.totp || !!state.codeSent
+  const spent = !!state.codeSent && budget.spent
   const confirm = (value = code) => {
     if (!value.trim() || busy) return
     setCode("")
@@ -69,7 +71,10 @@ export function TwoFactorEnrollment({
           ? normalizeIdentifier(phone, defaultPhoneCountry)
           : undefined,
     })
-    if (choice !== "totp") cooldown.start()
+    if (choice !== "totp") {
+      budget.renew()
+      cooldown.start()
+    }
   }
 
   return (
@@ -94,7 +99,25 @@ export function TwoFactorEnrollment({
                 : t("twoFactor.enrollmentRequired")
           }
         />
-        {error && <FormAlert>{describe(error)}</FormAlert>}
+        {error &&
+          (spent ? (
+            <FormAlert
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void start()}
+                >
+                  {t("challenge.sendNewCode")}
+                </Button>
+              }
+            >
+              {t("challenge.codeBurned")}
+            </FormAlert>
+          ) : (
+            <FormAlert>{describe(error)}</FormAlert>
+          ))}
         {!allowed.length && <FormAlert>{t("enrollment.noMethod")}</FormAlert>}
 
         {!started && allowed.length > 0 && (
@@ -159,7 +182,7 @@ export function TwoFactorEnrollment({
             <SubmitButton busy={busy} disabled={!code.trim()}>
               {t("common.verify")}
             </SubmitButton>
-            {state.codeSent && (
+            {state.codeSent && !spent && (
               <TextButton
                 className="self-center"
                 disabled={busy || cooldown.left > 0}
