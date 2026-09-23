@@ -176,6 +176,10 @@ import { SolanaLinkRow } from "@openrails/auth-ui/solana"
 />
 ```
 
+A host that loads its wallet stack lazily passes
+`acquireSigner={() => connectWallet()}` (resolving a `SolanaSigner`) instead of
+`wallet`.
+
 `AccountSecurity` stacks `ContactPanel`, `PasswordPanel`,
 `LinkedProvidersPanel`, `TwoFactorPanel`, `SessionsPanel` and
 `DeleteAccountPanel` (pick with `sections`); each also works alone. Every

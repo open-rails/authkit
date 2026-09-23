@@ -16,14 +16,20 @@ import {
   createSolanaAuth,
   isSolanaWalletError,
   signerFromWallet,
+  type SolanaSigner,
   type WalletAdapterLike,
 } from "./core.ts"
 
 export interface SolanaLinkRowProps {
   /** wallet-adapter's `useWallet()`, or any `WalletAdapterLike`. */
-  wallet: WalletAdapterLike | null | undefined
+  wallet?: WalletAdapterLike | null
   /** Opens the host's wallet picker; linking resumes once it connects. */
   onConnectRequest?: () => void
+  /**
+   * For hosts that load the wallet stack only on demand: resolves a connected
+   * signer when Link is pressed (used instead of `wallet`).
+   */
+  acquireSigner?: () => Promise<SolanaSigner>
 }
 
 const shorten = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`
@@ -32,6 +38,7 @@ const shorten = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`
 export function SolanaLinkRow({
   wallet,
   onConnectRequest,
+  acquireSigner,
 }: SolanaLinkRowProps) {
   const { t, error: message } = useMessages()
   const client = useAuthClient()
@@ -70,6 +77,12 @@ export function SolanaLinkRow({
   }
 
   const link = () => {
+    if (acquireSigner) {
+      void perform("link", async () =>
+        solana.link(await acquireSigner(), { linkedAddress: address })
+      )
+      return
+    }
     if (!(wallet?.connected && wallet.publicKey) && onConnectRequest) {
       setAwaiting(true)
       onConnectRequest()

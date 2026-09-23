@@ -21,6 +21,7 @@ import {
   StepUpProvider,
   TwoFactorPanel,
 } from "./index.ts"
+import { SolanaLinkRow } from "../../solana/SolanaLinkRow.tsx"
 
 // input-otp probes password-manager overlays with it; jsdom lacks it.
 document.elementFromPoint ??= () => null
@@ -444,5 +445,30 @@ describe("AccountSecurity", () => {
     ])
       expect(await screen.findByText(name)).toBeInTheDocument()
     expect(screen.queryByText("Active sessions")).not.toBeInTheDocument()
+  })
+})
+
+describe("SolanaLinkRow", () => {
+  it("links through a lazily acquired signer", async () => {
+    const signMessage = vi.fn(async () => new Uint8Array(64).fill(1))
+    const acquireSigner = vi.fn(async () => ({ publicKey: "W", signMessage }))
+    const linked: unknown[] = []
+    const { user } = await renderSignedIn(
+      <StepUpProvider>
+        <SolanaLinkRow acquireSigner={acquireSigner} />
+      </StepUpProvider>,
+      {
+        "POST /api/v1/solana/challenge": () => json(200, { message: "m" }),
+        "POST /api/v1/solana/link": (init) => {
+          linked.push(JSON.parse(String(init.body)))
+          return json(200, { solana_address: "W" })
+        },
+      }
+    )
+    await user.click(await screen.findByRole("button", { name: /link/i }))
+    await waitFor(() => expect(linked).toHaveLength(1))
+    expect(acquireSigner).toHaveBeenCalledOnce()
+    expect(signMessage).toHaveBeenCalledOnce()
+    expect(linked[0]).toMatchObject({ output: { account: { address: "W" } } })
   })
 })

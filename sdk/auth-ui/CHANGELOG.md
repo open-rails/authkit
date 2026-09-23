@@ -5,6 +5,8 @@
 - `VerifyLink` (and headless `useVerifyLink`) for the AuthKit verification
   link landing route: confirms the link token once and finishes any
   continuation in place.
+- `SolanaLinkRow` takes `acquireSigner` instead of `wallet` for hosts that
+  load their wallet stack only when Link is pressed.
 
 ## 0.1.0
 
