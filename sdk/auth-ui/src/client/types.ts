@@ -17,12 +17,31 @@ export type ListPage<T> = {
 export type Capabilities = {
   registration: { mode: string; invite_token_required: boolean }
   external_login_providers: ExternalLoginProvider[]
-  password: { login: boolean }
+  username?: UsernamePolicy
+  password: PasswordPolicy
   passwordless: { enabled: boolean; channels?: string[] }
   passkeys: { login: boolean }
   solana: { login: boolean }
   verification: { registration: string }
   languages?: string[]
+}
+
+// Naming and password policy AuthKit advertises (v0.130+); absent on older mounts.
+export type UsernamePolicy = {
+  min_length: number
+  max_length: number
+  pattern: string
+}
+
+export type PasswordPolicy = {
+  login: boolean
+  min_length?: number
+  max_length?: number
+  require_uppercase?: boolean
+  require_lowercase?: boolean
+  require_digit?: boolean
+  require_symbol?: boolean
+  reject_common?: boolean
 }
 
 export type ExternalLoginProvider = {

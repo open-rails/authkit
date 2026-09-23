@@ -1,5 +1,5 @@
 {
-  "authkit_version": "v0.128.0",
+  "authkit_version": "v0.130.1",
   "error_codes": [
     {
       "code": "2fa_enrollment_required",
@@ -678,8 +678,24 @@
       "status": 400
     },
     {
+      "code": "password_contains_identifier",
+      "status": 400
+    },
+    {
+      "code": "password_requirements_unmet",
+      "status": 400
+    },
+    {
       "code": "password_reset_required",
       "status": 401
+    },
+    {
+      "code": "password_too_common",
+      "status": 400
+    },
+    {
+      "code": "password_too_long",
+      "status": 400
     },
     {
       "code": "password_too_short",

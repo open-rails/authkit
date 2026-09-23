@@ -598,8 +598,15 @@ export const de: AuthUiMessageBundle = {
     passkey_failed: "Der Passkey-Vorgang ist fehlgeschlagen.",
     passkey_not_found: "Der Passkey wurde nicht gefunden.",
     password_change_failed: "Das Passwort konnte nicht geändert werden.",
+    password_contains_identifier:
+      "Das Passwort darf Ihren Benutzernamen oder Ihre E-Mail-Adresse nicht enthalten.",
+    password_requirements_unmet:
+      "Das Passwort erfüllt die Anforderungen nicht.",
     password_reset_required:
       "Ihr Konto stammt aus der Zeit vor unserem neuen Anmeldesystem. Bitte setzen Sie Ihr Passwort zurück, um fortzufahren.",
+    password_too_common:
+      "Dieses Passwort ist zu verbreitet. Bitte wählen Sie ein weniger vorhersehbares.",
+    password_too_long: "Das Passwort ist zu lang.",
     password_too_short: "Das Passwort muss mindestens 8 Zeichen lang sein.",
     passwordless_disabled: "Die passwortlose Anmeldung ist deaktiviert.",
     pending_registration_not_found:

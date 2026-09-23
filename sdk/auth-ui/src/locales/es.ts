@@ -588,8 +588,14 @@ export const es: AuthUiMessageBundle = {
     passkey_failed: "La operación con la llave de acceso falló.",
     passkey_not_found: "No se encontró la llave de acceso.",
     password_change_failed: "No se pudo cambiar la contraseña.",
+    password_contains_identifier:
+      "La contraseña no puede contener tu nombre de usuario ni tu correo.",
+    password_requirements_unmet: "La contraseña no cumple los requisitos.",
     password_reset_required:
       "Tu cuenta es anterior a nuestro nuevo sistema de inicio de sesión. Restablece tu contraseña para continuar.",
+    password_too_common:
+      "Esta contraseña es demasiado común. Elige una menos predecible.",
+    password_too_long: "La contraseña es demasiado larga.",
     password_too_short: "La contraseña debe tener al menos 8 caracteres.",
     passwordless_disabled:
       "El inicio de sesión sin contraseña está deshabilitado.",

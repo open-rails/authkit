@@ -13,6 +13,10 @@
   `TwoFactorEnrollment`, `BackupCodes`, `TotpSetup` and `AuthCallback`;
   `SolanaSignInButton` in `./solana`. `onSignedIn` fires only after newly
   issued backup codes are acknowledged.
+- AuthKit pin v0.130.1: `Capabilities` types the advertised `username` and
+  `password` policy, `RegisterForm` validates and hints against it, and the new
+  `password_too_long`, `password_too_common`, `password_requirements_unmet` and
+  `password_contains_identifier` codes have messages in every locale.
 
 ## 0.1.0-alpha.1
 

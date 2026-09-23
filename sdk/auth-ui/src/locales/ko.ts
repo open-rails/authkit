@@ -552,8 +552,14 @@ export const ko: AuthUiMessageBundle = {
     passkey_failed: "패스키 작업에 실패했습니다.",
     passkey_not_found: "패스키를 찾을 수 없습니다.",
     password_change_failed: "비밀번호를 변경하지 못했습니다.",
+    password_contains_identifier:
+      "비밀번호에 사용자 이름이나 이메일을 포함할 수 없습니다.",
+    password_requirements_unmet: "비밀번호가 요구 사항을 충족하지 않습니다.",
     password_reset_required:
       "계정이 새 로그인 시스템 도입 이전에 만들어졌습니다. 계속하려면 비밀번호를 재설정해 주세요.",
+    password_too_common:
+      "너무 흔한 비밀번호입니다. 추측하기 어려운 비밀번호를 선택하세요.",
+    password_too_long: "비밀번호가 너무 깁니다.",
     password_too_short: "비밀번호는 최소 8자 이상이어야 합니다.",
     passwordless_disabled: "비밀번호 없는 로그인이 비활성화되어 있습니다.",
     pending_registration_not_found:

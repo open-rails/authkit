@@ -234,6 +234,50 @@ describe("RegisterForm", () => {
     await waitFor(() => expect(email).toHaveAttribute("aria-invalid", "true"))
     expect(screen.getByText("This email is already in use.")).toBeVisible()
   })
+
+  it("validates against the advertised username and password policy", async () => {
+    const user = userEvent.setup()
+    const register = vi.fn(() => json(202, { next_action: "verify_email" }))
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": () =>
+        json(200, {
+          registration: { mode: "open", invite_token_required: false },
+          external_login_providers: [],
+          username: {
+            min_length: 4,
+            max_length: 30,
+            pattern: "^[A-Za-z][A-Za-z0-9_]*$",
+          },
+          password: { login: true, min_length: 12, require_digit: true },
+          passwordless: { enabled: false },
+          passkeys: { login: false },
+          solana: { login: false },
+          verification: { registration: "required" },
+        }),
+      "GET /api/v1/register/availability": () => json(200, {}),
+      "POST /api/v1/register": register,
+    })
+    renderUi(<RegisterForm />, fetch)
+    await screen.findByText("Use at least 12 characters.")
+    await user.type(screen.getByLabelText("Email or phone number"), "a@x.test")
+    await user.type(screen.getByLabelText("Username"), "1ab")
+    await user.type(screen.getByLabelText("Password"), "long-enough")
+    await user.click(screen.getByRole("button", { name: "Register" }))
+    expect(
+      screen.getByText("Password must be at least 12 characters")
+    ).toBeVisible()
+    expect(
+      screen.getByText("Username must be at least 4 characters.")
+    ).toBeVisible()
+
+    await user.type(screen.getByLabelText("Username"), "c")
+    await user.type(screen.getByLabelText("Password"), "-pw")
+    expect(
+      screen.getByText("Password doesn't meet the requirements.")
+    ).toBeVisible()
+    expect(screen.getByText("Username must start with a letter.")).toBeVisible()
+    expect(register).not.toHaveBeenCalled()
+  })
 })
 
 describe("normalizeIdentifier", () => {

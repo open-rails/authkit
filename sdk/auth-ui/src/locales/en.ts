@@ -563,8 +563,14 @@ export const en = {
     passkey_failed: "The passkey operation failed.",
     passkey_not_found: "The passkey was not found.",
     password_change_failed: "The password could not be changed.",
+    password_contains_identifier:
+      "Password can't contain your username or email.",
+    password_requirements_unmet: "Password doesn't meet the requirements.",
     password_reset_required:
       "Your account predates our new login system. Please reset your password to continue.",
+    password_too_common:
+      "This password is too common. Choose a less predictable one.",
+    password_too_long: "Password is too long.",
     password_too_short: "Password must be at least 8 characters.",
     passwordless_disabled: "Passwordless sign-in is disabled.",
     pending_registration_not_found:

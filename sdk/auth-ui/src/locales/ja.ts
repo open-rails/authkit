@@ -564,8 +564,14 @@ export const ja: AuthUiMessageBundle = {
     passkey_failed: "パスキーの操作に失敗しました。",
     passkey_not_found: "パスキーが見つかりません。",
     password_change_failed: "パスワードを変更できませんでした。",
+    password_contains_identifier:
+      "パスワードにユーザー名やメールアドレスを含めることはできません。",
+    password_requirements_unmet: "パスワードが要件を満たしていません。",
     password_reset_required:
       "お使いのアカウントは新しいログインシステム以前に作成されたものです。続行するにはパスワードをリセットしてください。",
+    password_too_common:
+      "このパスワードは一般的すぎます。推測されにくいものを選んでください。",
+    password_too_long: "パスワードが長すぎます。",
     password_too_short: "パスワードは8文字以上で入力してください。",
     passwordless_disabled: "パスワードなしのログインは無効になっています。",
     pending_registration_not_found:

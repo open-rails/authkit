@@ -11,8 +11,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type { Availability } from "#authui/client/types"
+import type { Availability, PasswordPolicy } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
+import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister, type RegisterInput } from "#authui/react/useRegister"
 import type { LoginContinuation } from "#authui/client/continuation"
@@ -53,14 +54,59 @@ const IDENTIFIER_CODES = new Set([
   "email_registration_unavailable",
   "phone_registration_unavailable",
 ])
+const PASSWORD_CODES = new Set([
+  "password_too_short",
+  "password_too_long",
+  "password_too_common",
+  "password_requirements_unmet",
+  "password_contains_identifier",
+  "invalid_password",
+])
 const fieldOf = (code: string) =>
   IDENTIFIER_CODES.has(code)
     ? "identifier"
     : code.startsWith("username_") || code === "owner_slug_taken"
       ? "username"
-      : code === "password_too_short" || code === "invalid_password"
+      : PASSWORD_CODES.has(code)
         ? "password"
         : null
+
+const CLASSES = [
+  ["require_uppercase", /\p{Lu}/u],
+  ["require_lowercase", /\p{Ll}/u],
+  ["require_digit", /\p{Nd}/u],
+  ["require_symbol", /[^\p{L}\p{Nd}]/u],
+] as const
+
+// Client-side mirror of the advertised policy; AuthKit stays authoritative.
+function passwordIssue(policy: PasswordPolicy | undefined, value: string) {
+  const min = policy?.min_length ?? PASSWORD_MIN
+  if (value.length < min) return { code: "password_too_short", min }
+  if (policy?.max_length && value.length > policy.max_length)
+    return { code: "password_too_long", min }
+  if (CLASSES.some(([key, re]) => policy?.[key] && !re.test(value)))
+    return { code: "password_requirements_unmet", min }
+  return null
+}
+
+function usernameIssue(
+  policy:
+    { min_length: number; max_length: number; pattern: string } | undefined,
+  value: string
+) {
+  if (!policy || !value) return null
+  if (value.length < policy.min_length) return "username_too_short"
+  if (value.length > policy.max_length) return "username_too_long"
+  try {
+    if (!new RegExp(policy.pattern).test(value))
+      return /^\p{L}/u.test(value)
+        ? "username_invalid_characters"
+        : "username_must_start_with_letter"
+  } catch {
+    // an unparsable pattern is left to the server
+  }
+  return null
+}
 
 export type RegisterFormProps = SignInHostProps & {
   // A useRegister() owned by a parent; its onSignedIn is then the parent's.
@@ -219,6 +265,10 @@ function RegisterFields({
   login: LoginController
 }) {
   const { t, error: describe } = useMessages()
+  const { capabilities } = useCapabilities()
+  const passwordPolicy = capabilities?.password
+  const usernamePolicy = capabilities?.username
+  const minPassword = passwordPolicy?.min_length ?? PASSWORD_MIN
   const [identifier, setIdentifier] = useState("")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -257,14 +307,22 @@ function RegisterFields({
       : touched && identifierKind(identifier) === "other"
         ? t("validation.emailInvalid")
         : null)
+  const localUsername = usernameIssue(usernamePolicy, username.trim())
+  const localPassword = passwordIssue(passwordPolicy, password)
   const usernameError =
     server("username") ??
     unavailable(availability.username) ??
-    (touched && !username.trim() ? t("validation.usernameRequired") : null)
+    (touched && !username.trim()
+      ? t("validation.usernameRequired")
+      : touched && localUsername
+        ? describe(localUsername)
+        : null)
   const passwordError =
     server("password") ??
-    (touched && password.length < PASSWORD_MIN
-      ? t("validation.passwordMinLength", { min: PASSWORD_MIN })
+    (touched && localPassword
+      ? localPassword.code === "password_too_short"
+        ? t("validation.passwordMinLength", { min: localPassword.min })
+        : describe(localPassword.code)
       : null)
 
   return (
@@ -284,7 +342,8 @@ function RegisterFields({
             !input.identifier ||
             identifierKind(input.identifier) === "other" ||
             !input.username ||
-            password.length < PASSWORD_MIN ||
+            localUsername ||
+            localPassword ||
             unavailable(availability.identifier) ||
             unavailable(availability.username)
           )
@@ -330,7 +389,7 @@ function RegisterFields({
           autoComplete="new-password"
           value={password}
           error={passwordError}
-          hint={t("register.passwordHint", { min: PASSWORD_MIN })}
+          hint={t("register.passwordHint", { min: minPassword })}
           revealed={revealed}
           onRevealedChange={setRevealed}
           onChange={(e) => setPassword(e.target.value)}
