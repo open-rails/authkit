@@ -70,6 +70,9 @@ export const ko: AuthUiMessageBundle = {
     codeLength: "{length}자리 코드를 모두 입력하세요",
   },
   signIn: {
+    tabsLabel: "로그인 또는 계정 만들기",
+    resetRequiredAction: "비밀번호 재설정",
+    recovered: "계정이 복구되었습니다. 계속하려면 로그인하세요.",
     title: "로그인",
     titleCombined: "로그인 / 회원가입",
     description: "계속하려면 로그인하거나 계정을 만드세요",
@@ -87,6 +90,8 @@ export const ko: AuthUiMessageBundle = {
       "이 계정으로 로그인할 수 없습니다. 계정이 종료되었거나 제한되었을 수 있습니다. 오류라고 생각되면 고객 지원에 문의하세요.",
   },
   register: {
+    passwordHint: "{min}자 이상 사용하세요.",
+    complete: "계정이 준비되었습니다. 계속하려면 로그인하세요.",
     title: "계정 만들기",
     submit: "가입하기",
     haveAccount: "이미 계정이 있으신가요?",
@@ -101,6 +106,8 @@ export const ko: AuthUiMessageBundle = {
       "현재 전화번호로 가입할 수 없습니다. 대신 이메일 주소로 가입해 주세요.",
   },
   verify: {
+    cancelBody:
+      "{identifier}의 대기 중인 가입을 삭제하여 처음부터 다시 시작할 수 있습니다.",
     title: "계정을 인증하세요",
     titleEmail: "이메일 인증",
     titlePhone: "전화번호 인증",
@@ -140,6 +147,8 @@ export const ko: AuthUiMessageBundle = {
     cancelFailed: "가입을 취소할 수 없습니다.",
   },
   resetPassword: {
+    backToSignIn: "로그인으로 돌아가기",
+    requestNewLink: "새 링크 요청",
     requestTitle: "비밀번호 재설정",
     requestDescription:
       "이메일 또는 전화번호를 입력하면 재설정 링크를 보내드립니다.",
@@ -360,7 +369,58 @@ export const ko: AuthUiMessageBundle = {
     updateFailed: "사용자명을 업데이트할 수 없습니다",
     cooldown: "{when}에 사용자 이름을 다시 변경할 수 있습니다.",
   },
+  challenge: {
+    codeSentTo: "{destination}(으)로 코드를 보냈습니다.",
+    codeResent: "새 코드를 보냈습니다.",
+    codeBurned:
+      "코드가 올바르지 않으며 다시 사용할 수 없습니다. 새 코드를 받아 다시 시도하세요.",
+    sendNewCode: "새 코드 보내기",
+    useFactor: "대신 {method} 사용",
+  },
+  enrollment: {
+    title: "2단계 인증 설정",
+    chooseMethod: "로그인 코드를 받을 방법을 선택하세요.",
+    startTotp: "인증 앱 설정",
+    totpPrompt: "그런 다음 앱의 6자리 코드를 입력해 완료하세요.",
+    codeSentPrompt: "보내드린 코드를 입력해 설정을 완료하세요.",
+    noMethod:
+      "이 계정에서 사용할 수 있는 2단계 인증 방법이 없습니다. 지원팀에 문의하세요.",
+    secretLabel: "설정 키",
+  },
+  backupCodes: {
+    title: "백업 코드 저장",
+    signedIn:
+      "로그인되었습니다. 이 코드를 안전한 곳에 보관하세요. 인증 수단을 사용할 수 없을 때 각 코드는 한 번씩 사용할 수 있습니다.",
+    acknowledge: "백업 코드를 저장했습니다",
+    fileHeader: "백업 코드. 각 코드는 한 번만 사용할 수 있습니다.",
+  },
+  recovery: {
+    title: "계정을 복구할까요?",
+    description:
+      "이 계정은 삭제되었습니다. {date}까지 복구할 수 있으며, 그 이후에는 영구적으로 삭제됩니다.",
+    confirm: "계정 복구",
+  },
+  callback: {
+    completing: "로그인을 완료하는 중…",
+    errorTitle: "로그인 실패",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "계속하려면 지갑을 연결하세요.",
+      unsupported: "이 지갑은 메시지에 서명할 수 없습니다.",
+      rejected: "서명 요청이 거부되었습니다.",
+      invalid_signature: "지갑이 잘못된 서명을 반환했습니다.",
+      busy: "지갑이 사용 중입니다. 다시 시도하세요.",
+    },
+  },
   errors: {
+    network_error: "네트워크 오류입니다. 연결을 확인하세요.",
+    popup_blocked:
+      "로그인 창이 차단되었습니다. 팝업을 허용하고 다시 시도하세요.",
+    popup_closed: "로그인 창이 닫혔습니다.",
+    popup_timeout: "로그인 창의 시간이 초과되었습니다. 다시 시도하세요.",
+    session_changed: "다른 탭에서 세션이 변경되었습니다. 다시 시도하세요.",
     generic: "문제가 발생했습니다. 다시 시도해주세요.",
     network: "네트워크 오류. 연결을 확인하세요.",
     "2fa_enrollment_required":

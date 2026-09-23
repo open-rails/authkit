@@ -112,6 +112,55 @@ import { de } from "@openrails/auth-ui/locales/de"
   (`en de es ja ko zh`) are lazy-loadable subpaths. Interpolation is `{name}`.
   `useMessages().error(err)` maps AuthKit error codes, with a generic fallback.
 
+### Sign-in
+
+```tsx
+import {
+  AuthCallback,
+  ResetPasswordForm,
+  SignInDialog,
+} from "@openrails/auth-ui"
+import { SolanaSignInButton } from "@openrails/auth-ui/solana"
+
+;<SignInDialog
+  open={open}
+  onOpenChange={setOpen}
+  initialTab="login" // or "register"
+  returnTo={location.pathname}
+  navigate={(to) => router.navigate(to)}
+  onSignedIn={() => toast("Signed in")}
+  defaultPhoneCountry="US" // numbers typed without +country
+  providers={(list) =>
+    list.map((p) => ({ ...p, icon: <BrandIcon id={p.id} /> }))
+  }
+  logo={<Logo />}
+  termsUrl="/terms"
+  privacyUrl="/privacy"
+  renderSolana={({ mode, onOutcome, disabled }) => (
+    <SolanaSignInButton
+      wallet={wallet} // useWallet()
+      onConnectRequest={() => setWalletModal(true)}
+      {...{ mode, onOutcome, disabled }}
+    />
+  )}
+/>
+```
+
+- `SignInDialog` (controlled) and `SignInPanel` (inline card) run the whole
+  flow: password and popup provider sign-in, 2FA challenge (factor switch,
+  resend, backup code), forced 2FA enrollment, account recovery, contact
+  verification, registration with availability checks and code verification,
+  and forgot password. `LoginForm`, `RegisterForm`, `ForgotPasswordForm`,
+  `TwoFactorChallenge` and `TwoFactorEnrollment` are exported on their own.
+- Close on `onSignedIn`, not on a session change: when 2FA enrollment issues
+  backup codes the session is already live, and `onSignedIn` fires only after
+  the user acknowledges them. The dialog closes itself then and can't be
+  dismissed on that screen.
+- `providers` replaces (array) or edits (function) the `/capabilities` list.
+- Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
+- OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
+  finishes 2FA and other continuations in place.
+
 ## Solana
 
 ```ts

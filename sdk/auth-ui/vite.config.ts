@@ -22,6 +22,7 @@ const EXTERNAL = [
   "class-variance-authority",
   "cn",
   "input-otp",
+  "react-qr-code",
   "@solana/wallet-adapter-react",
 ]
 

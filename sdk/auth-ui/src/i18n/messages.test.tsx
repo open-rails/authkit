@@ -142,8 +142,18 @@ describe("locale bundles", () => {
   )
 
   it("keys errors only by codes in the pinned AuthKit contract", () => {
-    // generic/network are local fallbacks; access_denied is the OIDC redirect error.
-    const local = new Set(["generic", "network", "access_denied"])
+    // generic/network are local fallbacks; access_denied is the OIDC redirect error;
+    // popup_*, session_changed and network_error come from the client/hooks.
+    const local = new Set([
+      "generic",
+      "network",
+      "access_denied",
+      "network_error",
+      "popup_blocked",
+      "popup_closed",
+      "popup_timeout",
+      "session_changed",
+    ])
     for (const code of Object.keys(en.errors)) {
       if (!local.has(code))
         expect(AUTH_ERROR_STATUS, code).toHaveProperty([code])

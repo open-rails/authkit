@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Styled sign-in: `SignInDialog`, `SignInPanel`, `LoginForm`, `RegisterForm`,
+  `ForgotPasswordForm`, `ResetPasswordForm`, `TwoFactorChallenge`,
+  `TwoFactorEnrollment`, `BackupCodes`, `TotpSetup` and `AuthCallback`;
+  `SolanaSignInButton` in `./solana`. `onSignedIn` fires only after newly
+  issued backup codes are acknowledged.
+
 ## 0.1.0-alpha.1
 
 Pre-release: `client`, `react`, `solana`, UI foundation and locales. Styled sign-in and account components follow in 0.1.0.

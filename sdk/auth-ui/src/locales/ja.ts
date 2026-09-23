@@ -71,6 +71,9 @@ export const ja: AuthUiMessageBundle = {
     codeLength: "{length}桁のコードをすべて入力してください",
   },
   signIn: {
+    tabsLabel: "ログインまたはアカウント作成",
+    resetRequiredAction: "パスワードをリセット",
+    recovered: "アカウントが復元されました。ログインして続行してください。",
     title: "ログイン",
     titleCombined: "ログイン／新規登録",
     description: "続行するにはログインまたはアカウント作成をしてください",
@@ -89,6 +92,8 @@ export const ja: AuthUiMessageBundle = {
       "このアカウントではログインできません。閉鎖または制限されている可能性があります。誤りと思われる場合はサポートまでご連絡ください。",
   },
   register: {
+    passwordHint: "{min}文字以上にしてください。",
+    complete: "アカウントの準備ができました。ログインして続行してください。",
     title: "アカウントを作成",
     submit: "新規登録",
     haveAccount: "すでにアカウントをお持ちですか？",
@@ -103,6 +108,8 @@ export const ja: AuthUiMessageBundle = {
       "現在、電話番号での登録はご利用いただけません。メールアドレスで登録してください。",
   },
   verify: {
+    cancelBody:
+      "{identifier} の保留中の登録を削除し、最初からやり直せるようにします。",
     title: "アカウントを認証してください",
     titleEmail: "メールアドレスを認証",
     titlePhone: "電話番号を認証",
@@ -142,6 +149,8 @@ export const ja: AuthUiMessageBundle = {
     cancelFailed: "登録をキャンセルできませんでした。",
   },
   resetPassword: {
+    backToSignIn: "ログインに戻る",
+    requestNewLink: "新しいリンクをリクエスト",
     requestTitle: "パスワードをリセット",
     requestDescription:
       "メールアドレスまたは電話番号を入力すると、リセット用のリンクをお送りします。",
@@ -364,7 +373,60 @@ export const ja: AuthUiMessageBundle = {
     updateFailed: "ユーザー名の更新に失敗しました",
     cooldown: "ユーザー名は{when}に再度変更できます。",
   },
+  challenge: {
+    codeSentTo: "{destination} にコードを送信しました。",
+    codeResent: "新しいコードを送信しました。",
+    codeBurned:
+      "このコードは正しくなく、再利用できません。新しいコードを送信してもう一度お試しください。",
+    sendNewCode: "新しいコードを送信",
+    useFactor: "代わりに{method}を使用",
+  },
+  enrollment: {
+    title: "2段階認証を設定",
+    chooseMethod: "ログインコードの受け取り方法を選択してください。",
+    startTotp: "認証アプリを設定",
+    totpPrompt: "次に、アプリの6桁のコードを入力して完了します。",
+    codeSentPrompt: "送信したコードを入力して設定を完了してください。",
+    noMethod:
+      "このアカウントで利用できる2段階認証の方法がありません。サポートにお問い合わせください。",
+    secretLabel: "セットアップキー",
+  },
+  backupCodes: {
+    title: "バックアップコードを保存",
+    signedIn:
+      "ログインしました。これらのコードを安全な場所に保管してください。認証方法を使えなくなった場合、各コードは1回ずつ使用できます。",
+    acknowledge: "バックアップコードを保存しました",
+    fileHeader: "バックアップコード。各コードは1回のみ使用できます。",
+  },
+  recovery: {
+    title: "アカウントを復元しますか？",
+    description:
+      "このアカウントは削除されました。{date}まで復元できます。それ以降は完全に削除されます。",
+    confirm: "アカウントを復元",
+  },
+  callback: {
+    completing: "ログインを完了しています…",
+    errorTitle: "ログインに失敗しました",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "続行するにはウォレットを接続してください。",
+      unsupported: "このウォレットはメッセージに署名できません。",
+      rejected: "署名リクエストが拒否されました。",
+      invalid_signature: "ウォレットが無効な署名を返しました。",
+      busy: "ウォレットが使用中です。もう一度お試しください。",
+    },
+  },
   errors: {
+    network_error: "ネットワークエラーです。接続を確認してください。",
+    popup_blocked:
+      "ログインウィンドウがブロックされました。ポップアップを許可してもう一度お試しください。",
+    popup_closed: "ログインウィンドウが閉じられました。",
+    popup_timeout:
+      "ログインウィンドウがタイムアウトしました。もう一度お試しください。",
+    session_changed:
+      "別のタブでセッションが変更されました。もう一度お試しください。",
     generic: "問題が発生しました。もう一度お試しください。",
     network: "ネットワークエラーです。接続をご確認ください。",
     "2fa_enrollment_required":

@@ -14,7 +14,7 @@ type Win = {
 }
 type Result = { ok: true; value: unknown } | { ok: false; code: string }
 
-const dist = path.resolve(import.meta.dirname, "../dist")
+const app = path.resolve(import.meta.dirname, ".react-app/solana.js")
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 function base58(bytes: Uint8Array): string {
@@ -45,26 +45,10 @@ const wallet = () => {
   return w
 }
 
-// Serves the built bundles; the core never touches React, so a stub satisfies
-// the hook's peer import.
+// The packaged entries, bundled with their real dependencies.
 async function loadSolana(page: Page) {
-  await page.route("**/__auth-ui-react.js", (route) =>
-    route.fulfill({
-      contentType: "text/javascript",
-      body: "const no = () => { throw new Error('react stub') }\nexport const useCallback = no, useEffect = no, useMemo = no, useRef = no, useState = no\n",
-    })
-  )
-  await page.route("**/__auth-ui/*.js", (route, req) =>
-    route.fulfill({
-      path: path.join(dist, path.basename(new URL(req.url()).pathname)),
-      contentType: "text/javascript",
-    })
-  )
-  await page.route("**/solana-e2e.html", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: `<!doctype html><meta charset="utf-8"><script type="importmap">{"imports":{"react":"/__auth-ui-react.js"}}</script>`,
-    })
+  await page.route("**/__auth-ui/solana-app.js", (route) =>
+    route.fulfill({ path: app, contentType: "text/javascript" })
   )
   await page.exposeFunction(
     "walletSign",
@@ -74,14 +58,9 @@ async function loadSolana(page: Page) {
       return sign(null, Buffer.from(message, "base64"), key).toString("base64")
     }
   )
-  await page.goto("/solana-e2e.html")
-  await page.evaluate(async () => {
-    const w = window as unknown as Win
-    const client = await import(/* @vite-ignore */ "/__auth-ui/client.js")
-    const solana = await import(/* @vite-ignore */ "/__auth-ui/solana.js")
-    w.auth = client.createAuthClient()
-    w.solana = solana.createSolanaAuth(w.auth)
-  })
+  await page.goto("/")
+  await page.addScriptTag({ url: "/__auth-ui/solana-app.js", type: "module" })
+  await page.waitForFunction(() => "solana" in window)
 }
 
 // Runs one SolanaAuth call with an in-page signer for `address`.

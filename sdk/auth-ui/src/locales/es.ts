@@ -75,6 +75,9 @@ export const es: AuthUiMessageBundle = {
     codeLength: "Ingresa el código completo de {length} dígitos",
   },
   signIn: {
+    tabsLabel: "Inicia sesión o crea una cuenta",
+    resetRequiredAction: "Restablecer tu contraseña",
+    recovered: "Tu cuenta se ha restaurado. Inicia sesión para continuar.",
     title: "Iniciar sesión",
     titleCombined: "Iniciar sesión / Registrarse",
     description: "Inicia sesión o crea una cuenta para continuar",
@@ -92,6 +95,8 @@ export const es: AuthUiMessageBundle = {
       "Esta cuenta no puede usarse para iniciar sesión. Puede haber sido cerrada o restringida. Si crees que es un error, contacta con soporte.",
   },
   register: {
+    passwordHint: "Usa al menos {min} caracteres.",
+    complete: "Tu cuenta está lista. Inicia sesión para continuar.",
     title: "Crear cuenta",
     submit: "Registrarse",
     haveAccount: "¿Ya tienes una cuenta?",
@@ -106,6 +111,8 @@ export const es: AuthUiMessageBundle = {
       "El registro por teléfono no está disponible en este momento; regístrate con un correo electrónico en su lugar.",
   },
   verify: {
+    cancelBody:
+      "Esto elimina tu registro pendiente de {identifier} para que puedas empezar de nuevo.",
     title: "Verifica tu cuenta",
     titleEmail: "Verifica tu correo",
     titlePhone: "Verifica tu teléfono",
@@ -148,6 +155,8 @@ export const es: AuthUiMessageBundle = {
     cancelFailed: "No se pudo cancelar el registro.",
   },
   resetPassword: {
+    backToSignIn: "Volver a iniciar sesión",
+    requestNewLink: "Solicitar un nuevo enlace",
     requestTitle: "Restablecer contraseña",
     requestDescription:
       "Ingresa tu correo o número de teléfono y te enviaremos un enlace para restablecerla.",
@@ -381,7 +390,60 @@ export const es: AuthUiMessageBundle = {
     updateFailed: "No se pudo actualizar el nombre de usuario",
     cooldown: "Podrás cambiar tu nombre de usuario de nuevo {when}.",
   },
+  challenge: {
+    codeSentTo: "Enviamos un código a {destination}.",
+    codeResent: "Hay un código nuevo en camino.",
+    codeBurned:
+      "Ese código no funcionó y no se puede volver a usar. Envía un código nuevo para intentarlo de nuevo.",
+    sendNewCode: "Enviar un código nuevo",
+    useFactor: "Usar {method} en su lugar",
+  },
+  enrollment: {
+    title: "Configura la autenticación en dos pasos",
+    chooseMethod: "Elige cómo recibirás los códigos de inicio de sesión.",
+    startTotp: "Configurar autenticador",
+    totpPrompt:
+      "Luego introduce el código de 6 dígitos de la app para terminar.",
+    codeSentPrompt:
+      "Introduce el código que enviamos para terminar la configuración.",
+    noMethod:
+      "No hay ningún método de dos pasos disponible para esta cuenta. Contacta con soporte.",
+    secretLabel: "Clave de configuración",
+  },
+  backupCodes: {
+    title: "Guarda tus códigos de respaldo",
+    signedIn:
+      "Has iniciado sesión. Guarda estos códigos en un lugar seguro: cada uno funciona una vez si pierdes el acceso a tu método de verificación.",
+    acknowledge: "He guardado mis códigos de respaldo",
+    fileHeader: "Códigos de respaldo. Cada código se puede usar una vez.",
+  },
+  recovery: {
+    title: "¿Restaurar tu cuenta?",
+    description:
+      "Esta cuenta fue eliminada. Puedes restaurarla hasta el {date}; después se eliminará definitivamente.",
+    confirm: "Restaurar cuenta",
+  },
+  callback: {
+    completing: "Completando el inicio de sesión…",
+    errorTitle: "Error al iniciar sesión",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "Conecta una billetera para continuar.",
+      unsupported: "Esta billetera no puede firmar mensajes.",
+      rejected: "Se rechazó la solicitud de firma.",
+      invalid_signature: "La billetera devolvió una firma no válida.",
+      busy: "La billetera está ocupada. Inténtalo de nuevo.",
+    },
+  },
   errors: {
+    network_error: "Error de red. Comprueba tu conexión.",
+    popup_blocked:
+      "Se bloqueó la ventana de inicio de sesión. Permite las ventanas emergentes e inténtalo de nuevo.",
+    popup_closed: "Se cerró la ventana de inicio de sesión.",
+    popup_timeout: "La ventana de inicio de sesión caducó. Inténtalo de nuevo.",
+    session_changed: "Tu sesión cambió en otra pestaña. Inténtalo de nuevo.",
     generic: "Algo salió mal. Inténtalo de nuevo.",
     network: "Error de red. Por favor verifica tu conexión.",
     "2fa_enrollment_required":

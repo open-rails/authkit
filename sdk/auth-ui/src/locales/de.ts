@@ -74,6 +74,10 @@ export const de: AuthUiMessageBundle = {
     codeLength: "Geben Sie den vollständigen {length}-stelligen Code ein",
   },
   signIn: {
+    tabsLabel: "Anmelden oder Konto erstellen",
+    resetRequiredAction: "Passwort zurücksetzen",
+    recovered:
+      "Ihr Konto wurde wiederhergestellt. Melden Sie sich an, um fortzufahren.",
     title: "Anmelden",
     titleCombined: "Anmelden / Registrieren",
     description:
@@ -93,6 +97,8 @@ export const de: AuthUiMessageBundle = {
       "Dieses Konto kann nicht zur Anmeldung verwendet werden. Es wurde möglicherweise geschlossen oder eingeschränkt. Wenn Sie denken, dass dies ein Fehler ist, kontaktieren Sie bitte den Support.",
   },
   register: {
+    passwordHint: "Mindestens {min} Zeichen.",
+    complete: "Ihr Konto ist bereit. Melden Sie sich an, um fortzufahren.",
     title: "Konto erstellen",
     submit: "Registrieren",
     haveAccount: "Bereits ein Konto?",
@@ -107,6 +113,8 @@ export const de: AuthUiMessageBundle = {
       "Die Anmeldung per Telefon ist derzeit nicht verfügbar — bitte registrieren Sie sich stattdessen mit einer E-Mail-Adresse.",
   },
   verify: {
+    cancelBody:
+      "Damit wird Ihre ausstehende Registrierung für {identifier} gelöscht, sodass Sie neu beginnen können.",
     title: "Verifizieren Sie Ihr Konto",
     titleEmail: "Bestätigen Sie Ihre E-Mail",
     titlePhone: "Bestätigen Sie Ihre Telefonnummer",
@@ -149,6 +157,8 @@ export const de: AuthUiMessageBundle = {
     cancelFailed: "Registrierung konnte nicht abgebrochen werden.",
   },
   resetPassword: {
+    backToSignIn: "Zurück zur Anmeldung",
+    requestNewLink: "Neuen Link anfordern",
     requestTitle: "Passwort zurücksetzen",
     requestDescription:
       "Geben Sie Ihre E-Mail oder Telefonnummer ein, und wir senden Ihnen einen Link zum Zurücksetzen.",
@@ -382,7 +392,61 @@ export const de: AuthUiMessageBundle = {
     updateFailed: "Benutzername konnte nicht aktualisiert werden",
     cooldown: "Sie können Ihren Benutzernamen {when} wieder ändern.",
   },
+  challenge: {
+    codeSentTo: "Wir haben einen Code an {destination} gesendet.",
+    codeResent: "Ein neuer Code ist unterwegs.",
+    codeBurned:
+      "Dieser Code war falsch und kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
+    sendNewCode: "Neuen Code senden",
+    useFactor: "Stattdessen {method} verwenden",
+  },
+  enrollment: {
+    title: "Zwei-Faktor-Authentifizierung einrichten",
+    chooseMethod: "Wählen Sie, wie Sie Anmeldecodes erhalten.",
+    startTotp: "Authenticator einrichten",
+    totpPrompt: "Geben Sie dann den 6-stelligen Code aus der App ein.",
+    codeSentPrompt:
+      "Geben Sie den gesendeten Code ein, um die Einrichtung abzuschließen.",
+    noMethod:
+      "Für dieses Konto ist keine Zwei-Faktor-Methode verfügbar. Bitte wenden Sie sich an den Support.",
+    secretLabel: "Einrichtungsschlüssel",
+  },
+  backupCodes: {
+    title: "Backup-Codes speichern",
+    signedIn:
+      "Sie sind angemeldet. Bewahren Sie diese Codes sicher auf: Jeder Code funktioniert einmal, falls Sie keinen Zugriff auf Ihre Verifizierungsmethode haben.",
+    acknowledge: "Ich habe meine Backup-Codes gespeichert",
+    fileHeader: "Backup-Codes. Jeder Code kann einmal verwendet werden.",
+  },
+  recovery: {
+    title: "Konto wiederherstellen?",
+    description:
+      "Dieses Konto wurde gelöscht. Sie können es bis {date} wiederherstellen; danach wird es endgültig entfernt.",
+    confirm: "Konto wiederherstellen",
+  },
+  callback: {
+    completing: "Anmeldung wird abgeschlossen…",
+    errorTitle: "Anmeldung fehlgeschlagen",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "Verbinden Sie eine Wallet, um fortzufahren.",
+      unsupported: "Diese Wallet kann keine Nachrichten signieren.",
+      rejected: "Die Signaturanfrage wurde abgelehnt.",
+      invalid_signature: "Die Wallet hat eine ungültige Signatur geliefert.",
+      busy: "Die Wallet ist beschäftigt. Versuchen Sie es erneut.",
+    },
+  },
   errors: {
+    network_error: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+    popup_blocked:
+      "Das Anmeldefenster wurde blockiert. Erlauben Sie Pop-ups und versuchen Sie es erneut.",
+    popup_closed: "Das Anmeldefenster wurde geschlossen.",
+    popup_timeout:
+      "Zeitüberschreitung im Anmeldefenster. Versuchen Sie es erneut.",
+    session_changed:
+      "Ihre Sitzung hat sich in einem anderen Tab geändert. Bitte versuchen Sie es erneut.",
     generic: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     network: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
     "2fa_enrollment_required":

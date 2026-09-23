@@ -13,6 +13,10 @@
    `data-authui-theme` picks the palette and appearance.ts overrides land as
    inline custom properties that win over all blocks below. */
 
+/* Base UI marks orientation as data-orientation; shadcn's classes expect these. */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
 @custom-variant dark {
   &:where([data-authui-theme="dark"], [data-authui-theme="dark"] *) {
     @slot;

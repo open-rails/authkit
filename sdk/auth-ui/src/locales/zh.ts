@@ -68,6 +68,9 @@ export const zh: AuthUiMessageBundle = {
     codeLength: "请输入完整的 {length} 位验证码",
   },
   signIn: {
+    tabsLabel: "登录或创建账户",
+    resetRequiredAction: "重置密码",
+    recovered: "您的账户已恢复。请登录以继续。",
     title: "登录",
     titleCombined: "登录 / 注册",
     description: "请登录或创建账户以继续",
@@ -85,6 +88,8 @@ export const zh: AuthUiMessageBundle = {
       "此账号无法用于登录。可能已被关闭或受限。如认为有误，请联系客服。",
   },
   register: {
+    passwordHint: "至少使用 {min} 个字符。",
+    complete: "您的账户已就绪。请登录以继续。",
     title: "创建账户",
     submit: "注册",
     haveAccount: "已有账户？",
@@ -98,6 +103,7 @@ export const zh: AuthUiMessageBundle = {
     phoneUnavailable: "手机注册功能暂时不可用，请改用邮箱地址注册。",
   },
   verify: {
+    cancelBody: "这将删除 {identifier} 的待处理注册，以便您重新开始。",
     title: "验证您的账户",
     titleEmail: "验证你的邮箱",
     titlePhone: "验证你的手机号",
@@ -136,6 +142,8 @@ export const zh: AuthUiMessageBundle = {
     cancelFailed: "无法取消注册。",
   },
   resetPassword: {
+    backToSignIn: "返回登录",
+    requestNewLink: "请求新链接",
     requestTitle: "重置密码",
     requestDescription: "输入你的邮箱或手机号，我们会向你发送重置链接。",
     sendLink: "发送重置链接",
@@ -341,7 +349,54 @@ export const zh: AuthUiMessageBundle = {
     updateFailed: "无法更新用户名",
     cooldown: "你可以在{when}再次更改用户名。",
   },
+  challenge: {
+    codeSentTo: "我们已向 {destination} 发送了验证码。",
+    codeResent: "新的验证码已发送。",
+    codeBurned: "该验证码无效且不能再次使用。请发送新的验证码后重试。",
+    sendNewCode: "发送新验证码",
+    useFactor: "改用{method}",
+  },
+  enrollment: {
+    title: "设置双重验证",
+    chooseMethod: "选择接收登录验证码的方式。",
+    startTotp: "设置验证器",
+    totpPrompt: "然后输入应用中的 6 位验证码以完成设置。",
+    codeSentPrompt: "输入我们发送的验证码以完成设置。",
+    noMethod: "此账户没有可用的双重验证方式。请联系客服。",
+    secretLabel: "设置密钥",
+  },
+  backupCodes: {
+    title: "保存备用码",
+    signedIn:
+      "您已登录。请妥善保管这些备用码：如果无法使用验证方式，每个备用码可使用一次。",
+    acknowledge: "我已保存备用码",
+    fileHeader: "备用码。每个备用码只能使用一次。",
+  },
+  recovery: {
+    title: "恢复您的账户？",
+    description: "此账户已被删除。您可以在 {date} 之前恢复，之后将被永久删除。",
+    confirm: "恢复账户",
+  },
+  callback: {
+    completing: "正在完成登录…",
+    errorTitle: "登录失败",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "请连接钱包以继续。",
+      unsupported: "此钱包无法签名消息。",
+      rejected: "签名请求被拒绝。",
+      invalid_signature: "钱包返回了无效的签名。",
+      busy: "钱包正忙，请重试。",
+    },
+  },
   errors: {
+    network_error: "网络错误，请检查您的连接。",
+    popup_blocked: "登录窗口被拦截。请允许弹出窗口后重试。",
+    popup_closed: "登录窗口已关闭。",
+    popup_timeout: "登录窗口已超时，请重试。",
+    session_changed: "您的会话已在其他标签页中更改，请重试。",
     generic: "出了点问题，请重试。",
     network: "网络错误。请检查您的连接。",
     "2fa_enrollment_required": "需要设置双重验证才能完成登录。",

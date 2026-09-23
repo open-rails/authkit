@@ -86,6 +86,9 @@ export const en = {
       "You have been signed out. Please sign in again.",
     accountUnavailable:
       "This account can't be used to sign in. It may have been closed or restricted. If you think this is a mistake, please contact support.",
+    tabsLabel: "Sign in or create an account",
+    resetRequiredAction: "Reset your password",
+    recovered: "Your account was restored. Sign in to continue.",
   },
   register: {
     title: "Create account",
@@ -100,6 +103,8 @@ export const en = {
     success: "Registration successful! Please check your email.",
     phoneUnavailable:
       "Phone signup is unavailable right now. Please sign up with an email address instead.",
+    passwordHint: "Use at least {min} characters.",
+    complete: "Your account is ready. Sign in to continue.",
   },
   verify: {
     title: "Verify your account",
@@ -139,6 +144,8 @@ export const en = {
     cancelConfirmDescription:
       "This permanently deletes your pending registration for {identifier}. Enter your password to confirm.",
     cancelFailed: "Could not cancel registration.",
+    cancelBody:
+      "This deletes your pending registration for {identifier} so you can start over.",
   },
   resetPassword: {
     requestTitle: "Reset password",
@@ -162,6 +169,8 @@ export const en = {
       "This password reset link is invalid or has expired. Please request a new one.",
     required:
       "Your account predates our new login system. Please reset your password to continue.",
+    backToSignIn: "Back to sign in",
+    requestNewLink: "Request a new link",
   },
   twoFactor: {
     title: "Two-factor authentication",
@@ -368,9 +377,60 @@ export const en = {
     updateFailed: "Failed to update username",
     cooldown: "You can change your username again {when}.",
   },
+  challenge: {
+    codeSentTo: "We sent a code to {destination}.",
+    codeResent: "A new code is on its way.",
+    codeBurned:
+      "That code didn't work, and it can't be used again. Send a new code to try again.",
+    sendNewCode: "Send a new code",
+    useFactor: "Use {method} instead",
+  },
+  enrollment: {
+    title: "Set up two-factor authentication",
+    chooseMethod: "Choose how you'll get sign-in codes.",
+    startTotp: "Set up authenticator",
+    totpPrompt: "Then enter the 6-digit code from the app to finish.",
+    codeSentPrompt: "Enter the code we sent to finish setup.",
+    noMethod:
+      "No two-factor method is available for this account. Please contact support.",
+    secretLabel: "Setup key",
+  },
+  backupCodes: {
+    title: "Save your backup codes",
+    signedIn:
+      "You're signed in. Keep these somewhere safe: each code works once if you lose access to your verification method.",
+    acknowledge: "I've saved my backup codes",
+    fileHeader: "Backup codes. Each code can be used once.",
+  },
+  recovery: {
+    title: "Restore your account?",
+    description:
+      "This account was deleted. You can restore it until {date}; after that it is removed for good.",
+    confirm: "Restore account",
+  },
+  callback: {
+    completing: "Completing sign-in…",
+    errorTitle: "Sign-in failed",
+  },
+  solana: {
+    provider: "Solana",
+    errors: {
+      not_connected: "Connect a wallet to continue.",
+      unsupported: "This wallet can't sign messages.",
+      rejected: "The signature request was declined.",
+      invalid_signature: "The wallet returned an invalid signature.",
+      busy: "The wallet is busy. Try again.",
+    },
+  },
   errors: {
     generic: "Something went wrong. Please try again.",
     network: "Network error. Please check your connection.",
+    network_error: "Network error. Please check your connection.",
+    popup_blocked:
+      "The sign-in window was blocked. Allow pop-ups and try again.",
+    popup_closed: "The sign-in window was closed.",
+    popup_timeout: "The sign-in window timed out. Try again.",
+    session_changed: "Your session changed in another tab. Please try again.",
     "2fa_enrollment_required":
       "Two-factor authentication setup is required to finish signing in.",
     "2fa_factor_exists":
