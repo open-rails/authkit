@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import type { RedirectResult } from "../client/client.ts"
+import type { AuthClient, RedirectResult } from "../client/client.ts"
 import type { LoginContinuation } from "../client/continuation.ts"
 import { AuthKitError } from "../client/errors.ts"
 import type { GuardOptions } from "./account.ts"
@@ -173,30 +173,57 @@ export type VerifyLinkState =
   | { status: "continuation"; continuation: LoginContinuation }
   | { status: "error"; error: AuthKitError }
 
-// Verification link route: confirms the link token once (StrictMode-safe).
-// "verified" with signedIn when AuthKit also opened a session.
+// One confirmation per client and token. The confirm itself changes the
+// session, so hosts that remount per session would otherwise resend a
+// single-use token and report it as expired.
+const linkConfirmations = new WeakMap<
+  AuthClient,
+  Map<string, Promise<VerifyLinkState>>
+>()
+
+function confirmLink(client: AuthClient, token: string) {
+  let byToken = linkConfirmations.get(client)
+  if (!byToken) linkConfirmations.set(client, (byToken = new Map()))
+  let result = byToken.get(token)
+  if (!result) {
+    result = client.confirmVerification({ token }).then(
+      (out): VerifyLinkState =>
+        out.kind === "session"
+          ? { status: "verified", signedIn: true, returnTo: out.returnTo }
+          : out.kind === "contact_changed"
+            ? { status: "verified", signedIn: false }
+            : { status: "continuation", continuation: out },
+      (err: unknown): VerifyLinkState => ({
+        status: "error",
+        error: toAuthKitError(err),
+      })
+    )
+    byToken.set(token, result)
+  }
+  return result
+}
+
+// Verification link route: confirms the link token once per client, across
+// StrictMode and remounts. "verified" with signedIn when AuthKit also opened
+// a session.
 export function useVerifyLink(
   token: string | null | undefined
 ): VerifyLinkState {
   const client = useAuthClient()
-  const [state, setState] = useState<VerifyLinkState>({ status: "pending" })
-  const sent = useRef<string | null>(null)
+  const [state, setState] = useState<{
+    token: string
+    value: VerifyLinkState
+  } | null>(null)
 
   useEffect(() => {
-    if (!token || sent.current === token) return
-    sent.current = token
-    client.confirmVerification({ token }).then(
-      (out) =>
-        setState(
-          out.kind === "session"
-            ? { status: "verified", signedIn: true, returnTo: out.returnTo }
-            : out.kind === "contact_changed"
-              ? { status: "verified", signedIn: false }
-              : { status: "continuation", continuation: out }
-        ),
-      (err: unknown) =>
-        setState({ status: "error", error: toAuthKitError(err) })
-    )
+    if (!token) return
+    let live = true
+    void confirmLink(client, token).then((value) => {
+      if (live) setState({ token, value })
+    })
+    return () => {
+      live = false
+    }
   }, [client, token])
 
   if (!token)
@@ -208,5 +235,5 @@ export function useVerifyLink(
         message: "verification link has no token",
       }),
     }
-  return state
+  return state?.token === token ? state.value : { status: "pending" }
 }

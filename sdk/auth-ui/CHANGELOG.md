@@ -2,6 +2,9 @@
 
 ## 0.2.1
 
+- `useVerifyLink`/`VerifyLink` confirm a link token once per client, across
+  remounts. The confirm signs the user in, and a host that remounts its tree
+  per session used to resend the single-use token and show "link expired".
 - Built one file per module, and `@openrails/auth-ui/provider` exports
   `AuthUiProvider` alone: a host that lazy-loads the styled components keeps
   them out of its entry chunk.

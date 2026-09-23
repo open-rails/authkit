@@ -306,6 +306,25 @@ describe("VerifyLink", () => {
     expect(navigate).toHaveBeenCalledWith("/")
   })
 
+  it("confirms once even when the new session remounts the page", async () => {
+    const confirm = vi.fn(() => session({ sub: "u1", sid: "s1" }))
+    const client = createAuthClient({
+      fetch: stubFetch({ "POST /api/v1/verify/confirm": confirm }),
+    })
+    const page = (key: string) => (
+      <AuthProvider client={client} autoStart={false}>
+        <AuthUiProvider>
+          <VerifyLink key={key} token="tok-2" navigate={vi.fn()} />
+        </AuthUiProvider>
+      </AuthProvider>
+    )
+    const view = render(page("a"))
+    await screen.findByText("Verified and signed in.")
+    view.rerender(page("b"))
+    await screen.findByText("Verified and signed in.")
+    expect(confirm).toHaveBeenCalledOnce()
+  })
+
   it("explains a dead or missing link", async () => {
     const fetch = stubFetch({
       "POST /api/v1/verify/confirm": () =>
