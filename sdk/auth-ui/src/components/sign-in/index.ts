@@ -27,6 +27,7 @@ export {
   type SignInSlots,
 } from "./SignInPanel.tsx"
 export { TotpSetup, type TotpSetupProps } from "./TotpSetup.tsx"
+export { VerifyLink, type VerifyLinkProps } from "./VerifyLink.tsx"
 export {
   TwoFactorChallenge,
   type TwoFactorChallengeProps,

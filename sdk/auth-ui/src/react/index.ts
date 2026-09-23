@@ -48,7 +48,9 @@ export {
   useContactVerification,
   useLinkedProviders,
   useOidcCallback,
+  useVerifyLink,
   type ContactVerificationState,
   type LinkedProvider,
   type LinkedProvidersOptions,
+  type VerifyLinkState,
 } from "./providers.ts"

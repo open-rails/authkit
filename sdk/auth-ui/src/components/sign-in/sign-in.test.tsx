@@ -15,6 +15,7 @@ import { normalizeIdentifier } from "./identifier.ts"
 import { LoginForm } from "./LoginForm.tsx"
 import { RegisterForm } from "./RegisterForm.tsx"
 import { SignInDialog } from "./SignInDialog.tsx"
+import { VerifyLink } from "./VerifyLink.tsx"
 
 // input-otp probes for password-manager overlays.
 document.elementFromPoint ??= () => null
@@ -277,6 +278,49 @@ describe("RegisterForm", () => {
     ).toBeVisible()
     expect(screen.getByText("Username must start with a letter.")).toBeVisible()
     expect(register).not.toHaveBeenCalled()
+  })
+})
+
+describe("VerifyLink", () => {
+  it("confirms the link token once and reports the new session", async () => {
+    const user = userEvent.setup()
+    const navigate = vi.fn()
+    const onVerified = vi.fn()
+    const confirm = vi.fn(() => session({ sub: "u1", sid: "s1" }))
+    const fetch = stubFetch({ "POST /api/v1/verify/confirm": confirm })
+    renderUi(
+      <VerifyLink token="tok-1" navigate={navigate} onVerified={onVerified} />,
+      fetch
+    )
+    await screen.findByText("Verified and signed in.")
+    expect(onVerified).toHaveBeenCalledWith({
+      signedIn: true,
+      returnTo: undefined,
+    })
+    expect(confirm).toHaveBeenCalledOnce()
+    const body = fetch.mock.calls.find(([url]) =>
+      String(url).endsWith("/verify/confirm")
+    )?.[1]?.body
+    expect(JSON.parse(String(body))).toEqual({ token: "tok-1" })
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    expect(navigate).toHaveBeenCalledWith("/")
+  })
+
+  it("explains a dead or missing link", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/verify/confirm": () =>
+        authError(400, "invalid_or_expired_token"),
+    })
+    const { unmount } = renderUi(
+      <VerifyLink token="stale" navigate={vi.fn()} />,
+      fetch
+    )
+    await screen.findByText("This link is invalid or has expired.")
+    unmount()
+    renderUi(<VerifyLink navigate={vi.fn()} />, stubFetch({}))
+    expect(
+      screen.getByText("This link is invalid or has expired.")
+    ).toBeVisible()
   })
 })
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { RedirectResult } from "../client/client.ts"
-import type { AuthKitError } from "../client/errors.ts"
+import type { LoginContinuation } from "../client/continuation.ts"
+import { AuthKitError } from "../client/errors.ts"
 import type { GuardOptions } from "./account.ts"
 import { useAuthClient, useCapabilities, useUser } from "./context.ts"
 import { toAuthKitError, unguarded, useTask } from "./task.ts"
@@ -163,5 +164,49 @@ export function useOidcCallback(
     setState(consumed.current)
   }, [client])
 
+  return state
+}
+
+export type VerifyLinkState =
+  | { status: "pending" }
+  | { status: "verified"; signedIn: boolean; returnTo?: string }
+  | { status: "continuation"; continuation: LoginContinuation }
+  | { status: "error"; error: AuthKitError }
+
+// Verification link route: confirms the link token once (StrictMode-safe).
+// "verified" with signedIn when AuthKit also opened a session.
+export function useVerifyLink(
+  token: string | null | undefined
+): VerifyLinkState {
+  const client = useAuthClient()
+  const [state, setState] = useState<VerifyLinkState>({ status: "pending" })
+  const sent = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!token || sent.current === token) return
+    sent.current = token
+    client.confirmVerification({ token }).then(
+      (out) =>
+        setState(
+          out.kind === "session"
+            ? { status: "verified", signedIn: true, returnTo: out.returnTo }
+            : out.kind === "contact_changed"
+              ? { status: "verified", signedIn: false }
+              : { status: "continuation", continuation: out }
+        ),
+      (err: unknown) =>
+        setState({ status: "error", error: toAuthKitError(err) })
+    )
+  }, [client, token])
+
+  if (!token)
+    return {
+      status: "error",
+      error: new AuthKitError(0, {
+        type: "local",
+        code: "invalid_or_expired_token",
+        message: "verification link has no token",
+      }),
+    }
   return state
 }

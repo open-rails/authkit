@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `VerifyLink` (and headless `useVerifyLink`) for the AuthKit verification
+  link landing route: confirms the link token once and finishes any
+  continuation in place.
+
 ## 0.1.0
 
 First release: `client`, `react`, `solana`, styled sign-in and account security components, locales (en de es ja ko zh), tested against AuthKit v0.130.1.

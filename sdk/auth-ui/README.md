@@ -160,6 +160,10 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
 - OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
   finishes 2FA and other continuations in place.
+- Verification link route (AuthKit `Frontend.VerifyPath`, default `/verify`):
+  `<VerifyLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
+  confirms the emailed/texted link once; `useVerifyLink` is the headless hook.
+
 ### Account security
 
 ```tsx
