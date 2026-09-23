@@ -2,3 +2,4 @@ dist
 node_modules
 
 src/client/generated
+e2e/.react-app

@@ -53,6 +53,40 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 - OIDC: `oidcLoginUrl`, `signInWithPopup` (call from a click) and
   `completeRedirect()` on the callback route.
 
+## React
+
+```tsx
+import {
+  AuthProvider,
+  useLogin,
+  useStepUp,
+  useTwoFactorSettings,
+} from "@openrails/auth-ui/react"
+
+const Root = () => (
+  <AuthProvider client={auth} onSessionChange={() => queryClient.clear()}>
+    <App />
+  </AuthProvider>
+)
+
+function SignIn() {
+  // state.step: credentials | two_factor | enrollment | recovery |
+  // verification | backup_codes | done. error?.code is the AuthKit code.
+  const login = useLogin({
+    onSignedIn: ({ returnTo }) => navigate(returnTo ?? "/"),
+  })
+}
+
+function Security() {
+  // A 403 step_up_required opens stepUp.state; after withPassword or
+  // withTwoFactor the original action is retried.
+  const stepUp = useStepUp()
+  const twoFactor = useTwoFactorSettings({ guard: stepUp.guard })
+}
+```
+
+Hooks are headless: no styling, strings, router or query cache.
+
 ## Styled UI
 
 ```tsx

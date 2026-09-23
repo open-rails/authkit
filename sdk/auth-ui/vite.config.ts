@@ -37,6 +37,7 @@ export default defineConfig({
         "src/**/*.test.ts",
         "src/**/*.test.tsx",
         "src/**/testing.ts",
+        "src/**/testing.tsx",
         "src/test/**",
       ],
       tsconfigPath: path.resolve(root, "tsconfig.json"),
@@ -51,6 +52,7 @@ export default defineConfig({
       entry: {
         index: src("index.ts"),
         client: src("client/index.ts"),
+        react: src("react/index.ts"),
         solana: src("solana/index.ts"),
         ...Object.fromEntries(
           LOCALES.map((l) => [`locales/${l}`, src(`locales/${l}.ts`)])

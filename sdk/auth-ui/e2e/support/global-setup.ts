@@ -4,6 +4,8 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
+import { build } from "vite"
+
 import { startPostgres, stopPostgres } from "./postgres.mjs"
 
 const root = path.resolve(import.meta.dirname, "../..")
@@ -21,6 +23,7 @@ export default async function globalSetup() {
     rmSync(work, { recursive: true, force: true })
   }
   try {
+    await buildReactApp()
     const bin = path.join(work, "authkit-e2e-server")
     execFileSync("go", ["build", "-o", bin, "./cmd/server"], {
       cwd: path.join(root, "e2e/server"),
@@ -54,6 +57,24 @@ export default async function globalSetup() {
     await teardown()
     throw err
   }
+}
+
+// Bundles e2e/react-app against the built dist/ (run `pnpm build` first).
+async function buildReactApp() {
+  await build({
+    configFile: false,
+    logLevel: "warn",
+    root: path.join(root, "e2e/react-app"),
+    build: {
+      outDir: path.join(root, "e2e/.react-app"),
+      emptyOutDir: true,
+      minify: false,
+      rollupOptions: {
+        input: path.join(root, "e2e/react-app/main.tsx"),
+        output: { entryFileNames: "app.js" },
+      },
+    },
+  })
 }
 
 function freePort(): Promise<number> {

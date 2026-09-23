@@ -35,6 +35,10 @@
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client.js"
     },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react.js"
+    },
     "./locales/*": {
       "types": "./dist/locales/*.d.ts",
       "import": "./dist/locales/*.js"

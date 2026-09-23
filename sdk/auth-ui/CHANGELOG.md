@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `react`: headless React bindings. `AuthProvider` (with `onSessionChange` for
+  host cache resets), `useSession`, `useUser` (shared `/me`, refetched per
+  session generation), `usePermissions`, `useCapabilities`, and flow state
+  machines `useLogin` (every login continuation, popup sign-in),
+  `useRegister`, `usePasswordReset`, `useChangePassword`, `useStepUp` (with a
+  `guard` that steps up and retries a sensitive action), `useTwoFactorSettings`,
+  `useContactVerification`, `useLinkedProviders`, `useSessions`,
+  `useDeleteAccount` and `useOidcCallback`. Hook errors are `AuthKitError`s.
 - `solana`: `createSolanaAuth(client)` with `signIn`, `link` and `unlink` over
   AuthKit's SIWS endpoints for any `{ publicKey, signMessage }` signer. Sign-in
   goes through `completeSignIn`, so 2FA and recovery continuations and
