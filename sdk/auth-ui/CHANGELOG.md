@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.0
+
+First release: `client`, `react`, `solana`, styled sign-in and account security components, locales (en de es ja ko zh), tested against AuthKit v0.130.1.
+
 - Styled account security: `AccountSecurity` and standalone `ContactPanel`,
   `PasswordPanel`, `LinkedProvidersPanel`, `TwoFactorPanel` (TOTP QR enrollment,
   email/SMS factors, default factor, backup codes), `SessionsPanel` (batch
