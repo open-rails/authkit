@@ -1,0 +1,220 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "tw-animate-css";
+@source "./";
+@source not "./locales";
+@source not "./i18n";
+@source not "./client";
+
+/* The build scopes every rule under `.authui` (tooling/css). Components read
+   only `--authui-*` tokens, so host variables never collide with ours;
+   `data-authui-theme` picks the palette and appearance.ts overrides land as
+   inline custom properties that win over all blocks below. */
+
+/* Base UI marks orientation as data-orientation; shadcn's classes expect these. */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
+@custom-variant dark {
+  &:where([data-authui-theme="dark"], [data-authui-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where([data-authui-theme="auto"], [data-authui-theme="auto"] *) {
+      @slot;
+    }
+  }
+  &:where(
+    .dark [data-authui-theme="inherit"],
+    .dark [data-authui-theme="inherit"] *
+  ) {
+    @slot;
+  }
+}
+
+@theme inline {
+  --color-background: var(--authui-background);
+  --color-foreground: var(--authui-foreground);
+  --color-card: var(--authui-card);
+  --color-card-foreground: var(--authui-card-foreground);
+  --color-popover: var(--authui-popover);
+  --color-popover-foreground: var(--authui-popover-foreground);
+  --color-primary: var(--authui-primary);
+  --color-primary-foreground: var(--authui-primary-foreground);
+  --color-primary-solid: var(--authui-primary-solid);
+  --color-primary-solid-foreground: var(--authui-primary-solid-foreground);
+  --color-secondary: var(--authui-secondary);
+  --color-secondary-foreground: var(--authui-secondary-foreground);
+  --color-muted: var(--authui-muted);
+  --color-muted-foreground: var(--authui-muted-foreground);
+  --color-accent: var(--authui-accent);
+  --color-accent-foreground: var(--authui-accent-foreground);
+  --color-destructive: var(--authui-destructive);
+  --color-success: var(--authui-success);
+  --color-border: var(--authui-border);
+  --color-input: var(--authui-input);
+  --color-ring: var(--authui-ring);
+  --radius-sm: calc(var(--authui-radius) - 4px);
+  --radius-md: calc(var(--authui-radius) - 2px);
+  --radius-lg: var(--authui-radius);
+  --radius-xl: calc(var(--authui-radius) + 4px);
+  --animate-caret-blink: caret-blink 1.25s ease-out infinite;
+
+  @keyframes caret-blink {
+    0%,
+    70%,
+    100% {
+      opacity: 1;
+    }
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
+/* Defaults match the doujins/hentai0 contract: neutral hue 258.36, brand 26.79. */
+.authui {
+  --authui-background: oklch(0.9795 0.0025 258.36);
+  --authui-foreground: oklch(0.1975 0.0165 258.36);
+  --authui-card: oklch(1 0 0);
+  --authui-card-foreground: oklch(0.1975 0.0165 258.36);
+  --authui-popover: oklch(1 0 0);
+  --authui-popover-foreground: oklch(0.1975 0.0165 258.36);
+  --authui-primary: oklch(0.5585 0.2005 26.79);
+  --authui-primary-foreground: oklch(0.9945 0.0008 258.36);
+  --authui-primary-solid: oklch(0.5585 0.2005 26.79);
+  --authui-primary-solid-foreground: oklch(0.9945 0.0008 258.36);
+  --authui-secondary: oklch(0.9615 0.004 258.36);
+  --authui-secondary-foreground: oklch(0.1975 0.0165 258.36);
+  --authui-muted: oklch(0.9615 0.004 258.36);
+  --authui-muted-foreground: oklch(0.5185 0.0165 258.36);
+  --authui-accent: oklch(0.9615 0.004 258.36);
+  --authui-accent-foreground: oklch(0.1975 0.0165 258.36);
+  --authui-destructive: oklch(0.5105 0.204 12);
+  --authui-success: oklch(0.5075 0.1225 152);
+  --authui-border: oklch(0.9015 0.007 258.36);
+  --authui-input: oklch(0.87 0.008 258.36);
+  --authui-ring: oklch(0.5585 0.2005 26.79);
+  --authui-radius: 0.5rem;
+
+  color-scheme: light;
+  color: var(--authui-foreground);
+  /* Unset unless appearance.fontFamily is given, so the host font inherits. */
+  font-family: var(--authui-font);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.authui[data-authui-theme="dark"] {
+  --authui-background: oklch(0.1785 0.0085 258.36);
+  --authui-foreground: oklch(0.9275 0.0075 258.36);
+  --authui-card: oklch(0.2215 0.0105 258.36);
+  --authui-card-foreground: oklch(0.9275 0.0075 258.36);
+  --authui-popover: oklch(0.2515 0.0115 258.36);
+  --authui-popover-foreground: oklch(0.9275 0.0075 258.36);
+  --authui-primary: oklch(0.7 0.1905 26.79);
+  --authui-primary-foreground: oklch(0.1785 0.0085 258.36);
+  --authui-primary-solid: oklch(0.57 0.1905 26.79);
+  --authui-primary-solid-foreground: oklch(0.9945 0.0008 258.36);
+  --authui-secondary: oklch(0.2655 0.012 258.36);
+  --authui-secondary-foreground: oklch(0.9275 0.0075 258.36);
+  --authui-muted: oklch(0.2655 0.012 258.36);
+  --authui-muted-foreground: oklch(0.7095 0.0165 258.36);
+  --authui-accent: oklch(0.2655 0.012 258.36);
+  --authui-accent-foreground: oklch(0.9275 0.0075 258.36);
+  --authui-destructive: oklch(0.71 0.1935 12);
+  --authui-success: oklch(0.6685 0.1315 152);
+  --authui-border: oklch(0.3145 0.0135 258.36);
+  --authui-input: oklch(0.36 0.0145 258.36);
+  --authui-ring: oklch(0.638 0.1905 26.79);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  .authui[data-authui-theme="auto"] {
+    --authui-background: oklch(0.1785 0.0085 258.36);
+    --authui-foreground: oklch(0.9275 0.0075 258.36);
+    --authui-card: oklch(0.2215 0.0105 258.36);
+    --authui-card-foreground: oklch(0.9275 0.0075 258.36);
+    --authui-popover: oklch(0.2515 0.0115 258.36);
+    --authui-popover-foreground: oklch(0.9275 0.0075 258.36);
+    --authui-primary: oklch(0.7 0.1905 26.79);
+    --authui-primary-foreground: oklch(0.1785 0.0085 258.36);
+    --authui-primary-solid: oklch(0.57 0.1905 26.79);
+    --authui-primary-solid-foreground: oklch(0.9945 0.0008 258.36);
+    --authui-secondary: oklch(0.2655 0.012 258.36);
+    --authui-secondary-foreground: oklch(0.9275 0.0075 258.36);
+    --authui-muted: oklch(0.2655 0.012 258.36);
+    --authui-muted-foreground: oklch(0.7095 0.0165 258.36);
+    --authui-accent: oklch(0.2655 0.012 258.36);
+    --authui-accent-foreground: oklch(0.9275 0.0075 258.36);
+    --authui-destructive: oklch(0.71 0.1935 12);
+    --authui-success: oklch(0.6685 0.1315 152);
+    --authui-border: oklch(0.3145 0.0135 258.36);
+    --authui-input: oklch(0.36 0.0145 258.36);
+    --authui-ring: oklch(0.638 0.1905 26.79);
+    color-scheme: dark;
+  }
+}
+
+/* Host shadcn tokens flow through; our defaults cover any the host lacks. */
+.authui[data-authui-theme="inherit"] {
+  --authui-background: var(--background, oklch(0.9795 0.0025 258.36));
+  --authui-foreground: var(--foreground, oklch(0.1975 0.0165 258.36));
+  --authui-card: var(--card, oklch(1 0 0));
+  --authui-card-foreground: var(--card-foreground, var(--authui-foreground));
+  --authui-popover: var(--popover, var(--authui-card));
+  --authui-popover-foreground: var(
+    --popover-foreground,
+    var(--authui-foreground)
+  );
+  --authui-primary: var(--primary, oklch(0.5585 0.2005 26.79));
+  --authui-primary-foreground: var(
+    --primary-foreground,
+    oklch(0.9945 0.0008 258.36)
+  );
+  --authui-primary-solid: var(--primary-solid, var(--authui-primary));
+  --authui-primary-solid-foreground: var(
+    --primary-solid-foreground,
+    var(--authui-primary-foreground)
+  );
+  --authui-secondary: var(--secondary, oklch(0.9615 0.004 258.36));
+  --authui-secondary-foreground: var(
+    --secondary-foreground,
+    var(--authui-foreground)
+  );
+  --authui-muted: var(--muted, oklch(0.9615 0.004 258.36));
+  --authui-muted-foreground: var(
+    --muted-foreground,
+    oklch(0.5185 0.0165 258.36)
+  );
+  --authui-accent: var(--accent, var(--authui-muted));
+  --authui-accent-foreground: var(
+    --accent-foreground,
+    var(--authui-foreground)
+  );
+  --authui-destructive: var(--destructive, oklch(0.5105 0.204 12));
+  --authui-success: var(--success, oklch(0.5075 0.1225 152));
+  --authui-border: var(--border, oklch(0.9015 0.007 258.36));
+  --authui-input: var(--input, var(--authui-border));
+  --authui-ring: var(--ring, var(--authui-primary));
+  --authui-radius: var(--radius, 0.5rem);
+  color-scheme: inherit;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--authui-border);
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}

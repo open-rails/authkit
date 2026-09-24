@@ -1,0 +1,122 @@
+{
+  "name": "@openrails/auth-ui",
+  "version": "0.3.2",
+  "description": "Shared browser client, React hooks and UI for AuthKit.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/open-rails/auth-ui.git"
+  },
+  "homepage": "https://github.com/open-rails/auth-ui#readme",
+  "bugs": {
+    "url": "https://github.com/open-rails/auth-ui/issues"
+  },
+  "packageManager": "pnpm@11.0.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./dist/index.js",
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./locales/*": {
+      "types": "./dist/locales/*.d.ts",
+      "import": "./dist/locales/*.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./solana": {
+      "types": "./dist/solana/index.d.ts",
+      "import": "./dist/solana.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "contract": "node e2e/scripts/contract.mjs",
+    "contract:check": "pnpm contract && git diff --exit-code -- src/client/generated && test -z \"$(git status --porcelain -- src/client/generated)\"",
+    "format": "prettier --write \"**/*.{css,ts,tsx,json,md}\"",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "prepublishOnly": "pnpm check"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": false
+  },
+  "peerDependencies": {
+    "@solana/wallet-adapter-react": ">=0.15 <1",
+    "react": ">=19 <20",
+    "react-dom": ">=19 <20"
+  },
+  "peerDependenciesMeta": {
+    "@solana/wallet-adapter-react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@playwright/test": "1.60.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "26.2.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "eslint": "10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
+    "jsdom": "^30.1.1",
+    "postcss": "8.5.26",
+    "prettier": "^3.9.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.0",
+    "vite-plugin-dts": "^5.1.1",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@hugeicons/react": "^1.1.10",
+    "class-variance-authority": "^0.7.1",
+    "cn": "0.4.0",
+    "input-otp": "^1.5.0",
+    "react-qr-code": "2.2.0"
+  }
+}
