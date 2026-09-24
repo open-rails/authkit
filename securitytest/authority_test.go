@@ -19,6 +19,7 @@ const orgPersona authkit.Persona = "org"
 func withRBAC(c *embedded.Config) {
 	c.RBAC = []embedded.PersonaDef{
 		embedded.IntrinsicRootPersona(
+			embedded.RoleDef{Name: "superadmin", Permissions: embedded.IntrinsicRootPermissions()},
 			embedded.RoleDef{Name: "moderator", Permissions: []string{embedded.PermRootUsersBan}},
 			embedded.RoleDef{Name: "admin", Permissions: []string{embedded.PermRootUsersBan, embedded.PermRootUsersRecover, embedded.PermRootResourcesRead}},
 		),
@@ -57,7 +58,7 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	root := authkit.RootGroup()
 	owner, admin := h.newAccount("owner"), h.newAccount("admin")
 	moderator, peer := h.newAccount("moderator"), h.newAccount("peermod")
-	h.grant(root, owner, authkit.OwnerRole)
+	h.grant(root, owner, "superadmin") // the root owner role requires MFA
 	h.grant(root, admin, "admin")
 	h.grant(root, moderator, "moderator")
 	h.grant(root, peer, "moderator")
