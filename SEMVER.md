@@ -111,6 +111,11 @@ A dependency that still requires an old adapter module must also be upgraded to
 its single-module-compatible release. Do not add local replacements or retain
 separate adapter version pins as a workaround.
 
+**Browser SDK.** `@openrails/auth-ui` (`sdk/auth-ui`) ships with every root
+release: the `vX.Y.Z` release carries `openrails-auth-ui-X.Y.Z.tgz`, built from
+the same commit. Its version is the AuthKit version; its client, hook and
+component exports follow the same MAJOR/MINOR/PATCH rules as plane A.
+
 ### 3.2 Rules
 
 - **Use `authkit.Client` for all application operations and `*embedded.Runtime`
@@ -372,6 +377,9 @@ Mechanical today:
    HTTP/JWT goldens while allowing additive fields. `task test-browser` runs the
    actual two-site Chrome cookie lifecycle in CI. Route-specific MFA and failure
    assertions remain in the corresponding workflow suites.
+7. **Browser SDK contract** — the `SDK` workflow runs `pnpm contract:check`
+   (error codes and mounted routes regenerated from this checkout) and the
+   Playwright suite against this checkout's server.
 
 ## 9. Pre-1.0 freeze list
 
