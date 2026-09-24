@@ -242,13 +242,15 @@ func unique(prefix string) string {
 	return strings.ToLower(prefix) + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "") + string(rune('a'+seq.n%26))
 }
 
-// newAccount creates a password user through the trusted host client.
+// newAccount creates a password user with a verified address through the
+// trusted host client.
 func (h *host) newAccount(prefix string) account {
 	h.t.Helper()
 	name := unique(prefix)
 	email := name + "@security.test"
 	u, err := h.client.CreateUser(context.Background(), email, name)
 	require.NoError(h.t, err)
+	require.NoError(h.t, h.client.MarkEmailVerified(context.Background(), u.ID))
 	require.NoError(h.t, h.client.AdminSetPassword(context.Background(), u.ID, password))
 	return account{id: u.ID, email: email, username: name}
 }

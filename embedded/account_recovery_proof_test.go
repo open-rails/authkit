@@ -20,7 +20,6 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	s := runtime.engine
 	user, err := s.CreateUser(t.Context(), "recovery-race@example.test", "recoveryrace")
 	require.NoError(t, err)
-	require.NoError(t, s.MarkEmailVerified(t.Context(), user.ID))
 	require.NoError(t, s.AdminSetPassword(t.Context(), user.ID, "Correct-race-password-1"))
 	require.NoError(t, s.SoftDeleteUser(t.Context(), user.ID))
 	deletedVersion, err := s.q.UserCredentialVersion(t.Context(), user.ID)
