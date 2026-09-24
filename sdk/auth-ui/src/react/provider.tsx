@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 
 import type { AuthClient, AuthSession } from "../client/client.ts"
 import {
@@ -7,6 +13,9 @@ import {
   sessionIdentity,
 } from "./context.ts"
 import { sessionUser } from "./useAuth.ts"
+
+const useStartEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect
 
 export type AuthProviderProps = {
   client: AuthClient
@@ -61,7 +70,12 @@ export function AuthProvider({
     })
   }, [client])
 
-  useEffect(() => (autoStart ? client.start() : undefined), [client, autoStart])
+  // A layout effect runs before any child's passive effect, so requests the
+  // tree makes on mount already wait for the restore (client.ready()).
+  useStartEffect(
+    () => (autoStart ? client.start() : undefined),
+    [client, autoStart]
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

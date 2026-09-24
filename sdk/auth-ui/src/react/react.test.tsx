@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, waitFor } from "@testing-library/react"
+import { useEffect } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { authError, json, stubFetch } from "../client/testing.ts"
@@ -505,5 +506,52 @@ describe("useAuth", () => {
       user: null,
     })
     expect(storage.getItem("authkit:session:/api/v1")).toBeNull()
+  })
+})
+
+describe("AuthProvider restore order", () => {
+  it("starts before children's effects, so their first requests carry the session", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/token": [session({ sub: "u1" })],
+      "GET /host/thing": ({ headers }) =>
+        json(200, { auth: new Headers(headers).get("Authorization") }),
+    })
+    let seen: unknown = null
+    renderWithAuth(
+      () => {
+        const client = useAuthClient()
+        useEffect(() => {
+          void client
+            .authFetch("/host/thing")
+            .then((res) => res.json())
+            .then((body) => (seen = body))
+        }, [client])
+      },
+      fetch,
+      { autoStart: true }
+    )
+    await waitFor(() =>
+      expect(seen).toEqual({ auth: `Bearer ${token({ sub: "u1" })}` })
+    )
+  })
+
+  it("remembers the username in the session hint once /me loads", async () => {
+    const storage = memoryStorage()
+    const fetch = stubFetch({
+      "POST /api/v1/token": [session({ sub: "u1" })],
+      "GET /api/v1/me": () => me("u1"),
+    })
+    const { result } = renderWithAuth(
+      () => useAuth(),
+      fetch,
+      { autoStart: true },
+      { sessionHint: { storage } }
+    )
+    await waitFor(() => expect(result.current.user).toMatchObject({ id: "u1" }))
+    await waitFor(() =>
+      expect(
+        JSON.parse(storage.getItem("authkit:session:/api/v1") ?? "{}")
+      ).toMatchObject({ userId: "u1", username: "u1" })
+    )
   })
 })
