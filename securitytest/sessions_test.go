@@ -10,11 +10,13 @@ import (
 	"encoding/base64"
 	"math/big"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -292,5 +294,68 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 	t.Run("control: live session mints", func(t *testing.T) {
 		resp := mint(h.login(h.newAccount("delegatelive")).AccessToken)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
+	})
+}
+
+// TestSecurityDelegatedGrantClamp: delegated permissions are scope-free, so a
+// grant may carry AuthKit authority only when the user holds it at the root,
+// and a token this deployment minted loses that authority when the user does.
+func TestSecurityDelegatedGrantClamp(t *testing.T) {
+	var mu sync.Mutex
+	var grant []string
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
+		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
+	}), func(c *hostConfig) {
+		c.deps.DelegatedAuthorization = func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return authkit.DelegationGrant{Permissions: append([]string(nil), grant...)}, nil
+		}
+	})
+	ctx := context.Background()
+	manager, moderator := h.newAccount("delegmanager"), h.newAccount("delegmod")
+	group, _ := h.newOrg("delegate", h.newAccount("delegowner"))
+	h.grant(group, manager, "manager")
+	h.grant(authkit.RootGroup(), moderator, "moderator")
+	mint := func(a account, perms ...string) response {
+		mu.Lock()
+		grant = perms
+		mu.Unlock()
+		return h.post("/delegated/token", map[string]any{
+			"delegate_certificate_der_b64url": delegateCertificate(t),
+			"requested_grant":                 map[string]any{"scope": "clamp"},
+		}, h.login(a).AccessToken)
+	}
+	for _, tc := range []struct {
+		name  string
+		who   account
+		perms []string
+	}{
+		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
+		{"root authority the user lacks", manager, []string{embedded.PermRootUsersBan}},
+		{"wildcard", moderator, []string{"*"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := mint(tc.who, tc.perms...)
+			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+			require.Equal(t, "delegation_refused", resp.errorCode())
+		})
+	}
+	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
+		resp := mint(manager, "resource:read")
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = mint(moderator, embedded.PermRootUsersBan, "resource:read")
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+	})
+	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
+		perm := authkit.Perm(embedded.PermRootUsersBan)
+		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: verify.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
+		ok, err := verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.NoError(t, h.client.OperatorUnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(moderator.id), "moderator"))
+		ok, err = verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
+		require.NoError(t, err)
+		require.False(t, ok, "a delegated token kept root authority its user lost")
 	})
 }

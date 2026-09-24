@@ -19,9 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The same mounted login runs with each production limiter. A correct password
-// cannot bypass an exhausted budget by forging the client IP; no session is
-// created. A Redis command failure is an outage, never a successful login.
+// The same mounted login runs with each production limiter. Password checks
+// are limited per client address only: an exhausted address cannot log in even
+// with the correct password, while the owner elsewhere is never locked out. A
+// Redis command failure is an outage, never a successful login.
 func TestWorkflowRateLimits(t *testing.T) {
 	forEachStore(t, func(t *testing.T, store ephemeralStore) {
 		pg := testdb.ScratchPostgres(t)
@@ -67,31 +68,37 @@ func TestWorkflowRateLimits(t *testing.T) {
 		stepUp := func(token, password, forwarded string) (int, map[string]any) {
 			return post("/step-up/password", token, forwarded, map[string]string{"password": password})
 		}
-		for _, ip := range []string{"198.51.100.1", "198.51.100.2"} {
-			status, body := login("wrong-password", ip)
+		for range 2 {
+			status, body := login("wrong-password", "198.51.100.1")
 			require.Equal(t, http.StatusUnauthorized, status, body)
 		}
-		status, body := login("Correct-password-12345", "198.51.100.3")
+		status, body := login("Correct-password-12345", "198.51.100.1")
 		require.Equal(t, http.StatusTooManyRequests, status, body)
 		require.Equal(t, "rate_limited", body["error"].(map[string]any)["code"])
 		var sessions int
 		require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
 		require.Zero(t, sessions)
+		status, body = login("Correct-password-12345", "198.51.100.2")
+		require.Equal(t, http.StatusOK, status, "a stranger's failures locked the owner out: %v", body)
+		require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
+		require.Equal(t, 1, sessions)
 
 		const stepUpPassword = "Correct-password-12345"
 		_, staleToken := stalePasswordUserToken(t, svc, pg.Pool, "limited-step-up", stepUpPassword)
-		for _, ip := range []string{"198.51.100.5", "198.51.100.6"} {
-			status, body = stepUp(staleToken, "wrong-password", ip)
+		for range 2 {
+			status, body = stepUp(staleToken, "wrong-password", "198.51.100.5")
 			require.Equal(t, http.StatusUnauthorized, status, body)
 		}
-		status, body = stepUp(staleToken, stepUpPassword, "198.51.100.7")
+		status, body = stepUp(staleToken, stepUpPassword, "198.51.100.5")
 		require.Equal(t, http.StatusTooManyRequests, status, body)
 		require.Equal(t, "rate_limited", body["error"].(map[string]any)["code"])
-		status, body = post("/user/password", staleToken, "198.51.100.8", map[string]string{
+		status, body = post("/user/password", staleToken, "198.51.100.5", map[string]string{
 			"current_password": stepUpPassword,
 			"new_password":     "Another-password-12345",
 		})
 		require.Equal(t, http.StatusTooManyRequests, status, body)
+		status, body = stepUp(staleToken, stepUpPassword, "198.51.100.7")
+		require.Equal(t, http.StatusOK, status, body)
 
 		if store.rdb != nil {
 			cfg.RateLimits[RLPasswordLogin] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
@@ -110,7 +117,7 @@ func TestWorkflowRateLimits(t *testing.T) {
 			status, body = login("Correct-password-12345", "198.51.100.4")
 			require.Equal(t, http.StatusTooManyRequests, status, body)
 			require.NoError(t, pg.Pool.QueryRow(context.Background(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, user.ID).Scan(&sessions))
-			require.Zero(t, sessions)
+			require.Equal(t, 1, sessions)
 			status, body = stepUp(outageToken, stepUpPassword, "198.51.100.9")
 			require.Equal(t, http.StatusTooManyRequests, status, body)
 		}

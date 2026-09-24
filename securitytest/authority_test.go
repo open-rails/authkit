@@ -5,11 +5,16 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
@@ -215,4 +220,165 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	stillOwner, err := h.client.Can(ctx, authkit.UserSubject(owner.id), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, stillOwner)
+}
+
+// newOrg creates an org whose founder is its owner.
+func (h *host) newOrg(prefix string, founder account) (authkit.GroupRef, string) {
+	h.t.Helper()
+	group := authkit.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
+	_, err := h.client.CreatePermissionGroup(context.Background(), authkit.CreatePermissionGroupRequest{
+		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: authkit.RootPersona, OwnerSubjectID: founder.id,
+	})
+	require.NoError(h.t, err)
+	return group, "/" + string(orgPersona) + "/" + group.Instance
+}
+
+type issued struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+}
+
+func (h *host) issue(path, token string, body map[string]any) issued {
+	h.t.Helper()
+	resp := h.post(path, body, token)
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
+	var out issued
+	resp.json(h.t, &out)
+	require.NotEmpty(h.t, out.ID)
+	return out
+}
+
+func liveKey(t *testing.T, h *host, group authkit.GroupRef, id string) bool {
+	t.Helper()
+	keys, err := h.client.ListAPIKeys(context.Background(), group)
+	require.NoError(t, err)
+	for _, k := range keys {
+		if k.ID == id {
+			return k.RevokedAt == nil
+		}
+	}
+	t.Fatalf("API key %s not found", id)
+	return false
+}
+
+func liveLink(t *testing.T, h *host, group authkit.GroupRef, id string) bool {
+	t.Helper()
+	links, err := h.client.ListGroupInviteLinks(context.Background(), group)
+	require.NoError(t, err)
+	for _, l := range links {
+		if l.ID == id {
+			return l.RevokedAt == nil
+		}
+	}
+	t.Fatalf("invite link %s not found", id)
+	return false
+}
+
+// TestSecurityDemotedCreatorCredentials: an invite link or API key never
+// outlives its creator's authority. A demoted owner must not redeem their own
+// owner link, or keep an owner key, to get the role back.
+func TestSecurityDemotedCreatorCredentials(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	ctx := context.Background()
+	founder, creator := h.newAccount("founder"), h.newAccount("creator")
+	group, base := h.newOrg("demote", founder)
+	h.grant(group, creator, "owner")
+	creatorToken, founderToken := h.login(creator).AccessToken, h.login(founder).AccessToken
+	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "owner"})
+	key := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "creator-key", "role": "owner"})
+	founderKey := h.issue(base+"/api-keys", founderToken, map[string]any{"name": "founder-key", "role": "owner"})
+	memberKey := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "member-key", "role": "member"})
+	resp := h.do(request{method: http.MethodPut, path: base + "/members/" + creator.id + "/roles/manager", token: founderToken})
+	require.Less(t, resp.status, 300, resp.String())
+
+	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
+		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
+		require.GreaterOrEqual(t, resp.status, 400, resp.String())
+		owner, err := h.client.Can(ctx, authkit.UserSubject(creator.id), group, "org:*")
+		require.NoError(t, err)
+		require.False(t, owner, "the demoted creator regained owner")
+		require.False(t, liveLink(t, h, group, link.ID))
+	})
+	t.Run("demoted creator's owner API key", func(t *testing.T) {
+		require.False(t, liveKey(t, h, group, key.ID))
+	})
+	t.Run("control: credentials the creator can still issue survive", func(t *testing.T) {
+		require.True(t, liveKey(t, h, group, memberKey.ID))
+		require.True(t, liveKey(t, h, group, founderKey.ID))
+	})
+}
+
+// TestSecurityRevokeAboveOwnRole: revoking a credential is the authority to
+// issue it; a bounded manager cannot revoke the owner's key or invite link.
+func TestSecurityRevokeAboveOwnRole(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	owner, manager := h.newAccount("revowner"), h.newAccount("revmanager")
+	group, base := h.newOrg("revoke", owner)
+	h.grant(group, manager, "manager")
+	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
+	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "owner"})
+	ownerLink := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "owner"})
+	remove := func(path string) response {
+		return h.do(request{method: http.MethodDelete, path: path, token: managerToken})
+	}
+	resp := remove(base + "/api-keys/" + ownerKey.ID)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.True(t, liveKey(t, h, group, ownerKey.ID))
+	resp = remove(base + "/invites/links/" + ownerLink.ID)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.True(t, liveLink(t, h, group, ownerLink.ID))
+
+	t.Run("control: manager revokes what they could issue", func(t *testing.T) {
+		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "member"})
+		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "member"})
+		require.Equal(t, http.StatusOK, remove(base+"/api-keys/"+key.ID).status)
+		require.Equal(t, http.StatusOK, remove(base+"/invites/links/"+link.ID).status)
+		require.False(t, liveKey(t, h, group, key.ID))
+		require.False(t, liveLink(t, h, group, link.ID))
+	})
+}
+
+// TestSecurityRemoteApplicationIssuerSquat: a group must not bind this
+// deployment's own or its identity providers' issuers, and naming an
+// unregistered issuer first must not keep it from the domain that controls it.
+func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
+		c.Applications = embedded.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
+		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("squat-client", "squat-secret")}
+	}))
+	ctx := context.Background()
+	squatter := h.newAccount("squatter")
+	_, base := h.newOrg("squat", squatter)
+	token := h.login(squatter).AccessToken
+	register := func(slug, iss string) response {
+		return h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": iss,
+			"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, token)
+	}
+	for i, reserved := range []string{issuer + "/", strings.ToUpper(issuer), "https://github.com/login/oauth"} {
+		resp := register(fmt.Sprintf("reserved-%d", i), reserved)
+		require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", reserved, resp)
+	}
+
+	const victimIssuer = "https://victim-app.security.test"
+	resp := register("squatted-app", victimIssuer)
+	require.Equal(t, http.StatusCreated, resp.status, resp.String())
+	doc, err := json.Marshal(authkit.ApplicationDocument{Slug: unique("victim"), Issuer: victimIssuer,
+		PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+	require.NoError(t, err)
+	domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != authkit.ApplicationWellKnownPath {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(doc)
+	}))
+	t.Cleanup(domain.Close)
+	resp = h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
+	require.Equal(t, http.StatusCreated, resp.status, "the squatter kept the issuer from its domain: %s", resp)
+	app, err := h.client.GetRemoteApplication(ctx, victimIssuer)
+	require.NoError(t, err)
+	require.Equal(t, authkit.ApplicationTrustRootDomain, app.TrustRoot)
+	resp = register("squatted-again", victimIssuer)
+	require.Equal(t, http.StatusConflict, resp.status, resp.String())
 }
