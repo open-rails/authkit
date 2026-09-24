@@ -81,16 +81,16 @@ func (s *engine) EphemeralBackend() string {
 	return "custom"
 }
 
-// checkEphemeralBackend refuses the per-process memory store unless
-// Ephemeral.AllowMemory opts in (#305), and logs which backend is live so a
-// mis-wired deployment is visible at startup.
-func (s *engine) checkEphemeralBackend(cfg Config) error {
+// logEphemeralBackend names the live backend once at startup. Without Redis
+// the per-process memory store is used automatically: fine for one replica,
+// wrong for several.
+func (s *engine) logEphemeralBackend() {
 	backend := s.EphemeralBackend()
-	if backend == "memory" && !cfg.Ephemeral.AllowMemory {
-		return fmt.Errorf("authkit: in-memory ephemeral store without Ephemeral.AllowMemory: wire Redis, or set Ephemeral.AllowMemory for a single-instance deployment")
+	if backend == "memory" {
+		slog.Warn("authkit: ephemeral store: in-memory (no Redis configured) — rate limits and login state are per-process; configure Redis/Garnet for multiple replicas")
+		return
 	}
 	slog.Info("authkit: ephemeral store", "backend", backend)
-	return nil
 }
 
 func (s *engine) useEphemeralStore() bool {

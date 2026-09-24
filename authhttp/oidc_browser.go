@@ -21,15 +21,54 @@ type flowStart struct {
 	link   *embedded.ExternalLinkAuthorization
 	stepUp *oidckit.StateData // StepUp* fields to carry
 	params map[string]string  // extra authorization parameters
+	login  *loginStart
+}
+
+// loginStart is a plain login's browser context.
+type loginStart struct {
+	ui, popupNonce, returnTo, accountInviteToken string
 }
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
+	q := r.URL.Query()
+	if q.Get("link") == "1" || strings.EqualFold(q.Get("link"), "true") {
 		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, authkit.CodeAuthRequiredForLink)
 		return
 	}
-	s.startProviderFlow(w, r, provider, flowStart{})
+	// An invitation is a bearer credential: it never rides in a URL, where
+	// history, logs and Referer keep it. POST /{provider}/login binds it to the
+	// flow's server-side state instead.
+	if q.Has("account_invite_token") {
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, authkit.CodeInvalidRequest)
+		return
+	}
+	s.startProviderFlow(w, r, provider, flowStart{login: &loginStart{ui: q.Get("ui"), popupNonce: q.Get("popup_nonce"), returnTo: q.Get("return_to")}})
+}
+
+// handleOIDCLoginPOST starts a login from the page's own origin and answers
+// {"auth_url","state"}; the page then navigates (or its popup does) to
+// auth_url. It is the only start that accepts an account invitation.
+func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ReturnTo           string `json:"return_to"`
+		AccountInviteToken string `json:"account_invite_token"`
+		UI                 string `json:"ui"`
+		PopupNonce         string `json:"popup_nonce"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, authkit.CodeInvalidRequest)
+		return
+	}
+	// The response sets the flow's state cookie; a cross-site page must not
+	// bind a flow into this browser.
+	if !s.cookieOriginAllowed(r) {
+		forbidden(w, authkit.CodeForbidden)
+		return
+	}
+	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
+		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.AccountInviteToken,
+	}})
 }
 
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +97,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 // login is a browser navigation and is redirected; link and step-up starts
 // (and any POST) are fetch calls and receive {"auth_url","state"} JSON.
 func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name string, start flowStart) {
-	browserNav := start.link == nil && start.stepUp == nil && r.Method != http.MethodPost
+	browserNav := start.login != nil && r.Method != http.MethodPost
 	fail := func(status int, code authkit.Code) {
 		if browserNav {
 			s.failBrowserFlow(w, r, nil, name, status, code)
@@ -74,15 +113,13 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
-	ui := ""
-	popupNonce := ""
-	if browserNav {
-		ui = r.URL.Query().Get("ui")
-		if ui != "" && ui != "popup" {
+	var login loginStart
+	if start.login != nil {
+		login = *start.login
+		if login.ui != "" && login.ui != "popup" {
 			fail(http.StatusBadRequest, authkit.CodeInvalidUI)
 			return
 		}
-		popupNonce = r.URL.Query().Get("popup_nonce")
 	}
 
 	state := embedded.RandB64(32)
@@ -111,17 +148,17 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		Verifier:    verifier,
 		Nonce:       nonce,
 		RedirectURI: redirectURI,
-		UI:          ui,
-		PopupNonce:  popupNonce,
+		UI:          login.ui,
+		PopupNonce:  login.popupNonce,
 	}
 	if start.link != nil {
 		sd.LinkUserID = start.link.UserID
 		sd.LinkSessionID = start.link.SessionID
 		sd.LinkAuthenticatedAt = start.link.AuthenticatedAt
 	}
-	if browserNav {
-		sd.ReturnTo = sanitizeReturnTo(r.URL.Query().Get("return_to"))
-		sd.AccountInviteToken = strings.TrimSpace(r.URL.Query().Get("account_invite_token"))
+	if start.login != nil {
+		sd.ReturnTo = sanitizeReturnTo(login.returnTo)
+		sd.AccountInviteToken = strings.TrimSpace(login.accountInviteToken)
 	}
 	if start.stepUp != nil {
 		sd.StepUpUserID = start.stepUp.StepUpUserID
@@ -173,7 +210,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// AK F3: the browser completing the callback must present the state cookie
 	// set at flow start. This blocks login CSRF, where an attacker supplies a
 	// valid state+code captured from their own login.
-	cookieOK := stateCookieMatches(r, state)
+	cookieOK := s.stateCookieMatches(r, p, state)
 	s.clearStateCookie(w, r, p, state)
 	if !cookieOK {
 		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)

@@ -355,12 +355,12 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group 
 
 // groupAPIKeyRevoke revokes the group's API key by token id (the :key path
 // param). 404 if no matching, not-already-revoked key exists in this group.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, tokenID string) {
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, actor verify.Claims, tokenID string) {
 	if tokenID == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	ok, err := s.svc.RevokeAPIKey(r.Context(), group, tokenID)
+	ok, err := s.svc.RevokeAPIKeyFromClaims(r.Context(), actor, group, tokenID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -581,12 +581,12 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 }
 
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
-func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, linkID string) {
+func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, actor verify.Claims, linkID string) {
 	if linkID == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeGroupInviteLink(r.Context(), group, linkID); err != nil {
+	if err := s.svc.RevokeGroupInviteLinkFromClaims(r.Context(), actor, group, linkID); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

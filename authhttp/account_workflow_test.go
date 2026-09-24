@@ -515,11 +515,17 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 
 func (f *accountFlow) providerLogin(provider authprovider.Provider, identity providerTestIdentity, invite string, browser bool) (flowResponse, url.Values) {
 	f.t.Helper()
-	start, err := f.server.Client().Get(f.server.URL + "/oidc/" + provider.Name() + "/login?return_to=%2Fcheckout&account_invite_token=" + url.QueryEscape(invite))
+	begin, err := json.Marshal(map[string]string{"return_to": "/checkout", "account_invite_token": invite})
+	require.NoError(f.t, err)
+	start, err := f.server.Client().Post(f.server.URL+"/oidc/"+provider.Name()+"/login", "application/json", bytes.NewReader(begin))
 	require.NoError(f.t, err)
 	defer start.Body.Close()
-	require.Equal(f.t, 302, start.StatusCode)
-	authURL, err := url.Parse(start.Header.Get("Location"))
+	require.Equal(f.t, 200, start.StatusCode)
+	var begun struct {
+		AuthURL string `json:"auth_url"`
+	}
+	require.NoError(f.t, json.NewDecoder(start.Body).Decode(&begun))
+	authURL, err := url.Parse(begun.AuthURL)
 	require.NoError(f.t, err)
 	identity.Nonce = authURL.Query().Get("nonce")
 	raw, err := json.Marshal(identity)

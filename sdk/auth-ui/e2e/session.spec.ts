@@ -48,7 +48,7 @@ test("register, verify, login, refresh via cookie, logout", async ({
   const cookie = (await context.cookies()).find((c) => c.name === "authkit_rt")
   expect(cookie).toMatchObject({
     httpOnly: true,
-    path: "/api/v1/token",
+    path: "/",
     sameSite: "Lax",
   })
 

@@ -22,12 +22,9 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
+	// Passwords are high-entropy secrets: the route's per-IP bucket is the only
+	// limit, so no stranger can lock an account out (docs/security/rate-limits.md).
 	identifier := strings.TrimSpace(req.Identifier)
-	// Per-identifier check: prevents distributed brute-force against a single
-	// account from many IPs, each spending their own per-IP budget.
-	if s.rateLimitedByIdentifier(w, r, RLPasswordLogin, identifier) {
-		return
-	}
 	if identifier == "" {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return

@@ -531,20 +531,61 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // --- OIDC ------------------------------------------------------------------
 
+  // A login URL never carries an invitation (see oidcLoginStart).
   const oidcLoginUrl = (
+    provider: string,
+    opts: { returnTo?: string; popupNonce?: string } = {}
+  ) =>
+    url(oidcBaseUrl, `/${encodeURIComponent(provider)}/login`, {
+      return_to: safeReturnTo(opts.returnTo),
+      ui: opts.popupNonce ? "popup" : undefined,
+      popup_nonce: opts.popupNonce,
+    })
+
+  // Starts a login by POST, binding an invitation to the flow's server-side
+  // state instead of a URL, and resolves the provider URL to navigate to.
+  async function oidcLoginStart(
     provider: string,
     opts: {
       returnTo?: string
       accountInviteToken?: string
       popupNonce?: string
     } = {}
-  ) =>
-    url(oidcBaseUrl, `/${encodeURIComponent(provider)}/login`, {
-      return_to: safeReturnTo(opts.returnTo),
-      account_invite_token: opts.accountInviteToken,
-      ui: opts.popupNonce ? "popup" : undefined,
-      popup_nonce: opts.popupNonce,
-    })
+  ): Promise<string> {
+    const res = await cookieFetch(
+      url(oidcBaseUrl, `/${encodeURIComponent(provider)}/login`),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          return_to: safeReturnTo(opts.returnTo) ?? undefined,
+          account_invite_token: opts.accountInviteToken,
+          ui: opts.popupNonce ? "popup" : undefined,
+          popup_nonce: opts.popupNonce,
+        }),
+      }
+    )
+    if (!res.ok) throw await readAuthKitError(res)
+    const authUrl = str(rec(await res.json()).auth_url)
+    if (!authUrl) throw new Error("AuthKit returned no auth_url")
+    return authUrl
+  }
+
+  // Full-page provider sign-in.
+  async function signInWithRedirect(
+    provider: string,
+    opts: { returnTo?: string; accountInviteToken?: string } = {}
+  ): Promise<void> {
+    window.location.assign(
+      opts.accountInviteToken
+        ? await oidcLoginStart(provider, opts)
+        : oidcLoginUrl(provider, opts)
+    )
+  }
 
   // Must be called from a user gesture: the window opens synchronously.
   async function signInWithPopup(
@@ -561,15 +602,24 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       window.location.origin,
       new URL(oidcBaseUrl, window.location.href).origin,
     ])
-    const waited = await waitForPopup(
-      oidcLoginUrl(provider, { ...opts, popupNonce: nonce }),
-      {
-        nonce,
-        allowedOrigins,
-        timeoutMs: opts.timeoutMs ?? 300_000,
+    const target = opts.accountInviteToken
+      ? () => oidcLoginStart(provider, { ...opts, popupNonce: nonce })
+      : oidcLoginUrl(provider, { returnTo: opts.returnTo, popupNonce: nonce })
+    const waited = await waitForPopup(target, {
+      nonce,
+      allowedOrigins,
+      timeoutMs: opts.timeoutMs ?? 300_000,
+    })
+    if (!waited.ok) {
+      if (waited.reason !== "start_failed") return waited
+      const { error } = waited
+      const code = error instanceof AuthKitError ? error.code : undefined
+      return {
+        ok: false,
+        reason: "provider_error",
+        code: code ?? "oidc_begin_failed",
       }
-    )
-    if (!waited.ok) return waited
+    }
     const msg = waited.message
     const from = str(msg.provider)
     if (gen !== generation) return { ok: false, reason: "session_changed" }
@@ -1049,6 +1099,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     authFetch,
     completeSignIn,
     oidcLoginUrl,
+    oidcLoginStart,
+    signInWithRedirect,
     signInWithPopup,
     completeRedirect,
   }

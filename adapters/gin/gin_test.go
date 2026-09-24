@@ -29,7 +29,6 @@ func newTestService(t *testing.T) *authhttp.Service {
 			AccessTokenDuration: time.Hour,
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
-		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
 		Identity: embedded.IdentityConfig{
 			Providers: []authprovider.Provider{
 				authprovider.Google("google-client", "google-secret"),

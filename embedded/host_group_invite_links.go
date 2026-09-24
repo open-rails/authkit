@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/verify"
 )
 
 const (
@@ -194,6 +195,43 @@ func (s *engine) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupR
 		return ErrInviteLinkNotFound
 	}
 	return nil
+}
+
+// RevokeGroupInviteLinkFromClaims is the runtime revoke: the actor must be able
+// to mint the link's role, so a bounded manager cannot revoke a link of a role
+// above their own.
+func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, linkID string) error {
+	actor, err := groupActorFromClaims(claims)
+	if err != nil {
+		return err
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	linkID = strings.TrimSpace(linkID)
+	if linkID == "" {
+		return authkit.ErrInvalidInvite
+	}
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	if err != nil {
+		return err
+	}
+	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		var role authkit.Role
+		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, gid).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrInviteLinkNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, PermMembersManage(persona), role); err != nil {
+			return err
+		}
+		_, err = st.q.Exec(ctx, `UPDATE group_invite_links SET revoked_at=now(), updated_at=now() WHERE id=$1::uuid`, linkID)
+		return err
+	})
 }
 
 // RedeemGroupInviteLinkResult reports which (persona, instance, role) a redemption

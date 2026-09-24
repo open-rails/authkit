@@ -316,6 +316,10 @@ func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 			r.PermissionGroupID, userID, r.Role); err != nil {
 			return nil, err
 		}
+		st.touched = append(st.touched, authorityTouch{r.PermissionGroupID, userID})
+	}
+	if err := s.revokeUncoveredCredentials(ctx, st, st.touched...); err != nil {
+		return nil, err
 	}
 	return removals, nil
 }

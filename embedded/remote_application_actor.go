@@ -38,11 +38,13 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 			return err
 		}
 		existing, err := db.New(st.q).RemoteApplicationByIssuer(ctx, strings.TrimSpace(in.Issuer))
+		bound := false
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			if err := s.authorizeApplicationControl(ctx, st, group.Persona, gid, actor, ""); err != nil {
 				return err
 			}
+			bound = true
 		case err != nil:
 			return err
 		case existing.PermissionGroupID != gid:
@@ -56,7 +58,15 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 			}
 		}
 		out, err = s.upsertRemoteApplication(ctx, st, in)
-		return err
+		if err != nil || !bound {
+			return err
+		}
+		// A session-bound issuer is unproven; a later domain proof reclaims it.
+		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET trust_root=$2 WHERE id=$1::uuid`, out.ID, ApplicationTrustRootUser); err != nil {
+			return err
+		}
+		out.TrustRoot = ApplicationTrustRootUser
+		return nil
 	})
 	return out, err
 }

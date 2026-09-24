@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 )
 
 // API keys: long-lived, revocable shared-secret bearer credentials owned by a
@@ -238,6 +239,44 @@ func (s *engine) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, token
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// RevokeAPIKeyFromClaims is the runtime revoke: the actor must be able to mint
+// the key's role, so a bounded credentials manager cannot revoke a key of a
+// role above their own. Returns false if no live key matches in the group.
+func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, tokenID string) (bool, error) {
+	actor, err := groupActorFromClaims(claims)
+	if err != nil {
+		return false, err
+	}
+	if err := s.requirePG(); err != nil {
+		return false, err
+	}
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	if err != nil {
+		return false, err
+	}
+	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	revoked := false
+	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		var role authkit.Role
+		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, strings.TrimSpace(tokenID), gid).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, PermCredentialsManage(persona), role); err != nil {
+			return err
+		}
+		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, strings.TrimSpace(tokenID)); err != nil {
+			return err
+		}
+		revoked = true
+		return nil
+	})
+	return revoked, err
 }
 
 // ResolveAPIKey validates a presented API key (key_id + secret) and returns the

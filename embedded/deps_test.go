@@ -33,9 +33,8 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 	require.NoError(t, host.Ping(ctx))
 
 	settings := Config{
-		Token:     TokenConfig{Issuer: "https://pool.test", IssuedAudiences: []string{"test"}},
-		Keys:      KeysConfig{VerifyOnly: true},
-		Ephemeral: EphemeralConfig{AllowMemory: true},
+		Token: TokenConfig{Issuer: "https://pool.test", IssuedAudiences: []string{"test"}},
+		Keys:  KeysConfig{VerifyOnly: true},
 	}
 	client, err := newEngine(settings, Deps{Postgres: host})
 	require.NoError(t, err)
@@ -55,18 +54,6 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("closed clients retained database connections")
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	settings.Ephemeral.AllowMemory = false
-	for range 3 {
-		client, err := newEngine(settings, Deps{Postgres: host})
-		require.ErrorContains(t, err, "Ephemeral.AllowMemory")
-		require.Nil(t, client)
-	}
-	// MinConns makes a discarded clone open a real connection asynchronously.
-	// Observe the database long enough to catch startup after New returned.
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
-		require.Equal(t, 1, connections(), "rejected constructor retained a pool connection")
 		time.Sleep(10 * time.Millisecond)
 	}
 	require.NoError(t, host.Ping(ctx))

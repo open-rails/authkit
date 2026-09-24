@@ -74,11 +74,11 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if s.rd == nil {
 		s.rd = coreSvc.EphemeralRedisClient()
 	}
-	// OIDC/SIWS state and the default limiter live in Redis or in this process.
-	// A custom Deps.EphemeralStore does not back them, so without Redis every
-	// replica would keep its own budgets and browser state (ak#392).
-	if s.rd == nil && !cfg.Ephemeral.AllowMemory {
-		return nil, errors.New("authkit: HTTP rate limits and OIDC/SIWS state need Redis (Deps.Redis or authhttp.Config.Redis); set Ephemeral.AllowMemory only for a single-instance deployment")
+	// OIDC/SIWS state and the default limiter live in Redis or in this process;
+	// a custom Deps.EphemeralStore does not back them. The engine already
+	// logged the all-memory case.
+	if s.rd == nil && coreSvc.EphemeralBackend() != "memory" {
+		slog.Warn("authkit: HTTP rate limits and OIDC/SIWS state: in-memory (no Redis configured) — per-process; configure Redis/Garnet for multiple replicas")
 	}
 
 	verOpts := []verify.VerifierOption{
@@ -106,7 +106,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	ver.WithService(coreSvc).WithLiveness(coreSvc).WithPermissionChecker(coreSvc, cfg.Token.Issuer)
 	s.verifier = ver
 
-	providers, err := providerRegistry(cfg.Identity.Providers)
+	providers, err := providerRegistry(cfg.Identity.Providers, cfg.Token.AccountIssuers)
 	if err != nil {
 		return nil, err
 	}

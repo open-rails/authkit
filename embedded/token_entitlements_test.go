@@ -53,7 +53,7 @@ func TestTokenEntitlementSelectionAndBounds(t *testing.T) {
 	keys := Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}
 	newEngineFor := func(allowlist []string) *engine {
 		t.Helper()
-		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://entitlements.test", IssuedAudiences: []string{"app"}, EntitlementAllowlist: allowlist}, Ephemeral: EphemeralConfig{AllowMemory: true}}, keys, Deps{Entitlements: provider})
+		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://entitlements.test", IssuedAudiences: []string{"app"}, EntitlementAllowlist: allowlist}}, keys, Deps{Entitlements: provider})
 	}
 	v := verify.NewVerifier()
 	require.NoError(t, v.AddIssuer("https://entitlements.test", []string{"app"}, verify.IssuerOptions{IsLocal: true, RawKeys: keys.PublicKeys}))

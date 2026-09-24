@@ -63,7 +63,7 @@ type hostConfig struct {
 type hostOption func(*hostConfig)
 
 func withRedis(rdb *redis.Client) hostOption {
-	return func(c *hostConfig) { c.deps.Redis = rdb; c.engine.Ephemeral.AllowMemory = false }
+	return func(c *hostConfig) { c.deps.Redis = rdb }
 }
 
 func withEngine(fn func(*embedded.Config)) hostOption {
@@ -103,7 +103,6 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 				NativeUserMode: embedded.RegistrationModeOpen,
 				Verification:   embedded.RegistrationVerificationOptional,
 			},
-			Ephemeral: embedded.EphemeralConfig{AllowMemory: true},
 			TwoFactor: embedded.TwoFactorConfig{
 				Mode:          embedded.TwoFactorOptional,
 				Methods:       []embedded.TwoFactorMethod{embedded.TwoFactorTOTP, embedded.TwoFactorEmail},

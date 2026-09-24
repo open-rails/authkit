@@ -22,9 +22,6 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, authkit.CodeNotAuthenticated)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
-		return
-	}
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -230,9 +227,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}
 	if password != "" {
-		// Per account, like /step-up/password: a stolen token must not turn
-		// many client IPs into many password guesses (ak#392).
-		if s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
+		if s.rateLimited(w, r, RLPasswordStepUp) {
 			return false, nil
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {

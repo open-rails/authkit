@@ -44,6 +44,9 @@ result describes that moment, not a guarantee against later concurrent changes.
 The unused `IssuerOptions.RemoteApplicationSlug` option has been removed;
 application identity is always resolved from the store.
 
+`AddIssuer` requires at least one accepted audience; an issuer without one
+would accept its tokens for every audience.
+
 Explicit `AddIssuer` registrations otherwise trust an external issuer. An
 external `access+jwt` yields `Claims.Subject` and `Claims.Issuer`, with an empty
 `UserID`. Use `Claims.Principal()` for the qualified identity. Map that pair to

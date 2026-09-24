@@ -25,6 +25,8 @@ var privateBlocks = parseBlocks(
 	"127.0.0.0/8",        // loopback
 	"169.254.0.0/16",     // link-local — AWS/GCP instance metadata
 	"172.16.0.0/12",      // RFC-1918 private
+	"192.0.0.0/24",       // RFC-6890 IETF protocol assignments
+	"192.0.2.0/24",       // RFC-5737 documentation
 	"192.168.0.0/16",     // RFC-1918 private
 	"198.18.0.0/15",      // RFC-2544 benchmarking
 	"198.51.100.0/24",    // RFC-5737 documentation
@@ -32,6 +34,9 @@ var privateBlocks = parseBlocks(
 	"240.0.0.0/4",        // reserved (class E)
 	"255.255.255.255/32", // broadcast
 	"::1/128",            // IPv6 loopback
+	"64:ff9b::/96",       // NAT64: reaches any IPv4 address, private included
+	"64:ff9b:1::/48",     // local-use NAT64
+	"2002::/16",          // 6to4: embeds an arbitrary IPv4 address
 	"fc00::/7",           // IPv6 unique local
 	"fe80::/10",          // IPv6 link-local
 	"::/128",             // IPv6 unspecified

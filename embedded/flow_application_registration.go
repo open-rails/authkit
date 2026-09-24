@@ -218,7 +218,7 @@ func (s *engine) validateApplicationDocument(doc *ApplicationDocument, host stri
 			return nil, fmt.Errorf("%w: issuer host %q must equal the serving domain %q", ErrApplicationDocumentInvalid, iu.Hostname(), host)
 		}
 	}
-	if platformIssuer := strings.TrimSpace(s.cfg.Token.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
+	if s.reservedIssuer(issuer) {
 		return nil, ErrReservedIssuer
 	}
 
@@ -332,6 +332,9 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		if existing.TrustRoot != ApplicationTrustRootDomain {
 			return nil, ErrApplicationDomainConflict
 		}
+		if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
+			return nil, err
+		}
 		row, err := q.RemoteApplicationDomainRefresh(ctx, db.RemoteApplicationDomainRefreshParams{
 			Issuer:           app.Issuer,
 			JwksUri:          app.JWKSURI,
@@ -395,6 +398,9 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	rootGID, err := st.RootGroupID(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
 	}
 	gid, err := st.CreateGroupNamed(ctx, authkit.GroupRef{Persona: td.Name, Instance: app.Slug}, rootGID, app.DisplayName)

@@ -169,7 +169,7 @@ func TestMountCatalog(t *testing.T) {
 			cookies := login.Result().Cookies()
 			require.Len(t, cookies, 1)
 			require.Equal(t, RefreshCookieName, cookies[0].Name)
-			require.Equal(t, "/auth/token", cookies[0].Path)
+			require.Equal(t, "/", cookies[0].Path)
 			require.True(t, cookies[0].HttpOnly)
 			require.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
 		}
@@ -244,7 +244,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 
 	for _, opts := range []MountOptions{
 		{Groups: []RouteGroup{RouteRegistration}},
-		{ExcludeRoutes: []RouteRef{{http.MethodGet, DocumentsPath}, {http.MethodGet, "/{provider}/login"}}},
+		{ExcludeRoutes: []RouteRef{{http.MethodGet, DocumentsPath}, {http.MethodGet, "/{provider}/login"}, {http.MethodPost, "/{provider}/login"}}},
 	} {
 		filtered, err := NewMount(svc, opts)
 		require.NoError(t, err)

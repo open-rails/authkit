@@ -132,6 +132,7 @@ remote applications, and group role assignments.
 | GET | `{oidc}/{provider}/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{oidc}/{provider}/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | GET | `{oidc}/{provider}/login` | browser_oidc | public |  | Identity.Providers |
+| POST | `{oidc}/{provider}/login` | browser_oidc | public |  | Identity.Providers |
 | GET | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{api}/delegated/token` | delegated | required | `delegated_token_mint` | Delegated.Audiences |
@@ -398,7 +399,9 @@ human login path).
 AuthKit validates that the role exists in the target group and enforces
 no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. An API key carries no user, so it can never
-mint/list/revoke API keys.
+mint/list/revoke API keys. Revoking a key, or an invite link, needs the same
+authority as minting its role. A key or link is revoked automatically once its
+creator can no longer mint its role.
 
 ## Service JWTs (OIDC/JWKS machine credentials)
 

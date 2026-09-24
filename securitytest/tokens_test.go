@@ -1,6 +1,7 @@
 package securitytest
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,4 +158,15 @@ func TestSecurityBearerTransport(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		})
 	}
+}
+
+// TestSecurityIssuerWithoutAudience: an issuer registered without an audience
+// would accept its tokens for every audience, so registration refuses it.
+func TestSecurityIssuerWithoutAudience(t *testing.T) {
+	s := signer()
+	keys := verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}
+	for _, audiences := range [][]string{nil, {}, {""}, {"  "}} {
+		require.Error(t, verify.NewVerifier().AddIssuer("https://no-audience.security.test", audiences, keys), "audiences %q", audiences)
+	}
+	require.NoError(t, verify.NewVerifier().AddIssuer("https://no-audience.security.test", []string{audience}, keys))
 }

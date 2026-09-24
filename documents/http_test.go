@@ -35,7 +35,7 @@ func addMachine(request *http.Request) error {
 func trustedVerifier(t *testing.T, issuer string, signer *jwtkit.RSASigner) *verify.Verifier {
 	t.Helper()
 	v := verify.NewVerifier()
-	if err := v.AddIssuer(issuer, nil, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}); err != nil {
+	if err := v.AddIssuer(issuer, []string{"site-b"}, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}); err != nil {
 		t.Fatal(err)
 	}
 	return v

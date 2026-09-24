@@ -90,7 +90,6 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		// contract; the upstream exchange is not exercised.
 		Identity:      embedded.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("e2e", "e2e")}},
 		SolanaNetwork: "devnet",
-		Ephemeral:     embedded.EphemeralConfig{AllowMemory: true},
 	}
 	rt, err := embedded.New(cfg, embedded.Deps{
 		Postgres: pool,

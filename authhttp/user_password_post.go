@@ -26,7 +26,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	if body.CurrentPassword != "" && s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
+	if body.CurrentPassword != "" && s.rateLimited(w, r, RLPasswordStepUp) {
 		return
 	}
 	if !s.requireLiveCredential(w, r, claims) {

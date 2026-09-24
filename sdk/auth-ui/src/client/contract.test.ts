@@ -57,6 +57,7 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.deleteAccount(),
     () => client.completeSignIn(async () => ({ access_token: jwt("u1") })),
     () => client.signOut(),
+    () => client.oidcLoginStart("google", { accountInviteToken: "i" }),
   ]
   for (const call of calls) await call().catch(() => undefined)
   called.add(`GET ${client.oidcLoginUrl("google").split("?")[0]}`)
@@ -66,5 +67,5 @@ it("calls only routes AuthKit mounts", async () => {
     return !inCatalog(method, path)
   })
   expect(missing).toEqual([])
-  expect(called.size).toBeGreaterThanOrEqual(34)
+  expect(called.size).toBeGreaterThanOrEqual(35)
 })

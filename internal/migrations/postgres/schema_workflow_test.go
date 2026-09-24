@@ -62,8 +62,11 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 
 			_, err = conn.ExecContext(ctx, `DELETE FROM `+s+`users WHERE id=$1::uuid`, userID)
 			require.NoError(t, err)
-			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM `+s+`name_claims WHERE owner_id=$1::uuid`, userID).Scan(&claims))
-			require.Zero(t, claims)
+			// The deleted user's name stays reserved as a permanent alias.
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM `+s+`name_claims WHERE owner_id=$1::uuid AND NOT canonical AND expires_at IS NULL`, userID).Scan(&claims))
+			require.Equal(t, 1, claims)
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM pg_temp.name_claims`).Scan(&shadowClaims))
+			require.Zero(t, shadowClaims)
 			var path string
 			require.NoError(t, conn.QueryRowContext(ctx, `SHOW search_path`).Scan(&path))
 			require.Equal(t, "openrails, public", path)

@@ -57,6 +57,19 @@ var ErrGroupSlugApplicationManaged = authkit.ErrGroupSlugApplicationManaged
 type PermissionGroupStore struct {
 	q   db.DBTX
 	now func() time.Time
+	// touched records authority reductions for the enclosing authority
+	// mutation, which revokes credentials their creators no longer cover.
+	touched []authorityTouch
+}
+
+// authorityTouch names a group whose grants changed, and the user whose
+// authority changed ("" = every holder of an edited role).
+type authorityTouch struct{ groupID, userID string }
+
+func (st *PermissionGroupStore) touch(groupID string, subject authkit.Subject) {
+	if subject.Kind == authkit.SubjectKindUser {
+		st.touched = append(st.touched, authorityTouch{groupID, subject.ID})
+	}
 }
 
 // NewPermissionGroupStore wraps a db.DBTX (pool or transaction).
@@ -421,6 +434,9 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrGroupNotFound
 	}
+	if err == nil {
+		st.touch(groupID, subject)
+	}
 	return err
 }
 
@@ -435,6 +451,7 @@ func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID string
 		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role = $3`,
 			table, subjectColumn),
 		groupID, subject.ID, role)
+	st.touch(groupID, subject)
 	return err
 }
 
@@ -448,6 +465,7 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID str
 		fmt.Sprintf(`DELETE FROM %s
 		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid`, table, subjectColumn),
 		groupID, subject.ID)
+	st.touch(groupID, subject)
 	return err
 }
 
@@ -477,6 +495,9 @@ func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID st
  ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,requires_mfa=EXCLUDED.requires_mfa,updated_at=now()`, groupID, def.Role, def.Permissions, def.RequiresMFA)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrGroupNotFound
+	}
+	if err == nil {
+		st.touched = append(st.touched, authorityTouch{groupID: groupID})
 	}
 	return err
 }
@@ -694,6 +715,7 @@ func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID st
 			return err
 		}
 	}
+	st.touched = append(st.touched, authorityTouch{groupID: groupID})
 	return nil
 }
 

@@ -234,7 +234,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		case opAPIKeyMint:
 			s.groupAPIKeyMint(w, r, group, claims.UserID)
 		case opAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, group, pathParam(r, "key"))
+			s.groupAPIKeyRevoke(w, r, group, claims, pathParam(r, "key"))
 		case opRemoteAppsList:
 			s.groupRemoteAppList(w, r, group)
 		case opRemoteAppRegister:
@@ -248,7 +248,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		case opInviteLinkMint:
 			s.groupInviteLinkMint(w, r, group, claims.UserID)
 		case opInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, group, pathParam(r, "link"))
+			s.groupInviteLinkRevoke(w, r, group, claims, pathParam(r, "link"))
 		case opGroupUpdate:
 			s.groupUpdate(w, r, group)
 		case opGroupRead:

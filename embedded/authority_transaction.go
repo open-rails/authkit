@@ -40,7 +40,90 @@ func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*Permissi
 	if err := apply(st); err != nil {
 		return err
 	}
+	if err := s.revokeUncoveredCredentials(ctx, st, st.touched...); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// revokeUncoveredCredentials revokes live invite links, account invitations and
+// API keys whose creator could no longer issue their role, after grants in the
+// touched groups (and so their subtrees) changed. A credential never outlives
+// the authority that issued it; otherwise a demoted creator could redeem their
+// own link, or keep using their own key, to regain the role.
+func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *PermissionGroupStore, touched ...authorityTouch) error {
+	type credential struct {
+		table, id, groupID, creator string
+		persona                     authkit.Persona
+		role                        authkit.Role
+	}
+	seen := map[authorityTouch]bool{}
+	var creds []credential
+	for _, t := range touched {
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
+  SELECT id, persona FROM permission_groups WHERE id=$1::uuid
+  UNION ALL SELECT g.id, g.persona FROM permission_groups g JOIN subtree p ON g.parent_id=p.id WHERE g.deleted_at IS NULL)
+SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text
+  FROM group_invite_links l JOIN subtree t ON t.id=l.permission_group_id
+ WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
+   AND ($2='' OR l.invited_by::text=$2)
+UNION ALL
+SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text
+  FROM account_registration_invites a JOIN subtree t ON t.id=a.permission_group_id
+ WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
+   AND ($2='' OR a.invited_by::text=$2)
+UNION ALL
+SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k.created_by::text
+  FROM api_keys k JOIN subtree t ON t.id=k.permission_group_id
+ WHERE k.revoked_at IS NULL AND k.created_by IS NOT NULL AND (k.expires_at IS NULL OR k.expires_at>now())
+   AND ($2='' OR k.created_by::text=$2)`, t.groupID, t.userID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var c credential
+			if err := rows.Scan(&c.table, &c.id, &c.groupID, &c.persona, &c.role, &c.creator); err != nil {
+				rows.Close()
+				return err
+			}
+			creds = append(creds, c)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	sch := s.groupSchemaOrDefault()
+	revoked := map[string]bool{}
+	for _, c := range creds {
+		if revoked[c.id] {
+			continue
+		}
+		capability := PermMembersManage(c.persona)
+		if c.table == "api_keys" {
+			capability = PermCredentialsManage(c.persona)
+		}
+		err := s.authorizeRoleGrant(ctx, st, sch, c.persona, c.groupID, c.creator, capability, c.role)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, ErrInsufficientRoleAuthority) && !errors.Is(err, ErrRoleAssignmentEscalation) && !errors.Is(err, ErrRoleNotAssignable) {
+			return err
+		}
+		stamp := "revoked_at=now()"
+		if c.table != "api_keys" {
+			stamp += ", updated_at=now()"
+		}
+		if _, err := st.q.Exec(ctx, "UPDATE "+c.table+" SET "+stamp+" WHERE id=$1::uuid", c.id); err != nil {
+			return err
+		}
+		revoked[c.id] = true
+	}
+	return nil
 }
 
 func (st *PermissionGroupStore) directRole(ctx context.Context, gid string, subject authkit.Subject) (authkit.Role, error) {

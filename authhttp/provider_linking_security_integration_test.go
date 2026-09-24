@@ -101,8 +101,12 @@ func completeSecurityProviderCallback(t *testing.T, srv *Service, cfg authprovid
 func securityProviderLogin(t *testing.T, srv *Service, cfg authprovider.Provider, identity providerTestIdentity, invite string) *httptest.ResponseRecorder {
 	t.Helper()
 	start := httptest.NewRecorder()
-	srv.oidcHandler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/oidc/"+cfg.Name()+"/login?account_invite_token="+url.QueryEscape(invite), nil))
-	require.Equal(t, http.StatusFound, start.Code, start.Body.String())
+	body, err := json.Marshal(map[string]string{"account_invite_token": invite})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/oidc/"+cfg.Name()+"/login", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	srv.oidcHandler().ServeHTTP(start, req)
+	require.Equal(t, http.StatusOK, start.Code, start.Body.String())
 	return completeSecurityProviderCallback(t, srv, cfg, start, identity)
 }
 

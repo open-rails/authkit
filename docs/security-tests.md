@@ -21,10 +21,23 @@ Add a row and a test for every new attack class.
 | Self-unban or unban of a more privileged account | `TestSecurityUnbanRequiresAuthority` |
 | Credentials manager swaps keys of, disables or deletes an owner application | `TestSecurityRemoteApplicationTakeover` |
 | Role, custom-role, invite-link and API-key escalation; cross-group action; root routes with a group role | `TestSecurityRoleEscalation` |
-| Per-process limits/state in a multi-replica deployment | `TestSecurityMultiReplicaStores` |
+| Demoted creator redeems their own invite link or keeps their API key | `TestSecurityDemotedCreatorCredentials` |
+| Bounded manager revokes a higher role's API key or invite link | `TestSecurityRevokeAboveOwnRole` |
+| Group binds a reserved issuer or squats an unregistered one against its domain | `TestSecurityRemoteApplicationIssuerSquat` |
+| Delegated grant carries AuthKit authority the user lacks, or keeps it after the user loses it | `TestSecurityDelegatedGrantClamp` |
+| Issuer registered without an audience accepts every audience | `TestSecurityIssuerWithoutAudience` |
+| Sibling subdomain plants or shadows the OIDC state cookie | `TestSecurityOIDCStateCookieIsHostPrefixed` |
+| Providers sharing an issuer, or claiming this deployment's | `TestSecurityProviderIssuerCollisions` |
+| Account invitation carried in a login URL; cross-site login start | `TestSecurityInviteTokenNotInURL` |
+| Built-in provider without PKCE | `TestSecurityProviderPKCE` |
+| Oversized form_post callback body | `TestSecurityFormPostCallbackIsBounded` |
+| Outbound fetch to reserved ranges, including NAT64/6to4 | `TestSecurityOutboundAddressGuard` |
+| Purged user's username re-registered | `TestSecurityPurgedUsernameStaysReserved` |
+| Replicas share Redis budgets; without Redis the single-replica memory store is automatic (a deployment requirement, see [rate limits](security/rate-limits.md)) | `TestSecurityMultiReplicaStores` |
+| Stranger locks an account out with wrong passwords; guessing address keeps guessing; IPv6 address rotation within a /64 | `TestSecurityPasswordLimitIsPerAddress` |
 | Forged `X-Forwarded-For`/`CF-Connecting-IP` resets rate limits | `TestSecurityClientAddressSpoofing` |
 | Removed signing key still accepted or published; new key not published | `TestSecurityKeyRotationIsPublished` |
-| Cross-site refresh-cookie use, cookie tossing, body tokens on cookie mounts, cross-site cookie login | `TestSecurityRefreshCookieCSRF` |
+| Cross-site refresh-cookie use, cookie tossing, sibling-planted unprefixed cookie, body tokens on cookie mounts, cross-site cookie login | `TestSecurityRefreshCookieCSRF` |
 | Oversized, malformed, unknown-field and SQL-metacharacter bodies; CORS reflection; internal detail in errors | `TestSecurityRequestBoundary` |
 | Account enumeration through login and reset responses | `TestSecurityAccountEnumeration` |
 | Unproven account adds a provider link, passkey, factor or wallet | `TestSecurityUnprovenContactCannotAddLoginMethods` |
@@ -40,6 +53,7 @@ code/link single winner and reset-grant invalidation
 (`TestAccountAdmissionWorkflow`, `TestCredentialTransactionsResetGrantsExpireOnCredentialChanges`);
 2FA code retry semantics (`TestTwoFactorCodeSurvivesWrongGuess`); last-owner
 and role-owner races (`TestRoleOwnerWorkflow`); DPoP and delegated scope
-(`TestBrowserDelegationWorkflow`); rate-limit backend outage (`TestWorkflowRateLimits`).
+(`TestBrowserDelegationWorkflow`); per-address password limits and rate-limit
+backend outage (`TestWorkflowRateLimits`).
 
 Known open risks are tracked in the AuthKit tracker (#392 and its follow-ups).

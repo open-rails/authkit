@@ -11,6 +11,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/verify"
 )
 
 // DelegatedAccessTokenType is the canonical JOSE `typ` header value for a
@@ -42,6 +43,44 @@ func (s *engine) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccess
 		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 	return MintDelegatedAccessToken(ctx, signer, p)
+}
+
+// CheckDelegatedGrant refuses a delegated grant carrying AuthKit authority the
+// user does not hold now. Delegated permissions are scope-free, so one in an
+// AuthKit persona's namespace must be held at the root group; permissions in
+// the host's own vocabulary remain the DelegationAuthorizer's decision.
+func (s *engine) CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
+	for _, perm := range permissions {
+		held, err := s.delegatedPermissionHeld(ctx, userID, authkit.Perm(strings.TrimSpace(perm)))
+		if err != nil {
+			return err
+		}
+		if !held {
+			return authkit.ErrDelegationRefused
+		}
+	}
+	return nil
+}
+
+// DelegatedPermissionLive re-checks, on use, a delegated token this deployment
+// minted: its delegated subject must still hold any AuthKit permission it
+// carries. Tokens from other issuers keep their issuer-trust contract.
+func (s *engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm authkit.Perm) (bool, error) {
+	if !cl.IsDelegatedAccessToken() || strings.TrimSpace(cl.Issuer) != strings.TrimSpace(s.cfg.Token.Issuer) {
+		return true, nil
+	}
+	return s.delegatedPermissionHeld(ctx, cl.DelegatedSubject, perm)
+}
+
+func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, perm authkit.Perm) (bool, error) {
+	namespace, _, _ := strings.Cut(string(perm), ":")
+	if _, ok := s.groupSchemaOrDefault().Persona(authkit.Persona(namespace)); !ok && namespace != "*" {
+		return true, nil
+	}
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+	return s.Can(ctx, authkit.UserSubject(userID), authkit.RootGroup(), perm)
 }
 
 // MintDelegatedAccessToken signs a canonical delegated access token with an

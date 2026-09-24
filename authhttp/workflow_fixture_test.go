@@ -307,18 +307,10 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 	return d
 }
 
-// coreFromConfig is embedded.NewFromConfig with the pool positional and Deps
-// composed from options.
 // coreFromConfig is embedded.New with the pool positional and Deps composed
-// from options. A test that wires neither Redis nor an EphemeralStore gets the
-// memory store New defaults to, so the opt-in is implied (the host-facing
-// refusal is pinned in embedded and by TestNewServer_RequiresClientIPPosture).
+// from options; without Redis it runs on the default memory store.
 func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*testRuntime, error) {
-	deps := depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...)
-	if deps.Redis == nil && deps.EphemeralStore == nil {
-		cfg.Ephemeral.AllowMemory = true
-	}
-	return newTestRuntime(cfg, deps)
+	return newTestRuntime(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }
 
 const documentsTestType = "example.entitlements/v1"
@@ -1051,7 +1043,6 @@ func newServerTestConfig() embedded.Config {
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
-		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
 		// The harness's IdPs and JWKS endpoints are loopback httptest servers.
 		Applications: embedded.ApplicationsConfig{AllowPrivateNetworkJWKS: true},
 	}
@@ -1061,11 +1052,7 @@ func newServerTestConfig() embedded.Config {
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
 func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *testRuntime {
 	t.Helper()
-	deps := depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...)
-	if deps.Redis == nil && deps.EphemeralStore == nil {
-		cfg.Ephemeral.AllowMemory = true // the harness's memory store is deliberate
-	}
-	c, err := newTestRuntime(cfg, deps)
+	c, err := newTestRuntime(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...))
 	require.NoError(t, err)
 	return c
 }

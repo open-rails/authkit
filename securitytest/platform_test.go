@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -77,41 +78,22 @@ func (s *sharedStore) Incr(_ context.Context, k string, _ time.Duration) (int64,
 	return n, nil
 }
 
-// TestSecurityMultiReplicaStores: a production (multi-replica) configuration
-// must not silently keep rate limits, codes or OIDC/SIWS state per process,
-// where N replicas would multiply every brute-force budget by N.
+// TestSecurityMultiReplicaStores: with Redis every replica shares one set of
+// budgets and login state. Without Redis AuthKit runs on the per-process memory
+// store, which is correct only for a single replica (docs/security/rate-limits.md).
 func TestSecurityMultiReplicaStores(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	s := signer()
-	base := func() embedded.Config {
-		return embedded.Config{
-			Keys:  embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
-			Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
-			HTTP:  authhttp.Config{DirectPeerIP: true},
+	t.Run("without Redis the memory store is automatic", func(t *testing.T) {
+		for _, deps := range []embedded.Deps{{Postgres: pg.Pool}, {Postgres: pg.Pool, EphemeralStore: &sharedStore{}}} {
+			runtime, err := embedded.New(embedded.Config{
+				Keys:  embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+				Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
+				HTTP:  authhttp.Config{DirectPeerIP: true},
+			}, deps)
+			require.NoError(t, err)
+			runtime.Close()
 		}
-	}
-	for _, tc := range []struct {
-		name string
-		deps embedded.Deps
-	}{
-		{"no shared store", embedded.Deps{Postgres: pg.Pool}},
-		{"custom ephemeral store without Redis", embedded.Deps{Postgres: pg.Pool, EphemeralStore: &sharedStore{}}},
-	} {
-		t.Run("refused: "+tc.name, func(t *testing.T) {
-			runtime, err := embedded.New(base(), tc.deps)
-			if runtime != nil {
-				runtime.Close()
-			}
-			require.Error(t, err)
-		})
-	}
-
-	t.Run("control: explicit single-instance opt-in", func(t *testing.T) {
-		cfg := base()
-		cfg.Ephemeral.AllowMemory = true
-		runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg.Pool})
-		require.NoError(t, err)
-		runtime.Close()
 	})
 
 	t.Run("Redis budgets are shared by every replica", func(t *testing.T) {
@@ -128,6 +110,40 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 		}
 		resp := two.post("/password/login", map[string]string{"identifier": a.email, "password": "wrong-" + password}, "")
 		require.Equal(t, http.StatusTooManyRequests, resp.status, "second replica kept its own budget: %s", resp)
+	})
+}
+
+// TestSecurityPasswordLimitIsPerAddress: passwords are high-entropy secrets,
+// so password checks are limited per client address only. A stranger's wrong
+// guesses cannot lock the owner out, the guessing address stays blocked even
+// with the right password, and IPv6 clients are limited per /64.
+func TestSecurityPasswordLimitIsPerAddress(t *testing.T) {
+	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authhttp.Config) {
+		c.RateLimits = map[string]ratelimit.Limit{authhttp.RLPasswordLogin: {Limit: 3, Window: time.Hour}}
+	}))
+	a := h.newAccount("peraddress")
+	attempt := func(ip, pass string) response {
+		return h.do(request{method: http.MethodPost, path: "/password/login", header: from(ip),
+			body: map[string]string{"identifier": a.email, "password": pass}})
+	}
+	for range 3 {
+		resp := attempt("203.0.113.40", "wrong-"+password)
+		require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+	}
+	resp := attempt("203.0.113.40", password)
+	require.Equal(t, http.StatusTooManyRequests, resp.status, "the guessing address kept its budget: %s", resp)
+	resp = attempt("198.51.100.40", password)
+	require.Equal(t, http.StatusOK, resp.status, "a stranger's wrong guesses locked the owner out: %s", resp)
+
+	t.Run("IPv6 clients share one budget per /64", func(t *testing.T) {
+		for i := range 3 {
+			resp := attempt(fmt.Sprintf("2001:db8:40:1::%x", i+1), "wrong-"+password)
+			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+		}
+		resp := attempt("2001:db8:40:1:ffff:ffff:ffff:ffff", password)
+		require.Equal(t, http.StatusTooManyRequests, resp.status, "another address in the /64 got a fresh budget: %s", resp)
+		resp = attempt("2001:db8:40:2::1", password)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }
 
@@ -189,9 +205,12 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 }
 
 // TestSecurityRefreshCookieCSRF: a cross-site page must not spend or plant the
-// browser's refresh cookie.
+// browser's refresh cookie. On HTTPS the cookie is __Host- prefixed (Secure,
+// host-only, Path=/), so a sibling subdomain can only plant the bare name,
+// which is never read.
 func TestSecurityRefreshCookieCSRF(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }))
+	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
+		withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
 	a := h.newAccount("cookie")
 	login := func(header http.Header) response {
 		return h.do(request{method: http.MethodPost, path: "/password/login", header: header,
@@ -203,7 +222,11 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 			jar = c
 		}
 	}
-	require.NotNil(t, jar)
+	require.NotNil(t, jar, "no __Host- refresh cookie")
+	require.Equal(t, "__Host-authkit_rt", jar.Name)
+	require.True(t, jar.Secure)
+	require.Equal(t, "/", jar.Path)
+	require.Empty(t, jar.Domain)
 	refresh := func(header http.Header, cookies ...*http.Cookie) response {
 		return h.do(request{method: http.MethodPost, path: "/token", header: header, cookies: cookies,
 			body: map[string]string{"grant_type": "refresh_token"}})
@@ -212,13 +235,13 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 		name    string
 		header  http.Header
 		cookies []*http.Cookie
-		body    string
 	}{
-		{"cross-site fetch metadata", http.Header{"Sec-Fetch-Site": {"cross-site"}}, []*http.Cookie{jar}, ""},
-		{"same-site sibling", http.Header{"Sec-Fetch-Site": {"same-site"}}, []*http.Cookie{jar}, ""},
-		{"foreign Origin", http.Header{"Origin": {"https://evil.test"}}, []*http.Cookie{jar}, ""},
-		{"opaque Origin", http.Header{"Origin": {"null"}}, []*http.Cookie{jar}, ""},
-		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: authhttp.RefreshCookieName, Value: "attacker"}}, ""},
+		{"cross-site fetch metadata", http.Header{"Sec-Fetch-Site": {"cross-site"}}, []*http.Cookie{jar}},
+		{"same-site sibling", http.Header{"Sec-Fetch-Site": {"same-site"}}, []*http.Cookie{jar}},
+		{"foreign Origin", http.Header{"Origin": {"https://evil.test"}}, []*http.Cookie{jar}},
+		{"opaque Origin", http.Header{"Origin": {"null"}}, []*http.Cookie{jar}},
+		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: authhttp.RefreshCookieName, Value: "attacker"}}},
+		{"sibling-planted unprefixed cookie", nil, []*http.Cookie{{Name: "authkit_rt", Value: jar.Value}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := refresh(tc.header, tc.cookies...)

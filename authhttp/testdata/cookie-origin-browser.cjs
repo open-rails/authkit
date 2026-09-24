@@ -18,11 +18,11 @@ const attacker = process.env.AUTHKIT_BROWSER_ATTACKER_URL;
     assert.equal(login.status, 200);
     assert.ok(login.tokens.access_token);
     assert.equal(login.tokens.refresh_token, undefined);
-    const cookie = async () => (await context.cookies()).find(c => c.name === 'authkit_rt');
+    const cookie = async () => (await context.cookies()).find(c => c.name === '__Host-authkit_rt');
     const original = await cookie();
     assert.ok(original && original.httpOnly && original.secure);
     assert.equal(original.sameSite, 'Lax');
-    assert.equal(original.path, '/api/v1/token');
+    assert.equal(original.path, '/');
     for (const encoding of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data']) {
       await page.goto(`${attacker}/?encoding=${encodeURIComponent(encoding)}`);
       const responsePromise = page.waitForResponse(r => r.url() === `${victim}/api/v1/password/login` && r.request().method() === 'POST');

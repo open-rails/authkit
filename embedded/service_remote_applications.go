@@ -244,9 +244,9 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 	// issuer. The verifier keys issuers by string and upserts by issuer, so a
 	// federated registration under the platform issuer would overwrite the
 	// trusted local entry, swapping the platform's signing keys and breaking
-	// verification of all first-party tokens. Reject case-insensitively to deny
-	// trivial host-case bypasses. This guards every caller, including bootstrap.
-	if platformIssuer := strings.TrimSpace(s.cfg.Token.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
+	// verification of all first-party tokens. This guards every caller,
+	// including bootstrap.
+	if s.reservedIssuer(issuer) {
 		return nil, ErrReservedIssuer
 	}
 	if err := validateRemoteAppSlug(slug); err != nil {
@@ -304,6 +304,53 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 		return nil, err
 	}
 	return remoteAppFromRow(remoteAppRow(row)), nil
+}
+
+// reservedIssuer reports whether issuer names this deployment's own accounts or
+// one of its identity providers; no remote application may claim it. Matching
+// ignores case and a trailing slash, so trivial spellings cannot bypass it.
+func (s *engine) reservedIssuer(issuer string) bool {
+	key := issuerKey(issuer)
+	if key == "" {
+		return false
+	}
+	for _, own := range append([]string{s.cfg.Token.Issuer}, s.cfg.Token.AccountIssuers...) {
+		if issuerKey(own) == key {
+			return true
+		}
+	}
+	for _, p := range s.cfg.Identity.Providers {
+		if p != nil && issuerKey(p.Issuer()) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func issuerKey(issuer string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(issuer), "/"))
+}
+
+// evictSessionBoundIssuer lets a domain proof reclaim an issuer that a group
+// bound through a member's session (trust root "user"): naming an unregistered
+// issuer URL first must not keep it from the domain that controls it. An
+// issuer held by a manual or domain-rooted application still conflicts.
+func (s *engine) evictSessionBoundIssuer(ctx context.Context, st *PermissionGroupStore, issuer string) error {
+	holder, err := db.New(st.q).RemoteApplicationByIssuer(ctx, issuer)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil || holder.TrustRoot != ApplicationTrustRootUser {
+		return err
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(holder.ID)); err != nil {
+		if errors.Is(err, ErrCannotRemoveLastAdminRole) {
+			return ErrApplicationIssuerConflict
+		}
+		return err
+	}
+	_, err = st.q.Exec(ctx, `DELETE FROM remote_applications WHERE id=$1::uuid`, holder.ID)
+	return err
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
