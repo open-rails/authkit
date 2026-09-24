@@ -1,0 +1,1511 @@
+{
+  "error_codes": [
+    {
+      "code": "2fa_code_expired",
+      "status": 400
+    },
+    {
+      "code": "2fa_enrollment_required",
+      "status": 403
+    },
+    {
+      "code": "2fa_factor_exists",
+      "status": 409
+    },
+    {
+      "code": "2fa_method_unavailable",
+      "status": 400
+    },
+    {
+      "code": "2fa_required",
+      "status": 403
+    },
+    {
+      "code": "abandon_failed",
+      "status": 500
+    },
+    {
+      "code": "access_token_has_sub",
+      "status": 401
+    },
+    {
+      "code": "access_token_wrong_typ",
+      "status": 401
+    },
+    {
+      "code": "account_authority_escalation",
+      "status": 403
+    },
+    {
+      "code": "account_disabled",
+      "status": 401
+    },
+    {
+      "code": "account_exists_link_required",
+      "status": 409
+    },
+    {
+      "code": "account_recovery_expired",
+      "status": 409
+    },
+    {
+      "code": "account_recovery_required",
+      "status": 409
+    },
+    {
+      "code": "account_registration_invite_not_found",
+      "status": 404
+    },
+    {
+      "code": "address_mismatch",
+      "status": 400
+    },
+    {
+      "code": "address_required",
+      "status": 400
+    },
+    {
+      "code": "application_document_fetch_failed",
+      "status": 502
+    },
+    {
+      "code": "application_document_invalid",
+      "status": 400
+    },
+    {
+      "code": "application_domain_conflict",
+      "status": 409
+    },
+    {
+      "code": "application_domain_invalid",
+      "status": 400
+    },
+    {
+      "code": "application_issuer_conflict",
+      "status": 409
+    },
+    {
+      "code": "application_registration_disabled",
+      "status": 403
+    },
+    {
+      "code": "application_slug_conflict",
+      "status": 409
+    },
+    {
+      "code": "auth_required_for_link",
+      "status": 401
+    },
+    {
+      "code": "authentication_failed",
+      "status": 401
+    },
+    {
+      "code": "authentication_required",
+      "status": 401
+    },
+    {
+      "code": "avatar_url_invalid",
+      "status": 400
+    },
+    {
+      "code": "bad_audience",
+      "status": 401
+    },
+    {
+      "code": "bad_issuer",
+      "status": 401
+    },
+    {
+      "code": "bootstrap_database_not_empty",
+      "status": 409
+    },
+    {
+      "code": "cannot_remove_last_admin_role",
+      "status": 409
+    },
+    {
+      "code": "cannot_remove_last_owner",
+      "status": 409
+    },
+    {
+      "code": "cannot_unlink_last_login_method",
+      "status": 400
+    },
+    {
+      "code": "challenge_expired",
+      "status": 401
+    },
+    {
+      "code": "challenge_failed",
+      "status": 500
+    },
+    {
+      "code": "confirmation_wrong_token_type",
+      "status": 401
+    },
+    {
+      "code": "conflicting_subject",
+      "status": 401
+    },
+    {
+      "code": "custom_role_grant_cross_persona",
+      "status": 400
+    },
+    {
+      "code": "custom_role_grant_outside_catalog",
+      "status": 400
+    },
+    {
+      "code": "custom_role_is_catalog_role",
+      "status": 400
+    },
+    {
+      "code": "custom_role_name_invalid",
+      "status": 400
+    },
+    {
+      "code": "custom_roles_not_supported",
+      "status": 400
+    },
+    {
+      "code": "database_error",
+      "status": 500
+    },
+    {
+      "code": "delegated_access_has_roles",
+      "status": 401
+    },
+    {
+      "code": "delegated_access_has_user_tier",
+      "status": 401
+    },
+    {
+      "code": "delegated_access_wrong_typ",
+      "status": 401
+    },
+    {
+      "code": "delegated_document_unavailable",
+      "status": 503
+    },
+    {
+      "code": "delegated_mint_failed",
+      "status": 500
+    },
+    {
+      "code": "delegated_token_too_large",
+      "status": 500
+    },
+    {
+      "code": "delegation_authorizer_unavailable",
+      "status": 503
+    },
+    {
+      "code": "delegation_refused",
+      "status": 403
+    },
+    {
+      "code": "device_keys_disabled",
+      "status": 403
+    },
+    {
+      "code": "document_audience_mismatch",
+      "status": 400
+    },
+    {
+      "code": "document_digest_collision",
+      "status": 409
+    },
+    {
+      "code": "document_digest_mismatch",
+      "status": 400
+    },
+    {
+      "code": "document_fetch_failed",
+      "status": 502
+    },
+    {
+      "code": "document_issuer_mismatch",
+      "status": 400
+    },
+    {
+      "code": "document_not_found",
+      "status": 404
+    },
+    {
+      "code": "document_payload_too_large",
+      "status": 400
+    },
+    {
+      "code": "document_redirect_rejected",
+      "status": 502
+    },
+    {
+      "code": "document_references_too_large",
+      "status": 400
+    },
+    {
+      "code": "document_type_mismatch",
+      "status": 400
+    },
+    {
+      "code": "document_unauthorized",
+      "status": 401
+    },
+    {
+      "code": "documents_wrong_token_type",
+      "status": 400
+    },
+    {
+      "code": "duplicate_claim",
+      "status": 401
+    },
+    {
+      "code": "duplicate_document_reference",
+      "status": 400
+    },
+    {
+      "code": "email_already_verified",
+      "status": 409
+    },
+    {
+      "code": "email_delivery_failed",
+      "status": 502
+    },
+    {
+      "code": "email_in_use",
+      "status": 400
+    },
+    {
+      "code": "email_password_reset_unavailable",
+      "status": 503
+    },
+    {
+      "code": "email_registration_unavailable",
+      "status": 500
+    },
+    {
+      "code": "email_sender_unavailable",
+      "status": 503
+    },
+    {
+      "code": "email_unavailable",
+      "status": 503
+    },
+    {
+      "code": "email_unchanged",
+      "status": 400
+    },
+    {
+      "code": "email_verification_failed",
+      "status": 500
+    },
+    {
+      "code": "email_verification_unavailable",
+      "status": 500
+    },
+    {
+      "code": "enable_2fa_failed",
+      "status": 500
+    },
+    {
+      "code": "entitlement_filter_unavailable",
+      "status": 400
+    },
+    {
+      "code": "external_invites_disabled",
+      "status": 403
+    },
+    {
+      "code": "failed_to_delete",
+      "status": 500
+    },
+    {
+      "code": "failed_to_list",
+      "status": 500
+    },
+    {
+      "code": "failed_to_list_signins",
+      "status": 500
+    },
+    {
+      "code": "failed_to_logout",
+      "status": 500
+    },
+    {
+      "code": "failed_to_request_phone_change",
+      "status": 400
+    },
+    {
+      "code": "failed_to_revoke",
+      "status": 500
+    },
+    {
+      "code": "failed_to_revoke_all",
+      "status": 500
+    },
+    {
+      "code": "failed_to_unban",
+      "status": 500
+    },
+    {
+      "code": "failed_to_unlink",
+      "status": 500
+    },
+    {
+      "code": "failed_to_update_preferred_language",
+      "status": 400
+    },
+    {
+      "code": "forbidden",
+      "status": 403
+    },
+    {
+      "code": "group_creation_refused",
+      "status": 403
+    },
+    {
+      "code": "group_invite_link_expired",
+      "status": 400
+    },
+    {
+      "code": "group_invite_link_not_found",
+      "status": 404
+    },
+    {
+      "code": "group_invite_link_revoked",
+      "status": 400
+    },
+    {
+      "code": "group_slug_application_managed",
+      "status": 409
+    },
+    {
+      "code": "group_slug_invalid",
+      "status": 400
+    },
+    {
+      "code": "group_slug_reserved",
+      "status": 403
+    },
+    {
+      "code": "group_slug_taken",
+      "status": 409
+    },
+    {
+      "code": "insufficient_role_authority",
+      "status": 403
+    },
+    {
+      "code": "internal_error",
+      "status": 500
+    },
+    {
+      "code": "invalid_address",
+      "status": 400
+    },
+    {
+      "code": "invalid_audiences",
+      "status": 400
+    },
+    {
+      "code": "invalid_base_url",
+      "status": 500
+    },
+    {
+      "code": "invalid_bootstrap_manifest",
+      "status": 400
+    },
+    {
+      "code": "invalid_challenge",
+      "status": 401
+    },
+    {
+      "code": "invalid_code",
+      "status": 400
+    },
+    {
+      "code": "invalid_confirmation",
+      "status": 401
+    },
+    {
+      "code": "invalid_credentials",
+      "status": 401
+    },
+    {
+      "code": "invalid_delegate_certificate",
+      "status": 400
+    },
+    {
+      "code": "invalid_document_digest",
+      "status": 400
+    },
+    {
+      "code": "invalid_document_envelope",
+      "status": 400
+    },
+    {
+      "code": "invalid_document_reference",
+      "status": 400
+    },
+    {
+      "code": "invalid_document_signature",
+      "status": 400
+    },
+    {
+      "code": "invalid_document_type",
+      "status": 400
+    },
+    {
+      "code": "invalid_email",
+      "status": 400
+    },
+    {
+      "code": "invalid_expiry",
+      "status": 400
+    },
+    {
+      "code": "invalid_identifier",
+      "status": 400
+    },
+    {
+      "code": "invalid_invite",
+      "status": 400
+    },
+    {
+      "code": "invalid_message_encoding",
+      "status": 400
+    },
+    {
+      "code": "invalid_method",
+      "status": 400
+    },
+    {
+      "code": "invalid_or_expired_code",
+      "status": 400
+    },
+    {
+      "code": "invalid_or_expired_token",
+      "status": 400
+    },
+    {
+      "code": "invalid_password",
+      "status": 401
+    },
+    {
+      "code": "invalid_phone_number",
+      "status": 400
+    },
+    {
+      "code": "invalid_preferred_language",
+      "status": 400
+    },
+    {
+      "code": "invalid_provider",
+      "status": 400
+    },
+    {
+      "code": "invalid_refresh_token",
+      "status": 401
+    },
+    {
+      "code": "invalid_remote_application",
+      "status": 400
+    },
+    {
+      "code": "invalid_request",
+      "status": 400
+    },
+    {
+      "code": "invalid_requested_grant",
+      "status": 400
+    },
+    {
+      "code": "invalid_role",
+      "status": 400
+    },
+    {
+      "code": "invalid_service_jwt",
+      "status": 401
+    },
+    {
+      "code": "invalid_signature",
+      "status": 401
+    },
+    {
+      "code": "invalid_signature_encoding",
+      "status": 400
+    },
+    {
+      "code": "invalid_state",
+      "status": 400
+    },
+    {
+      "code": "invalid_token",
+      "status": 401
+    },
+    {
+      "code": "invalid_ui",
+      "status": 400
+    },
+    {
+      "code": "invalid_until",
+      "status": 400
+    },
+    {
+      "code": "liveness_unavailable",
+      "status": 401
+    },
+    {
+      "code": "malformed_document_jws",
+      "status": 400
+    },
+    {
+      "code": "malformed_payload",
+      "status": 401
+    },
+    {
+      "code": "malformed_permissions",
+      "status": 401
+    },
+    {
+      "code": "missing_audience",
+      "status": 401
+    },
+    {
+      "code": "missing_delegated_sub",
+      "status": 401
+    },
+    {
+      "code": "missing_exp",
+      "status": 401
+    },
+    {
+      "code": "missing_fields",
+      "status": 400
+    },
+    {
+      "code": "missing_iat",
+      "status": 401
+    },
+    {
+      "code": "missing_kid",
+      "status": 401
+    },
+    {
+      "code": "missing_name",
+      "status": 400
+    },
+    {
+      "code": "missing_nbf",
+      "status": 401
+    },
+    {
+      "code": "missing_session_id",
+      "status": 400
+    },
+    {
+      "code": "missing_sid_claim",
+      "status": 400
+    },
+    {
+      "code": "missing_signer",
+      "status": 500
+    },
+    {
+      "code": "missing_sub",
+      "status": 401
+    },
+    {
+      "code": "missing_token",
+      "status": 401
+    },
+    {
+      "code": "missing_token_typ",
+      "status": 401
+    },
+    {
+      "code": "name_admission_refused",
+      "status": 403
+    },
+    {
+      "code": "not_authenticated",
+      "status": 401
+    },
+    {
+      "code": "not_delegated_access_token",
+      "status": 401
+    },
+    {
+      "code": "not_found",
+      "status": 404
+    },
+    {
+      "code": "not_group_member",
+      "status": 403
+    },
+    {
+      "code": "not_implemented",
+      "status": 501
+    },
+    {
+      "code": "oidc_begin_failed",
+      "status": 400
+    },
+    {
+      "code": "oidc_exchange_failed",
+      "status": 401
+    },
+    {
+      "code": "owner_slug_taken",
+      "status": 400
+    },
+    {
+      "code": "passkey_clone_detected",
+      "status": 401
+    },
+    {
+      "code": "passkey_failed",
+      "status": 500
+    },
+    {
+      "code": "passkey_not_found",
+      "status": 404
+    },
+    {
+      "code": "passkey_user_verification_required",
+      "status": 401
+    },
+    {
+      "code": "password_change_failed",
+      "status": 400
+    },
+    {
+      "code": "password_contains_identifier",
+      "status": 400
+    },
+    {
+      "code": "password_requirements_unmet",
+      "status": 400
+    },
+    {
+      "code": "password_reset_required",
+      "status": 401
+    },
+    {
+      "code": "password_too_common",
+      "status": 400
+    },
+    {
+      "code": "password_too_long",
+      "status": 400
+    },
+    {
+      "code": "password_too_short",
+      "status": 400
+    },
+    {
+      "code": "passwordless_disabled",
+      "status": 403
+    },
+    {
+      "code": "pending_registration_not_found",
+      "status": 404
+    },
+    {
+      "code": "permission_group_not_found",
+      "status": 404
+    },
+    {
+      "code": "permission_not_granted",
+      "status": 403
+    },
+    {
+      "code": "phone_2fa_unavailable",
+      "status": 500
+    },
+    {
+      "code": "phone_already_verified",
+      "status": 409
+    },
+    {
+      "code": "phone_and_code_required",
+      "status": 400
+    },
+    {
+      "code": "phone_in_use",
+      "status": 400
+    },
+    {
+      "code": "phone_number_must_be_e164",
+      "status": 400
+    },
+    {
+      "code": "phone_registration_unavailable",
+      "status": 500
+    },
+    {
+      "code": "phone_unavailable",
+      "status": 503
+    },
+    {
+      "code": "phone_unchanged",
+      "status": 400
+    },
+    {
+      "code": "phone_verification_failed",
+      "status": 500
+    },
+    {
+      "code": "phone_verification_unavailable",
+      "status": 500
+    },
+    {
+      "code": "pkce_generation_failed",
+      "status": 500
+    },
+    {
+      "code": "preferred_language_lookup_failed",
+      "status": 500
+    },
+    {
+      "code": "provider_already_linked",
+      "status": 409
+    },
+    {
+      "code": "provider_change_requires_unlink",
+      "status": 409
+    },
+    {
+      "code": "provider_error",
+      "status": 400
+    },
+    {
+      "code": "provider_link_failed",
+      "status": 500
+    },
+    {
+      "code": "provider_not_linked",
+      "status": 400
+    },
+    {
+      "code": "rate_limited",
+      "status": 429
+    },
+    {
+      "code": "regenerate_codes_failed",
+      "status": 500
+    },
+    {
+      "code": "registration_disabled",
+      "status": 403
+    },
+    {
+      "code": "remote_application_access_has_subject",
+      "status": 401
+    },
+    {
+      "code": "remote_application_issuer_conflict",
+      "status": 409
+    },
+    {
+      "code": "remote_application_not_found",
+      "status": 404
+    },
+    {
+      "code": "rename_rate_limited",
+      "status": 429
+    },
+    {
+      "code": "renames_disabled",
+      "status": 403
+    },
+    {
+      "code": "reserved_document_attribute",
+      "status": 400
+    },
+    {
+      "code": "reserved_issuer",
+      "status": 400
+    },
+    {
+      "code": "role_assignment_escalation",
+      "status": 403
+    },
+    {
+      "code": "role_not_assignable",
+      "status": 400
+    },
+    {
+      "code": "send_code_failed",
+      "status": 500
+    },
+    {
+      "code": "sender_proof_required",
+      "status": 401
+    },
+    {
+      "code": "service_jwt_lifetime_exceeded",
+      "status": 401
+    },
+    {
+      "code": "session_creation_failed",
+      "status": 500
+    },
+    {
+      "code": "siws_address_mismatch",
+      "status": 400
+    },
+    {
+      "code": "siws_challenge_expired",
+      "status": 401
+    },
+    {
+      "code": "siws_challenge_mismatch",
+      "status": 401
+    },
+    {
+      "code": "siws_challenge_not_found",
+      "status": 401
+    },
+    {
+      "code": "siws_domain_invalid",
+      "status": 401
+    },
+    {
+      "code": "siws_signature_invalid",
+      "status": 401
+    },
+    {
+      "code": "siws_timestamp_invalid",
+      "status": 401
+    },
+    {
+      "code": "sms_delivery_failed",
+      "status": 502
+    },
+    {
+      "code": "sms_unavailable",
+      "status": 503
+    },
+    {
+      "code": "state_store_failed",
+      "status": 500
+    },
+    {
+      "code": "step_up_failed",
+      "status": 500
+    },
+    {
+      "code": "step_up_required",
+      "status": 403
+    },
+    {
+      "code": "token_expired",
+      "status": 401
+    },
+    {
+      "code": "token_issue_failed",
+      "status": 500
+    },
+    {
+      "code": "token_not_yet_valid",
+      "status": 401
+    },
+    {
+      "code": "token_revoked",
+      "status": 401
+    },
+    {
+      "code": "too_many_document_references",
+      "status": 400
+    },
+    {
+      "code": "ttl_exceeds_delegate_certificate",
+      "status": 400
+    },
+    {
+      "code": "unauthenticated",
+      "status": 401
+    },
+    {
+      "code": "unauthorized",
+      "status": 401
+    },
+    {
+      "code": "unknown_document_key",
+      "status": 400
+    },
+    {
+      "code": "unknown_group_persona",
+      "status": 400
+    },
+    {
+      "code": "unknown_kid",
+      "status": 401
+    },
+    {
+      "code": "unknown_provider",
+      "status": 400
+    },
+    {
+      "code": "unknown_role",
+      "status": 400
+    },
+    {
+      "code": "unsupported_document_algorithm",
+      "status": 400
+    },
+    {
+      "code": "unsupported_document_signer",
+      "status": 400
+    },
+    {
+      "code": "unsupported_token_typ",
+      "status": 401
+    },
+    {
+      "code": "untrusted_document_issuer",
+      "status": 403
+    },
+    {
+      "code": "user_banned",
+      "status": 401
+    },
+    {
+      "code": "user_creation_failed",
+      "status": 500
+    },
+    {
+      "code": "user_lookup_failed",
+      "status": 500
+    },
+    {
+      "code": "user_not_found",
+      "status": 404
+    },
+    {
+      "code": "user_referenced",
+      "status": 409
+    },
+    {
+      "code": "user_role_not_found",
+      "status": 404
+    },
+    {
+      "code": "username_cannot_contain_at",
+      "status": 400
+    },
+    {
+      "code": "username_cannot_start_with_plus",
+      "status": 400
+    },
+    {
+      "code": "username_in_use",
+      "status": 400
+    },
+    {
+      "code": "username_invalid_characters",
+      "status": 400
+    },
+    {
+      "code": "username_must_start_with_letter",
+      "status": 400
+    },
+    {
+      "code": "username_not_allowed",
+      "status": 400
+    },
+    {
+      "code": "username_too_long",
+      "status": 400
+    },
+    {
+      "code": "username_too_short",
+      "status": 400
+    },
+    {
+      "code": "verification_link_expired",
+      "status": 410
+    },
+    {
+      "code": "verification_required",
+      "status": 403
+    },
+    {
+      "code": "wallet_already_linked",
+      "status": 409
+    },
+    {
+      "code": "wallet_change_requires_unlink",
+      "status": 409
+    },
+    {
+      "code": "wrong_document_jose_type",
+      "status": 400
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/.well-known/jwks.json",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/.well-known/jwks.json",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/2fa/challenge",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/2fa/verify",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/account/recovery/confirm",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/users",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/admin/users",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/{user_id}",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:users:delete"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/users/{user_id}",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/admin/users/{user_id}",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/users/{user_id}/ban",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:users:ban"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/users/{user_id}/restore",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:users:recover"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/users/{user_id}/sessions/revoke",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:users:recover"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/users/{user_id}/signins",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/admin/users/{user_id}/signins",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:resources:read"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/users/{user_id}/unban",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:users:ban"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/capabilities",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/capabilities",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/logout",
+      "group": "auth",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/me",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/groups",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/me/groups",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/permissions",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/me/permissions",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/oidc/{provider}/link/start",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/oidc/{provider}/step-up/start",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/passkeys",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/passkeys",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passkeys/login/begin",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passkeys/login/finish",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passkeys/register/begin",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passkeys/register/finish",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/passkeys/{id}",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/passkeys/{id}",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/password/login",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/password/reset/confirm",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/password/reset/request",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passwordless/confirm",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/passwordless/start",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/register",
+      "group": "registration",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/register/abandon",
+      "group": "registration",
+      "auth": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/register/availability",
+      "group": "registration",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/register/availability",
+      "group": "registration",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/register/resend",
+      "group": "registration",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/solana/challenge",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/solana/link",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/solana/login",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/step-up/2fa",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/step-up/password",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/token",
+      "group": "auth",
+      "auth": "public"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user/2fa",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/2fa",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/user/2fa",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/user/2fa",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/user/2fa/backup-codes",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/user/password",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/user/preferred-language",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user/providers/{provider}",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user/sessions",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/sessions",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/user/sessions",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user/sessions/{id}",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/user/username",
+      "group": "account",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/verify/confirm",
+      "group": "account",
+      "auth": "optional"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/verify/request",
+      "group": "account",
+      "auth": "optional"
+    },
+    {
+      "method": "GET",
+      "path": "/oidc/{provider}/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/oidc/{provider}/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/oidc/{provider}/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/oidc/{provider}/login",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/oidc/{provider}/login",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/oidc/{provider}/step-up/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "HEAD",
+      "path": "/oidc/{provider}/step-up/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
+      "method": "POST",
+      "path": "/oidc/{provider}/step-up/callback",
+      "group": "browser_oidc",
+      "auth": "public"
+    }
+  ]
+}

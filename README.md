@@ -289,6 +289,8 @@ claims. See [user-claim presence and freshness](docs/verification.md#user-claims
   when stale.
 - `docs/naming-policy.md` — user/group naming, renames and aliases.
 - [docs/ownership.md](docs/ownership.md) — role replacement and final-owner protection.
+- [`sdk/auth-ui`](sdk/auth-ui) — `@openrails/auth-ui` browser client, React hooks
+  and UI; each release attaches `openrails-auth-ui-X.Y.Z.tgz`.
 - `SEMVER.md` — what the version contract covers.
 - `SECURITY.md` — reporting and the CI gates.
 
