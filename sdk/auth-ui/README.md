@@ -109,6 +109,9 @@ const load = () => auth.authFetch("/api/things")
   (`signedIn: true`) with that hint until the restore settles. The client
   option `sessionHint: false` turns it off; `{ storage, key, ttlSeconds }`
   adjusts it.
+- **Requests while restoring** (`authFetch` and every client call) wait for
+  the restore, so they carry the restored session; `await auth.ready()` does
+  the same for other code.
 - **Tabs:** signing in, out or as another user in one tab follows in the
   others (the `storage` event on the hint).
 - **Events:** `onUserChange(userId, previous)` fires only when the user

@@ -156,3 +156,19 @@ describe("contact proof", () => {
     })
   })
 })
+
+describe("restore", () => {
+  it("holds requests made while restoring until the session is back", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/token": [tokens("u1")],
+      "GET /host/thing": ({ headers }) =>
+        json(200, { auth: new Headers(headers).get("Authorization") }),
+    })
+    const client = createAuthClient({ fetch, sessionHint: false })
+    const stop = client.start()
+    const res = await client.authFetch("/host/thing")
+    expect(await res.json()).toEqual({ auth: `Bearer ${jwt("u1")}` })
+    await client.ready()
+    stop()
+  })
+})

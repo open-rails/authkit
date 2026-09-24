@@ -275,10 +275,10 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		name, baseURL, current string
 		jar                    func(valid string) []*http.Cookie
 	}{
-		{"http: stale pre-v0.137 cookie beside the current one", "", "authkit_rt", func(valid string) []*http.Cookie {
+		{"http: stale pre-v0.137 cookie beside the current one", "http://app.security.test", "authkit_rt", func(valid string) []*http.Cookie {
 			return []*http.Cookie{{Name: "authkit_rt", Value: "stale-legacy"}, {Name: "authkit_rt", Value: valid}}
 		}},
-		{"http: pre-v0.137 cookie alone", "", "authkit_rt", func(valid string) []*http.Cookie {
+		{"http: pre-v0.137 cookie alone", "http://app.security.test", "authkit_rt", func(valid string) []*http.Cookie {
 			return []*http.Cookie{{Name: "authkit_rt", Value: valid}}
 		}},
 		{"https: pre-v0.137 plain cookie alone", "https://app.security.test", "__Host-authkit_rt", func(valid string) []*http.Cookie {
@@ -322,7 +322,8 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		})
 	}
 	t.Run("same-path duplicates are still refused", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }))
+		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
+			withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
 		login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 		valid := cookieNamed(login.cookies, "authkit_rt", "/")

@@ -515,6 +515,20 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     return stop
   }
 
+  // Resolves once a started client's restore has settled, so a request made
+  // while the page loads carries the restored session instead of none.
+  const ready = (): Promise<void> => {
+    if (!started || session.status !== "loading") return Promise.resolve()
+    return new Promise((resolve) => {
+      const settled = () => {
+        if (session.status === "loading") return
+        listeners.delete(settled)
+        resolve()
+      }
+      listeners.add(settled)
+    })
+  }
+
   // --- transport ------------------------------------------------------------
 
   let proveContact: ContactProofHandler | null = null
@@ -575,6 +589,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   ): Promise<{ status: number; body: unknown }> {
     const target = url(baseUrl, path, opts.query)
     const explicit = opts.bearer !== undefined
+    if (!explicit) await ready()
     const bearer = explicit ? (opts.bearer ?? null) : accessToken()
     let res = await send(method, target, opts, bearer)
     if (res.status === 401 && !explicit && bearer) {
@@ -607,6 +622,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       if (token) headers.set("Authorization", `Bearer ${token}`)
       return doFetch(source, { ...init, headers })
     }
+    await ready()
     const bearer = accessToken()
     let res = await attempt(bearer, input)
     if (res.status === 401 && bearer && (await refresh())) {
@@ -1236,6 +1252,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     signOut,
     request,
     authFetch,
+    ready,
     onContactProofRequired,
     completeSignIn,
     oidcLoginUrl,
