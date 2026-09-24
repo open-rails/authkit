@@ -315,6 +315,11 @@ VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 	if err := q.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
 		return DeviceKey{}, "", false, err
 	}
+	// The emailed enrollment code proves the address (ak#393).
+	proven, err := s.retirePreProofCredentials(ctx, tx, userID, nil)
+	if err != nil {
+		return DeviceKey{}, "", false, err
+	}
 	if _, err := q.Exec(ctx, `UPDATE users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
 		return DeviceKey{}, "", false, err
 	}
@@ -332,6 +337,7 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 		if err := tx.Commit(ctx); err != nil {
 			return DeviceKey{}, "", false, err
 		}
+		s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
 		return existing, userID, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -354,6 +360,7 @@ VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`
 	if err := tx.Commit(ctx); err != nil {
 		return DeviceKey{}, "", false, err
 	}
+	s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
 	return existing, userID, true, nil
 }
 

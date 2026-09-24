@@ -24,7 +24,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	require.NoError(t, s.SoftDeleteUser(t.Context(), user.ID))
 	deletedVersion, err := s.q.UserCredentialVersion(t.Context(), user.ID)
 	require.NoError(t, err)
-	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, PasswordlessChannelEmail, *user.Email)
+	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, PasswordlessChannelEmail, *user.Email, nil)
 	require.ErrorIs(t, err, ErrUserBanned, "standalone contact finalization cannot use the recovery-only login allowance")
 	var verified bool
 	require.NoError(t, s.pg.QueryRow(t.Context(), "SELECT email_verified FROM users WHERE id=$1::uuid", user.ID).Scan(&verified))

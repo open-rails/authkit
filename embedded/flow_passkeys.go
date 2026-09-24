@@ -172,6 +172,9 @@ func (s *engine) webAuthn() (*webauthn.WebAuthn, error) {
 // user. The same ceremony finishes as either FinishPasskeyRegistration (add)
 // or FinishPasskeyReplacement (replace all).
 func (s *engine) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
+	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
+		return nil, err
+	}
 	u, err := s.passkeyUser(ctx, strings.TrimSpace(userID), true)
 	if err != nil {
 		return nil, err
@@ -202,6 +205,9 @@ func (s *engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 }
 
 func (s *engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
+	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
+		return Passkey{}, err
+	}
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
 		return Passkey{}, err
@@ -213,6 +219,9 @@ func (s *engine) FinishPasskeyRegistration(ctx context.Context, userID string, r
 // other active passkey of the user in the same transaction, for hosts with a
 // single-passkey policy. Any failure leaves the prior passkeys active.
 func (s *engine) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
+	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
+		return Passkey{}, err
+	}
 	userID = strings.TrimSpace(userID)
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {

@@ -65,7 +65,7 @@ func newSecurityTestProvider(t *testing.T, srv *Service, oidc bool) authprovider
 	t.Cleanup(provider.Close)
 	var cfg authprovider.Provider
 	if oidc {
-		cfg = authprovider.OIDC("security-provider", provider.URL, "security-client", "local-secret")
+		cfg = authprovider.OIDC("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithTrustedEmailVerification(true))
 	} else {
 		cfg = testOAuth2Provider("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithScopes("openid", "email", "profile"))
 	}

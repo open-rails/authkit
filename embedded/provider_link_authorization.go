@@ -29,6 +29,9 @@ func (s *engine) completeProviderLink(ctx context.Context, link ExternalLinkAuth
 	if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
 		return ErrUserBanned
 	}
+	if err := requireProvenContactOn(ctx, tx, link.UserID); err != nil {
+		return err
+	}
 	reserved, err := q.UserIsReserved(ctx, link.UserID)
 	if err != nil {
 		return err

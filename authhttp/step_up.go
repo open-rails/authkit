@@ -381,3 +381,15 @@ func (s *Service) requireLiveCredential(w http.ResponseWriter, r *http.Request, 
 	}
 	return true
 }
+
+// requireProvenContact answers 403 verification_required (metadata identifier,
+// channel, reason=contact_unproven) while every address on the account is
+// unproven: new login methods wait for a proof (ak#393). The frontend sends a
+// code with POST /verify/request and confirms it at POST /verify/confirm.
+func (s *Service) requireProvenContact(w http.ResponseWriter, r *http.Request, userID string) bool {
+	if err := s.svc.RequireProvenContact(r.Context(), userID); err != nil {
+		writeError(w, err)
+		return false
+	}
+	return true
+}

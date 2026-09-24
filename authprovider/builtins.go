@@ -12,7 +12,7 @@ import (
 // Google is Google Sign-In over OIDC with PKCE.
 func Google(clientID, clientSecret string, opts ...Option) Provider {
 	return OIDC("google", "https://accounts.google.com", clientID, clientSecret,
-		append([]Option{WithDisplayName("Google")}, opts...)...)
+		append([]Option{WithDisplayName("Google"), WithTrustedEmailVerification(true)}, opts...)...)
 }
 
 // AppleSecret is how Sign in with Apple authenticates the client: either a
@@ -34,6 +34,7 @@ type AppleSecret struct {
 func Apple(clientID string, secret AppleSecret, opts ...Option) Provider {
 	base := []Option{
 		WithDisplayName("Apple"),
+		WithTrustedEmailVerification(true),
 		WithScopes("openid", "email", "name"),
 		WithPKCE(false),
 		WithAuthParams(map[string]string{"response_mode": "form_post"}),
@@ -74,7 +75,7 @@ func Discord(clientID, clientSecret string, opts ...Option) Provider {
 	return OAuth2("discord", "https://discord.com",
 		Endpoint{AuthorizeURL: "https://discord.com/api/oauth2/authorize", TokenURL: "https://discord.com/api/oauth2/token"},
 		clientID, clientSecret, discordUserInfo("https://discord.com/api/users/@me"),
-		append([]Option{WithDisplayName("Discord"), WithScopes("identify", "email")}, opts...)...)
+		append([]Option{WithDisplayName("Discord"), WithTrustedEmailVerification(true), WithScopes("identify", "email")}, opts...)...)
 }
 
 func discordUserInfo(url string) UserInfoFunc {
@@ -101,7 +102,7 @@ func GitHub(clientID, clientSecret string, opts ...Option) Provider {
 	return OAuth2("github", "https://github.com/login/oauth",
 		Endpoint{AuthorizeURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token"},
 		clientID, clientSecret, gitHubUserInfo("https://api.github.com"),
-		append([]Option{WithDisplayName("GitHub"), WithScopes("read:user", "user:email"), WithPKCE(true)}, opts...)...)
+		append([]Option{WithDisplayName("GitHub"), WithTrustedEmailVerification(true), WithScopes("read:user", "user:email"), WithPKCE(true)}, opts...)...)
 }
 
 const gitHubAccept = "application/vnd.github+json"

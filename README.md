@@ -19,6 +19,8 @@ See [verification trust and key ownership](docs/verification.md) for local versu
 external identity, application delegation boundaries, and key rotation.
 See [authentication workflows](docs/security/authentication-workflows.md) for
 first-factor continuations, atomic registration, and workflow test coverage.
+See [contact ownership](docs/security/contact-ownership.md) for why unproven
+accounts cannot add login methods and what the first address proof revokes.
 
 Redis-compatible stores must support atomic `GETDEL` and atomic Lua
 (`EVAL`/`EVALSHA`); proof claims and counters depend on those guarantees.

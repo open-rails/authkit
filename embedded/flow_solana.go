@@ -200,6 +200,9 @@ func (s *engine) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
+	if err := s.RequireProvenContact(ctx, userID); err != nil {
+		return err
+	}
 
 	// Parse the signed message to get the nonce
 	parsedInput, err := siws.ParseMessage(string(output.SignedMessage))

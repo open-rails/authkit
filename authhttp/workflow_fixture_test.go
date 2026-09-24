@@ -442,6 +442,7 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	t.Cleanup(func() {
 		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
+	require.NoError(t, srv.svc.MarkEmailVerified(context.Background(), user.ID))
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
@@ -463,6 +464,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
 	require.NoError(t, err)
+	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 
 	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
@@ -904,6 +906,7 @@ func newInstanceTestUser(t *testing.T, srv *Service, prefix string) (id, token s
 	ctx := context.Background()
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
+	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
@@ -920,7 +923,7 @@ func postOrg(srv *Service, token, body string) *httptest.ResponseRecorder {
 // /authorize, /token, and /me returning {id|sub, email, email_verified, login, name}.
 func testOAuth2Provider(name, base, clientID, secret string, opts ...authprovider.Option) authprovider.Provider {
 	return authprovider.OAuth2(name, base, authprovider.Endpoint{AuthorizeURL: base + "/authorize", TokenURL: base + "/token"},
-		clientID, secret, testUserInfo(base+"/me"), opts...)
+		clientID, secret, testUserInfo(base+"/me"), append([]authprovider.Option{authprovider.WithTrustedEmailVerification(true)}, opts...)...)
 }
 
 func testUserInfo(url string) authprovider.UserInfoFunc {
@@ -961,6 +964,7 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *Service, prefix st
 	pass = "correct-horse-battery-97"
 	user, err := srv.svc.CreateUser(ctx, email, prefix+uniqueSuffix())
 	require.NoError(t, err)
+	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
@@ -977,6 +981,7 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
+	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})

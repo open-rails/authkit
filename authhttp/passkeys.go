@@ -15,6 +15,9 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
+	if !s.requireProvenContact(w, r, claims.UserID) {
+		return
+	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
@@ -30,6 +33,9 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, authkit.CodeUnauthorized)
+		return
+	}
+	if !s.requireProvenContact(w, r, claims.UserID) {
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {

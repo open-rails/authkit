@@ -28,6 +28,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	email := uniqueEmail("device-key-mfa")
 	user, err := srv.svc.CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
 	require.NoError(t, err)
+	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 	secret, _, err := fixtureBackend(srv.svc).StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)

@@ -104,6 +104,13 @@ func (s *engine) EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (
 	if authErr != nil {
 		return TwoFactorEnrollOutcome{}, authErr
 	}
+	// A deployment that mandates 2FA may still enroll the first factor; the
+	// first contact proof retires it with every other pre-proof credential.
+	if in.Mode != FirstFactorOnly {
+		if err := s.RequireProvenContact(ctx, in.UserID); err != nil {
+			return TwoFactorEnrollOutcome{}, err
+		}
+	}
 	method := strings.ToLower(strings.TrimSpace(in.Method))
 	factorID := strings.TrimSpace(in.FactorID)
 	if method == "" && in.MakeDefault && factorID != "" {

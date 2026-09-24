@@ -27,6 +27,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	handler := srv.apiHandler()
 	user, err := core.CreateUser(t.Context(), "recoverable@example.test", "recoverable")
 	require.NoError(t, err)
+	require.NoError(t, core.MarkEmailVerified(t.Context(), user.ID))
 	hash, err := bcrypt.GenerateFromPassword([]byte("Fresh-recovery-password-1"), bcrypt.MinCost)
 	require.NoError(t, err)
 	require.NoError(t, core.UpsertPasswordHash(t.Context(), user.ID, string(hash), "bcrypt"))
