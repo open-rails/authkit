@@ -1,5 +1,4 @@
 {
-  "authkit_version": "v0.132.0",
   "error_codes": [
     {
       "code": "2fa_code_expired",

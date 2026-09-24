@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.133.0
+
+- Moved into the AuthKit repo (`sdk/auth-ui`). Versions now follow AuthKit
+  tags; install from `https://github.com/open-rails/authkit/releases/download/vX.Y.Z/openrails-auth-ui-X.Y.Z.tgz`.
+- `AUTHKIT_VERSION` is removed: the package version is the AuthKit version.
+
 ## 0.3.2
 
 - `SolanaSignInButton` (and `useSolanaAuth`) take `acquireSigner` for hosts

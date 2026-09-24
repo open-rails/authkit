@@ -16,7 +16,7 @@ import (
 
 	authkithttp "github.com/open-rails/authkit/adapters/http"
 
-	"github.com/open-rails/auth-ui/e2e/server/harness"
+	"github.com/open-rails/authkit/sdk/auth-ui/e2e/server/harness"
 )
 
 func main() {

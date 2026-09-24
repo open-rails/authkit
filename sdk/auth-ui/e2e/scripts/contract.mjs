@@ -1,4 +1,4 @@
-// Regenerates src/client/generated from the pinned AuthKit in e2e/server.
+// Regenerates src/client/generated from this AuthKit checkout.
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"

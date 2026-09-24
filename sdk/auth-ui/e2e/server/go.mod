@@ -1,10 +1,10 @@
-module github.com/open-rails/auth-ui/e2e/server
+module github.com/open-rails/authkit/sdk/auth-ui/e2e/server
 
 go 1.26.6
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/open-rails/authkit v0.132.0
+	github.com/open-rails/authkit v0.0.0
 )
 
 require (
@@ -54,3 +54,5 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/open-rails/authkit => ../../../..

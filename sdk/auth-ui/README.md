@@ -2,7 +2,8 @@
 
 Shared browser client, React hooks and UI for [AuthKit](https://github.com/open-rails/authkit).
 
-Pre-release; requires AuthKit v0.132.0 or newer. Layers:
+Lives in the AuthKit repo and ships with it: package version = AuthKit tag, so
+`@openrails/auth-ui` X.Y.Z speaks AuthKit vX.Y.Z's contract. Layers:
 
 | Import                      | Contents                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
@@ -16,10 +17,10 @@ holds no router, i18n or query-cache dependency.
 
 ## Install
 
-Until the npm org is live, install the archive attached to each GitHub release:
+Each AuthKit GitHub release carries the package archive:
 
 ```json
-"@openrails/auth-ui": "https://github.com/open-rails/auth-ui/releases/download/v0.3.0/openrails-auth-ui-0.3.0.tgz"
+"@openrails/auth-ui": "https://github.com/open-rails/authkit/releases/download/v0.133.0/openrails-auth-ui-0.133.0.tgz"
 ```
 
 ## Client
@@ -241,11 +242,13 @@ local deltas, each marked with a `// Local:` comment.
 
 ### E2E
 
-`pnpm test:e2e` builds `e2e/server` (a real AuthKit mount pinned in
-`e2e/server/go.mod`), starts it on a throwaway `postgres:18` Docker container and
-runs Playwright against it (`pnpm exec playwright install chromium` once).
-Needs Go and Docker. `pnpm contract` regenerates `src/client/generated` from the
-same pin; CI runs `pnpm contract:check`. Captured email/SMS: `GET /__test/outbox`.
+`pnpm test:e2e` builds `e2e/server` (a real AuthKit mount of this checkout, via
+the `replace` in `e2e/server/go.mod`), starts it on a throwaway `postgres:18`
+Docker container and runs Playwright against it (`pnpm exec playwright install
+chromium` once). Needs Go and Docker. `pnpm contract` regenerates
+`src/client/generated` from the same checkout; CI (`.github/workflows/sdk.yaml`)
+runs `pnpm contract:check`, so an API change that moves the contract must
+regenerate it in the same PR. Captured email/SMS: `GET /__test/outbox`.
 
-Publishing a `vX.Y.Z` GitHub release matching `package.json` runs the checks and
-attaches `openrails-auth-ui-X.Y.Z.tgz` to the release.
+`package.json` stays at `0.0.0`; publishing an AuthKit `vX.Y.Z` release stamps
+`X.Y.Z` and attaches `openrails-auth-ui-X.Y.Z.tgz` (`sdk-release.yaml`).

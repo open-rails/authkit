@@ -16,7 +16,7 @@ export type {
   TwoFactorEnrollResult,
   TwoFactorStepUpResult,
 } from "./client.ts"
-export { AUTH_ERROR_STATUS, AUTHKIT_VERSION } from "./codes.ts"
+export { AUTH_ERROR_STATUS } from "./codes.ts"
 export type { AnyAuthErrorCode, AuthErrorCode } from "./codes.ts"
 export {
   continuationFrom,
