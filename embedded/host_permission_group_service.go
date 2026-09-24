@@ -476,17 +476,22 @@ func (s *engine) Can(ctx context.Context, subject authkit.Subject, group authkit
 // (fail-closed — never a partial set returned as if complete). This describes
 // assigned grants, including latent authority on deleted/reserved accounts;
 // Can additionally requires a present native account before granting access.
-func (s *engine) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]string, error) {
-	sch := s.groupSchemaOrDefault()
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
+func (s *engine) ListEffectivePermissions(ctx context.Context, subject authkit.Subject, group authkit.GroupRef) ([]authkit.Perm, error) {
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
-			return []string{}, nil
+			return []authkit.Perm{}, nil
 		}
 		return nil, err
 	}
-	return st.GrantsOnGroup(ctx, sch, subject, gid)
+	perms, err := s.EffectivePermissionsForGroups(ctx, subject, []string{gid})
+	if err != nil {
+		return nil, err
+	}
+	if p := perms[gid]; p != nil {
+		return p, nil
+	}
+	return []authkit.Perm{}, nil
 }
 
 // ListGroupMembers returns the role-assignments in the group addressed by

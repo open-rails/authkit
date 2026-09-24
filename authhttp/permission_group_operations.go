@@ -268,9 +268,6 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		s.writeGroupOpError(w, err)
 		return
 	}
-	if perms == nil {
-		perms = []string{}
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "permission_set",
 		"persona":       group.Persona,

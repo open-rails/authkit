@@ -110,14 +110,14 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	require.NoError(t, fixtureBackend(s.svc).AssignGroupRole(ctx, authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"}, authkit.UserSubject(subject), "auditor"))
 	perms, err := s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
+	require.ElementsMatch(t, []authkit.Perm{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
 	w = s.drive(t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	perms, err = s.svc.ListEffectivePermissions(ctx, authkit.UserSubject(subject), authkit.GroupRef{Persona: "merchant", Instance: "m-escalate"})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"merchant:billing:read", "merchant:billing:write"}, perms)
+	require.ElementsMatch(t, []authkit.Perm{"merchant:billing:read", "merchant:billing:write"}, perms)
 
 	// Delete is gated symmetrically: the bounded admin still can't cover the
 	// role's (now wider) grants, so it cannot delete it either.

@@ -91,6 +91,10 @@ type Client interface {
 	SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	// DeleteGroupInstanceByID is a trusted host-operator mutation.
 	DeleteGroupInstanceByID(ctx context.Context, groupID string, opts DeletePermissionGroupOptions) error
+	// GroupInstancesByIDs reads many resolved groups in ONE query, retained
+	// soft-deleted ones included (DeletedAt set); unknown ids are absent. At
+	// most MaxGroupBatch distinct ids. GroupInstanceByID is its length-1 form.
+	GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]GroupInstance, error)
 	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	AssignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID string, group GroupRef, subject Subject, role Role) error
@@ -99,7 +103,12 @@ type Client interface {
 	ListSubjectGroups(ctx context.Context, subject Subject) ([]SubjectGroupMembership, error)
 	Can(ctx context.Context, subject Subject, group GroupRef, perm Perm) (bool, error)
 	CanOnGroup(ctx context.Context, subject Subject, groupID string, perm Perm) (bool, error)
-	ListEffectivePermissions(ctx context.Context, subject Subject, group GroupRef) ([]string, error)
+	// EffectivePermissionsForGroups returns one subject's effective grant
+	// patterns on many resolved groups in ONE query, with ListEffectivePermissions
+	// semantics per group; groups granting nothing (unknown, soft-deleted, no
+	// assignment) are absent. At most MaxGroupBatch distinct ids.
+	EffectivePermissionsForGroups(ctx context.Context, subject Subject, groupIDs []string) (map[string][]Perm, error)
+	ListEffectivePermissions(ctx context.Context, subject Subject, group GroupRef) ([]Perm, error)
 	CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error)
 	ListGroupInviteLinks(ctx context.Context, group GroupRef) ([]GroupInviteLink, error)
 	RevokeGroupInviteLink(ctx context.Context, group GroupRef, linkID string) error

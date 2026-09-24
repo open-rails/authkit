@@ -367,6 +367,9 @@ type SubjectGroupMembership struct {
 	Role         Role
 }
 
+// MaxGroupBatch bounds the group ids accepted by one batch group read.
+const MaxGroupBatch = 500
+
 // GroupInstance is one persona instance's own identity (#269): the addressing
 // pair a caller already holds, plus the uuid a HOST needs to own rows about the
 // group in its own (or a sibling service's) ledger — openrails' `customer_id`

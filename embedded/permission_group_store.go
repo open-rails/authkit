@@ -16,6 +16,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -290,41 +291,60 @@ func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, 
 // query. Ban freshness is separate. Introspection and no-escalation comparisons
 // must retain latent assignments, including those of a deleted target.
 func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID string, subject authkit.Subject, definitions, requirePresentUser bool) ([]GroupAssignment, CustomRoleResolver, error) {
+	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, definitions, requirePresentUser)
+	if err != nil {
+		return nil, nil, err
+	}
+	return byGroup[groupID], resolver, nil
+}
+
+// readAssignmentsForGroups walks every live target's parent chain in one
+// recursive query. Deleted, unknown and malformed targets have no assignments.
+func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject authkit.Subject, definitions, requirePresentUser bool) (map[string][]GroupAssignment, CustomRoleResolver, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH RECURSIVE chain AS (
- SELECT id,persona,parent_id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL
- UNION ALL SELECT p.id,p.persona,p.parent_id FROM permission_groups p JOIN chain c ON p.id=c.parent_id WHERE p.deleted_at IS NULL)
- SELECT c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
- JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
- LEFT JOIN group_custom_roles r ON r.permission_group_id=c.id AND $3
- WHERE (NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
- AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb))
- AND ($5 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
- ORDER BY c.id,r.role`, table, column), groupID, subject.ID, definitions, requirePresentUser, subject.Kind)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
 	type key struct {
 		group string
 		role  authkit.Role
 	}
 	custom := map[key][]string{}
-	seen := map[string]bool{}
-	var assignments []GroupAssignment
+	resolver := func(group string, role authkit.Role) ([]string, bool) {
+		p, ok := custom[key{group, role}]
+		return p, ok
+	}
+	out := map[string][]GroupAssignment{}
+	ids := groupBatchIDs(groupIDs)
+	if len(ids) == 0 {
+		return out, resolver, nil
+	}
+	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH RECURSIVE chain AS (
+ SELECT id AS target,id,persona,parent_id FROM permission_groups WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL
+ UNION ALL SELECT c.target,p.id,p.persona,p.parent_id FROM permission_groups p JOIN chain c ON p.id=c.parent_id WHERE p.deleted_at IS NULL)
+ SELECT c.target::text,c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
+ JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
+ LEFT JOIN group_custom_roles r ON r.permission_group_id=c.id AND $3
+ WHERE (NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
+ AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb))
+ AND ($5 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
+ ORDER BY c.target,c.id,r.role`, table, column), ids, subject.ID, definitions, requirePresentUser, subject.Kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	seen := map[[2]string]bool{}
 	for rows.Next() {
+		var target string
 		var assignment GroupAssignment
 		var role *string
 		var permissions []string
-		if err := rows.Scan(&assignment.PermissionGroupID, &assignment.Persona, &assignment.Role, &role, &permissions); err != nil {
+		if err := rows.Scan(&target, &assignment.PermissionGroupID, &assignment.Persona, &assignment.Role, &role, &permissions); err != nil {
 			return nil, nil, err
 		}
-		if !seen[assignment.PermissionGroupID] {
-			seen[assignment.PermissionGroupID] = true
-			assignments = append(assignments, assignment)
+		if k := [2]string{target, assignment.PermissionGroupID}; !seen[k] {
+			seen[k] = true
+			out[target] = append(out[target], assignment)
 		}
 		if role != nil {
 			custom[key{assignment.PermissionGroupID, authkit.Role(*role)}] = permissions
@@ -333,10 +353,21 @@ func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID str
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
-	return assignments, func(group string, role authkit.Role) ([]string, bool) {
-		p, ok := custom[key{group, role}]
-		return p, ok
-	}, nil
+	return out, resolver, nil
+}
+
+// groupBatchIDs keeps distinct canonical UUIDs; anything else cannot name a group.
+func groupBatchIDs(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if u, err := uuid.Parse(id); err != nil || u.String() != id || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 // RootRolesForUsers returns, for each user id, the role slugs directly assigned on
@@ -515,24 +546,35 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 	return schema.Can(assignments, resolver, perm), nil
 }
 
-// GrantsOnGroup returns the de-duplicated UNION of grant PATTERNS the subject
-// holds in the group addressed by groupID (its assignments across the parent
-// chain), resolved against the schema's catalog + per-group custom roles. Unlike
-// CanOnGroup (which tests ONE perm), this returns the whole effective grant set
-// as PATTERNS — globs like `root:*` are returned verbatim, NOT expanded into every
-// concrete perm (the caller glob-matches with authkit.Perm.Matches). Powers the
-// permission-introspection endpoint (authkit/doujins #421). An empty assignment
-// set returns an empty (non-nil) slice.
-func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupID string) ([]string, error) {
-	assignments, resolver, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, true)
+// GrantsOnGroups returns, per live target group, the de-duplicated UNION of
+// grant PATTERNS the subject holds across that group's parent chain, resolved
+// against the schema's catalog + per-group custom roles, in one query. Globs
+// like `root:*` are returned verbatim, not expanded. Targets granting nothing
+// are absent. Latent assignments of deleted/reserved accounts are included.
+func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupIDs []string) (map[string][]string, error) {
+	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, true, false)
 	if err != nil {
 		return nil, err
 	}
-	grants := schema.ResolveGrants(assignments, resolver)
-	if grants == nil {
-		grants = []string{}
+	out := make(map[string][]string, len(byGroup))
+	for gid, assignments := range byGroup {
+		if grants := schema.ResolveGrants(assignments, resolver); len(grants) > 0 {
+			out[gid] = grants
+		}
 	}
-	return grants, nil
+	return out, nil
+}
+
+// GrantsOnGroup is GrantsOnGroups for one group; no grants is an empty slice.
+func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subject authkit.Subject, groupID string) ([]string, error) {
+	grants, err := st.GrantsOnGroups(ctx, schema, subject, []string{groupID})
+	if err != nil {
+		return nil, err
+	}
+	if g := grants[groupID]; g != nil {
+		return g, nil
+	}
+	return []string{}, nil
 }
 
 // GroupMember is one role-assignment in a group (roster listing).
@@ -597,21 +639,41 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject authk
 	return out, rows.Err()
 }
 
-// GroupInstanceByID reads one group's own identity row (#269) — the descriptor
-// behind GET /<persona>/:instance_slug and the `group_id` on the creation
-// response. Takes an id the caller already resolved from (persona, slug), so
-// tombstone forwarding and the root singleton are handled once, upstream.
-func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
-	var g GroupInstance
-	err := st.q.QueryRow(ctx,
-		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, ''), deleted_at
-		   FROM permission_groups WHERE id = $1::uuid`,
-		groupID).Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName, &g.DeletedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return GroupInstance{}, ErrGroupNotFound
+// GroupInstancesByIDs reads many groups' own identity rows (#269), including
+// retained soft-deleted ones (DeletedAt set), in one query. Unknown and
+// malformed ids are absent. Ids are ones the caller already resolved.
+func (st *PermissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]GroupInstance, error) {
+	out := map[string]GroupInstance{}
+	ids := groupBatchIDs(groupIDs)
+	if len(ids) == 0 {
+		return out, nil
 	}
+	rows, err := st.q.Query(ctx,
+		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, ''), deleted_at
+		   FROM permission_groups WHERE id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var g GroupInstance
+		if err := rows.Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName, &g.DeletedAt); err != nil {
+			return nil, err
+		}
+		out[g.ID] = g
+	}
+	return out, rows.Err()
+}
+
+// GroupInstanceByID is GroupInstancesByIDs for one id; absence is ErrGroupNotFound.
+func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
+	groups, err := st.GroupInstancesByIDs(ctx, []string{groupID})
 	if err != nil {
 		return GroupInstance{}, err
+	}
+	g, ok := groups[groupID]
+	if !ok {
+		return GroupInstance{}, ErrGroupNotFound
 	}
 	return g, nil
 }
