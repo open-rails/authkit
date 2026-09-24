@@ -42,7 +42,7 @@ required = {
     'securitytest': ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport',
                      'TestSecurityRefreshTokenTheft', 'TestSecurityRefreshGraceDoesNotFork',
                      'TestSecuritySessionRevocationEvents', 'TestSecurityPasswordChangeEndsOtherSessions',
-                     'TestSecurityRevokedSessionCannotChangeCredentials',
+                     'TestSecurityRevokedSessionCannotChangeCredentials', 'TestSecurityDelegationOutlivingRevocation',
                      'TestSecuritySecondFactorLockout', 'TestSecuritySecondFactorGuessBudget',
                      'TestSecurityUnbanRequiresAuthority', 'TestSecurityRemoteApplicationTakeover',
                      'TestSecurityRoleEscalation', 'TestSecurityMultiReplicaStores',

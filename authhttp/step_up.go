@@ -223,10 +223,18 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		forbidden(w, authkit.CodeForbidden)
 		return false, nil
 	}
+	if !s.requireLiveCredential(w, r, claims) {
+		return false, nil
+	}
 	if verify.SensitiveClaims(claims) {
 		return true, nil
 	}
 	if password != "" {
+		// Per account, like /step-up/password: a stolen token must not turn
+		// many client IPs into many password guesses (ak#392).
+		if s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
+			return false, nil
+		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
 			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 				unauthorized(w, authkit.CodePasswordResetRequired)
@@ -350,4 +358,26 @@ func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, stat
 	q.Set("step_up", status)
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// requireLiveCredential refuses a credential-management request whose token
+// outlived its session or device key (ak#392). Access tokens are stateless, so
+// without this a stolen token keeps its minted freshness after logout,
+// revoke-all, a password change, a ban or deletion, and could replace the
+// password or add a login method that survives every revocation.
+func (s *Service) requireLiveCredential(w http.ResponseWriter, r *http.Request, claims verify.Claims) bool {
+	var err error
+	switch {
+	case claims.SessionID != "":
+		_, err = s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	case claims.DeviceKeyID != "":
+		_, err = s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
+	default:
+		err = errors.New("token has no session")
+	}
+	if err != nil {
+		unauthorized(w, authkit.CodeInvalidToken)
+		return false
+	}
+	return true
 }

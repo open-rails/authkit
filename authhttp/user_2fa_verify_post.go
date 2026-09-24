@@ -1,6 +1,8 @@
 package authhttp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -29,10 +31,10 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// A 2FA code is 6 digits with a 10-minute TTL; a wrong guess keeps it
-	// (invalid_code) and the 5th burns it (2fa_code_expired). Capping per user_id
-	// (not just per IP) also bounds distributed guessing across codes and factors.
-	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
+	// The engine bounds guesses per first-factor proof and per account. This
+	// bucket is keyed by the proof too: a stranger who knows only user_id cannot
+	// spend the real holder's budget (ak#392).
+	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, loginProofKey(userID, challenge)) {
 		return
 	}
 
@@ -65,7 +67,7 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 		badRequest(w, authkit.CodeMissingFields)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
+	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, loginProofKey(userID, challenge)) {
 		return
 	}
 	out, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
@@ -74,4 +76,9 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, loginChallengeMetadata(userID, out))
+}
+
+func loginProofKey(userID, challenge string) string {
+	sum := sha256.Sum256([]byte(challenge))
+	return userID + ":" + hex.EncodeToString(sum[:16])
 }

@@ -149,7 +149,9 @@ func TestSecurityClientAddressSpoofing(t *testing.T) {
 	}
 }
 
-type rotatingKeys struct{ current atomic.Pointer[jwtkit.StaticKeySource] }
+type rotatingKeys struct {
+	current atomic.Pointer[jwtkit.StaticKeySource]
+}
 
 func (r *rotatingKeys) ActiveSigner() jwtkit.Signer { return r.current.Load().ActiveSigner() }
 func (r *rotatingKeys) PublicKeys() map[string]crypto.PublicKey {

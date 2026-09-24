@@ -80,6 +80,7 @@ func generousLimits(c *authhttp.Config) {
 	limits := authhttp.DefaultRateLimits()
 	for bucket, limit := range limits {
 		limit.Limit = 10000
+		limit.Cooldown = 0
 		limits[bucket] = limit
 	}
 	c.RateLimits = limits

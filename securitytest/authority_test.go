@@ -19,8 +19,8 @@ const orgPersona authkit.Persona = "org"
 func withRBAC(c *embedded.Config) {
 	c.RBAC = []embedded.PersonaDef{
 		embedded.IntrinsicRootPersona(
-			embedded.RoleDef{Name: "moderator", Permissions: []string{embedded.PermRootUsersBan, embedded.PermRootResourcesRead}},
-			embedded.RoleDef{Name: "admin", Permissions: embedded.IntrinsicRootPermissions()},
+			embedded.RoleDef{Name: "moderator", Permissions: []string{embedded.PermRootUsersBan}},
+			embedded.RoleDef{Name: "admin", Permissions: []string{embedded.PermRootUsersBan, embedded.PermRootUsersRecover, embedded.PermRootResourcesRead}},
 		),
 		{
 			Name:         orgPersona,

@@ -75,3 +75,42 @@ func (s *engine) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, 
 	}
 	return s.revokeAccountSessions(ctx, actorUserID, userID)
 }
+
+// UnbanUserAs is the actor-aware UnbanUser. Lifting a ban restores the target's
+// authority, so it needs the same coverage as imposing one; a banned actor can
+// act on nobody, and nobody lifts their own ban.
+func (s *engine) UnbanUserAs(ctx context.Context, actorUserID, userID string) error {
+	actorUserID, userID = strings.TrimSpace(actorUserID), strings.TrimSpace(userID)
+	if actorUserID == "" || userID == "" {
+		return ErrInsufficientRoleAuthority
+	}
+	if actorUserID == userID {
+		return ErrAccountAuthorityEscalation
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(tx)
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	var banned bool
+	if err := st.q.QueryRow(ctx, `SELECT banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until > now()) FROM users WHERE id=$1::uuid`, actorUserID).Scan(&banned); err != nil {
+		return ErrInsufficientRoleAuthority
+	}
+	if banned {
+		return ErrInsufficientRoleAuthority
+	}
+	if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, userID); err != nil {
+		return err
+	}
+	if err := s.qtx(tx).UserClearBan(ctx, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

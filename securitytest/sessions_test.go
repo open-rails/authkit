@@ -2,9 +2,18 @@ package securitytest
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"math/big"
 	"net/http"
 	"testing"
+	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
@@ -221,5 +230,67 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 			resp := h.do(attack.req(h.login(a).AccessToken))
 			require.Less(t, resp.status, 300, "%s: %s", attack.name, resp)
 		}
+	})
+}
+
+func delegateCertificate(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	now := time.Now()
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(now.UnixNano()),
+		Subject:      pkix.Name{CommonName: "delegate"},
+		NotBefore:    now.Add(-time.Minute),
+		NotAfter:     now.Add(2 * time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}, &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "delegate"}}, &key.PublicKey, key)
+	require.NoError(t, err)
+	return base64.RawURLEncoding.EncodeToString(der)
+}
+
+// TestSecurityDelegationOutlivingRevocation: a delegated token lives longer
+// than its parent access token, so minting one from a revoked session or a
+// banned account would extend a thief's access past revocation.
+func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) {
+		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
+	}), func(c *hostConfig) {
+		c.deps.DelegatedAuthorization = func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+			return authkit.DelegationGrant{Permissions: []string{"resource:read"}}, nil
+		}
+	})
+	ctx := context.Background()
+	mint := func(token string) response {
+		return h.post("/delegated/token", map[string]any{
+			"delegate_certificate_der_b64url": delegateCertificate(t),
+			"requested_grant":                 map[string]any{"scope": "read"},
+		}, token)
+	}
+	for _, tc := range []struct {
+		name   string
+		revoke func(a account, s tokens)
+	}{
+		{"after logout", func(_ account, s tokens) {
+			require.Less(t, h.do(request{method: http.MethodDelete, path: "/logout", token: s.AccessToken}).status, 300)
+		}},
+		{"after ban", func(a account, _ tokens) { require.NoError(t, h.client.BanUser(ctx, a.id, nil, nil, a.id)) }},
+		{"after soft delete", func(a account, _ tokens) {
+			_, err := h.client.SoftDeleteUsers(ctx, []string{a.id})
+			require.NoError(t, err)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := h.newAccount("delegate")
+			s := h.login(a)
+			tc.revoke(a, s)
+			resp := mint(s.AccessToken)
+			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+		})
+	}
+	t.Run("control: live session mints", func(t *testing.T) {
+		resp := mint(h.login(h.newAccount("delegatelive")).AccessToken)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }

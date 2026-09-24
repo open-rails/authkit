@@ -74,6 +74,12 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if s.rd == nil {
 		s.rd = coreSvc.EphemeralRedisClient()
 	}
+	// OIDC/SIWS state and the default limiter live in Redis or in this process.
+	// A custom Deps.EphemeralStore does not back them, so without Redis every
+	// replica would keep its own budgets and browser state (ak#392).
+	if s.rd == nil && !cfg.Ephemeral.AllowMemory {
+		return nil, errors.New("authkit: HTTP rate limits and OIDC/SIWS state need Redis (Deps.Redis or authhttp.Config.Redis); set Ephemeral.AllowMemory only for a single-instance deployment")
+	}
 
 	verOpts := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),

@@ -243,6 +243,9 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 	if err != nil || proof.Enrollment {
 		return LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
+	if err := s.chargeLoginProofAttempt(ctx, proof); err != nil {
+		return LoginOutcome{}, err
+	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return LoginOutcome{}, err
@@ -423,4 +426,30 @@ func (s *engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID strin
 		return LoginOutcome{}, err
 	}
 	return s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: fresh.LastAuthenticatedAt, SessionID: sessionID, Input: LoginSessionInput{UserID: userID, AuthMethods: fresh.AuthMethods, Event: "refresh_mfa"}})
+}
+
+const (
+	maxLoginProofAttempts  = 10
+	maxUserSecondFactorTry = 60
+	keyLoginProofAttempts  = "2fa:proof-attempts:" // +<userID>:<nonce hash>
+	keyUserSecondFactorTry = "2fa:user-attempts:"  // +<userID>
+)
+
+// chargeLoginProofAttempt bounds second-factor guessing (ak#392). Only a holder
+// of a live first-factor proof reaches it, so strangers cannot exhaust a user's
+// budget. Each proof allows maxLoginProofAttempts completions across every
+// factor and resend, then is burned; each account allows maxUserSecondFactorTry
+// per hour across proofs. A store error fails closed.
+func (s *engine) chargeLoginProofAttempt(ctx context.Context, proof loginProof) error {
+	userID := proof.Input.UserID
+	n, err := s.ephemIncr(ctx, keyLoginProofAttempts+userID+":"+proof.NonceHash, twoFactorCodeTTL)
+	if err != nil || n > maxLoginProofAttempts {
+		_ = s.claimProof(ctx, keyTwoFactorChallenge+userID, proof.expected)
+		return jwt.ErrTokenUnverifiable
+	}
+	n, err = s.ephemIncr(ctx, keyUserSecondFactorTry+userID, time.Hour)
+	if err != nil || n > maxUserSecondFactorTry {
+		return jwt.ErrTokenUnverifiable
+	}
+	return nil
 }

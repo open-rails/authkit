@@ -15,6 +15,7 @@ Add a row and a test for every new attack class.
 | Refresh after logout, revoke-all, admin password set, emergency revoke, ban, soft delete, including on a second replica | `TestSecuritySessionRevocationEvents` |
 | Stolen session survives the owner's password change | `TestSecurityPasswordChangeEndsOtherSessions` |
 | Revoked session's access token sets a password, adds a passkey or factor, or deletes the account | `TestSecurityRevokedSessionCannotChangeCredentials` |
+| Delegated token minted from a logged-out session or banned/deleted account | `TestSecurityDelegationOutlivingRevocation` |
 | Stranger locks a user out of 2FA by user id | `TestSecuritySecondFactorLockout` |
 | 2FA guesses reset by resend or address rotation | `TestSecuritySecondFactorGuessBudget` |
 | Self-unban or unban of a more privileged account | `TestSecurityUnbanRequiresAuthority` |
