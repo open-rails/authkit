@@ -37,6 +37,39 @@ export type RefreshTokenStorage = {
   set(token: string | null): void
 }
 
+// A non-secret "this browser is signed in" note: it renders the signed-in
+// shell before the cookie restore finishes and syncs tabs. It never holds a
+// token; the refresh token stays in its HttpOnly cookie, the access token in
+// memory.
+export type SessionHint = {
+  userId: string
+  username?: string
+  // Epoch ms after which the hint is ignored.
+  expiresAt: number
+}
+
+export type SessionHintOptions = {
+  // Default localStorage.
+  storage?: Storage
+  // Default "authkit:session:<baseUrl>".
+  key?: string
+  // How long a hint is trusted without a refresh. Default 30 days.
+  ttlSeconds?: number
+}
+
+// An AuthKit route refused because the account has no proven address (403
+// verification_required, reason contact_unproven).
+export type ContactProofRequest = {
+  identifier: string
+  channel: string
+}
+
+// Resolves true once the address is proven; the refused request is then
+// retried once.
+export type ContactProofHandler = (
+  request: ContactProofRequest
+) => Promise<boolean>
+
 export type AuthClientOptions = {
   // AuthKit JSON API mount. Default "/api/v1".
   baseUrl?: string
@@ -48,10 +81,13 @@ export type AuthClientOptions = {
   language?: () => string | null | undefined
   // Refresh this long before access-token expiry. Default 300.
   refreshLeadSeconds?: number
+  // Signed-in hint for instant restore and cross-tab sync; false disables.
+  sessionHint?: SessionHintOptions | false
 }
 
 export type AuthSession =
-  | { status: "loading" }
+  // hint: this browser was signed in; the cookie restore is under way.
+  | { status: "loading"; hint?: SessionHint }
   | {
       status: "anonymous"
       reason: "initial" | "signed_out" | "expired"
@@ -163,8 +199,50 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   const storage = options.storage
   const leadMs = (options.refreshLeadSeconds ?? 300) * 1000
 
+  // --- signed-in hint ---------------------------------------------------------
+
+  const hintOptions =
+    options.sessionHint === false ? null : (options.sessionHint ?? {})
+  const hintKey = hintOptions?.key ?? `authkit:session:${baseUrl}`
+  const hintTtlMs = (hintOptions?.ttlSeconds ?? 30 * 86_400) * 1000
+  const hintStore = (): Storage | null => {
+    if (!hintOptions) return null
+    if (hintOptions.storage) return hintOptions.storage
+    try {
+      return typeof localStorage === "undefined" ? null : localStorage
+    } catch {
+      return null
+    }
+  }
+  const readHint = (): SessionHint | null => {
+    try {
+      const raw = hintStore()?.getItem(hintKey)
+      if (!raw) return null
+      const h = rec(JSON.parse(raw))
+      const userId = str(h.userId)
+      const expiresAt = typeof h.expiresAt === "number" ? h.expiresAt : 0
+      if (!userId || expiresAt <= Date.now()) return null
+      return { userId, username: str(h.username), expiresAt }
+    } catch {
+      return null
+    }
+  }
+  const writeHint = (hint: SessionHint | null) => {
+    try {
+      const store = hintStore()
+      if (!store) return
+      if (hint) store.setItem(hintKey, JSON.stringify(hint))
+      else store.removeItem(hintKey)
+    } catch {
+      // storage unavailable (private mode, quota): the hint is optional
+    }
+  }
+
   let generation = 0
-  let session: AuthSession = { status: "loading" }
+  const initialHint = readHint()
+  let session: AuthSession = initialHint
+    ? { status: "loading", hint: initialHint }
+    : { status: "loading" }
   const listeners = new Set<Listener>()
   let refreshing: { generation: number; promise: Promise<boolean> } | null =
     null
@@ -225,6 +303,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           ? Date.now() + tokens.expires_in * 1000
           : null
     retries = 0
+    writeHint({
+      userId,
+      username: str(claims.username),
+      expiresAt: Date.now() + hintTtlMs,
+    })
     emit({
       status: "authenticated",
       accessToken: tokens.access_token,
@@ -235,12 +318,15 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     schedule()
   }
 
+  // keepHint: another tab already rewrote the hint.
   const clear = (
     reason: "initial" | "signed_out" | "expired",
-    continuation: LoginContinuation | null = null
+    continuation: LoginContinuation | null = null,
+    keepHint = false
   ) => {
     generation++
     storage?.set(null)
+    if (!keepHint) writeHint(null)
     clearTimer()
     emit({ status: "anonymous", reason, continuation })
   }
@@ -290,12 +376,16 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         const continuation = continuationFrom(err.code, err.metadata)
         // Only a live session can expire; an anonymous cold boot just settles.
         if (current) clear("expired", continuation)
-        else
+        else {
+          // A cold boot's hint was stale; a tab adopting another tab's
+          // sign-in leaves the hint to that tab.
+          if (session.status === "loading") writeHint(null)
           emit({
             status: "anonymous",
             reason: session.status === "anonymous" ? session.reason : "initial",
             continuation,
           })
+        }
       } else {
         backoff(gen, err.retryAfterSeconds)
       }
@@ -379,6 +469,19 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     else schedule()
   }
 
+  // Another tab signed in, out, or as someone else: follow it. The refresh
+  // cookie is shared, so adopting is a refresh; signing out needs no request
+  // because the other tab already ended the session.
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== hintKey && e.key !== null) return
+    if (session.status === "loading") return
+    const hint = readHint()
+    const current = session.status === "authenticated" ? session.userId : null
+    if (hint?.userId === current) return
+    if (current) clear("signed_out", null, true)
+    if (hint) void refresh()
+  }
+
   const restore = async () => {
     await refresh()
     if (session.status === "loading")
@@ -390,8 +493,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     clearTimer()
     if (typeof document !== "undefined")
       document.removeEventListener("visibilitychange", onWake)
-    if (typeof window !== "undefined")
+    if (typeof window !== "undefined") {
       window.removeEventListener("online", onWake)
+      window.removeEventListener("storage", onStorage)
+    }
   }
 
   // Restores the session from the refresh credential, then keeps it fresh.
@@ -400,8 +505,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       started = true
       if (typeof document !== "undefined")
         document.addEventListener("visibilitychange", onWake)
-      if (typeof window !== "undefined")
+      if (typeof window !== "undefined") {
         window.addEventListener("online", onWake)
+        window.addEventListener("storage", onStorage)
+      }
       if (session.status === "loading") void restore()
       else schedule()
     }
@@ -409,6 +516,30 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   }
 
   // --- transport ------------------------------------------------------------
+
+  let proveContact: ContactProofHandler | null = null
+  // One handler at a time (the latest wins); returns its unregister.
+  const onContactProofRequired = (handler: ContactProofHandler) => {
+    proveContact = handler
+    return () => {
+      if (proveContact === handler) proveContact = null
+    }
+  }
+  // True when res is a contact_unproven refusal the handler has now resolved.
+  const contactProven = async (res: Response): Promise<boolean> => {
+    const handler = proveContact
+    if (res.status !== 403 || !handler) return false
+    const err = await readAuthKitError(res.clone()).catch(() => null)
+    const meta = err?.metadata ?? {}
+    const identifier = str(meta.identifier)
+    if (
+      err?.code !== "verification_required" ||
+      meta.reason !== "contact_unproven" ||
+      !identifier
+    )
+      return false
+    return handler({ identifier, channel: str(meta.channel) ?? "email" })
+  }
 
   const send = (
     method: string,
@@ -454,6 +585,9 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           res = await send(method, target, opts, next)
       }
     }
+    // Proving the address may rotate the session: retry with the new bearer.
+    if (await contactProven(res))
+      res = await send(method, target, opts, explicit ? bearer : accessToken())
     if (!res.ok) throw await readAuthKitError(res)
     const text = res.status === 204 ? "" : await res.text()
     return { status: res.status, body: text ? JSON.parse(text) : undefined }
@@ -474,10 +608,15 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return doFetch(source, { ...init, headers })
     }
     const bearer = accessToken()
-    const res = await attempt(bearer, input)
-    if (res.status !== 401 || !bearer || !(await refresh())) return res
-    const next = accessToken()
-    return next && next !== bearer ? attempt(next, original) : res
+    let res = await attempt(bearer, input)
+    if (res.status === 401 && bearer && (await refresh())) {
+      const next = accessToken()
+      if (next && next !== bearer) res = await attempt(next, original)
+    }
+    // A Request body is consumed; only plain inputs are retried.
+    if (!(input instanceof Request) && (await contactProven(res)))
+      res = await attempt(accessToken(), input)
+    return res
   }
 
   // --- generation-guarded flows ----------------------------------------------
@@ -1097,6 +1236,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     signOut,
     request,
     authFetch,
+    onContactProofRequired,
     completeSignIn,
     oidcLoginUrl,
     oidcLoginStart,

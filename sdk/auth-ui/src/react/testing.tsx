@@ -4,7 +4,11 @@ import "../test/dom.ts"
 import { renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
 
-import { createAuthClient, type AuthClient } from "../client/client.ts"
+import {
+  createAuthClient,
+  type AuthClient,
+  type AuthClientOptions,
+} from "../client/client.ts"
 import { json } from "../client/testing.ts"
 import { AuthProvider, type AuthProviderProps } from "./provider.tsx"
 
@@ -19,9 +23,10 @@ export const noContent = () => new Response(null, { status: 204 })
 export function renderWithAuth<T>(
   hook: () => T,
   fetch: typeof globalThis.fetch,
-  props: Partial<AuthProviderProps> = {}
+  props: Partial<AuthProviderProps> = {},
+  options: AuthClientOptions = {}
 ): ReturnType<typeof renderHook<T, unknown>> & { client: AuthClient } {
-  const client = createAuthClient({ fetch })
+  const client = createAuthClient({ fetch, sessionHint: false, ...options })
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthProvider client={client} autoStart={false} {...props}>
       {children}

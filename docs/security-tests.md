@@ -37,13 +37,17 @@ Add a row and a test for every new attack class.
 | Stranger locks an account out with wrong passwords; guessing address keeps guessing; IPv6 address rotation within a /64 | `TestSecurityPasswordLimitIsPerAddress` |
 | Forged `X-Forwarded-For`/`CF-Connecting-IP` resets rate limits | `TestSecurityClientAddressSpoofing` |
 | Removed signing key still accepted or published; new key not published | `TestSecurityKeyRotationIsPublished` |
-| Cross-site refresh-cookie use, cookie tossing, sibling-planted unprefixed cookie, body tokens on cookie mounts, cross-site cookie login | `TestSecurityRefreshCookieCSRF` |
+| Cross-site refresh-cookie use, cookie tossing, body tokens on cookie mounts, cross-site cookie login | `TestSecurityRefreshCookieCSRF` |
+| Upgrade strands a browser holding an earlier release's refresh cookie (legacy path, plain name on HTTPS); sign-out leaves a historical variant; same-path duplicates | `TestSecurityRefreshCookieUpgrade` |
 | Oversized, malformed, unknown-field and SQL-metacharacter bodies; CORS reflection; internal detail in errors | `TestSecurityRequestBoundary` |
 | Account enumeration through login and reset responses | `TestSecurityAccountEnumeration` |
 | Unproven account adds a provider link, passkey, factor or wallet | `TestSecurityUnprovenContactCannotAddLoginMethods` |
 | Pre-registration takeover: attacker's sessions, password, links, device keys or factors survive the owner's first proof (reset, email code, verification on another device) | `TestSecurityPreRegistrationTakeover` |
 | Registration marks an address verified without proof | `TestSecurityRegistrationNeverSelfVerifies` |
 | Untrusted provider's `email_verified` stores or matches an address | `TestSecurityProviderEmailTrust` |
+
+The cookie compatibility guard `TestCookieRegistry` (authhttp) pins the cookies
+AuthKit sets to the append-only registry ([cookies](security/cookies.md)).
 
 Covered by the workflow suites (see [testing](testing.md)): OIDC state
 binding, single use, provider mix-up, nonce and PKCE

@@ -307,7 +307,9 @@ claims. See [user-claim presence and freshness](docs/verification.md#user-claims
 `MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
 every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie,
 `__Host-authkit_rt` with `Path=/` so a sibling subdomain can neither plant nor
-shadow it (plain-HTTP development uses the unprefixed `authkit_rt`). Only
+shadow it (plain-HTTP development uses the unprefixed `authkit_rt`). Cookies
+from earlier releases are migrated on the next refresh; any cookie change must
+go through the [cookie registry](docs/security/cookies.md). Only
 `POST /token` reads it; it requires the cookie and rejects body refresh tokens. Native mounts require body tokens and
 never consume refresh cookies. `DELETE /logout`
 and a refresh failing with `user_banned` clear it; an unknown-token `401`

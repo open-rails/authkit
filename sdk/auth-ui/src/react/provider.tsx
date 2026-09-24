@@ -6,12 +6,17 @@ import {
   createAuthContextValue,
   sessionIdentity,
 } from "./context.ts"
+import { sessionUser } from "./useAuth.ts"
 
 export type AuthProviderProps = {
   client: AuthClient
-  // Fires on sign-in, sign-out, expiry and user switch (not silent refresh):
-  // the host's hook to reset its query cache and stores.
+  // Fires on sign-in, sign-out, expiry, user switch and same-user session
+  // rotation (e.g. after proving an address), not on a silent refresh.
   onSessionChange?: (session: AuthSession, previous: AuthSession) => void
+  // Fires only when the signed-in user changes (sign-in, sign-out, switch,
+  // another tab): the host's hook to reset user data. A restore of the user
+  // the session hint names is not a change.
+  onUserChange?: (userId: string | null, previous: string | null) => void
   // Call client.start() while mounted. Default true.
   autoStart?: boolean
   children?: ReactNode
@@ -20,6 +25,7 @@ export type AuthProviderProps = {
 export function AuthProvider({
   client,
   onSessionChange,
+  onUserChange,
   autoStart = true,
   children,
 }: AuthProviderProps) {
@@ -27,14 +33,24 @@ export function AuthProvider({
   if (value.client !== client) setValue(createAuthContextValue(client))
 
   const onChange = useRef(onSessionChange)
+  const onUser = useRef(onUserChange)
   useEffect(() => {
     onChange.current = onSessionChange
+    onUser.current = onUserChange
   })
 
   useEffect(() => {
     let previous = client.getSnapshot()
+    let user = sessionUser(previous)
     return client.subscribe(() => {
       const next = client.getSnapshot()
+      const nextUser = sessionUser(next)
+      // A failed restore is a change from the hinted user; loading is not.
+      if (next.status !== "loading" && nextUser !== user) {
+        const before = user
+        user = nextUser
+        onUser.current?.(nextUser, before)
+      }
       if (sessionIdentity(next) === sessionIdentity(previous)) {
         previous = next
         return

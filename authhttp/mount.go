@@ -210,7 +210,7 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 
 	result.handler = mux
 	if opts.RefreshCookie {
-		result.handler = withRefreshCookiePolicy(mux, refreshCookiePolicy{})
+		result.handler = withRefreshCookiePolicy(mux, refreshCookiePolicy{tokenPath: strings.TrimSuffix(apiPrefix, "/") + "/token"})
 	}
 	return result, nil
 }

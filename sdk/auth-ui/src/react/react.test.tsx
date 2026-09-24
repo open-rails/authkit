@@ -3,6 +3,7 @@ import { act, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { authError, json, stubFetch } from "../client/testing.ts"
+import { memoryStorage } from "../client/testing-storage.ts"
 import { useChangePassword, useSessions } from "./account.ts"
 import {
   useAuthClient,
@@ -13,6 +14,7 @@ import {
 import { noContent, renderWithAuth, session, token } from "./testing.tsx"
 import { useLogin } from "./useLogin.ts"
 import { useRegister } from "./useRegister.ts"
+import { useAuth } from "./useAuth.ts"
 import { useStepUp } from "./useStepUp.ts"
 
 const me = (id: string) => json(200, { id, username: id, security: {} })
@@ -444,5 +446,64 @@ describe("useSessions", () => {
     expect(result.current.sessions.sessions?.map((s) => s.session_id)).toEqual([
       "s1",
     ])
+  })
+})
+
+describe("useAuth", () => {
+  it("renders the hinted user while restoring and reports user changes only", async () => {
+    const storage = memoryStorage()
+    storage.setItem(
+      "authkit:session:/api/v1",
+      JSON.stringify({
+        userId: "u1",
+        username: "ann",
+        expiresAt: Date.now() + 60_000,
+      })
+    )
+    const fetch = stubFetch({
+      "POST /api/v1/token": [session({ sub: "u1", sid: "s1" })],
+      "GET /api/v1/me": () => me("u1"),
+      "DELETE /api/v1/logout": noContent,
+    })
+    const onUserChange = vi.fn()
+    const onSessionChange = vi.fn()
+    const { result, client } = renderWithAuth(
+      () => useAuth(),
+      fetch,
+      { autoStart: true, onUserChange, onSessionChange },
+      { sessionHint: { storage } }
+    )
+    expect(result.current).toMatchObject({
+      status: "restoring",
+      signedIn: true,
+      userId: "u1",
+      hint: { username: "ann" },
+    })
+    await waitFor(() =>
+      expect(result.current).toMatchObject({
+        status: "signed_in",
+        user: { id: "u1" },
+      })
+    )
+    expect(onUserChange).not.toHaveBeenCalled()
+
+    // A same-user session rotation, e.g. after proving an address.
+    await act(() =>
+      client.completeSignIn(async () => ({
+        access_token: token({ sub: "u1", sid: "s2" }),
+      }))
+    )
+    expect(onSessionChange).toHaveBeenCalled()
+    expect(onUserChange).not.toHaveBeenCalled()
+    expect(result.current.user).toMatchObject({ id: "u1" })
+
+    await act(() => client.signOut())
+    expect(onUserChange).toHaveBeenLastCalledWith(null, "u1")
+    expect(result.current).toMatchObject({
+      status: "signed_out",
+      signedIn: false,
+      user: null,
+    })
+    expect(storage.getItem("authkit:session:/api/v1")).toBeNull()
   })
 })

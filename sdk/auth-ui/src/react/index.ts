@@ -11,6 +11,13 @@ export {
   type PermissionsState,
   type UserState,
 } from "./context.ts"
+export {
+  authStatus,
+  sessionUser,
+  useAuth,
+  type AuthState,
+  type AuthStatus,
+} from "./useAuth.ts"
 export { isStepUpCancelled, toAuthKitError, type Guard } from "./task.ts"
 export {
   useLogin,

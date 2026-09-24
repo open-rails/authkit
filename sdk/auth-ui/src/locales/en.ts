@@ -1,5 +1,11 @@
 // Source of truth: every other locale is a partial of this tree.
 export const en = {
+  contactProof: {
+    titleEmail: "Verify your email first",
+    titlePhone: "Verify your phone number first",
+    description:
+      "This needs a verified address. We'll send a code to {value}, then finish what you started.",
+  },
   common: {
     continue: "Continue",
     cancel: "Cancel",

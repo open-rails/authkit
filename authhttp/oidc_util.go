@@ -66,19 +66,20 @@ func originFromBaseURL(baseURL string) (origin string, ok bool) {
 
 // --- OAuth/OIDC state-to-browser binding (AK F3) ---
 
-// oauthStateCookie binds the OAuth/OIDC `state` to the browser that started the
+// The state cookie binds the OAuth/OIDC `state` to the browser that started the
 // flow. Without it, an attacker can complete a login with their OWN IdP identity,
 // capture the resulting state+code, and trick a victim's browser into hitting the
 // callback — silently logging the victim into the ATTACKER's account (login CSRF).
-const oauthStateCookie = "authkit_oauth_state"
-
+// Its names are in the cookie registry (cookies.go).
 const oauthStateCookieTTL = 15 * time.Minute
 
 // stateCookieName keys the cookie by the flow's state so two flows started in
 // one browser never clobber each other's cookie (#323).
-func stateCookieName(state string) string {
+func stateCookieName(state string) string { return oidcStatePrefix + stateCookieSuffix(state) }
+
+func stateCookieSuffix(state string) string {
 	sum := sha256.Sum256([]byte(state))
-	return oauthStateCookie + "_" + hex.EncodeToString(sum[:4])
+	return hex.EncodeToString(sum[:4])
 }
 
 // stateCookie is the one shape of the flow's state cookie — set and clear
@@ -114,10 +115,7 @@ func (s *Service) stateCookieSecure(r *http.Request, p authprovider.Provider) bo
 }
 
 func (s *Service) stateCookieName(r *http.Request, p authprovider.Provider, state string) string {
-	if s.stateCookieSecure(r, p) {
-		return "__Host-" + stateCookieName(state)
-	}
-	return stateCookieName(state)
+	return currentCookie(cookieOIDCState, s.stateCookieSecure(r, p)).Name + stateCookieSuffix(state)
 }
 
 // setStateCookie stores the flow's state in an HttpOnly cookie.
@@ -149,6 +147,11 @@ func callbackParams(r *http.Request) url.Values {
 // cookies are untouched.
 func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
 	http.SetCookie(w, s.stateCookie(r, p, state, "", -1))
+	// A flow begun before an upgrade left a historical variant; never read, it
+	// is only removed.
+	current := currentCookie(cookieOIDCState, s.stateCookieSecure(r, p))
+	suffix := stateCookieSuffix(state)
+	expireCookieVariants(w, r, cookieOIDCState, &current, s.stateCookieSecure(r, p), func(v cookieVariant) string { return v.Name + suffix }, "", true)
 }
 
 // stateCookieMatches reports whether the request carries the state cookie and it
