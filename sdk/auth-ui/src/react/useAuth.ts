@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import type { AuthClient, AuthSession, SessionHint } from "../client/client.ts"
 import type { UserProfile } from "../client/types.ts"
@@ -52,6 +52,9 @@ export function useAuth(): AuthState {
   if (loaded && loaded !== kept) setKept(loaded)
   const userId = sessionUser(session)
   const status = authStatus(session)
+  useEffect(() => {
+    if (loaded?.username) client.rememberUsername(loaded.id, loaded.username)
+  }, [client, loaded])
   const user =
     loaded ??
     (session.status === "authenticated" && kept?.id === userId ? kept : null)

@@ -303,9 +303,12 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           ? Date.now() + tokens.expires_in * 1000
           : null
     retries = 0
+    const prior = readHint()
     writeHint({
       userId,
-      username: str(claims.username),
+      username:
+        str(claims.username) ??
+        (prior?.userId === userId ? prior.username : undefined),
       expiresAt: Date.now() + hintTtlMs,
     })
     emit({
@@ -316,6 +319,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       expiresAt,
     })
     schedule()
+  }
+
+  // Records the signed-in user's display name in the hint (access tokens need
+  // not carry it), so the next reload can show it before /me answers.
+  const rememberUsername = (userId: string, username: string) => {
+    const hint = readHint()
+    if (hint?.userId !== userId || hint.username === username) return
+    writeHint({ ...hint, username })
   }
 
   // keepHint: another tab already rewrote the hint.
@@ -1253,6 +1264,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     request,
     authFetch,
     ready,
+    rememberUsername,
     onContactProofRequired,
     completeSignIn,
     oidcLoginUrl,
