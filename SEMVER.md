@@ -131,7 +131,10 @@ component exports follow the same MAJOR/MINOR/PATCH rules as plane A.
   `RevokeAPIKey`).
 - **Operation shape.** Collection reads are `(ctx, []ID) (map[ID]T, error)`
   with missing ids absent; bulk mutations return per-item `[]OpResult` or are
-  documented all-or-nothing; single-subject auth primitives are never batched.
+  documented all-or-nothing. Collection reads include group instances
+  (`GroupInstancesByIDs`) and one subject's permissions on many groups
+  (`EffectivePermissionsForGroups`), each one query bounded by `MaxGroupBatch`;
+  per-request checks (`Can`, `CanOnGroup`) stay single.
 - **Typed identifiers.** `Persona`/`Role`/`Perm`, `GroupRef`/`Subject`; groups
   are identified by immutable UUID and a resolved name never transfers
   authority (`docs/naming-policy.md`).

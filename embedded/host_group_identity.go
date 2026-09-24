@@ -3,6 +3,7 @@ package embedded
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
@@ -15,6 +16,58 @@ func (s *engine) GroupInstanceByID(ctx context.Context, groupID string) (GroupIn
 		return GroupInstance{}, err
 	}
 	return s.groupStore().GroupInstanceByID(ctx, strings.TrimSpace(groupID))
+}
+
+// GroupInstancesByIDs is the listing form of GroupInstanceByID: one query.
+func (s *engine) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]GroupInstance, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	ids, err := groupBatch(groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.groupStore().GroupInstancesByIDs(ctx, ids)
+}
+
+// EffectivePermissionsForGroups resolves one subject's grant patterns on many
+// exact groups in one query; a rename cannot redirect any of them.
+func (s *engine) EffectivePermissionsForGroups(ctx context.Context, subject authkit.Subject, groupIDs []string) (map[string][]authkit.Perm, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	ids, err := groupBatch(groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	grants, err := s.groupStore().GrantsOnGroups(ctx, s.groupSchemaOrDefault(), subject, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]authkit.Perm, len(grants))
+	for gid, patterns := range grants {
+		perms := make([]authkit.Perm, len(patterns))
+		for i, p := range patterns {
+			perms[i] = authkit.Perm(p)
+		}
+		out[gid] = perms
+	}
+	return out, nil
+}
+
+func groupBatch(groupIDs []string) ([]string, error) {
+	ids := make([]string, 0, len(groupIDs))
+	seen := make(map[string]bool, len(groupIDs))
+	for _, id := range groupIDs {
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) > authkit.MaxGroupBatch {
+		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), authkit.MaxGroupBatch)
+	}
+	return ids, nil
 }
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
