@@ -1,5 +1,9 @@
 -- parent: 2 sha256:f224a2cb39a8134f5c869e27f16baadcaf964b56884f89f97cc6d9e33303c21e
 -- Reserve a purged user's username permanently, as deleted groups' slugs are.
+-- Explicit pg_temp keeps temporary tables from shadowing AuthKit relations
+-- inside the captured function search path (as in 0001).
+SELECT set_config('search_path', format('%I, public, pg_temp', current_schema()), true);
+
 CREATE OR REPLACE FUNCTION enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE kind text := TG_ARGV[0]; scope text; handle text; previous text;
 BEGIN
