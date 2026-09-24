@@ -629,6 +629,10 @@
       "status": 403
     },
     {
+      "code": "no_session",
+      "status": 401
+    },
+    {
       "code": "not_authenticated",
       "status": 401
     },

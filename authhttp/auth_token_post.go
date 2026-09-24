@@ -18,6 +18,12 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
+	// A browser with no refresh cookie is simply signed out: a quiet 401 the
+	// client settles on, not a malformed request.
+	if s.noRefreshCookie(r, body.RefreshToken) {
+		unauthorized(w, authkit.CodeNoSession)
+		return
+	}
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
 		badRequest(w, authkit.CodeInvalidRequest)

@@ -321,6 +321,12 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a browser with no refresh cookie is simply signed out", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }))
+		resp := h.do(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token"}})
+		require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+		require.Equal(t, "no_session", resp.errorCode())
+	})
 	t.Run("same-path duplicates are still refused", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
 			withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = "http://app.security.test" }))

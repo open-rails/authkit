@@ -75,5 +75,6 @@ test("register, verify, login, refresh via cookie, logout", async ({
   const afterLogout = await api(page, "POST", "/token", {
     grant_type: "refresh_token",
   })
-  expect(afterLogout.status).toBe(400)
+  expect(afterLogout.status).toBe(401)
+  expect(afterLogout.body).toMatchObject({ error: { code: "no_session" } })
 })

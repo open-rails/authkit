@@ -113,6 +113,21 @@ func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
 	expireCookieVariants(w, r, cookieRefresh, nil, s.cookieSecure(r), variantName, policy.tokenPath, false)
 }
 
+// noRefreshCookie: a cookie mount's request carries no body token and no
+// refresh cookie of any registered variant.
+func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
+	policy, cookies := refreshCookieEnabled(r)
+	if !cookies || strings.TrimSpace(body) != "" {
+		return false
+	}
+	for _, c := range r.Cookies() {
+		if len(refreshPaths(c.Name, policy.tokenPath)) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // refreshTokenFromRequest follows the mount's declared transport. Cookie mounts
 // reject body tokens and same-path duplicate cookies, and read historical
 // variants through the registry; native mounts require a body token.
