@@ -63,6 +63,66 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   start the flow by POST (`oidcLoginStart`), so the invitation never enters a
   URL; `oidcLoginUrl` builds invitation-free login URLs.
 
+## Session lifecycle
+
+auth-ui owns the browser session, so an app writes no auth plumbing:
+
+```tsx
+import { ContactProofDialog, AuthUiProvider } from "@openrails/auth-ui"
+import { createAuthClient } from "@openrails/auth-ui/client"
+import { AuthProvider, useAuth } from "@openrails/auth-ui/react"
+
+export const auth = createAuthClient({ baseUrl: "/auth/v1" })
+
+const Root = () => (
+  <AuthProvider
+    client={auth}
+    // Only on a different user (not a same-user session rotation).
+    onUserChange={() => queryClient.resetQueries()}
+  >
+    <AuthUiProvider>
+      <App />
+      <ContactProofDialog />
+    </AuthUiProvider>
+  </AuthProvider>
+)
+
+function Header() {
+  const { status, signedIn, user, hint, signOut } = useAuth()
+  if (status === "loading") return null
+  return signedIn ? (
+    <UserMenu name={user?.username ?? hint?.username} onSignOut={signOut} />
+  ) : (
+    <SignInButton />
+  )
+}
+
+// Host APIs: the session bearer, refresh-and-retry and contact proof.
+const load = () => auth.authFetch("/api/things")
+```
+
+- **Restore:** `AuthProvider` restores the session from the HttpOnly refresh
+  cookie on load. The refresh token never reaches script and the access token
+  stays in memory.
+- **No signed-out flash:** a non-secret hint (`userId`, `username`, expiry) is
+  kept in `localStorage`. On reload `useAuth()` reports `status: "restoring"`
+  (`signedIn: true`) with that hint until the restore settles. The client
+  option `sessionHint: false` turns it off; `{ storage, key, ttlSeconds }`
+  adjusts it.
+- **Requests while restoring** (`authFetch` and every client call) wait for
+  the restore, so they carry the restored session; `await auth.ready()` does
+  the same for other code.
+- **Tabs:** signing in, out or as another user in one tab follows in the
+  others (the `storage` event on the hint).
+- **Events:** `onUserChange(userId, previous)` fires only when the user
+  changes; `onSessionChange` also fires on a same-user session rotation.
+- **Contact proof:** AuthKit refuses new sign-in methods while no address is
+  proven (`403 verification_required`, `reason: "contact_unproven"`).
+  `<ContactProofDialog />` sends a code, confirms it and retries the refused
+  request once. For custom UI, register
+  `auth.onContactProofRequired(({ identifier, channel }) => Promise<boolean>)`;
+  `<VerifyContactForm identifier onVerified />` is the form alone.
+
 ## React
 
 ```tsx

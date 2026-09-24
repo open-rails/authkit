@@ -1,0 +1,9 @@
+# Every cookie variant AuthKit has ever issued (authhttp/cookies.go). Append-only:
+# a changed name, path, domain or prefix is a new line; never edit or delete one.
+refresh name=authkit_rt path={api}/token domain="" secure=false
+refresh name=authkit_rt path={api}/token domain="" secure=true
+refresh name=authkit_rt path=/ domain="" secure=false
+refresh name=__Host-authkit_rt path=/ domain="" secure=true
+oidc_state name=authkit_oauth_state_ path=/ domain="" secure=false
+oidc_state name=authkit_oauth_state_ path=/ domain="" secure=true
+oidc_state name=__Host-authkit_oauth_state_ path=/ domain="" secure=true

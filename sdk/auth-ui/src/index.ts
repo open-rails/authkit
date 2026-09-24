@@ -25,3 +25,4 @@ export {
 } from "./i18n/index.ts"
 export * from "./components/sign-in/index.ts"
 export * from "./components/account/index.ts"
+export * from "./components/contact-proof/index.ts"
