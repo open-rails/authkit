@@ -73,6 +73,9 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !claims.TwoFAEnrollment {
+		if !s.requireProvenContact(w, r, claims.UserID) {
+			return
+		}
 		// A token minted before enrollment must not hide the account's current MFA requirement.
 		claims.MFAEnrolled = scope.HasFactors
 		if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {

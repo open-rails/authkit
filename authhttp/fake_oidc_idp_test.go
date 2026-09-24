@@ -137,5 +137,5 @@ func (f *fakeOIDCIdP) idToken(t *testing.T) string {
 
 // Provider returns an OIDC provider pointing at this IdP.
 func (f *fakeOIDCIdP) Provider(name string, opts ...authprovider.Option) authprovider.Provider {
-	return authprovider.OIDC(name, f.Server.URL, f.ClientID, "idp-secret", opts...)
+	return authprovider.OIDC(name, f.Server.URL, f.ClientID, "idp-secret", append([]authprovider.Option{authprovider.WithTrustedEmailVerification(true)}, opts...)...)
 }

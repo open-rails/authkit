@@ -281,16 +281,18 @@ func (s *engine) consumePasswordlessChallenge(ctx context.Context, rec passwordl
 		}
 		return s.createPasswordlessUser(ctx, rec)
 	}
-	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true)
+	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true, nil)
 }
 
-func (s *engine) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string) (registeredAccount, error) {
-	return s.verifyContactProofWithRecovery(ctx, userID, version, channel, identifier, false)
+func (s *engine) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string, keepSessionID *string) (registeredAccount, error) {
+	return s.verifyContactProofWithRecovery(ctx, userID, version, channel, identifier, false, keepSessionID)
 }
 
 // Only a login completion can verify a deleted account's contact before the
 // recovery tail. Standalone contact finalizers retain the normal access gate.
-func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID string, version int64, channel, identifier string, allowRecovery bool) (registeredAccount, error) {
+// keepSessionID is the authenticated session presenting the proof, if any; see
+// retirePreProofCredentials.
+func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID string, version int64, channel, identifier string, allowRecovery bool, keepSessionID *string) (registeredAccount, error) {
 	if version <= 0 {
 		return registeredAccount{}, jwt.ErrTokenUnverifiable
 	}
@@ -309,14 +311,22 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 		if u.Email == nil || *u.Email != identifier {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		err = q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: u.ID, EmailVerified: true})
 	case PasswordlessChannelSMS:
 		if u.PhoneNumber == nil || *u.PhoneNumber != identifier {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		err = q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: u.ID, PhoneNumber: &identifier})
 	default:
 		return registeredAccount{}, jwt.ErrTokenInvalidClaims
+	}
+	revoked, err := s.retirePreProofCredentials(ctx, tx, u.ID, keepSessionID)
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	switch channel {
+	case PasswordlessChannelEmail:
+		err = q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: u.ID, EmailVerified: true})
+	case PasswordlessChannelSMS:
+		err = q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: u.ID, PhoneNumber: &identifier})
 	}
 	if err != nil {
 		return registeredAccount{}, err
@@ -328,6 +338,7 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	if err := tx.Commit(ctx); err != nil {
 		return registeredAccount{}, err
 	}
+	s.logRevokedSessions(ctx, u.ID, revoked, string(SessionRevokeReasonContactProven))
 	return registeredAccount{ID: u.ID, Version: current.CredentialVersion}, nil
 }
 

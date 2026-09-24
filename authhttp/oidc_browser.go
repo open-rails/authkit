@@ -38,6 +38,9 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
+	if !s.requireProvenContact(w, r, claims.UserID) {
+		return
+	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
@@ -200,7 +203,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	out, err := s.svc.CompleteExternalLogin(r.Context(), embedded.ExternalLoginInput{
 		Identity: embedded.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
-			Email: identity.Email, EmailVerified: identity.EmailVerified,
+			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
 		},
 		Link: link, AccountInviteToken: sd.AccountInviteToken,

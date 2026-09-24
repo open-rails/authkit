@@ -14,7 +14,7 @@ import (
 
 // mutateCredentials owns the account lock and the transaction for credential
 // writes. No caller may authorize from a password/version read before this lock.
-func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason SessionRevokeReason, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
+func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason SessionRevokeReason, apply func(pgx.Tx, *db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -24,7 +24,9 @@ func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessi
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
-	revoked, err := s.mutateCredentialsTx(ctx, q, userID, keepSessionID, apply)
+	revoked, err := s.mutateCredentialsTx(ctx, q, userID, keepSessionID, func(q *db.Queries, account db.UserCredentialVersionForUpdateRow) error {
+		return apply(tx, q, account)
+	})
 	if err != nil {
 		return err
 	}
@@ -67,7 +69,8 @@ func (s *engine) changePassword(ctx context.Context, userID, new string, current
 	if err != nil {
 		return err
 	}
-	err = s.mutateCredentials(ctx, userID, keepSessionID, reason, func(q *db.Queries, account db.UserCredentialVersionForUpdateRow) error {
+	var proven []revokedSession
+	err = s.mutateCredentials(ctx, userID, keepSessionID, reason, func(tx pgx.Tx, q *db.Queries, account db.UserCredentialVersionForUpdateRow) error {
 		if grant != nil {
 			if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
 				return ErrUserBanned
@@ -86,6 +89,18 @@ func (s *engine) changePassword(ctx context.Context, userID, new string, current
 			if grant.Version <= 0 || grant.Version != account.CredentialVersion || (grant.Channel != "email" && grant.Channel != "sms") || contact == nil || *contact != grant.Contact {
 				return jwt.ErrTokenInvalidClaims
 			}
+			// A completed reset proves the reset channel (ak#393).
+			if proven, err = s.retirePreProofCredentials(ctx, tx, userID, nil); err != nil {
+				return err
+			}
+			if grant.Channel == "email" {
+				err = q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: userID, EmailVerified: true})
+			} else {
+				err = q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: contact})
+			}
+			if err != nil {
+				return err
+			}
 		}
 		if current != nil {
 			row, err := q.UserPasswordRow(ctx, userID)
@@ -103,6 +118,7 @@ func (s *engine) changePassword(ctx context.Context, userID, new string, current
 	if err != nil {
 		return err
 	}
+	s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
 	sessionID := ""
 	if keepSessionID != nil {
 		sessionID = *keepSessionID

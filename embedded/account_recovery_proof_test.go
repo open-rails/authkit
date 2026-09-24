@@ -20,11 +20,12 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	s := runtime.engine
 	user, err := s.CreateUser(t.Context(), "recovery-race@example.test", "recoveryrace")
 	require.NoError(t, err)
+	require.NoError(t, s.MarkEmailVerified(t.Context(), user.ID))
 	require.NoError(t, s.AdminSetPassword(t.Context(), user.ID, "Correct-race-password-1"))
 	require.NoError(t, s.SoftDeleteUser(t.Context(), user.ID))
 	deletedVersion, err := s.q.UserCredentialVersion(t.Context(), user.ID)
 	require.NoError(t, err)
-	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, PasswordlessChannelEmail, *user.Email)
+	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, PasswordlessChannelEmail, *user.Email, nil)
 	require.ErrorIs(t, err, ErrUserBanned, "standalone contact finalization cannot use the recovery-only login allowance")
 	var verified bool
 	require.NoError(t, s.pg.QueryRow(t.Context(), "SELECT email_verified FROM users WHERE id=$1::uuid", user.ID).Scan(&verified))

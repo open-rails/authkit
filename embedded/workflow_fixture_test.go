@@ -87,6 +87,8 @@ func newHardeningUser(t *testing.T, ctx context.Context, svc *engine, tag string
 	u, err := svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, u.ID) })
+	require.NoError(t, svc.MarkEmailVerified(ctx, u.ID))
+	u.EmailVerified = true
 	return u, email
 }
 

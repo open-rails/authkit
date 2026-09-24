@@ -147,7 +147,9 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, authkit.CodeAuthenticationRequired)
 		return
 	}
-
+	if !s.requireProvenContact(w, r, claims.UserID) {
+		return
+	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}

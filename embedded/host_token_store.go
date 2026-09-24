@@ -3,6 +3,7 @@ package embedded
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/password"
 )
@@ -27,7 +28,7 @@ func (s *engine) UpsertPasswordHash(ctx context.Context, userID, hash, algo stri
 	if err := validatePasswordHashForStorage(hash, algo); err != nil {
 		return err
 	}
-	return s.mutateCredentials(ctx, userID, nil, SessionRevokeReasonAdminSetPassword, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
+	return s.mutateCredentials(ctx, userID, nil, SessionRevokeReasonAdminSetPassword, func(_ pgx.Tx, q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo})
 	})
 }

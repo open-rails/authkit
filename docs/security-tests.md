@@ -27,6 +27,10 @@ Add a row and a test for every new attack class.
 | Cross-site refresh-cookie use, cookie tossing, body tokens on cookie mounts, cross-site cookie login | `TestSecurityRefreshCookieCSRF` |
 | Oversized, malformed, unknown-field and SQL-metacharacter bodies; CORS reflection; internal detail in errors | `TestSecurityRequestBoundary` |
 | Account enumeration through login and reset responses | `TestSecurityAccountEnumeration` |
+| Unproven account adds a provider link, passkey, factor or wallet | `TestSecurityUnprovenContactCannotAddLoginMethods` |
+| Pre-registration takeover: attacker's sessions, password, links, device keys or factors survive the owner's first proof (reset, email code, verification on another device) | `TestSecurityPreRegistrationTakeover` |
+| Registration marks an address verified without proof | `TestSecurityRegistrationNeverSelfVerifies` |
+| Untrusted provider's `email_verified` stores or matches an address | `TestSecurityProviderEmailTrust` |
 
 Covered by the workflow suites (see [testing](testing.md)): OIDC state
 binding, single use, provider mix-up, nonce and PKCE

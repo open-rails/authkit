@@ -94,6 +94,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 		// only a recovery confirmation while the account is deleted.
 		keyUser, err := f.service.svc.CreateUser(t.Context(), uniqueEmail("recover-key"), "reckey"+uniqueSuffix())
 		require.NoError(t, err)
+		require.NoError(t, f.service.svc.MarkEmailVerified(t.Context(), keyUser.ID))
 		authn := passkeytest.New(t, "https://app.example")
 		creation, err := f.service.svc.BeginPasskeyRegistration(t.Context(), keyUser.ID)
 		require.NoError(t, err)

@@ -56,7 +56,7 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 			input := ImportUserInput{Username: rec.Username, PasswordHash: rec.PasswordHash, HashAlgo: "argon2id"}
 			if kind.isEmail() {
 				input.Email = rec.Target
-				input.EmailVerified = true
+				input.EmailVerified = true // the delivered code/link is the proof
 			} else {
 				input.PhoneNumber = rec.Target
 				input.PhoneVerified = true
@@ -67,7 +67,11 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 			if !kind.isEmail() {
 				channel = PasswordlessChannelSMS
 			}
-			account, err = s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, channel, rec.Target, true)
+			var keep *string
+			if in.UserID == rec.UserID && in.SessionID != "" {
+				keep = &in.SessionID
+			}
+			account, err = s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, channel, rec.Target, true, keep)
 		} else {
 			var keep *string
 			if in.UserID == rec.UserID && in.SessionID != "" {

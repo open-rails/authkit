@@ -116,12 +116,13 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 			out.Kind = RegisterVerifyPhone
 			return out, nil
 		}
-		verified := s.RegistrationVerificationPolicy() == RegistrationVerificationNone || !s.SMSAvailable()
-		account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id", PhoneVerified: verified}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+		// Never verified without proof (ak#393): "none" only means proof is not
+		// required to use the account.
+		account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
 		if err != nil {
 			return RegisterOutcome{}, err
 		}
-		if !verified {
+		if s.RegistrationVerificationPolicy() == RegistrationVerificationOptional && s.SMSAvailable() {
 			if err := s.SendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
 				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 			}
@@ -151,12 +152,11 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 		out.Kind = RegisterVerifyEmail
 		return out, nil
 	}
-	verified := s.RegistrationVerificationPolicy() == RegistrationVerificationNone || !s.HasEmailSender()
-	account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id", EmailVerified: verified}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+	account, err := s.registerAccount(ctx, accountRegistration{User: ImportUserInput{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
 	if err != nil {
 		return RegisterOutcome{}, err
 	}
-	if !verified {
+	if s.RegistrationVerificationPolicy() == RegistrationVerificationOptional && s.HasEmailSender() {
 		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
 			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}

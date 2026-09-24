@@ -74,6 +74,13 @@ type Provider interface {
 	// interactive authentication (OIDC max_age=0 checked against auth_time).
 	// OAuth2 IdPs silently re-authorize an approved app, so they never do.
 	SupportsStepUp() bool
+	// TrustsEmailVerification reports whether this provider's email_verified
+	// assertion is proof that the user controls the address. Only then may
+	// AuthKit create an account with that address verified; otherwise the
+	// address is ignored at registration (ak#393). Generic OIDC/OAuth2 IdPs
+	// often let a tenant or user choose the claimed email, so they are
+	// untrusted unless the host opts in with WithTrustedEmailVerification.
+	TrustsEmailVerification() bool
 	AuthCodeURL(ctx context.Context, req AuthRequest) (string, error)
 	Exchange(ctx context.Context, req ExchangeRequest) (Identity, error)
 	// Validate checks the static configuration; it performs no network calls.
@@ -101,6 +108,13 @@ type Option func(*base)
 // WithScopes replaces the requested scopes.
 func WithScopes(scopes ...string) Option {
 	return func(b *base) { b.scopes = append([]string(nil), scopes...) }
+}
+
+// WithTrustedEmailVerification declares whether the provider's email_verified
+// claim proves address ownership. Google, Apple, GitHub and Discord default to
+// trusted; OIDC and OAuth2 default to untrusted.
+func WithTrustedEmailVerification(trusted bool) Option {
+	return func(b *base) { b.trustEmail = trusted }
 }
 
 // WithDisplayName sets the human-readable name reported by DisplayName.
@@ -150,6 +164,7 @@ type base struct {
 	secret      Secret
 	scopes      []string
 	pkce        bool
+	trustEmail  bool
 	authParams  map[string]string
 	httpClient  *http.Client
 }
@@ -175,10 +190,11 @@ func newBase(name, issuer, clientID string, secret Secret, scopes []string, pkce
 	return b
 }
 
-func (b *base) Name() string        { return b.name }
-func (b *base) DisplayName() string { return b.displayName }
-func (b *base) Issuer() string      { return b.issuer }
-func (b *base) PKCE() bool          { return b.pkce }
+func (b *base) Name() string                  { return b.name }
+func (b *base) DisplayName() string           { return b.displayName }
+func (b *base) Issuer() string                { return b.issuer }
+func (b *base) PKCE() bool                    { return b.pkce }
+func (b *base) TrustsEmailVerification() bool { return b.trustEmail }
 func (b *base) ResponseModeFormPost() bool {
 	return strings.EqualFold(b.authParams["response_mode"], "form_post")
 }
