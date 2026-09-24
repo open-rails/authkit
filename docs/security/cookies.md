@@ -11,6 +11,8 @@ state cookie variant AuthKit has ever issued (name, path, domain, `Secure`):
   plain names can be planted by a sibling subdomain, so this is time-boxed).
 - More values of one name than registered paths for it is a same-path
   duplicate (cookie tossing) and is refused.
+- A refresh with no refresh cookie at all answers `401 no_session`: the
+  browser is signed out, which clients settle on quietly.
 - Historical OIDC state cookies are never read (a flow lasts 15 minutes); they
   are only expired.
 

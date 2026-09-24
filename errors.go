@@ -184,6 +184,7 @@ var (
 	CodeMissingToken                      = def("missing_token", 401, "A bearer token is required.")
 	CodeMissingTokenTyp                   = def("missing_token_typ", 401, "The token carries no type.")
 	CodeNameAdmissionRefused              = def("name_admission_refused", 403, "That name was refused.")
+	CodeNoSession                         = def("no_session", 401, "No session is signed in.")
 	CodeNotAuthenticated                  = def("not_authenticated", 401, "Authentication is required.")
 	CodeNotDelegatedAccessToken           = def("not_delegated_access_token", 401, "The token is not a delegated access token.")
 	CodeNotFound                          = def("not_found", 404, "The requested resource was not found.")

@@ -158,6 +158,7 @@ export type AuthErrorCode =
   | "missing_token"
   | "missing_token_typ"
   | "name_admission_refused"
+  | "no_session"
   | "not_authenticated"
   | "not_delegated_access_token"
   | "not_found"
@@ -421,6 +422,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "missing_token": 401,
   "missing_token_typ": 401,
   "name_admission_refused": 403,
+  "no_session": 401,
   "not_authenticated": 401,
   "not_delegated_access_token": 401,
   "not_found": 404,

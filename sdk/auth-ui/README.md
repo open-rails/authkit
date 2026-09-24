@@ -104,6 +104,9 @@ const load = () => auth.authFetch("/api/things")
 - **Restore:** `AuthProvider` restores the session from the HttpOnly refresh
   cookie on load. The refresh token never reaches script and the access token
   stays in memory.
+- **Signed out:** a browser with no refresh cookie gets `401 no_session` from
+  the restore and settles on `signed_out` quietly: no error, no retry. The
+  restore always asks the server (a session may predate its hint).
 - **No signed-out flash:** a non-secret hint (`userId`, `username`, expiry) is
   kept in `localStorage`. On reload `useAuth()` reports `status: "restoring"`
   (`signedIn: true`) with that hint until the restore settles. The client

@@ -555,3 +555,40 @@ describe("AuthProvider restore order", () => {
     )
   })
 })
+
+describe("signed-out restore", () => {
+  it("settles signed out quietly and lets public requests through", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/token": [authError(401, "no_session")],
+      "GET /public/feed": ({ headers }) =>
+        json(200, { auth: new Headers(headers).get("Authorization") }),
+    })
+    let feed: unknown = null
+    const { result } = renderWithAuth(
+      () => {
+        const client = useAuthClient()
+        useEffect(() => {
+          void client
+            .authFetch("/public/feed")
+            .then((res) => res.json())
+            .then((body) => (feed = body))
+        }, [client])
+        return useAuth()
+      },
+      fetch,
+      { autoStart: true }
+    )
+    await waitFor(() =>
+      expect(result.current).toMatchObject({
+        status: "signed_out",
+        signedIn: false,
+        user: null,
+      })
+    )
+    await waitFor(() => expect(feed).toEqual({ auth: null }))
+    expect(result.current.session).toMatchObject({ continuation: null })
+    expect(
+      fetch.mock.calls.filter(([input]) => String(input).endsWith("/token"))
+    ).toHaveLength(1)
+  })
+})
