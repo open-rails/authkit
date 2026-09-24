@@ -77,7 +77,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 		"deployment issuer spelling": {authprovider.OIDC("self", strings.ToUpper(issuer)+"/", "self-client", "self-secret")},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Error(t, build(providers...))
+			require.ErrorContains(t, build(providers...), "issuer")
 		})
 	}
 	t.Run("control: distinct issuers", func(t *testing.T) {
