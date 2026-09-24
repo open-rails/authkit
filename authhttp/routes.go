@@ -293,6 +293,7 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
 		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteBrowserOIDC, Auth: AuthPublic, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
+		{Method: http.MethodPost, Path: "/{provider}/login", Group: RouteBrowserOIDC, Auth: AuthPublic, Handler: http.HandlerFunc(s.handleOIDCLoginPOST)},
 		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Auth: AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Auth: AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		// response_mode=form_post providers (Apple) deliver the same response as a

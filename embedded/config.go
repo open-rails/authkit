@@ -281,16 +281,11 @@ type RegistrationConfig struct {
 // variables here (#231): key material and the dev opt-in come from the host's
 // explicit configuration; binaries (cmd/authkit-server) read env once at their
 // own boundary and set these fields.
-// EphemeralConfig governs the ephemeral (short-lived state) backend. The
-// in-memory store and rate limiter are per-process: in a multi-replica
-// deployment they give per-replica 2FA codes, pending registrations and
-// N-times rate limits, so construction FAILS without Redis unless AllowMemory
-// is set. Like KeysConfig.AllowEphemeralDevKeys, the opt-in is an explicit
-// field.
+// EphemeralConfig governs the ephemeral (short-lived state) backend. Without
+// Redis, AuthKit keeps codes, login state and rate limits in process memory,
+// which is correct only for a single replica; multi-replica deployments must
+// configure Redis/Garnet.
 type EphemeralConfig struct {
-	// AllowMemory permits the in-memory ephemeral store and rate limiter
-	// (single-instance deployments and local development only).
-	AllowMemory bool
 	// KeyPrefix namespaces every Redis key this deployment writes (ephemeral
 	// store, OIDC/SIWS caches, rate-limit counters) so several AuthKit
 	// deployments can share one Redis database (#307). Empty derives

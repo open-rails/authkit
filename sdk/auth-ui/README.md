@@ -58,8 +58,10 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword` / `stepUpWithTwoFactor` /
   `startOidcStepUp`.
-- OIDC: `oidcLoginUrl`, `signInWithPopup` (call from a click) and
-  `completeRedirect()` on the callback route.
+- OIDC: `signInWithPopup` (call from a click), `signInWithRedirect` and
+  `completeRedirect()` on the callback route. With `accountInviteToken` both
+  start the flow by POST (`oidcLoginStart`), so the invitation never enters a
+  URL; `oidcLoginUrl` builds invitation-free login URLs.
 
 ## React
 

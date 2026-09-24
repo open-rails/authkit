@@ -60,7 +60,6 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	config := Config{
 		Token:     TokenConfig{Issuer: "https://lifecycle.test", IssuedAudiences: []string{"test"}},
 		Keys:      KeysConfig{Path: dir},
-		Ephemeral: EphemeralConfig{AllowMemory: true},
 		TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled},
 	}
 
@@ -92,22 +91,16 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		awaitClosed(t)
 	})
 
-	for _, failure := range []string{"config", "backend"} {
-		t.Run(failure, func(t *testing.T) {
-			cfg := config
-			if failure == "config" {
-				cfg.Schema = "invalid schema"
-			} else {
-				cfg.Ephemeral.AllowMemory = false
-			}
-			pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
-				client, err := newEngine(cfg, Deps{})
-				require.Error(t, err)
-				require.Nil(t, client)
-			})
-			awaitClosed(t)
+	t.Run("config", func(t *testing.T) {
+		cfg := config
+		cfg.Schema = "invalid schema"
+		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
+			client, err := newEngine(cfg, Deps{})
+			require.Error(t, err)
+			require.Nil(t, client)
 		})
-	}
+		awaitClosed(t)
+	})
 
 	t.Run("borrowed", func(t *testing.T) {
 		store := memorystore.NewKV(memorystore.WithSweepInterval(time.Millisecond))
@@ -120,12 +113,8 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		client, err := newEngine(cfg, Deps{EphemeralStore: store})
 		require.NoError(t, err)
 		client.Close()
-		cfg.Ephemeral.AllowMemory = false
-		client, err = newEngine(cfg, Deps{EphemeralStore: store})
-		require.Error(t, err)
-		require.Nil(t, client)
 
-		// Exercise background work after both Close and failed construction.
+		// Exercise background work after Close.
 		// Get would expire a value on access even if its sweeper had stopped.
 		require.NoError(t, store.Set(context.Background(), "expires", []byte("value"), time.Millisecond))
 		require.Eventually(t, func() bool { return store.Len() == 0 }, time.Second, time.Millisecond)

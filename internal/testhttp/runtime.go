@@ -20,7 +20,6 @@ func Runtime(t testing.TB) *embedded.Runtime {
 	runtime, err := embedded.New(embedded.Config{
 		Token:        embedded.TokenConfig{Issuer: "https://identity.example", IssuedAudiences: []string{"test"}},
 		Keys:         embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
-		Ephemeral:    embedded.EphemeralConfig{AllowMemory: true},
 		TwoFactor:    embedded.TwoFactorConfig{Mode: embedded.TwoFactorDisabled},
 		Registration: embedded.RegistrationConfig{NativeUserMode: embedded.RegistrationModeOpen, Verification: embedded.RegistrationVerificationNone},
 	}, embedded.Deps{Postgres: pg.Pool, River: embedded.RiverFromHost()})

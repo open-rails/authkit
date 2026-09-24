@@ -153,6 +153,12 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
 		return
 	}
+	// The grant is host policy, but never more AuthKit authority than the
+	// user holds (ak#394).
+	if err := s.svc.CheckDelegatedGrant(r.Context(), claims.UserID, grant.Permissions); err != nil {
+		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
+		return
+	}
 
 	references := make(map[string]string, len(grant.Documents)+len(s.documentProviders))
 	for documentType, digest := range grant.Documents {

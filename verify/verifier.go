@@ -450,12 +450,22 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	if opts.PublicKeys != nil && (opts.JWKSURI != "" || len(opts.Keys) > 0 || len(opts.RawKeys) > 0) {
 		return errors.New("live PublicKeys cannot be combined with another key source")
 	}
+	// An issuer without audiences would accept its tokens for any audience.
+	var accepted []string
+	for _, aud := range audiences {
+		if aud = strings.TrimSpace(aud); aud != "" {
+			accepted = append(accepted, aud)
+		}
+	}
+	if len(accepted) == 0 {
+		return fmt.Errorf("issuer %q needs at least one accepted audience", issuerID)
+	}
 	pubByKID, err := collectKeys(opts)
 	if err != nil {
 		return err
 	}
 	ie := issuerEntry{
-		issuer: issuerID, audiences: append([]string(nil), audiences...),
+		issuer: issuerID, audiences: accepted,
 		jwksURL: strings.TrimSpace(opts.JWKSURI), cacheTTL: opts.CacheTTL, maxStale: opts.MaxStale,
 		isLocal: opts.IsLocal, managed: opts.managed, publicKeys: opts.PublicKeys,
 	}
@@ -1085,7 +1095,7 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 		return nil, "", nil, authkit.E(authkit.CodeBadIssuer)
 	}
 
-	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
+	if !audContainsAny(mapClaims["aud"], match.audiences) {
 		return nil, "", nil, authkit.E(authkit.CodeBadAudience)
 	}
 

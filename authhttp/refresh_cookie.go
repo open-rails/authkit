@@ -18,17 +18,25 @@ import (
 	"strings"
 )
 
-// RefreshCookieName is the cookie the refresh token rides in.
-const RefreshCookieName = "authkit_rt"
+// RefreshCookieName is the refresh cookie on HTTPS deployments. Browsers accept
+// a __Host- cookie only when it is Secure, host-only and Path=/, so a sibling
+// subdomain can neither plant nor shadow it.
+const RefreshCookieName = "__Host-authkit_rt"
 
-// refreshCookiePolicy is the mount-resolved cookie policy. It lives in the
-// request context rather than on the Service so one Service mounted twice with
-// different options cannot cross-contaminate.
-type refreshCookiePolicy struct {
-	// path is the mount's POST /token (APIPrefix + /token), the only route that
-	// consumes the cookie. Anchoring there keeps it off the SPA document and its
-	// assets.
-	path string
+// InsecureRefreshCookieName is used only on plain-HTTP deployments (local
+// development), where browsers refuse __Host- cookies.
+const InsecureRefreshCookieName = "authkit_rt"
+
+// refreshCookiePolicy marks a mount that opted into the refresh cookie. It
+// lives in the request context rather than on the Service so one Service
+// mounted twice with different options cannot cross-contaminate.
+type refreshCookiePolicy struct{}
+
+func (s *Service) refreshCookieName(r *http.Request) string {
+	if s.cookieSecure(r) {
+		return RefreshCookieName
+	}
+	return InsecureRefreshCookieName
 }
 
 type refreshCookieCtxKey struct{}
@@ -59,16 +67,17 @@ func refreshCookieEnabled(r *http.Request) (refreshCookiePolicy, bool) {
 // — two auth cookies on one flow with different SameSite is a trap.
 //
 // Secure follows the deployment (cookieSecure): plain-http local dev would
-// otherwise never receive the cookie at all.
+// otherwise never receive the cookie at all, and there the cookie drops the
+// __Host- prefix. Path=/ is what __Host- requires; the cookie is HttpOnly and
+// only POST /token reads it.
 func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value string) {
-	policy, ok := refreshCookieEnabled(r)
-	if !ok || strings.TrimSpace(value) == "" {
+	if _, ok := refreshCookieEnabled(r); !ok || strings.TrimSpace(value) == "" {
 		return
 	}
 	c := &http.Cookie{
-		Name:     RefreshCookieName,
+		Name:     s.refreshCookieName(r),
 		Value:    value,
-		Path:     policy.path,
+		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
@@ -89,14 +98,13 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 // MaxAge < 0 serializes Max-Age=0. Every other attribute must match the setter
 // or the browser keeps the original cookie alongside the tombstone.
 func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
-	policy, ok := refreshCookieEnabled(r)
-	if !ok {
+	if _, ok := refreshCookieEnabled(r); !ok {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshCookieName,
+		Name:     s.refreshCookieName(r),
 		Value:    "",
-		Path:     policy.path,
+		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   s.cookieSecure(r),
@@ -114,10 +122,11 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 	if body != "" || !s.cookieOriginAllowed(r) {
 		return "", false
 	}
+	name := s.refreshCookieName(r)
 	var found string
 	seen := false
 	for _, c := range r.Cookies() {
-		if c.Name != RefreshCookieName {
+		if c.Name != name {
 			continue
 		}
 		if seen {

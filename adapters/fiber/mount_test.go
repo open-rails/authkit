@@ -49,7 +49,6 @@ func newMountService(t *testing.T) *authhttp.Service {
 		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		}},
-		Ephemeral: embedded.EphemeralConfig{AllowMemory: true},
 		Registration: embedded.RegistrationConfig{
 			NativeUserMode: embedded.RegistrationModeOpen,
 			Verification:   embedded.RegistrationVerificationNone,

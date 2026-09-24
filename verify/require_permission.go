@@ -18,6 +18,25 @@ type PermissionChecker interface {
 	CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error)
 }
 
+// DelegatedAuthority is implemented by a checker that can re-check, on use, a
+// delegated token's permission against its subject's live authority (the
+// minting AuthKit deployment does).
+type DelegatedAuthority interface {
+	DelegatedPermissionLive(ctx context.Context, cl Claims, perm authkit.Perm) (bool, error)
+}
+
+// tokenPermission reports whether an unbound, non-user token grants perm,
+// re-checking delegated authority live when the checker can.
+func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm) (bool, error) {
+	if cl.PrincipalKind() == authkit.PrincipalKindUser || !cl.HasPermission(perm) {
+		return false, nil
+	}
+	if live, ok := checker.(DelegatedAuthority); ok && cl.IsDelegatedAccessToken() {
+		return live.DelegatedPermissionLive(ctx, cl, perm)
+	}
+	return true, nil
+}
+
 // PermissionScope is a trusted request resolution. GroupID and AuthorityIssuer
 // identify ownership; Persona and Instance describe its canonical public name.
 type PermissionScope struct {
@@ -52,7 +71,7 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm authk
 		return group.ID == scope.GroupID && group.DeletedAt == nil, nil
 	}
 	if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) {
-		return true, nil
+		return tokenPermission(ctx, checker, cl, perm)
 	}
 	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
 		return false, nil
@@ -76,6 +95,10 @@ func RequirePermission(checker PermissionChecker, perm authkit.Perm, resolve fun
 			// A group-bound machine principal (#248) needs the resolved scope to
 			// check its instance binding, so it falls through to Allow.
 			if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
+				if ok, err := tokenPermission(r.Context(), checker, cl, perm); err != nil || !ok {
+					forbidden(w, authkit.CodeForbidden)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

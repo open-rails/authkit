@@ -22,6 +22,9 @@ type HTTPBackend interface {
 	verify.Enricher
 	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
 	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject) error
+	CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error
+	RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, tokenID string) (bool, error)
+	RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, linkID string) error
 	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error)
 	UnbanUserAs(ctx context.Context, actorUserID, userID string) error
 	RequireProvenContact(ctx context.Context, userID string) error
@@ -98,6 +101,7 @@ type HTTPBackend interface {
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error)
 	RedisKeyPrefix() string
+	EphemeralBackend() string
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error)
 	RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error)

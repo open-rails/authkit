@@ -89,21 +89,35 @@ func stateCookieName(state string) string {
 // cross-site POST, which browsers do not attach Lax cookies to, so only those
 // providers get SameSite=None; Secure (#295) — authhttp.New refuses form_post
 // on non-HTTPS deployments.
+//
+// A Secure state cookie carries the __Host- prefix (host-only, Path=/), so a
+// sibling subdomain cannot plant or shadow it; plain-HTTP dev keeps the bare
+// name, which browsers require there.
 func (s *Service) stateCookie(r *http.Request, p authprovider.Provider, state, value string, maxAge int) *http.Cookie {
 	c := &http.Cookie{
-		Name:     stateCookieName(state),
+		Name:     s.stateCookieName(r, p, state),
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   s.cookieSecure(r),
+		Secure:   s.stateCookieSecure(r, p),
 		SameSite: http.SameSiteLaxMode,
 	}
 	if p.ResponseModeFormPost() {
 		c.SameSite = http.SameSiteNoneMode
-		c.Secure = true
 	}
 	return c
+}
+
+func (s *Service) stateCookieSecure(r *http.Request, p authprovider.Provider) bool {
+	return p.ResponseModeFormPost() || s.cookieSecure(r)
+}
+
+func (s *Service) stateCookieName(r *http.Request, p authprovider.Provider, state string) string {
+	if s.stateCookieSecure(r, p) {
+		return "__Host-" + stateCookieName(state)
+	}
+	return stateCookieName(state)
 }
 
 // setStateCookie stores the flow's state in an HttpOnly cookie.
@@ -111,11 +125,21 @@ func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authp
 	http.SetCookie(w, s.stateCookie(r, p, state, state, int(oauthStateCookieTTL.Seconds())))
 }
 
+// maxCallbackFormBytes bounds a form_post authorization response: state, code,
+// id_token and a small user object.
+const maxCallbackFormBytes = 64 << 10
+
 // callbackParams returns the IdP's authorization response: the query string of
-// the GET redirect, or the form body of a response_mode=form_post POST.
+// the GET redirect, or the form body of a response_mode=form_post POST. An
+// oversized body yields no parameters.
 func callbackParams(r *http.Request) url.Values {
 	if r.Method == http.MethodPost {
-		_ = r.ParseForm()
+		if r.PostForm == nil {
+			r.Body = http.MaxBytesReader(nil, r.Body, maxCallbackFormBytes)
+			if err := r.ParseForm(); err != nil {
+				r.PostForm = url.Values{}
+			}
+		}
 		return r.PostForm
 	}
 	return r.URL.Query()
@@ -130,11 +154,11 @@ func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p aut
 // stateCookieMatches reports whether the request carries the state cookie and it
 // equals state (constant-time). Callbacks MUST reject a missing/mismatched cookie
 // before consuming the server-side state.
-func stateCookieMatches(r *http.Request, state string) bool {
+func (s *Service) stateCookieMatches(r *http.Request, p authprovider.Provider, state string) bool {
 	if strings.TrimSpace(state) == "" {
 		return false
 	}
-	c, err := r.Cookie(stateCookieName(state))
+	c, err := r.Cookie(s.stateCookieName(r, p, state))
 	if err != nil || c == nil || c.Value == "" {
 		return false
 	}

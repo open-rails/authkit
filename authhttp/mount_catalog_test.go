@@ -168,8 +168,8 @@ func TestMountCatalog(t *testing.T) {
 			require.NotContains(t, tokens, "refresh_token")
 			cookies := login.Result().Cookies()
 			require.Len(t, cookies, 1)
-			require.Equal(t, RefreshCookieName, cookies[0].Name)
-			require.Equal(t, "/auth/token", cookies[0].Path)
+			require.Equal(t, InsecureRefreshCookieName, cookies[0].Name)
+			require.Equal(t, "/", cookies[0].Path)
 			require.True(t, cookies[0].HttpOnly)
 			require.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
 		}

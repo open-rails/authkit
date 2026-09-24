@@ -22,6 +22,12 @@ first-factor continuations, atomic registration, and workflow test coverage.
 See [contact ownership](docs/security/contact-ownership.md) for why unproven
 accounts cannot add login methods and what the first address proof revokes.
 
+Without `Deps.Redis`, AuthKit keeps rate limits, codes and login state in
+process memory, which is correct for a single replica only; multi-replica
+deployments must configure Redis or Garnet. See
+[rate limits](docs/security/rate-limits.md) for the per-address and per-account
+policy.
+
 Redis-compatible stores must support atomic `GETDEL` and atomic Lua
 (`EVAL`/`EVALSHA`); proof claims and counters depend on those guarantees.
 For Garnet, enable both `--lua true` and `--lua-transaction-mode true`.
@@ -299,9 +305,10 @@ claims. See [user-claim presence and freshness](docs/verification.md#user-claims
 ## Refresh cookie
 
 `MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
-every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie
-(`authkit_rt`) path-scoped to the mount's `POST /token`, which requires the
-cookie and rejects body refresh tokens. Native mounts require body tokens and
+every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie,
+`__Host-authkit_rt` with `Path=/` so a sibling subdomain can neither plant nor
+shadow it (plain-HTTP development uses the unprefixed `authkit_rt`). Only
+`POST /token` reads it; it requires the cookie and rejects body refresh tokens. Native mounts require body tokens and
 never consume refresh cookies. `DELETE /logout`
 and a refresh failing with `user_banned` clear it; an unknown-token `401`
 never does. The SPA and mount must share an origin. Cookie-mode JSON mutations
@@ -330,6 +337,13 @@ to `Frontend.BaseURL + OIDCReturnPath` (default `/login/callback`):
   instead of an access token;
 - popup: `postMessage` of `{type: "AUTHKIT_OIDC_RESULT", access_token, …, nonce}`
   or `{type: "AUTHKIT_OIDC_ERROR", error, flow, provider, nonce}`.
+
+An account invitation never rides in a URL. To sign up with one, the page
+POSTs `{"account_invite_token", "return_to"?, "ui"?, "popup_nonce"?}` to
+`/oidc/{provider}/login` from its own origin and navigates to the returned
+`auth_url`; the invitation is bound to the flow's server-side state. A GET
+carrying `account_invite_token` is refused. On HTTPS the flow's state cookie is
+`__Host-` prefixed. Providers may not share an issuer or use this deployment's.
 
 `return_to` must be app-relative. Linking a provider to an existing account is
 `POST /api/v1/oidc/{provider}/link/start`: it needs fresh authentication
@@ -418,6 +432,12 @@ application plus a service-owned `OrgPersona` group. Re-registering the same
 domain re-proves the root and refreshes the keys — that is key rotation; a
 keypair never rotates itself. `Deps.ApplicationAdmission` is the host's cost
 gate.
+
+A group registering an application through its own routes binds the issuer on
+its members' authority alone (`trust_root: "user"`). A later domain proof for
+that issuer takes it over, unless the application is its group's last owner.
+No application may claim this deployment's account issuers or an identity
+provider's issuer.
 
 ## Device keys
 

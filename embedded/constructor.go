@@ -234,8 +234,8 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 
 // New builds the engine from host configuration and runtime dependencies.
 // With neither Deps.Redis nor Deps.EphemeralStore
-// the ephemeral store is the per-process memory store, which needs the
-// explicit Config.Ephemeral.AllowMemory opt-in (#305). If Keys.Source is nil,
+// the ephemeral store is the per-process memory store (single replica only).
+// If Keys.Source is nil,
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
 func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
@@ -347,10 +347,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.checkEphemeralBackend(norm); err != nil {
-		svc.Close()
-		return nil, err
-	}
+	svc.logEphemeralBackend()
 	svc.ownedMemoryStore = ownedMemoryStore
 	svc.ownedKeySource = ownedKeySource
 	ownedMemoryStore, ownedKeySource = nil, nil // ownership transferred to svc

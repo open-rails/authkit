@@ -95,10 +95,11 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 	return true
 }
 
-// rateLimitedByIdentifier checks an additional per-identifier key for the given bucket.
-// It is designed to be called *after* the caller has already run s.rateLimited (IP check).
-// Checking a second key closes the distributed-brute-force gap where many IPs each get
-// their own per-IP budget against the same account or email address.
+// rateLimitedByIdentifier checks an additional per-identifier key for the given
+// bucket, on top of the route's per-IP check. Use it only where the secret space
+// is small (one-time codes) or to stop one address being flooded with messages;
+// never for passwords, where it would let strangers lock accounts out
+// (docs/security/rate-limits.md).
 //
 // identifier should be normalised (lowercased / trimmed) before being passed in.
 // An empty identifier is a no-op (returns false).
@@ -150,7 +151,21 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 		return RateLimitResult{Allowed: true}
 	}
 	s.undeclaredProxyTripwire(r, ip)
-	return s.allowResultForKey(bucket, bucket+":ip:"+ip)
+	return s.allowResultForKey(bucket, bucket+":ip:"+rateLimitAddress(ip))
+}
+
+// rateLimitAddress keys IPv6 clients by /64: one subscriber usually holds a
+// whole /64, so per-/128 buckets would hand them 2^64 budgets.
+func rateLimitAddress(ip string) string {
+	a, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return ip
+	}
+	a = a.Unmap()
+	if a.Is4() {
+		return a.String()
+	}
+	return netip.PrefixFrom(a.WithZone(""), 64).Masked().String()
 }
 
 // undeclaredProxyTripwire logs once per process when the rate-limit key is a

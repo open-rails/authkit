@@ -23,6 +23,12 @@ access token in `Authorization: Bearer <token>`, a `DPoP` proof header and
 The authorizer receives the verified user's ID and public key thumbprint.
 A key proves possession, never user identity or permission. Only the returned
 grant becomes signed authority; audience, TTL and document rules still apply.
+Delegated permissions are scope-free, so a grant may carry a permission in an
+AuthKit persona namespace (`root:…`, `org:…`) only when the user holds it at the
+root group; otherwise the mint answers `403 delegation_refused`. A checker
+built on this runtime (`Runtime.Client()` or the engine) re-checks those
+permissions on use, so the token loses them when the user does. Permissions in
+the host's own vocabulary remain the authorizer's decision.
 
 The response is `{token, expires_at, token_type: "DPoP"}`. The delegated token
 carries exactly `cnf: {"jkt": "<SHA-256 public JWK thumbprint>"}`. Certificate

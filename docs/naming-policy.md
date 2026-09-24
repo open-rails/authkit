@@ -66,7 +66,8 @@ aliases retain their original deadlines. Policy changes affect future aliases,
 not already-issued promises. Disabling renames does not disable forwarding.
 
 Deletion does not forward to a dead identity and does not prematurely free old
-rename reservations. Canonical-name deletion/release remains a separate explicit
+rename reservations. A purged user's username stays reserved permanently, like
+a deleted group's reserved slug, so nobody can re-register it. Canonical-name deletion/release remains a separate explicit
 lifecycle operation. API writes resolve aliases internally, preserving method and
 body; no redirect is required. Credentials and internal jobs remain UUID-bound.
 

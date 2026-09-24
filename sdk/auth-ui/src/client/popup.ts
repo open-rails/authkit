@@ -5,6 +5,7 @@ export type PopupMessage = Record<string, unknown> & {
 export type PopupWait =
   | { ok: true; message: PopupMessage }
   | { ok: false; reason: "blocked" | "closed" | "timeout" }
+  | { ok: false; reason: "start_failed"; error: unknown }
 
 type Options = {
   nonce: string
@@ -29,10 +30,18 @@ function centeredFeatures(width: number, height: number): string {
   return `popup=yes,width=${width},height=${height},left=${left},top=${top}`
 }
 
-// Opens url synchronously (call from a user gesture) and waits for AuthKit's
-// postMessage from that exact window carrying our nonce.
-export function waitForPopup(url: string, opts: Options): Promise<PopupWait> {
-  const popup = window.open(url, "authkit_oidc", centeredFeatures(520, 640))
+// Opens the window synchronously (call from a user gesture) and waits for
+// AuthKit's postMessage from that exact window carrying our nonce. A target
+// resolved asynchronously loads into the already-open window.
+export function waitForPopup(
+  target: string | (() => Promise<string>),
+  opts: Options
+): Promise<PopupWait> {
+  const popup = window.open(
+    typeof target === "string" ? target : "about:blank",
+    "authkit_oidc",
+    centeredFeatures(520, 640)
+  )
   if (!popup) return Promise.resolve({ ok: false, reason: "blocked" })
   return new Promise((resolve) => {
     const finish = (result: PopupWait) => {
@@ -65,5 +74,13 @@ export function waitForPopup(url: string, opts: Options): Promise<PopupWait> {
       if (popup.closed) finish({ ok: false, reason: "closed" })
     }, 500)
     window.addEventListener("message", onMessage)
+    if (typeof target !== "string") {
+      target().then(
+        (url) => {
+          if (!popup.closed) popup.location.href = url
+        },
+        (error: unknown) => finish({ ok: false, reason: "start_failed", error })
+      )
+    }
   })
 }

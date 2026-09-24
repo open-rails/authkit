@@ -210,15 +210,9 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 
 	result.handler = mux
 	if opts.RefreshCookie {
-		result.handler = withRefreshCookiePolicy(mux, refreshCookiePolicy{path: refreshCookiePath(apiPrefix)})
+		result.handler = withRefreshCookiePolicy(mux, refreshCookiePolicy{})
 	}
 	return result, nil
-}
-
-// refreshCookiePath anchors the refresh cookie at the mount's POST /token, the
-// only route that consumes it.
-func refreshCookiePath(apiPrefix string) string {
-	return strings.TrimSuffix(apiPrefix, "/") + "/token"
 }
 
 // normalizeAPIPrefix resolves the API anchor: "" means DefaultAPIPrefix, "/"

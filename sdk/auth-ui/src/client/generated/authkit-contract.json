@@ -1490,6 +1490,12 @@
       "auth": "public"
     },
     {
+      "method": "POST",
+      "path": "/oidc/{provider}/login",
+      "group": "browser_oidc",
+      "auth": "public"
+    },
+    {
       "method": "GET",
       "path": "/oidc/{provider}/step-up/callback",
       "group": "browser_oidc",

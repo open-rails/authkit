@@ -69,13 +69,14 @@ func (s appleSecret) validate() error {
 	return err
 }
 
-// Discord is Discord OAuth2. /users/@me reports whether Discord itself has
-// verified the address (`verified`), which is what EmailVerified carries.
+// Discord is Discord OAuth2 with PKCE. /users/@me reports whether Discord
+// itself has verified the address (`verified`), which is what EmailVerified
+// carries.
 func Discord(clientID, clientSecret string, opts ...Option) Provider {
 	return OAuth2("discord", "https://discord.com",
 		Endpoint{AuthorizeURL: "https://discord.com/api/oauth2/authorize", TokenURL: "https://discord.com/api/oauth2/token"},
 		clientID, clientSecret, discordUserInfo("https://discord.com/api/users/@me"),
-		append([]Option{WithDisplayName("Discord"), WithTrustedEmailVerification(true), WithScopes("identify", "email")}, opts...)...)
+		append([]Option{WithDisplayName("Discord"), WithTrustedEmailVerification(true), WithScopes("identify", "email"), WithPKCE(true)}, opts...)...)
 }
 
 func discordUserInfo(url string) UserInfoFunc {

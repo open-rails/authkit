@@ -21,7 +21,6 @@ func maintenanceConfig() Config {
 	return Config{
 		Keys:      KeysConfig{VerifyOnly: true},
 		Token:     TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
-		Ephemeral: EphemeralConfig{AllowMemory: true},
 		TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled},
 	}
 }
@@ -140,20 +139,6 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 		t.Fatal("AuthKit Close stopped the host client")
 	}
 	require.NoError(t, pg.Pool.Ping(t.Context()))
-}
-
-func TestRiverConstructionFailureDoesNotStartOrOwnHostPool(t *testing.T) {
-	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
-	cfg := maintenanceConfig()
-	cfg.Ephemeral.AllowMemory = false
-	core, err := newEngine(cfg, Deps{Postgres: pg.Pool})
-	require.Error(t, err)
-	require.Nil(t, core)
-	require.NoError(t, pg.Pool.Ping(t.Context()))
-	var count int
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM public.river_job").Scan(&count))
-	require.Zero(t, count)
 }
 
 func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {

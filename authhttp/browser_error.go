@@ -185,7 +185,7 @@ func truncateForLog(s string, max int) string {
 // Consuming here also burns the one-time state on the error path.
 func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p authprovider.Provider) *oidckit.StateData {
 	state := callbackParams(r).Get("state")
-	if strings.TrimSpace(state) == "" || !stateCookieMatches(r, state) {
+	if strings.TrimSpace(state) == "" || !s.stateCookieMatches(r, p, state) {
 		return nil
 	}
 	s.clearStateCookie(w, r, p, state)

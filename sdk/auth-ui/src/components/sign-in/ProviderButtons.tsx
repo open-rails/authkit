@@ -75,7 +75,7 @@ export function ProviderButtons({
       const out = await client.signInWithPopup(id, opts)
       if (out.ok) return onOutcome(out.outcome)
       if (out.reason === "blocked") {
-        window.location.assign(client.oidcLoginUrl(id, opts))
+        await client.signInWithRedirect(id, opts)
         return
       }
       if (out.reason === "closed") return
