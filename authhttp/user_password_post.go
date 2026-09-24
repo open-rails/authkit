@@ -29,6 +29,9 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	if body.CurrentPassword != "" && s.rateLimitedByIdentifier(w, r, RLPasswordStepUp, claims.UserID) {
 		return
 	}
+	if !s.requireLiveCredential(w, r, claims) {
+		return
+	}
 	if err := s.svc.ValidatePassword(body.NewPassword); err != nil {
 		writeError(w, err)
 		return

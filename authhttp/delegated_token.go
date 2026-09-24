@@ -60,6 +60,15 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, authkit.CodeUnauthorized)
 		return
 	}
+	// A delegated token outlives its parent, so the parent must still be a live
+	// account and, when session-bound, a live session (ak#392).
+	if live, _, err := s.verifier.IsLive(r.Context(), claims); err != nil || !live {
+		unauthorized(w, authkit.CodeUnauthorized)
+		return
+	}
+	if (claims.SessionID != "" || claims.DeviceKeyID != "") && !s.requireLiveCredential(w, r, claims) {
+		return
+	}
 	authorize := s.svc.DelegationAuthorizer()
 	if authorize == nil {
 		sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegationAuthorizerUnavailable)

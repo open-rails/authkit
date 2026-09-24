@@ -23,6 +23,7 @@ type HTTPBackend interface {
 	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
 	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject) error
 	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error)
+	UnbanUserAs(ctx context.Context, actorUserID, userID string) error
 	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error
 	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error)
 	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error)
@@ -50,6 +51,8 @@ type HTTPBackend interface {
 	DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error
 	DeletePendingRegistrationByEmail(ctx context.Context, email string) error
 	DeleteRemoteApplication(ctx context.Context, issuer string) error
+	DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, slug string) error
+	UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, in authkit.RemoteApplication) (*authkit.RemoteApplication, error)
 	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error)
 	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error)
 	EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error)

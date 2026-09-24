@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -206,7 +207,15 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.UnbanUser(r.Context(), userID); err != nil {
+	actor, ok := actorUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.UnbanUserAs(r.Context(), actor, userID); err != nil {
+		if errors.Is(err, authkit.ErrInsufficientRoleAuthority) || errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
+			writeError(w, err)
+			return
+		}
 		serverErr(w, authkit.CodeFailedToUnban, err)
 		return
 	}

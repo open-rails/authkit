@@ -39,6 +39,16 @@ bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
 if bad:
     raise SystemExit(f'Unqualified workflows: {bad}')
 required = {
+    'securitytest': ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport',
+                     'TestSecurityRefreshTokenTheft', 'TestSecurityRefreshGraceDoesNotFork',
+                     'TestSecuritySessionRevocationEvents', 'TestSecurityPasswordChangeEndsOtherSessions',
+                     'TestSecurityRevokedSessionCannotChangeCredentials', 'TestSecurityDelegationOutlivingRevocation',
+                     'TestSecuritySecondFactorLockout', 'TestSecuritySecondFactorGuessBudget',
+                     'TestSecurityUnbanRequiresAuthority', 'TestSecurityRemoteApplicationTakeover',
+                     'TestSecurityRoleEscalation', 'TestSecurityMultiReplicaStores',
+                     'TestSecurityClientAddressSpoofing', 'TestSecurityKeyRotationIsPublished',
+                     'TestSecurityRefreshCookieCSRF', 'TestSecurityRequestBoundary',
+                     'TestSecurityAccountEnumeration'),
     'authhttp': ('TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
                  'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
                  'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',

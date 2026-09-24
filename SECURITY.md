@@ -19,7 +19,7 @@ requests to `master`, and through `workflow_dispatch`. It has three jobs:
 
 | Job | Checks |
 |---|---|
-| `workflows` | Race-tested AuthKit and adapter workflows against PostgreSQL 18 and Redis, then the two-site Chrome cookie workflow. The event gate requires the retained workflows to pass with no skipped tests. |
+| `workflows` | Race-tested AuthKit and adapter workflows against PostgreSQL 18 and Redis, the adversarial `securitytest` suite ([threat map](docs/security-tests.md)), then the two-site Chrome cookie workflow. The event gate requires the retained workflows and every security test to pass with no skipped tests. |
 | `contracts` | Go vet, SQLC generation/vet and generated-code drift, published migration/route/wire/API contracts, and module-isolated adapter checks. Fiber additionally runs its race suite and vet against the published root dependency. |
 | `Required Security` | Pinned govulncheck for reachable dependency vulnerabilities, plus a Trivy filesystem scan for fixable HIGH/CRITICAL dependency, secret and configuration findings. |
 

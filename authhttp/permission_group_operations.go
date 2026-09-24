@@ -399,9 +399,9 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	gid, err := s.svc.ResolveGroupIDForSlug(r.Context(), group)
-	if err != nil {
-		s.writeGroupOpError(w, err)
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	if !ok {
+		forbidden(w, authkit.CodeForbidden)
 		return
 	}
 	// Default to enabled when the field is omitted; preserve an explicit
@@ -411,14 +411,13 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	ra, err := s.svc.UpsertRemoteApplication(r.Context(), authkit.RemoteApplication{
-		Slug:              strings.TrimSpace(body.Slug),
-		PermissionGroupID: gid,
-		Issuer:            strings.TrimSpace(body.Issuer),
-		JWKSURI:           strings.TrimSpace(body.JWKSURI),
-		Mode:              strings.TrimSpace(body.Mode),
-		PublicKeys:        body.PublicKeys,
-		Enabled:           enabled,
+	ra, err := s.svc.UpsertRemoteApplicationFromClaims(r.Context(), claims, group, authkit.RemoteApplication{
+		Slug:       strings.TrimSpace(body.Slug),
+		Issuer:     strings.TrimSpace(body.Issuer),
+		JWKSURI:    strings.TrimSpace(body.JWKSURI),
+		Mode:       strings.TrimSpace(body.Mode),
+		PublicKeys: body.PublicKeys,
+		Enabled:    enabled,
 	})
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -455,22 +454,12 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 		badRequest(w, authkit.CodeInvalidRequest)
 		return
 	}
-	gid, err := s.svc.ResolveGroupIDForSlug(r.Context(), group)
-	if err != nil {
-		s.writeGroupOpError(w, err)
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	if !ok {
+		forbidden(w, authkit.CodeForbidden)
 		return
 	}
-	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
-	if err != nil {
-		s.writeGroupOpError(w, err)
-		return
-	}
-	// Scope check: the issuer must belong to the addressed group.
-	if ra.PermissionGroupID != gid {
-		notFound(w, authkit.CodeNotFound)
-		return
-	}
-	if err := s.svc.DeleteRemoteApplication(r.Context(), ra.Issuer); err != nil {
+	if err := s.svc.DeleteRemoteApplicationFromClaims(r.Context(), claims, group, slug); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
