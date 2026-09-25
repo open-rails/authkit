@@ -139,6 +139,7 @@ export type AuthErrorCode =
   | "invalid_token"
   | "invalid_ui"
   | "invalid_until"
+  | "issuer_keys_unavailable"
   | "liveness_unavailable"
   | "malformed_document_jws"
   | "malformed_payload"
@@ -199,6 +200,7 @@ export type AuthErrorCode =
   | "provider_error"
   | "provider_link_failed"
   | "provider_not_linked"
+  | "provider_unavailable"
   | "rate_limited"
   | "regenerate_codes_failed"
   | "registration_disabled"
@@ -335,12 +337,12 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "email_delivery_failed": 502,
   "email_in_use": 400,
   "email_password_reset_unavailable": 503,
-  "email_registration_unavailable": 500,
+  "email_registration_unavailable": 503,
   "email_sender_unavailable": 503,
   "email_unavailable": 503,
   "email_unchanged": 400,
   "email_verification_failed": 500,
-  "email_verification_unavailable": 500,
+  "email_verification_unavailable": 503,
   "enable_2fa_failed": 500,
   "entitlement_filter_unavailable": 400,
   "external_invites_disabled": 403,
@@ -403,6 +405,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invalid_token": 401,
   "invalid_ui": 400,
   "invalid_until": 400,
+  "issuer_keys_unavailable": 503,
   "liveness_unavailable": 401,
   "malformed_document_jws": 400,
   "malformed_payload": 401,
@@ -446,16 +449,16 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "pending_registration_not_found": 404,
   "permission_group_not_found": 404,
   "permission_not_granted": 403,
-  "phone_2fa_unavailable": 500,
+  "phone_2fa_unavailable": 503,
   "phone_already_verified": 409,
   "phone_and_code_required": 400,
   "phone_in_use": 400,
   "phone_number_must_be_e164": 400,
-  "phone_registration_unavailable": 500,
+  "phone_registration_unavailable": 503,
   "phone_unavailable": 503,
   "phone_unchanged": 400,
   "phone_verification_failed": 500,
-  "phone_verification_unavailable": 500,
+  "phone_verification_unavailable": 503,
   "pkce_generation_failed": 500,
   "preferred_language_lookup_failed": 500,
   "provider_already_linked": 409,
@@ -463,6 +466,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "provider_error": 400,
   "provider_link_failed": 500,
   "provider_not_linked": 400,
+  "provider_unavailable": 503,
   "rate_limited": 429,
   "regenerate_codes_failed": 500,
   "registration_disabled": 403,

@@ -91,9 +91,9 @@ func (s *engine) HasEmailSender() bool { return s.email != nil }
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *engine) HasSMSSender() bool { return s.sms != nil }
 
-// smsHealth is the SMS deliverability verdict CheckSMSHealth records. Until a
-// check has run, SMS counts as available whenever a sender is configured; once
-// one has, phone flows gate on the result.
+// smsHealth is the latest SMS deliverability verdict. It is optimistic: SMS
+// counts as available until a check has failed, so startup never waits on the
+// SMS provider, and every later check overwrites the verdict.
 type smsHealth struct {
 	checked atomic.Bool
 	healthy atomic.Bool
@@ -106,12 +106,13 @@ func (h *smsHealth) record(err error) {
 
 func (h *smsHealth) available() bool { return !h.checked.Load() || h.healthy.Load() }
 
-// CheckSMSHealth probes whether the configured SMS sender can actually deliver,
-// without sending a message, when the sender implements SMSHealthChecker. The
-// verdict gates phone-based flows via SMSAvailable. It returns the probe error
-// (nil = healthy) so callers can log it. When no sender is configured or the
-// sender cannot self-check, it records healthy (delivery readiness is then
-// governed solely by sender presence, as before).
+// CheckSMSHealth probes, without sending a message, whether the configured SMS
+// sender can deliver (when it implements SMSHealthChecker) and records the
+// verdict that gates phone flows via SMSAvailable. Every call re-records, so
+// hosts register it as an optional dependency probe rather than calling it
+// once at boot: a failure disables phone flows (503) and the next passing
+// probe re-arms them. Without a sender, or one that cannot self-check, it
+// records healthy.
 func (s *engine) CheckSMSHealth(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -126,11 +127,11 @@ func (s *engine) CheckSMSHealth(ctx context.Context) error {
 	return err
 }
 
-// SMSHealthy reports the last CheckSMSHealth verdict; true until a check has run.
+// SMSHealthy reports the latest CheckSMSHealth verdict; true until a check fails.
 func (s *engine) SMSHealthy() bool { return s != nil && s.smsHealth.available() }
 
 // SMSAvailable reports whether phone-based flows should be offered: a sender is
-// configured and (if a health check has run) it was found able to deliver.
+// configured and the latest health check (if any) passed.
 func (s *engine) SMSAvailable() bool {
 	return s.HasSMSSender() && s.SMSHealthy()
 }

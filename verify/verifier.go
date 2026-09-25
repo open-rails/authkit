@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"crypto"
 	"encoding/json"
@@ -8,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +111,14 @@ type Verifier struct {
 	kidRefetchFlight map[string]chan struct{}
 	kidRefetchMin    time.Duration
 
+	// JWKS refresh timing: each fetch attempt is bounded by jwksAttemptTimeout;
+	// a failing issuer is retried in the background with full-jitter backoff.
+	jwksAttemptTimeout time.Duration
+	jwksBackoffBase    time.Duration
+	jwksBackoffMax     time.Duration
+	// now is the key-cache clock (TTL, MaxStale); tests may replace it.
+	now func() time.Time
+
 	// permValidator (optional) checks a delegated access token's `permissions`
 	// against the resource server's catalog on every typed verification path.
 	permValidator PermissionValidator
@@ -132,17 +143,26 @@ type issuerEntry struct {
 	application *authkit.RemoteApplication
 }
 
+// issuerKeys is one issuer's key cache. Everything but pubByKID is meaningful
+// only for JWKS issuers: keys past expiresAt keep being served while a single
+// background loop (refreshing) refetches them (stale-while-revalidate), until
+// maxStale after fetchedAt, the last successful fetch.
 type issuerKeys struct {
-	jwksURL  string
-	pubByKID map[string]crypto.PublicKey
-	// expiresAt/staleUntil are meaningful ONLY for issuers with a non-empty
-	// jwksURL (there is something to legitimately refetch from). For a
-	// permanent issuer (jwksURL == "": keys came from Keys/RawKeys/IsLocal
-	// with no JWKS URI, #239) these stay zero and are never consulted —
-	// publicKeyFor treats the absence of a jwksURL as "never fetch, never
-	// expire" regardless of their value.
-	expiresAt  time.Time
-	staleUntil time.Time
+	jwksURL   string
+	pubByKID  map[string]crypto.PublicKey
+	expiresAt time.Time
+	fetchedAt time.Time
+	maxStale  time.Duration
+
+	// fetchSeq numbers fetches as they start; appliedSeq is the newest whose
+	// result was recorded, so a slower older fetch never overwrites it.
+	fetchSeq, appliedSeq uint64
+
+	refreshing bool
+	attempted  chan struct{} // closed after the running loop's first attempt
+	checkedAt  time.Time
+	lastErr    error
+	failures   int
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +406,11 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		kidRefetchAt:     map[string]time.Time{},
 		kidRefetchFlight: map[string]chan struct{}{},
 		kidRefetchMin:    30 * time.Second,
+
+		jwksAttemptTimeout: 3 * time.Second,
+		jwksBackoffBase:    500 * time.Millisecond,
+		jwksBackoffMax:     30 * time.Second,
+		now:                time.Now,
 	}
 	for _, o := range opts {
 		o(v)
@@ -408,7 +433,8 @@ type IssuerKey struct {
 // Keys/RawKeys may seed a JWKS cache for its configured CacheTTL.
 type IssuerOptions struct {
 	// JWKSURI is the URL to fetch JWKS from. If set, keys are fetched
-	// automatically and refreshed when they expire or an unknown kid appears.
+	// automatically and refreshed in the background when they expire or an
+	// unknown kid appears. Expired keys keep verifying until a refresh succeeds.
 	JWKSURI string
 
 	// Keys are pre-provided public keys as PEM. The caller is responsible for
@@ -426,8 +452,11 @@ type IssuerOptions struct {
 	// Default: 10 minutes.
 	CacheTTL time.Duration
 
-	// MaxStale controls how long stale keys may be used as fallback after
-	// a failed JWKS refresh. Default: 1 hour.
+	// MaxStale bounds how long after the last successful JWKS fetch cached keys
+	// keep verifying while refreshes fail (anything but a JSON JWKS), so a
+	// peer's key revocation cannot be suppressed by blocking our fetch. Past it
+	// the issuer's tokens fail with 503 issuer_keys_unavailable. Default: 4
+	// hours; never less than CacheTTL.
 	MaxStale time.Duration
 
 	// IsLocal marks this issuer as the host application's own (first-party) token
@@ -482,11 +511,10 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	// Validate first, then replace metadata and keys together. Failure preserves
 	// the complete previous registration; success never retains replaced keys.
 	v.issuers[issuerID] = ie
-	entry := &issuerKeys{jwksURL: ie.jwksURL, pubByKID: pubByKID}
+	entry := &issuerKeys{jwksURL: ie.jwksURL, pubByKID: pubByKID, maxStale: issuerMaxStale(ie)}
 	if ie.jwksURL != "" && len(pubByKID) > 0 {
-		ttl, stale := issuerCacheDurations(ie)
-		entry.expiresAt = time.Now().Add(ttl)
-		entry.staleUntil = entry.expiresAt.Add(stale)
+		entry.fetchedAt = v.now()
+		entry.expiresAt = entry.fetchedAt.Add(issuerCacheTTL(ie))
 	}
 	v.byIss[issuerID] = entry
 	return nil
@@ -1086,42 +1114,51 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
+		if unavailable := authkit.AsError(err); unavailable != nil && unavailable.Code == authkit.CodeIssuerKeysUnavailable {
+			// An expired or foreign-audience token is rejected as such, not 503.
+			if cerr := v.checkClaims(mapClaims, match); cerr != nil {
+				return nil, "", nil, cerr
+			}
+			return nil, "", nil, unavailable
+		}
 		if err != nil || tok == nil || !tok.Valid {
 			return nil, "", nil, authkit.E(authkit.CodeInvalidToken)
 		}
 	}
 
-	if match == nil {
-		return nil, "", nil, authkit.E(authkit.CodeBadIssuer)
-	}
-
-	if !audContainsAny(mapClaims["aud"], match.audiences) {
-		return nil, "", nil, authkit.E(authkit.CodeBadAudience)
-	}
-
-	skew := v.skew
-	now := time.Now()
-	expUnix, ok := toUnix(mapClaims["exp"])
-	if !ok {
-		return nil, "", nil, authkit.E(authkit.CodeMissingExp)
-	}
-	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return nil, "", nil, authkit.E(authkit.CodeAccessTokenExpired)
-	}
-	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
-		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-			return nil, "", nil, authkit.E(authkit.CodeTokenNotYetValid)
-		}
-	}
-	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
-		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
-			return nil, "", nil, authkit.E(authkit.CodeTokenNotYetValid)
-		}
+	if err := v.checkClaims(mapClaims, match); err != nil {
+		return nil, "", nil, err
 	}
 
 	// typ off the ALREADY-VERIFIED token header — no second ParseUnverified.
 	typ, _ := tok.Header["typ"].(string)
 	return mapClaims, typ, match, nil
+}
+
+// checkClaims enforces issuer match, audience and exp/nbf/iat with skew.
+func (v *Verifier) checkClaims(mapClaims jwt.MapClaims, match *issuerEntry) error {
+	if match == nil {
+		return authkit.E(authkit.CodeBadIssuer)
+	}
+	if !audContainsAny(mapClaims["aud"], match.audiences) {
+		return authkit.E(authkit.CodeBadAudience)
+	}
+	skew := v.skew
+	now := time.Now()
+	expUnix, ok := toUnix(mapClaims["exp"])
+	if !ok {
+		return authkit.E(authkit.CodeMissingExp)
+	}
+	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
+		return authkit.E(authkit.CodeAccessTokenExpired)
+	}
+	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok && time.Unix(nbfUnix, 0).After(now.Add(skew)) {
+		return authkit.E(authkit.CodeTokenNotYetValid)
+	}
+	if iatUnix, ok := toUnix(mapClaims["iat"]); ok && time.Unix(iatUnix, 0).After(now.Add(skew)) {
+		return authkit.E(authkit.CodeTokenNotYetValid)
+	}
+	return nil
 }
 
 // extractClaims converts jwt.MapClaims into typed Claims.
@@ -1363,47 +1400,124 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 	}
 
 	// Snapshot keys never expire or fetch; only configured JWKS URLs do.
-	permanent := ie.jwksURL == ""
-	cacheTTL, maxStale := issuerCacheDurations(ie)
+	if ie.jwksURL == "" {
+		v.mu.RLock()
+		var keys map[string]crypto.PublicKey
+		if c := v.byIss[iss]; c != nil {
+			keys = c.pubByKID
+		}
+		v.mu.RUnlock()
+		return selectPublicKey(keys, kid)
+	}
+
+	// Stale-while-revalidate: cached keys are served past their TTL, up to
+	// MaxStale after the last successful fetch, while one background loop per
+	// issuer refetches them. A request waits only when the issuer has no usable
+	// keys, and then for at most one bounded attempt.
 	v.mu.Lock()
 	c := v.byIss[iss]
 	if c == nil || c.jwksURL != ie.jwksURL {
-		c = &issuerKeys{jwksURL: ie.jwksURL}
+		c = &issuerKeys{jwksURL: ie.jwksURL, maxStale: issuerMaxStale(ie)}
 		v.byIss[iss] = c
 	}
-	now := time.Now()
-	shouldFetch := !permanent && (len(c.pubByKID) == 0 || now.After(c.expiresAt))
-	canUseCache := len(c.pubByKID) > 0 && (permanent || now.Before(c.staleUntil))
-	v.mu.Unlock()
-	if shouldFetch {
-		if err := v.refreshIssuerKeys(ctx, iss, ie, cacheTTL, maxStale); err != nil && !canUseCache {
-			return nil, err
-		}
+	now := v.now()
+	keys := c.usableKeysLocked(now)
+	if len(keys) == 0 || now.After(c.expiresAt) {
+		v.startRefreshLocked(iss, c, ie)
 	}
-	v.mu.RLock()
-	key, err := selectPublicKey(c.pubByKID, kid)
-	v.mu.RUnlock()
-	if err == nil || permanent || kid == "" {
+	attempted, lastErr := c.attempted, c.lastErr
+	v.mu.Unlock()
+	if len(keys) == 0 {
+		select {
+		case <-attempted:
+		case <-ctx.Done():
+		}
+		v.mu.RLock()
+		keys, lastErr = c.usableKeysLocked(v.now()), c.lastErr
+		v.mu.RUnlock()
+		if len(keys) == 0 {
+			if lastErr == nil {
+				lastErr = cmp.Or(ctx.Err(), errKeysPastMaxStale)
+			}
+			return nil, issuerKeysUnavailable(lastErr)
+		}
+		return selectPublicKey(keys, kid)
+	}
+	key, err := selectPublicKey(keys, kid)
+	if err == nil || kid == "" {
 		return key, err
 	}
-	// A new KID can arrive during the fresh-cache window. Refresh once through
-	// the shared throttle, then retry the same key-selection rule.
-	if v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
+	// A new kid can arrive during the fresh-cache window (key rotation). While
+	// the issuer is failing, the background loop owns refetching.
+	if lastErr != nil {
+		return nil, issuerKeysUnavailable(lastErr)
+	}
+	if v.refetchForUnknownKID(ctx, iss, c, ie) {
 		v.mu.RLock()
-		key, err = selectPublicKey(c.pubByKID, kid)
+		keys = c.usableKeysLocked(v.now())
 		v.mu.RUnlock()
+		key, err = selectPublicKey(keys, kid)
 	}
 	return key, err
 }
 
-// refetchForUnknownKID forces a single bounded JWKS refetch for a known issuer
-// when an unknown kid arrives mid-TTL (key rotation). A min-interval guard plus
-// single-flight ensure a storm of bad kids cannot hammer the JWKS endpoint:
-// concurrent callers coalesce onto one fetch, and a fetch is skipped if one ran
-// within kidRefetchMin. Returns true if a refetch ran (or just completed).
-func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) bool {
+var errKeysPastMaxStale = errors.New("cached keys exceed max stale")
+
+// usableKeysLocked returns the cached keys unless they are older than maxStale.
+func (c *issuerKeys) usableKeysLocked(now time.Time) map[string]crypto.PublicKey {
+	if c.pastMaxStale(now) {
+		return nil
+	}
+	return c.pubByKID
+}
+
+func (c *issuerKeys) pastMaxStale(now time.Time) bool {
+	return len(c.pubByKID) > 0 && now.Sub(c.fetchedAt) > c.maxStale
+}
+
+func issuerKeysUnavailable(cause error) error {
+	return authkit.E(authkit.CodeIssuerKeysUnavailable, authkit.WithCause(cause))
+}
+
+// startRefreshLocked starts the issuer's background refresh loop unless one is
+// running. Caller holds v.mu.
+func (v *Verifier) startRefreshLocked(iss string, c *issuerKeys, ie issuerEntry) {
+	if c.refreshing {
+		return
+	}
+	c.refreshing, c.attempted = true, make(chan struct{})
+	go v.refreshLoop(iss, c, ie, c.attempted)
+}
+
+// refreshLoop refetches until one attempt succeeds or the issuer's cache entry
+// is replaced or removed, sleeping with capped full-jitter backoff between
+// failures.
+func (v *Verifier) refreshLoop(iss string, c *issuerKeys, ie issuerEntry, attempted chan struct{}) {
+	for attempt := 0; ; attempt++ {
+		err := v.refreshIssuerKeys(context.Background(), iss, c, ie)
+		if attempt == 0 {
+			close(attempted)
+		}
+		v.mu.Lock()
+		done := err == nil || v.byIss[iss] != c
+		if done {
+			c.refreshing = false
+		}
+		v.mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(netguard.Backoff(attempt, v.jwksBackoffBase, v.jwksBackoffMax))
+	}
+}
+
+// refetchForUnknownKID runs one synchronous JWKS refetch for a known, healthy
+// issuer when an unknown kid arrives (key rotation). A min-interval guard plus
+// single-flight ensure a storm of bad kids cannot hammer the JWKS endpoint.
+// A failed refetch hands the issuer to the background loop. Returns true if a
+// refetch ran (or just completed).
+func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, c *issuerKeys, ie issuerEntry) bool {
 	v.mu.Lock()
-	// Coalesce concurrent unknown-kid storms onto a single in-flight refetch.
 	if done, inflight := v.kidRefetchFlight[issuer]; inflight {
 		v.mu.Unlock()
 		select {
@@ -1413,7 +1527,6 @@ func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie i
 			return false
 		}
 	}
-	// Min-interval guard: don't refetch more than once per kidRefetchMin.
 	if last, ok := v.kidRefetchAt[issuer]; ok && time.Since(last) < v.kidRefetchMin {
 		v.mu.Unlock()
 		return false
@@ -1422,33 +1535,24 @@ func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie i
 	v.kidRefetchFlight[issuer] = done
 	v.mu.Unlock()
 
-	defer func() {
-		v.mu.Lock()
-		v.kidRefetchAt[issuer] = time.Now()
-		delete(v.kidRefetchFlight, issuer)
-		close(done)
-		v.mu.Unlock()
-	}()
+	err := v.refreshIssuerKeys(context.WithoutCancel(ctx), issuer, c, ie)
 
-	_ = v.refreshIssuerKeys(ctx, issuer, ie, cacheTTL, maxStale)
+	v.mu.Lock()
+	v.kidRefetchAt[issuer] = time.Now()
+	delete(v.kidRefetchFlight, issuer)
+	close(done)
+	if err != nil && v.byIss[issuer] == c {
+		v.startRefreshLocked(issuer, c, ie)
+	}
+	v.mu.Unlock()
 	return true
 }
-
-// JWKS fetch resilience knobs: a momentarily-unreachable JWKS endpoint (a peer
-// still starting, a transient network blip / 5xx) should not fail token
-// verification on the first try. refreshIssuerKeys retries this many times with
-// exponential backoff starting at jwksRefreshBackoff.
-const (
-	jwksRefreshAttempts = 3
-	jwksRefreshBackoff  = 250 * time.Millisecond
-)
 
 // forceRefreshForToken parses the token's `iss` WITHOUT verifying it, and if it
 // names a KNOWN issuer, force-refreshes that issuer's JWKS inline (bypassing the
 // TTL/known-kid guards). Returns true when a refresh ran, so VerifyClaims can
-// retry the signature check once. This is the "on a verify reject, refetch keys
-// inline and retry" resilience path — it recovers from a stale/rotated signing
-// key or a JWKS that wasn't reachable on first use.
+// retry the signature check once. This recovers from a rotated signing key
+// that kept its kid.
 func (v *Verifier) forceRefreshForToken(ctx context.Context, tokenStr string) bool {
 	mc := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, mc); err != nil {
@@ -1461,98 +1565,178 @@ func (v *Verifier) forceRefreshForToken(ctx context.Context, tokenStr string) bo
 	return v.forceRefreshIssuer(ctx, iss)
 }
 
+// forceRefreshIssuer goes through the throttled, single-flighted unknown-kid
+// path so a storm of bad signatures cannot hammer the JWKS endpoint. Permanent
+// issuers (no JWKS URI, #239) and failing issuers are left alone.
 func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
 	ie, err := v.resolveIssuer(ctx, iss)
-	if err != nil {
+	if err != nil || strings.TrimSpace(ie.jwksURL) == "" {
 		return false
 	}
-	entry := *ie // copy out from under the verifier lock before fetching
-	if strings.TrimSpace(entry.jwksURL) == "" {
-		// Permanent issuer (#239): no JWKS URI means nothing to refetch from —
-		// a verify failure here is a real signature/key mismatch, not staleness.
+	entry := *ie
+	v.mu.RLock()
+	c := v.byIss[iss]
+	healthy := c != nil && c.jwksURL == entry.jwksURL && c.lastErr == nil
+	v.mu.RUnlock()
+	if !healthy {
 		return false
 	}
-	cacheTTL, maxStale := issuerCacheDurations(entry)
-	// Route through the throttled, single-flighted unknown-kid refetch path rather
-	// than calling refreshIssuerKeys directly. Otherwise a storm of bad tokens
-	// hammers the JWKS endpoint: each verify failure would force its own fetch with
-	// no min-interval or coalescing. refetchForUnknownKID caps this at one fetch
-	// per issuer per kidRefetchMin and coalesces concurrent callers onto it.
-	return v.refetchForUnknownKID(ctx, iss, entry, cacheTTL, maxStale)
+	return v.refetchForUnknownKID(ctx, iss, c, entry)
 }
 
-func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {
-	jwksURL := strings.TrimSpace(ie.jwksURL)
-	if jwksURL == "" {
-		// Callers (publicKeyFor, refetchForUnknownKID, forceRefreshForToken) only
-		// reach here for issuers registered WITH a JWKS URI: a permanent,
-		// pre-provided-key issuer (RawKeys/Keys/IsLocal, no URI) is filtered out
-		// before ever calling this. Fail loud instead of guessing a well-known
-		// URL from the issuer string (#239 — that guess was the bug).
-		return fmt.Errorf("authkit: no JWKS URI configured for issuer %q; cannot refetch", issuer)
-	}
+// refreshIssuerKeys runs one bounded JWKS fetch and records its outcome on c.
+// A transient failure keeps the cached keys (bounded by MaxStale); a JSON JWKS
+// replaces them, and one with no usable keys drops them (fail closed).
+func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, c *issuerKeys, ie issuerEntry) error {
+	v.mu.Lock()
+	c.fetchSeq++
+	seq := c.fetchSeq
+	v.mu.Unlock()
 
-	// One fetch+parse attempt. A nil error means the JWKS was fetched and parsed.
-	attempt := func() (map[string]crypto.PublicKey, error) {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
-		resp, err := v.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("jwks_http_%d", resp.StatusCode)
-		}
-		// Limit response body to 1MB to prevent OOM from malicious JWKS endpoints.
-		limited := io.LimitReader(resp.Body, 1<<20)
-		var ks jwtkit.JWKS
-		if derr := json.NewDecoder(limited).Decode(&ks); derr != nil {
-			return nil, derr
-		}
-		return jwtkit.JWKSToPublicKeys(ks)
-	}
-
-	// Resilience: a JWKS endpoint can be momentarily unreachable (peer still
-	// starting, transient network/5xx). Retry a few times with bounded backoff
-	// before giving up, rather than failing the whole token verification on a
-	// single blip. Aborts early if the request context is cancelled.
-	var (
-		pubByKID map[string]crypto.PublicKey
-		err      error
-	)
-	backoff := jwksRefreshBackoff
-	for i := 0; i < jwksRefreshAttempts; i++ {
-		pubByKID, err = attempt()
-		if err == nil {
-			break
-		}
-		if i == jwksRefreshAttempts-1 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-	}
-	if err != nil {
-		return err
-	}
+	ctx, cancel := context.WithTimeout(ctx, v.jwksAttemptTimeout)
+	defer cancel()
+	keys, authoritative, err := v.fetchJWKS(ctx, ie.jwksURL)
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	c := v.byIss[issuer]
-	if c == nil || c.jwksURL != ie.jwksURL {
+	if v.byIss[issuer] != c {
 		// A concurrent replacement owns the cache now. Never publish an old
 		// endpoint's response into that registration.
 		return errors.New("issuer keys changed during refresh")
 	}
-	now := time.Now()
-	c.pubByKID = pubByKID
-	c.expiresAt = now.Add(cacheTTL)
-	c.staleUntil = now.Add(cacheTTL + maxStale)
-	return nil
+	if seq < c.appliedSeq {
+		return c.lastErr // a newer fetch already recorded its result
+	}
+	c.appliedSeq = seq
+	c.checkedAt, c.lastErr = v.now(), err
+	switch {
+	case err == nil:
+		c.pubByKID, c.fetchedAt, c.expiresAt, c.failures = keys, c.checkedAt, c.checkedAt.Add(issuerCacheTTL(ie)), 0
+	case authoritative:
+		c.pubByKID = nil
+		c.failures++
+	default:
+		c.failures++
+	}
+	return err
+}
+
+// fetchJWKS fetches and parses a JWKS. authoritative reports whether the answer
+// states the issuer's current key set: only a 200 whose body is a JSON object
+// with a "keys" array does. Transport errors, non-200 statuses and any other
+// body (non-JSON, an error object, "keys" not an array) are transient.
+// Individual malformed, weak or unsupported keys are skipped; an authoritative
+// answer without usable keys is an error that drops the cache.
+func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]crypto.PublicKey, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	resp, err := v.httpClient.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("jwks_http_%d", resp.StatusCode)
+	}
+	var doc struct {
+		Keys json.RawMessage `json:"keys"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
+		return nil, false, fmt.Errorf("jwks: %w", err)
+	}
+	var entries []json.RawMessage
+	if !bytes.HasPrefix(bytes.TrimSpace(doc.Keys), []byte("[")) || json.Unmarshal(doc.Keys, &entries) != nil {
+		return nil, false, errors.New("jwks: response has no keys array")
+	}
+	keys := map[string]crypto.PublicKey{}
+	for _, raw := range entries {
+		var j jwtkit.JWK
+		if json.Unmarshal(raw, &j) != nil {
+			continue
+		}
+		pub, err := jwtkit.JWKToPublicKey(j)
+		if err != nil {
+			continue
+		}
+		kid := strings.TrimSpace(j.Kid)
+		if kid == "" {
+			kid = "default"
+		}
+		keys[kid] = pub
+	}
+	if len(keys) == 0 {
+		return nil, true, errors.New("jwks has no usable keys")
+	}
+	return keys, true, nil
+}
+
+// IssuerKeyStatus is one JWKS-backed issuer's key-refresh state. Age is the
+// time since the last successful fetch (export Age.Seconds() as a gauge);
+// past MaxStale the issuer's tokens fail with 503 (Expired).
+type IssuerKeyStatus struct {
+	Issuer    string
+	JWKSURI   string
+	Keys      int
+	Fresh     bool      // keys are within CacheTTL
+	FetchedAt time.Time // last successful fetch; zero before the first
+	Age       time.Duration
+	MaxStale  time.Duration
+	Expired   bool      // Age exceeds MaxStale: verification fails closed
+	CheckedAt time.Time // last fetch attempt; zero before the first
+	Failures  int       // consecutive failed fetches
+	LastError string
+}
+
+// IssuerKeyStatuses reports every JWKS-backed issuer, sorted by issuer.
+func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	now := v.now()
+	var out []IssuerKeyStatus
+	for iss, c := range v.byIss {
+		if c.jwksURL == "" {
+			continue
+		}
+		st := IssuerKeyStatus{Issuer: iss, JWKSURI: c.jwksURL, Keys: len(c.pubByKID),
+			Fresh: len(c.pubByKID) > 0 && now.Before(c.expiresAt), FetchedAt: c.fetchedAt,
+			MaxStale: c.maxStale, Expired: c.pastMaxStale(now), CheckedAt: c.checkedAt, Failures: c.failures}
+		if !c.fetchedAt.IsZero() {
+			st.Age = now.Sub(c.fetchedAt)
+		}
+		if c.lastErr != nil {
+			st.LastError = c.lastErr.Error()
+		}
+		out = append(out, st)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Issuer < out[j].Issuer })
+	return out
+}
+
+// CheckIssuerKeys is a no-I/O health probe for a host dependency supervisor:
+// it fails naming every JWKS issuer whose last key fetch failed, with the age
+// of its cached keys and whether they exceed MaxStale (tokens then fail
+// closed). Other issuers are unaffected.
+func (v *Verifier) CheckIssuerKeys(context.Context) error {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	now := v.now()
+	var errs []error
+	for iss, c := range v.byIss {
+		switch {
+		case c.jwksURL == "" || c.lastErr == nil:
+		case c.pastMaxStale(now):
+			errs = append(errs, fmt.Errorf("issuer %s keys expired (age %s > max stale %s), verification failing closed: %w",
+				iss, now.Sub(c.fetchedAt).Round(time.Second), c.maxStale, c.lastErr))
+		case len(c.pubByKID) > 0:
+			errs = append(errs, fmt.Errorf("issuer %s keys stale (age %s, max stale %s): %w",
+				iss, now.Sub(c.fetchedAt).Round(time.Second), c.maxStale, c.lastErr))
+		default:
+			errs = append(errs, fmt.Errorf("issuer %s has no keys: %w", iss, c.lastErr))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // ---------------------------------------------------------------------------
@@ -1592,15 +1776,15 @@ func audContainsAny(aud any, want []string) bool {
 // Key parsing helpers
 // ---------------------------------------------------------------------------
 
-func issuerCacheDurations(ie issuerEntry) (time.Duration, time.Duration) {
-	ttl, stale := ie.cacheTTL, ie.maxStale
-	if ttl == 0 {
-		ttl = 10 * time.Minute
+func issuerMaxStale(ie issuerEntry) time.Duration {
+	return max(cmp.Or(ie.maxStale, 4*time.Hour), issuerCacheTTL(ie))
+}
+
+func issuerCacheTTL(ie issuerEntry) time.Duration {
+	if ie.cacheTTL > 0 {
+		return ie.cacheTTL
 	}
-	if stale == 0 {
-		stale = time.Hour
-	}
-	return ttl, stale
+	return 10 * time.Minute
 }
 
 func selectPublicKey(keys map[string]crypto.PublicKey, kid string) (crypto.PublicKey, error) {

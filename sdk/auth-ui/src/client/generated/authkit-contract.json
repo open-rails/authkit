@@ -282,7 +282,7 @@
     },
     {
       "code": "email_registration_unavailable",
-      "status": 500
+      "status": 503
     },
     {
       "code": "email_sender_unavailable",
@@ -302,7 +302,7 @@
     },
     {
       "code": "email_verification_unavailable",
-      "status": 500
+      "status": 503
     },
     {
       "code": "enable_2fa_failed",
@@ -553,6 +553,10 @@
       "status": 400
     },
     {
+      "code": "issuer_keys_unavailable",
+      "status": 503
+    },
+    {
       "code": "liveness_unavailable",
       "status": 401
     },
@@ -726,7 +730,7 @@
     },
     {
       "code": "phone_2fa_unavailable",
-      "status": 500
+      "status": 503
     },
     {
       "code": "phone_already_verified",
@@ -746,7 +750,7 @@
     },
     {
       "code": "phone_registration_unavailable",
-      "status": 500
+      "status": 503
     },
     {
       "code": "phone_unavailable",
@@ -762,7 +766,7 @@
     },
     {
       "code": "phone_verification_unavailable",
-      "status": 500
+      "status": 503
     },
     {
       "code": "pkce_generation_failed",
@@ -791,6 +795,10 @@
     {
       "code": "provider_not_linked",
       "status": 400
+    },
+    {
+      "code": "provider_unavailable",
+      "status": 503
     },
     {
       "code": "rate_limited",

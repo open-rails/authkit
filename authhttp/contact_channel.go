@@ -137,7 +137,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !ch.senderAvailable() {
-		serverErr(w, ch.errVerifyUnavailable, nil)
+		writeError(w, authkit.E(ch.errVerifyUnavailable))
 		return
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
@@ -257,7 +257,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if !ch.senderAvailable() {
-		serverErr(w, ch.errResetUnavailable, nil)
+		writeError(w, authkit.E(ch.errResetUnavailable))
 		return
 	}
 	ua, ip := r.UserAgent(), s.requestIP(r)
@@ -318,7 +318,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !ch.senderAvailable() {
-		serverErr(w, ch.errResendUnavailable, nil)
+		writeError(w, authkit.E(ch.errResendUnavailable))
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLRegisterResend, id) {
