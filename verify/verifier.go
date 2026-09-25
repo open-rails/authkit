@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto"
@@ -1621,8 +1622,9 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, c *issu
 }
 
 // fetchJWKS fetches and parses a JWKS. authoritative reports whether the answer
-// states the issuer's current key set: only a 200 that parses as a JSON JWKS
-// does. Transport errors, non-200 statuses and non-JSON bodies are transient.
+// states the issuer's current key set: only a 200 whose body is a JSON object
+// with a "keys" array does. Transport errors, non-200 statuses and any other
+// body (non-JSON, an error object, "keys" not an array) are transient.
 // Individual malformed, weak or unsupported keys are skipped; an authoritative
 // answer without usable keys is an error that drops the cache.
 func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]crypto.PublicKey, bool, error) {
@@ -1638,12 +1640,22 @@ func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]cr
 	if resp.StatusCode != http.StatusOK {
 		return nil, false, fmt.Errorf("jwks_http_%d", resp.StatusCode)
 	}
-	var ks jwtkit.JWKS
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&ks); err != nil {
+	var doc struct {
+		Keys json.RawMessage `json:"keys"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
 		return nil, false, fmt.Errorf("jwks: %w", err)
 	}
+	var entries []json.RawMessage
+	if !bytes.HasPrefix(bytes.TrimSpace(doc.Keys), []byte("[")) || json.Unmarshal(doc.Keys, &entries) != nil {
+		return nil, false, errors.New("jwks: response has no keys array")
+	}
 	keys := map[string]crypto.PublicKey{}
-	for _, j := range ks.Keys {
+	for _, raw := range entries {
+		var j jwtkit.JWK
+		if json.Unmarshal(raw, &j) != nil {
+			continue
+		}
 		pub, err := jwtkit.JWKToPublicKey(j)
 		if err != nil {
 			continue

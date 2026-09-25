@@ -95,10 +95,10 @@ Key sources have distinct owners:
 - `JWKSURI` is fetched and cached for `CacheTTL` (default 10 minutes), which
   also applies to any initial supplied keys. Expired keys keep verifying while
   one background loop per issuer refetches them (3s per attempt, capped jittered
-  backoff, until success); requests never wait on it. Only a 200 that parses
-  as a JSON JWKS is authoritative: its valid keys replace the cache (malformed,
+  backoff, until success); requests never wait on it. Only a 200 whose body
+  is a JSON object with a `keys` array is authoritative: its valid keys replace the cache (malformed,
   weak or unsupported keys are skipped) and one without usable keys drops it.
-  Transport errors, non-200 statuses and non-JSON bodies keep cached keys and
+  Transport errors, non-200 statuses and any other body keep cached keys and
   are reported as refresh failures. Stale keys are
   trusted for at most `MaxStale` (default 4 hours, never below `CacheTTL`) after
   the last successful fetch, so blocking our fetch cannot keep a revoked key

@@ -147,7 +147,7 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 
 	// A JSON JWKS without usable keys drops the cache: fail closed.
 	for name, serve := range map[string]func(){
-		"empty":       func() { f.serveKeys() },
+		"empty":       func() { f.serveStatus(http.StatusOK, `{"keys":[]}`) },
 		"unsupported": func() { f.serveKeys(jwtkit.JWK{Kty: "oct", Kid: "sym"}) },
 		"weak":        func() { f.serveKeys(jwtkit.PublicToJWK(&weak.PublicKey, "weak", "RS256")) },
 	} {
@@ -272,9 +272,13 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	for name, serve := range map[string]func(){
-		"404":      func() { f.serveStatus(http.StatusNotFound, "not found") },
-		"403":      func() { f.serveStatus(http.StatusForbidden, "") },
-		"not json": func() { f.serveStatus(http.StatusOK, "<html>captive portal</html>") },
+		"404":         func() { f.serveStatus(http.StatusNotFound, "not found") },
+		"403":         func() { f.serveStatus(http.StatusForbidden, "") },
+		"not json":    func() { f.serveStatus(http.StatusOK, "<html>captive portal</html>") },
+		"error json":  func() { f.serveStatus(http.StatusOK, `{"error":"bad gateway"}`) },
+		"keys string": func() { f.serveStatus(http.StatusOK, `{"keys":"x"}`) },
+		"keys null":   func() { f.serveStatus(http.StatusOK, `{"keys":null}`) },
+		"array":       func() { f.serveStatus(http.StatusOK, `[]`) },
 	} {
 		serve()
 		f.advance(2 * time.Minute)
@@ -298,4 +302,13 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	code, _ = f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusUnauthorized, code)
+
+	// An empty keys array is still an authoritative answer: fail closed.
+	f.serveStatus(http.StatusOK, `{"keys":[]}`)
+	f.advance(2 * time.Minute)
+	f.call(f.token(b, f.issuer, nil))
+	require.Eventually(t, func() bool { return f.status().Keys == 0 }, 5*time.Second, 10*time.Millisecond)
+	code, errCode := f.call(f.token(b, f.issuer, nil))
+	require.Equal(t, http.StatusServiceUnavailable, code)
+	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
 }
