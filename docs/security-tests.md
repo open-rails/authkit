@@ -24,6 +24,7 @@ Add a row and a test for every new attack class.
 | Demoted creator redeems their own invite link or keeps their API key | `TestSecurityDemotedCreatorCredentials` |
 | Bounded manager revokes a higher role's API key or invite link | `TestSecurityRevokeAboveOwnRole` |
 | Group binds a reserved issuer or squats an unregistered one against its domain | `TestSecurityRemoteApplicationIssuerSquat` |
+| Group or domain claims a shared-account peer issuer; peer user tokens replayed as delegations or sessions | `TestSecurityAccountPeerRemoteApplication` |
 | Delegated grant carries AuthKit authority the user lacks, or keeps it after the user loses it | `TestSecurityDelegatedGrantClamp` |
 | Issuer registered without an audience accepts every audience | `TestSecurityIssuerWithoutAudience` |
 | Sibling subdomain plants or shadows the OIDC state cookie | `TestSecurityOIDCStateCookieIsHostPrefixed` |

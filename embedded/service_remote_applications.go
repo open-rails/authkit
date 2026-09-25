@@ -241,7 +241,7 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", ErrInvalidRemoteApplication, authkit.MaxRemoteApplicationIssuerLen)
 	}
 	// AK-AUTH-01: a remote_application must never claim the platform's own
-	// issuer. The verifier keys issuers by string and upserts by issuer, so a
+	// issuer or a provider's. The verifier keys issuers by string and upserts by issuer, so a
 	// federated registration under the platform issuer would overwrite the
 	// trusted local entry, swapping the platform's signing keys and breaking
 	// verification of all first-party tokens. This guards every caller,
@@ -314,13 +314,25 @@ func (s *engine) reservedIssuer(issuer string) bool {
 	if key == "" {
 		return false
 	}
-	for _, own := range append([]string{s.cfg.Token.Issuer}, s.cfg.Token.AccountIssuers...) {
-		if issuerKey(own) == key {
-			return true
-		}
+	if issuerKey(s.cfg.Token.Issuer) == key {
+		return true
 	}
 	for _, p := range s.cfg.Identity.Providers {
 		if p != nil && issuerKey(p.Issuer()) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// accountPeerIssuer reports whether issuer is another deployment sharing this
+// account store. A peer's delegated subjects name accounts here, so only the
+// operator may register it as a remote application; a group or domain
+// registration under it would sign for every shared account.
+func (s *engine) accountPeerIssuer(issuer string) bool {
+	key := issuerKey(issuer)
+	for _, peer := range s.cfg.Token.AccountIssuers {
+		if key != "" && issuerKey(peer) == key {
 			return true
 		}
 	}
