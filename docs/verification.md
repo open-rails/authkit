@@ -95,12 +95,15 @@ Key sources have distinct owners:
 - `JWKSURI` is fetched and cached for `CacheTTL` (default 10 minutes), which
   also applies to any initial supplied keys. Expired keys keep verifying while
   one background loop per issuer refetches them (3s per attempt, capped jittered
-  backoff, until success); requests never wait on it. An issuer with no keys
-  yet gets one bounded attempt, then `503 issuer_keys_unavailable` until the
+  backoff, until success); requests never wait on it. Stale keys are trusted
+  for at most `MaxStale` (default 24 hours) after the last successful fetch, so
+  blocking our fetch cannot keep a revoked key valid. An issuer with no usable
+  keys gets one bounded attempt, then `503 issuer_keys_unavailable` until the
   loop succeeds; other issuers are unaffected. Unknown KIDs and signature
   failures trigger a throttled refresh. External JWKS revocation therefore takes
-  effect on the first successful refresh after `CacheTTL`, not instantaneously.
-  `Verifier.IssuerKeyStatuses()` reports each JWKS issuer and
+  effect on the first successful refresh after `CacheTTL`, and at the latest
+  `MaxStale` after the last successful fetch. `Verifier.IssuerKeyStatuses()`
+  reports each JWKS issuer (including key `Age` and `Expired`) and
   `Verifier.CheckIssuerKeys` is a no-I/O probe for a dependency supervisor.
 
 PEM, JWK, raw public keys and built-in signing keys use the same supported-key

@@ -114,6 +114,8 @@ type Verifier struct {
 	jwksAttemptTimeout time.Duration
 	jwksBackoffBase    time.Duration
 	jwksBackoffMax     time.Duration
+	// now is the key-cache clock (TTL, MaxStale); tests may replace it.
+	now func() time.Time
 
 	// permValidator (optional) checks a delegated access token's `permissions`
 	// against the resource server's catalog on every typed verification path.
@@ -126,6 +128,7 @@ type issuerEntry struct {
 	audiences []string
 	jwksURL   string
 	cacheTTL  time.Duration
+	maxStale  time.Duration
 	// isLocal marks the first-party (host application's own) token signer, as
 	// opposed to a remote_application/federated issuer. It guards the signing-key
 	// registry: a non-local registration must never overwrite the local issuer's
@@ -140,11 +143,14 @@ type issuerEntry struct {
 
 // issuerKeys is one issuer's key cache. Everything but pubByKID is meaningful
 // only for JWKS issuers: keys past expiresAt keep being served while a single
-// background loop (refreshing) refetches them (stale-while-revalidate).
+// background loop (refreshing) refetches them (stale-while-revalidate), until
+// maxStale after fetchedAt, the last successful fetch.
 type issuerKeys struct {
 	jwksURL   string
 	pubByKID  map[string]crypto.PublicKey
 	expiresAt time.Time
+	fetchedAt time.Time
+	maxStale  time.Duration
 
 	refreshing bool
 	attempted  chan struct{} // closed after the running loop's first attempt
@@ -398,6 +404,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		jwksAttemptTimeout: 3 * time.Second,
 		jwksBackoffBase:    500 * time.Millisecond,
 		jwksBackoffMax:     30 * time.Second,
+		now:                time.Now,
 	}
 	for _, o := range opts {
 		o(v)
@@ -439,6 +446,12 @@ type IssuerOptions struct {
 	// Default: 10 minutes.
 	CacheTTL time.Duration
 
+	// MaxStale bounds how long after the last successful JWKS fetch cached keys
+	// keep verifying while refreshes fail, so a peer's key revocation cannot be
+	// suppressed indefinitely by blocking our fetch. Past it the issuer's tokens
+	// fail with 503 issuer_keys_unavailable. Default: 24 hours.
+	MaxStale time.Duration
+
 	// IsLocal marks this issuer as the host application's own (first-party) token
 	// signer, as opposed to a remote_application/federated issuer. It guards the
 	// signing-key registry against a non-local registration overwriting the local
@@ -475,7 +488,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 	ie := issuerEntry{
 		issuer: issuerID, audiences: accepted,
-		jwksURL: strings.TrimSpace(opts.JWKSURI), cacheTTL: opts.CacheTTL,
+		jwksURL: strings.TrimSpace(opts.JWKSURI), cacheTTL: opts.CacheTTL, maxStale: opts.MaxStale,
 		isLocal: opts.IsLocal, managed: opts.managed, publicKeys: opts.PublicKeys,
 	}
 	v.mu.Lock()
@@ -491,9 +504,10 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	// Validate first, then replace metadata and keys together. Failure preserves
 	// the complete previous registration; success never retains replaced keys.
 	v.issuers[issuerID] = ie
-	entry := &issuerKeys{jwksURL: ie.jwksURL, pubByKID: pubByKID}
+	entry := &issuerKeys{jwksURL: ie.jwksURL, pubByKID: pubByKID, maxStale: issuerMaxStale(ie)}
 	if ie.jwksURL != "" && len(pubByKID) > 0 {
-		entry.expiresAt = time.Now().Add(issuerCacheTTL(ie))
+		entry.fetchedAt = v.now()
+		entry.expiresAt = entry.fetchedAt.Add(issuerCacheTTL(ie))
 	}
 	v.byIss[issuerID] = entry
 	return nil
@@ -1383,19 +1397,20 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		return selectPublicKey(keys, kid)
 	}
 
-	// Stale-while-revalidate: cached keys are served even past their TTL while
-	// one background loop per issuer refetches them. A request waits only when
-	// the issuer has no keys at all, and then for at most one bounded attempt.
+	// Stale-while-revalidate: cached keys are served past their TTL, up to
+	// MaxStale after the last successful fetch, while one background loop per
+	// issuer refetches them. A request waits only when the issuer has no usable
+	// keys, and then for at most one bounded attempt.
 	v.mu.Lock()
 	c := v.byIss[iss]
 	if c == nil || c.jwksURL != ie.jwksURL {
-		c = &issuerKeys{jwksURL: ie.jwksURL}
+		c = &issuerKeys{jwksURL: ie.jwksURL, maxStale: issuerMaxStale(ie)}
 		v.byIss[iss] = c
 	}
-	if len(c.pubByKID) == 0 || time.Now().After(c.expiresAt) {
+	if len(c.pubByKID) == 0 || v.now().After(c.expiresAt) {
 		v.startRefreshLocked(iss, c, ie)
 	}
-	keys, attempted := c.pubByKID, c.attempted
+	keys, attempted := c.usableKeysLocked(v.now()), c.attempted
 	v.mu.Unlock()
 	if len(keys) == 0 {
 		select {
@@ -1403,9 +1418,12 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		case <-ctx.Done():
 		}
 		v.mu.RLock()
-		keys, lastErr := c.pubByKID, c.lastErr
+		keys, lastErr := c.usableKeysLocked(v.now()), c.lastErr
 		v.mu.RUnlock()
 		if len(keys) == 0 {
+			if lastErr == nil && len(c.pubByKID) > 0 {
+				lastErr = errors.New("cached keys exceed max stale")
+			}
 			return nil, issuerKeysUnavailable(lastErr)
 		}
 		return selectPublicKey(keys, kid)
@@ -1429,6 +1447,18 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		key, err = selectPublicKey(keys, kid)
 	}
 	return key, err
+}
+
+// usableKeysLocked returns the cached keys unless they are older than maxStale.
+func (c *issuerKeys) usableKeysLocked(now time.Time) map[string]crypto.PublicKey {
+	if c.pastMaxStale(now) {
+		return nil
+	}
+	return c.pubByKID
+}
+
+func (c *issuerKeys) pastMaxStale(now time.Time) bool {
+	return len(c.pubByKID) > 0 && now.Sub(c.fetchedAt) > c.maxStale
 }
 
 func issuerKeysUnavailable(cause error) error {
@@ -1553,12 +1583,12 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, c *issu
 		// endpoint's response into that registration.
 		return errors.New("issuer keys changed during refresh")
 	}
-	c.checkedAt, c.lastErr = time.Now(), err
+	c.checkedAt, c.lastErr = v.now(), err
 	if err != nil {
 		c.failures++
 		return err
 	}
-	c.pubByKID, c.expiresAt, c.failures = keys, c.checkedAt.Add(issuerCacheTTL(ie)), 0
+	c.pubByKID, c.fetchedAt, c.expiresAt, c.failures = keys, c.checkedAt, c.checkedAt.Add(issuerCacheTTL(ie)), 0
 	return nil
 }
 
@@ -1586,12 +1616,18 @@ func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]cr
 	return keys, err
 }
 
-// IssuerKeyStatus is one JWKS-backed issuer's key-refresh state.
+// IssuerKeyStatus is one JWKS-backed issuer's key-refresh state. Age is the
+// time since the last successful fetch (export Age.Seconds() as a gauge);
+// past MaxStale the issuer's tokens fail with 503 (Expired).
 type IssuerKeyStatus struct {
 	Issuer    string
 	JWKSURI   string
 	Keys      int
 	Fresh     bool      // keys are within CacheTTL
+	FetchedAt time.Time // last successful fetch; zero before the first
+	Age       time.Duration
+	MaxStale  time.Duration
+	Expired   bool      // Age exceeds MaxStale: verification fails closed
 	CheckedAt time.Time // last fetch attempt; zero before the first
 	Failures  int       // consecutive failed fetches
 	LastError string
@@ -1601,14 +1637,18 @@ type IssuerKeyStatus struct {
 func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	now := time.Now()
+	now := v.now()
 	var out []IssuerKeyStatus
 	for iss, c := range v.byIss {
 		if c.jwksURL == "" {
 			continue
 		}
 		st := IssuerKeyStatus{Issuer: iss, JWKSURI: c.jwksURL, Keys: len(c.pubByKID),
-			Fresh: len(c.pubByKID) > 0 && now.Before(c.expiresAt), CheckedAt: c.checkedAt, Failures: c.failures}
+			Fresh: len(c.pubByKID) > 0 && now.Before(c.expiresAt), FetchedAt: c.fetchedAt,
+			MaxStale: c.maxStale, Expired: c.pastMaxStale(now), CheckedAt: c.checkedAt, Failures: c.failures}
+		if !c.fetchedAt.IsZero() {
+			st.Age = now.Sub(c.fetchedAt)
+		}
 		if c.lastErr != nil {
 			st.LastError = c.lastErr.Error()
 		}
@@ -1619,15 +1659,25 @@ func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus {
 }
 
 // CheckIssuerKeys is a no-I/O health probe for a host dependency supervisor:
-// it fails naming every JWKS issuer whose last key fetch failed. Verification
-// of other issuers, and of failing issuers with cached keys, is unaffected.
+// it fails naming every JWKS issuer whose last key fetch failed, with the age
+// of its cached keys and whether they exceed MaxStale (tokens then fail
+// closed). Other issuers are unaffected.
 func (v *Verifier) CheckIssuerKeys(context.Context) error {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
+	now := v.now()
 	var errs []error
 	for iss, c := range v.byIss {
-		if c.jwksURL != "" && c.lastErr != nil {
-			errs = append(errs, fmt.Errorf("issuer %s keys: %w", iss, c.lastErr))
+		switch {
+		case c.jwksURL == "" || c.lastErr == nil:
+		case c.pastMaxStale(now):
+			errs = append(errs, fmt.Errorf("issuer %s keys expired (age %s > max stale %s), verification failing closed: %w",
+				iss, now.Sub(c.fetchedAt).Round(time.Second), c.maxStale, c.lastErr))
+		case len(c.pubByKID) > 0:
+			errs = append(errs, fmt.Errorf("issuer %s keys stale (age %s, max stale %s): %w",
+				iss, now.Sub(c.fetchedAt).Round(time.Second), c.maxStale, c.lastErr))
+		default:
+			errs = append(errs, fmt.Errorf("issuer %s has no keys: %w", iss, c.lastErr))
 		}
 	}
 	return errors.Join(errs...)
@@ -1669,6 +1719,13 @@ func audContainsAny(aud any, want []string) bool {
 // ---------------------------------------------------------------------------
 // Key parsing helpers
 // ---------------------------------------------------------------------------
+
+func issuerMaxStale(ie issuerEntry) time.Duration {
+	if ie.maxStale > 0 {
+		return ie.maxStale
+	}
+	return 24 * time.Hour
+}
 
 func issuerCacheTTL(ie issuerEntry) time.Duration {
 	if ie.cacheTTL > 0 {

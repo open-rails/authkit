@@ -149,3 +149,69 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	code, _, _ = call(peerToken)
 	require.Equal(t, http.StatusOK, code)
 }
+
+// Stale peer keys verify only up to MaxStale after the last successful fetch;
+// past it the peer fails closed (so blocking our refetch cannot keep a revoked
+// key valid) and recovers on the next successful refetch.
+func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
+	local := authtest.NewTestIssuer()
+	t.Cleanup(local.Close)
+	peer := authtest.NewTestIssuerWithAudience(local.Audience())
+	t.Cleanup(peer.Close)
+	provider := newJWKSProvider(t, peer.Signer())
+
+	var offset atomic.Int64
+	v := NewVerifier()
+	v.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
+	v.jwksAttemptTimeout, v.jwksBackoffBase, v.jwksBackoffMax = 300*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
+	require.NoError(t, v.AddIssuer(local.URL(), []string{local.Audience()}, IssuerOptions{
+		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.Signer().KID(): local.Signer().(jwtkit.PublicKeySigner).PublicKey()},
+	}))
+	require.NoError(t, v.AddIssuer(peer.URL(), []string{local.Audience()}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: time.Minute, MaxStale: time.Hour}))
+
+	h := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	call := func(token string) (int, string) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var env authkit.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		return rec.Code, env.Error.Code
+	}
+	localToken := local.CreateToken("local-user", "local@example.test")
+	peerToken := peer.CreateToken("peer-user", "peer@example.test")
+	status := func() IssuerKeyStatus { return v.IssuerKeyStatuses()[0] }
+
+	code, _ := call(peerToken)
+	require.Equal(t, http.StatusOK, code)
+
+	provider.mode.Store("503")
+	offset.Store(int64(30 * time.Minute)) // past CacheTTL, inside MaxStale
+	code, _ = call(peerToken)
+	require.Equal(t, http.StatusOK, code)
+	require.Eventually(t, func() bool { return status().Failures > 0 }, 5*time.Second, 10*time.Millisecond)
+	st := status()
+	require.False(t, st.Expired)
+	require.GreaterOrEqual(t, st.Age, 30*time.Minute)
+	require.ErrorContains(t, v.CheckIssuerKeys(t.Context()), "stale")
+	code, _ = call(peerToken)
+	require.Equal(t, http.StatusOK, code)
+
+	offset.Store(int64(61 * time.Minute)) // past MaxStale
+	code, errCode := call(peerToken)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+	code, _ = call(localToken)
+	require.Equal(t, http.StatusOK, code)
+	require.True(t, status().Expired)
+	require.ErrorContains(t, v.CheckIssuerKeys(t.Context()), "failing closed")
+
+	provider.mode.Store("up")
+	require.Eventually(t, func() bool { return v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
+	st = status()
+	require.False(t, st.Expired)
+	require.Less(t, st.Age, time.Minute)
+	code, _ = call(peerToken)
+	require.Equal(t, http.StatusOK, code)
+}
