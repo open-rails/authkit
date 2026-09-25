@@ -32,6 +32,9 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 		return nil, err
 	}
 	in.PermissionGroupID = gid
+	if s.reservedIssuer(in.Issuer) || s.accountPeerIssuer(in.Issuer) {
+		return nil, ErrReservedIssuer
+	}
 	var out *RemoteApplication
 	err = s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {

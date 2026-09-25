@@ -218,7 +218,7 @@ func (s *engine) validateApplicationDocument(doc *ApplicationDocument, host stri
 			return nil, fmt.Errorf("%w: issuer host %q must equal the serving domain %q", ErrApplicationDocumentInvalid, iu.Hostname(), host)
 		}
 	}
-	if s.reservedIssuer(issuer) {
+	if s.reservedIssuer(issuer) || s.accountPeerIssuer(issuer) {
 		return nil, ErrReservedIssuer
 	}
 

@@ -435,8 +435,12 @@ gate.
 A group registering an application through its own routes binds the issuer on
 its members' authority alone (`trust_root: "user"`). A later domain proof for
 that issuer takes it over, unless the application is its group's last owner.
-No application may claim this deployment's account issuers or an identity
-provider's issuer.
+No application may claim this deployment's issuer or an identity provider's
+issuer. Another account issuer (`Token.AccountIssuers`) may be registered only
+by the operator (bootstrap manifest or `Client.UpsertRemoteApplication`): its
+delegated subjects name accounts in the shared store, so a group or domain
+registration under it is refused. Its native user tokens never authenticate
+here; only its application and delegated tokens do.
 
 ## Device keys
 

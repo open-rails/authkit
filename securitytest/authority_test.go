@@ -12,10 +12,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -381,4 +384,109 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	require.Equal(t, authkit.ApplicationTrustRootDomain, app.TrustRoot)
 	resp = register("squatted-again", victimIssuer)
 	require.Equal(t, http.StatusConflict, resp.status, resp.String())
+}
+
+// TestSecurityAccountPeerRemoteApplication: a deployment sharing this account
+// store delegates its users here as an operator-registered remote application.
+// Its delegated subjects name accounts in the shared store, so no group or
+// domain may register its issuer; its native user tokens, signed by the same
+// keys, never authenticate here in either role; and registering it never
+// shadows this deployment's own issuer.
+func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
+	const peerIssuer = "https://peer.security.test"
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
+		c.Token.AccountIssuers = []string{issuer, peerIssuer}
+		c.Applications = embedded.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
+		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("peer-client", "peer-secret")}
+	}))
+	ctx := context.Background()
+	peerKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKIXPublicKey(&peerKey.PublicKey)
+	require.NoError(t, err)
+	peerPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	keys := []authkit.RemoteAppKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
+
+	t.Run("no group or domain may claim the peer issuer", func(t *testing.T) {
+		squatter := h.newAccount("peersquatter")
+		_, base := h.newOrg("peersquat", squatter)
+		for _, iss := range []string{peerIssuer, strings.ToUpper(peerIssuer) + "/"} {
+			resp := h.post(base+"/remote-applications", map[string]any{"slug": unique("peer"), "issuer": iss,
+				"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, h.login(squatter).AccessToken)
+			require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", iss, resp)
+		}
+		doc, err := json.Marshal(authkit.ApplicationDocument{Slug: unique("peerdomain"), Issuer: peerIssuer,
+			PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+		require.NoError(t, err)
+		domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(doc)
+		}))
+		t.Cleanup(domain.Close)
+		resp := h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
+		require.GreaterOrEqual(t, resp.status, 400, resp.String())
+		_, err = h.client.GetRemoteApplication(ctx, peerIssuer)
+		require.ErrorIs(t, err, authkit.ErrRemoteApplicationNotFound)
+	})
+
+	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
+		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
+			enabled := true
+			_, err := h.client.OperatorApplyBootstrapManifest(ctx, embedded.BootstrapManifest{RemoteApplications: []embedded.BootstrapManifestRemoteApplication{
+				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
+			}}, embedded.BootstrapReconcileOptions{})
+			require.ErrorIs(t, err, authkit.ErrReservedIssuer, iss)
+		}
+	})
+
+	enabled := true
+	_, err = h.client.OperatorApplyBootstrapManifest(ctx, embedded.BootstrapManifest{RemoteApplications: []embedded.BootstrapManifestRemoteApplication{
+		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
+	}}, embedded.BootstrapReconcileOptions{})
+	require.NoError(t, err)
+
+	user := h.newAccount("peeruser")
+	ver := h.runtime.Verifier()
+	peerToken := func(typ string, claims jwt.MapClaims) string {
+		now := time.Now()
+		claims["iss"], claims["iat"], claims["exp"] = peerIssuer, now.Unix(), now.Add(5*time.Minute).Unix()
+		return sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": "peer-kid", "typ": typ}, claims)
+	}
+	delegated := peerToken(verify.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{audience}, "delegated_sub": user.id})
+
+	t.Run("the peer delegates a shared account", func(t *testing.T) {
+		cl, err := ver.Verify(ctx, delegated)
+		require.NoError(t, err)
+		require.Equal(t, peerIssuer, cl.Issuer)
+		require.Equal(t, user.id, cl.DelegatedSubject)
+		require.Empty(t, cl.UserID)
+		require.NotEmpty(t, cl.RemoteApplicationID)
+	})
+
+	t.Run("a peer user token is not a delegation or a local session", func(t *testing.T) {
+		for name, aud := range map[string][]string{"peer audience": {"peer-app"}, "this audience": {audience}} {
+			_, err := ver.Verify(ctx, peerToken(verify.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id, "sid": "peer-session"}))
+			require.Error(t, err, name)
+			require.Equal(t, http.StatusUnauthorized, h.get("/me", peerToken(verify.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id})).status, name)
+		}
+		_, err := ver.Verify(ctx, peerToken(verify.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{"peer-app"}, "delegated_sub": user.id}))
+		require.Error(t, err, "a delegation for another audience")
+	})
+
+	t.Run("the peer registration never shadows this deployment's issuer", func(t *testing.T) {
+		require.Equal(t, http.StatusOK, h.get("/me", h.login(user).AccessToken).status)
+		forged := sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": signer().KID(), "typ": verify.AccessTokenType},
+			jwt.MapClaims{"iss": issuer, "aud": []string{audience}, "sub": user.id, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix()})
+		require.Equal(t, http.StatusUnauthorized, h.get("/me", forged).status)
+	})
+
+	t.Run("the operator disables the peer", func(t *testing.T) {
+		app, err := h.client.GetRemoteApplication(ctx, peerIssuer)
+		require.NoError(t, err)
+		app.Enabled = false
+		_, err = h.client.UpsertRemoteApplication(ctx, *app)
+		require.NoError(t, err)
+		_, err = ver.Verify(ctx, delegated)
+		require.Error(t, err)
+	})
 }
