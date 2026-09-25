@@ -108,9 +108,9 @@ func jwkOf(s *jwtkit.RSASigner) jwtkit.JWK {
 	return jwtkit.PublicToJWK(s.PublicKey(), s.KID(), "RS256")
 }
 
-// A 200 JWKS is authoritative: valid keys are installed (bad ones skipped), and
-// one with no valid keys (or a 4xx) drops the cache and fails closed. Stale
-// keys survive only transport errors, 5xx and 429.
+// A JSON JWKS is authoritative: valid keys are installed (bad ones skipped),
+// and one with no valid keys drops the cache and fails closed. Stale keys
+// survive anything that is not a JSON JWKS.
 func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	a, b := rsaSigner(t, "a"), rsaSigner(t, "b")
 	weak, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -145,13 +145,11 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	code, _ = f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusUnauthorized, code)
 
-	// No usable keys, a 4xx, or a non-JWKS 200 drops the cache: fail closed.
+	// A JSON JWKS without usable keys drops the cache: fail closed.
 	for name, serve := range map[string]func(){
 		"empty":       func() { f.serveKeys() },
 		"unsupported": func() { f.serveKeys(jwtkit.JWK{Kty: "oct", Kid: "sym"}) },
 		"weak":        func() { f.serveKeys(jwtkit.PublicToJWK(&weak.PublicKey, "weak", "RS256")) },
-		"404":         func() { f.serveStatus(http.StatusNotFound, "") },
-		"not json":    func() { f.serveStatus(http.StatusOK, "<html>") },
 	} {
 		f.serveKeys(jwkOf(b))
 		refresh()
@@ -261,4 +259,43 @@ func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
 		code, _ = f.call(f.token(a, f.issuer, nil))
 		require.Equal(t, http.StatusOK, code)
 	}
+}
+
+// A 4xx or a non-JSON 200 is not an answer about the key set: stale keys keep
+// verifying within MaxStale and the failure is reported. A JSON JWKS that no
+// longer lists a key revokes it.
+func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
+	a, b := rsaSigner(t, "a"), rsaSigner(t, "b")
+	f := newPeerFixture(t, IssuerOptions{CacheTTL: time.Minute})
+	f.serveKeys(jwkOf(a))
+	code, _ := f.call(f.token(a, f.issuer, nil))
+	require.Equal(t, http.StatusOK, code)
+
+	for name, serve := range map[string]func(){
+		"404":      func() { f.serveStatus(http.StatusNotFound, "not found") },
+		"403":      func() { f.serveStatus(http.StatusForbidden, "") },
+		"not json": func() { f.serveStatus(http.StatusOK, "<html>captive portal</html>") },
+	} {
+		serve()
+		f.advance(2 * time.Minute)
+		mark := f.v.now()
+		code, _ = f.call(f.token(a, f.issuer, nil))
+		require.Equal(t, http.StatusOK, code, name)
+		require.Eventually(t, func() bool { return !f.status().CheckedAt.Before(mark) }, 5*time.Second, 5*time.Millisecond, name)
+		st := f.status()
+		require.Equal(t, 1, st.Keys, name)
+		require.Positive(t, st.Failures, name)
+		require.NotEmpty(t, st.LastError, name)
+		require.False(t, st.Expired, name)
+		require.ErrorContains(t, f.v.CheckIssuerKeys(t.Context()), "stale", name)
+		code, _ = f.call(f.token(a, f.issuer, nil))
+		require.Equal(t, http.StatusOK, code, name)
+	}
+
+	f.serveKeys(jwkOf(b))
+	require.Eventually(t, func() bool { return f.v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
+	code, _ = f.call(f.token(b, f.issuer, nil))
+	require.Equal(t, http.StatusOK, code)
+	code, _ = f.call(f.token(a, f.issuer, nil))
+	require.Equal(t, http.StatusUnauthorized, code)
 }

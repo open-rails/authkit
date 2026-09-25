@@ -452,7 +452,7 @@ type IssuerOptions struct {
 	CacheTTL time.Duration
 
 	// MaxStale bounds how long after the last successful JWKS fetch cached keys
-	// keep verifying while refreshes fail (transport errors, 5xx, 429), so a
+	// keep verifying while refreshes fail (anything but a JSON JWKS), so a
 	// peer's key revocation cannot be suppressed by blocking our fetch. Past it
 	// the issuer's tokens fail with 503 issuer_keys_unavailable. Default: 4
 	// hours; never less than CacheTTL.
@@ -1584,8 +1584,8 @@ func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
 }
 
 // refreshIssuerKeys runs one bounded JWKS fetch and records its outcome on c.
-// A transient failure keeps the cached keys; an authoritative answer replaces
-// them, and one with no usable keys drops them (fail closed).
+// A transient failure keeps the cached keys (bounded by MaxStale); a JSON JWKS
+// replaces them, and one with no usable keys drops them (fail closed).
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, c *issuerKeys, ie issuerEntry) error {
 	v.mu.Lock()
 	c.fetchSeq++
@@ -1621,9 +1621,10 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, c *issu
 }
 
 // fetchJWKS fetches and parses a JWKS. authoritative reports whether the answer
-// reflects the issuer's current key set: everything except transport errors,
-// 5xx and 429. Individual malformed, weak or unsupported keys are skipped; an
-// authoritative answer without usable keys is an error.
+// states the issuer's current key set: only a 200 that parses as a JSON JWKS
+// does. Transport errors, non-200 statuses and non-JSON bodies are transient.
+// Individual malformed, weak or unsupported keys are skipped; an authoritative
+// answer without usable keys is an error that drops the cache.
 func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]crypto.PublicKey, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
 	if err != nil {
@@ -1634,19 +1635,12 @@ func (v *Verifier) fetchJWKS(ctx context.Context, jwksURL string) (map[string]cr
 		return nil, false, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+	if resp.StatusCode != http.StatusOK {
 		return nil, false, fmt.Errorf("jwks_http_%d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, false, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, true, fmt.Errorf("jwks_http_%d", resp.StatusCode)
-	}
 	var ks jwtkit.JWKS
-	if err := json.Unmarshal(body, &ks); err != nil {
-		return nil, true, fmt.Errorf("jwks: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&ks); err != nil {
+		return nil, false, fmt.Errorf("jwks: %w", err)
 	}
 	keys := map[string]crypto.PublicKey{}
 	for _, j := range ks.Keys {
