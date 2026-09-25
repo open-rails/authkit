@@ -23,16 +23,16 @@ language, provider binding, invitation consumption and any invitation role.
 Invitation consumption locks its group before its own row, matching group
 lifecycle operations. Email and SMS accept the same unbound invitation token.
 
-Codes and links share one canonical record. `EphemeralStore.CompareAndConsume`
-claims the exact bytes that were checked: a stale reader cannot consume a newer
-issuance, and at most one code/link completion can win. Custom ephemeral stores
-must implement the same atomic semantics as the memory mutex and Redis Lua
-implementations. There is no old challenge-format fallback.
+Codes and links share one canonical record in `ephemeral_kv`. The claim is one
+`DELETE … WHERE key AND value AND expires_at > now()` of the exact bytes that
+were checked: a stale reader cannot consume a newer issuance, and at most one
+code/link completion can win on any replica. There is no old challenge-format
+fallback.
 
 ## Workflow qualification
 
 The retained account, credential and provider workflows use a scratch
-PostgreSQL database and both memory and isolated Redis state. They mount the
+PostgreSQL database. They mount the
 public HTTP handler with configured rate limits. Identity providers are local
 servers with real signed responses; email/SMS delivery is captured at its
 external boundary. The browser workflow uses Chromium and two real origins.

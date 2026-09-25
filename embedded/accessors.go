@@ -107,10 +107,6 @@ func (s *engine) close() {
 		surface.Close()
 	}
 	s.closeRiver()
-	if s.ownedMemoryStore != nil {
-		s.ownedMemoryStore.Close()
-		s.ownedMemoryStore = nil
-	}
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()
 		s.ownedKeySource = nil

@@ -374,12 +374,12 @@ func (s *engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
 	if !match {
 		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {
-			_, _ = s.ephemeralStore.CompareAndConsume(ctx, key, raw)
+			_, _ = s.ephemeral.CompareAndConsume(ctx, key, raw)
 			return false, ErrTwoFACodeExpired
 		}
 		return false, nil
 	}
-	claimed, err := s.ephemeralStore.CompareAndConsume(ctx, key, raw)
+	claimed, err := s.ephemeral.CompareAndConsume(ctx, key, raw)
 	if err != nil {
 		return false, err
 	}

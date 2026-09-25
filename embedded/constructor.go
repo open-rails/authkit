@@ -4,22 +4,15 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
-
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 
 	authkit "github.com/open-rails/authkit"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 )
-
-// redisKeyPrefixRE bounds Ephemeral.KeyPrefix (#307): it is spliced into
-// every Redis key.
-var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
 
 // Construction and Config validation. There is ONE config type (Config, #237)
 // and ONE normalization pass (normalizeConfig): the Runtime reads the
@@ -44,23 +37,6 @@ const (
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
 	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
-
-	// #307: one Redis namespace per deployment, derived from the schema unless
-	// the host names one. Validated like Schema — it is spliced into keys.
-	cfg.Ephemeral.KeyPrefix = strings.TrimSpace(cfg.Ephemeral.KeyPrefix)
-	if cfg.Ephemeral.KeyPrefix == "" {
-		schema := strings.TrimSpace(cfg.Schema)
-		if schema == "" {
-			schema = db.DefaultSchema
-		}
-		cfg.Ephemeral.KeyPrefix = "authkit:" + schema + ":"
-	}
-	if !strings.HasSuffix(cfg.Ephemeral.KeyPrefix, ":") {
-		cfg.Ephemeral.KeyPrefix += ":"
-	}
-	if !redisKeyPrefixRE.MatchString(cfg.Ephemeral.KeyPrefix) {
-		return Config{}, fmt.Errorf("authkit: invalid Ephemeral.KeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", cfg.Ephemeral.KeyPrefix)
-	}
 
 	// BaseURL defaults from a well-formed Issuer URL.
 	cfg.Frontend.BaseURL = strings.TrimSpace(cfg.Frontend.BaseURL)
@@ -184,13 +160,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 }
 
 // NewWithKeys is the low-level constructor: explicit Keyset, no key/TOTP
-// resolution, no required-field checks, no memory-store default. The Keyset
+// resolution, no required-field checks. The Keyset
 // is fixed for the lifetime of the Runtime — hosts that need hot-reloaded
 // signing keys construct via New with a live jwtkit.KeySource (#238).
 func newEngineWithKeys(cfg Config, keys Keyset, deps Deps) (*engine, error) {
-	if err := deps.validate(); err != nil {
-		return nil, err
-	}
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -224,7 +197,6 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 	if s.appHTTPClient == nil {
 		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}
-	s.resolveEphemeralStore()
 	if err := s.initRiver(deps.River); err != nil {
 		s.Close()
 		return nil, err
@@ -233,25 +205,14 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (
 }
 
 // New builds the engine from host configuration and runtime dependencies.
-// With neither Deps.Redis nor Deps.EphemeralStore
-// the ephemeral store is the per-process memory store (single replica only).
 // If Keys.Source is nil,
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
 func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
-	if err := deps.validate(); err != nil {
-		return nil, err
-	}
-	var ownedMemoryStore *memorystore.KV
 	var ownedKeySource *jwtkit.FileKeySource
 	defer func() {
-		if err != nil {
-			if ownedMemoryStore != nil {
-				ownedMemoryStore.Close()
-			}
-			if ownedKeySource != nil {
-				ownedKeySource.Close()
-			}
+		if err != nil && ownedKeySource != nil {
+			ownedKeySource.Close()
 		}
 	}()
 	// Handle nil Keys.Source — resolve from <Keys.Path>/keys.json (empty Path ⇒
@@ -339,18 +300,12 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	// config-only unit tests need no store): a nil pool yields a Runtime with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
 	// host-facing authhttp constructor, not here.
-	if deps.Redis == nil && deps.EphemeralStore == nil {
-		ownedMemoryStore = memorystore.NewKV()
-		deps.EphemeralStore = ownedMemoryStore
-	}
 	svc, err := newClient(norm, keySource, gs, deps)
 	if err != nil {
 		return nil, err
 	}
-	svc.logEphemeralBackend()
-	svc.ownedMemoryStore = ownedMemoryStore
 	svc.ownedKeySource = ownedKeySource
-	ownedMemoryStore, ownedKeySource = nil, nil // ownership transferred to svc
+	ownedKeySource = nil // ownership transferred to svc
 
 	return svc, nil
 }

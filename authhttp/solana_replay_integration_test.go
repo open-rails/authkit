@@ -21,20 +21,20 @@ type noSNSResolver struct{}
 func (noSNSResolver) ResolvePrimaryName(context.Context, string) (string, error) { return "", nil }
 
 // #288/8 over HTTP: /solana/challenge → wallet signs → /solana/login succeeds
-// once; the identical signed output replayed is refused (nonce consumed).
+// once, on another replica; the identical signed output replayed is refused
+// (nonce consumed).
 func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
-	forEachStore(t, testSolanaLoginRejectsReplayedSignature)
-}
-
-func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*
-	opts := append(store.engineOpts(), withSolanaSNSResolver(noSNSResolver{}))
+	opts := []coreOpt{withSolanaSNSResolver(noSNSResolver{})}
 	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
+	replica, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
+	require.NoError(t, err)
+	t.Cleanup(replica.Close)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	body := fmt.Sprintf(`{"output":{"account":{"address":%q,"publicKey":%q},"signature":%q,"signedMessage":%q}}`,
 		address, b64(pub), b64(ed25519.Sign(priv, []byte(challenge.Message))), b64([]byte(challenge.Message)))
 
-	first := serveJSON(srv, http.MethodPost, "/solana/login", body)
+	first := serveJSON(replica, http.MethodPost, "/solana/login", body)
 	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
 	require.Contains(t, first.Body.String(), "access_token")
 
@@ -64,7 +64,7 @@ func testSolanaLoginRejectsReplayedSignature(t *testing.T, store ephemeralStore)
 	require.Equal(t, http.StatusUnauthorized, replay.Code, replay.Body.String())
 	require.Contains(t, replay.Body.String(), string(authkit.CodeChallengeExpired))
 
-	_, found, err := srv.siwsChallenges.Get(ctx, challenge.Nonce)
-	require.NoError(t, err)
+	var found bool
+	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))
 	require.False(t, found, "the nonce must be consumed by the first login")
 }

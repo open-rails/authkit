@@ -44,7 +44,6 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
 	"github.com/open-rails/authkit/verify"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -281,8 +280,6 @@ type coreOpt func(*embedded.Deps)
 
 func withPostgres(pool *pgxpool.Pool) coreOpt { return func(d *embedded.Deps) { d.Postgres = pool } }
 
-func withRedis(rd *redis.Client) coreOpt { return func(d *embedded.Deps) { d.Redis = rd } }
-
 func withEmailSender(s embedded.EmailSender) coreOpt { return func(d *embedded.Deps) { d.Email = s } }
 
 func withSMSSender(s embedded.SMSSender) coreOpt { return func(d *embedded.Deps) { d.SMS = s } }
@@ -441,7 +438,7 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	return user.ID
 }
 
-func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
+func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
@@ -451,7 +448,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 		Origins:          []string{"https://example.com"},
 		UserVerification: "preferred",
 	}
-	srv, err := newServer(newServerClient(t, cfg, pool, store.engineOpts()...), WithoutRateLimiter())
+	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
@@ -1089,29 +1086,49 @@ func requireStepUp2FAOptions(t *testing.T, got stepUpOptionsTestShape, methods [
 	}
 }
 
-// ephemeralStore is one leg of the store matrix: the in-memory ephemeral store
-// (rdb nil) or a scratch Redis, the store production runs on.
-type ephemeralStore struct {
-	name string
-	rdb  *redis.Client
+// failEphemeralWrites makes inserts and updates of ephemeral keys starting
+// with prefix fail in Postgres until the returned restore runs.
+func failEphemeralWrites(t *testing.T, pool *pgxpool.Pool, prefix string) func() {
+	return failEphemeral(t, pool, "INSERT OR UPDATE", "NEW", prefix)
 }
 
-// engineOpts wires the store onto embedded.New; NewServer then reuses the
-// engine's Redis for its OIDC/SIWS caches and limiter (#210).
-func (e ephemeralStore) engineOpts() []coreOpt {
-	if e.rdb == nil {
-		return nil
-	}
-	return []coreOpt{withRedis(e.rdb)}
+// failEphemeralClaims makes deletes (Consume, CompareAndConsume) of ephemeral
+// keys starting with prefix fail until the returned restore runs.
+func failEphemeralClaims(t *testing.T, pool *pgxpool.Pool, prefix string) func() {
+	return failEphemeral(t, pool, "DELETE", "OLD", prefix)
 }
 
-// forEachStore runs fn under the memory store and under a scratch Redis
-// (AUTHKIT_TEST_REDIS_URL; always set in CI, where the skip gate enforces it),
-// so every single-use / replay pin is proven against the production store.
-func forEachStore(t *testing.T, fn func(t *testing.T, store ephemeralStore)) {
+func failEphemeral(t *testing.T, pool *pgxpool.Pool, event, row, prefix string) func() {
 	t.Helper()
-	t.Run("memory", func(t *testing.T) { fn(t, ephemeralStore{name: "memory"}) })
-	t.Run("redis", func(t *testing.T) { fn(t, ephemeralStore{name: "redis", rdb: testdb.ScratchRedis(t)}) })
+	name := "ephemeral_failure_" + uniqueSuffix()
+	_, err := pool.Exec(t.Context(), fmt.Sprintf(`CREATE FUNCTION %[1]s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected ephemeral failure'; END $$;
+CREATE TRIGGER %[1]s BEFORE %[2]s ON ephemeral_kv FOR EACH ROW WHEN (%[3]s.key LIKE '%[4]s%%') EXECUTE FUNCTION %[1]s()`, name, event, row, prefix))
+	require.NoError(t, err)
+	var once sync.Once
+	restore := func() {
+		once.Do(func() {
+			_, err := pool.Exec(context.Background(), fmt.Sprintf(`DROP TRIGGER %[1]s ON ephemeral_kv; DROP FUNCTION %[1]s()`, name))
+			require.NoError(t, err)
+		})
+	}
+	t.Cleanup(restore)
+	return restore
+}
+
+// takeEphemeralOffline makes every ephemeral statement fail until restore.
+func takeEphemeralOffline(t *testing.T, pool *pgxpool.Pool) func() {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), `ALTER TABLE ephemeral_kv RENAME TO ephemeral_kv_offline`)
+	require.NoError(t, err)
+	var once sync.Once
+	restore := func() {
+		once.Do(func() {
+			_, err := pool.Exec(context.Background(), `ALTER TABLE ephemeral_kv_offline RENAME TO ephemeral_kv`)
+			require.NoError(t, err)
+		})
+	}
+	t.Cleanup(restore)
+	return restore
 }
 
 func unverifiedAccessClaims(t *testing.T, token string) jwt.MapClaims {

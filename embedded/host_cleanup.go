@@ -30,17 +30,16 @@ func (s *engine) gcDeadSessions(ctx context.Context, batchSize int64) (int, erro
 	}
 }
 
-// CleanupExpiredAuthState removes expired transient AuthKit state that lives in
-// postgres. Short-lived verification state — pending registrations, pending
-// email/phone changes, email/phone verifications, and password resets — now
-// lives entirely in the ephemeral store (Redis when multi-instance, in-memory
-// otherwise) and expires automatically by TTL, so no database sweep is needed
-// for it. The postgres sweep covers revoked/expired refresh sessions and their
-// consumed-token history,
-// terminal keys/invites (retained terminalRetention after their first terminal event),
-// and session-event history past Config.SessionEventRetention (#245).
+// CleanupExpiredAuthState is the periodic maintenance sweep: expired
+// ephemeral rows (codes, ceremonies, counters), revoked/expired refresh
+// sessions and their consumed-token history, terminal keys/invites (retained
+// terminalRetention after their first terminal event), and session-event
+// history past Config.SessionEventRetention (#245).
 func (s *engine) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
+		return err
+	}
+	if _, err := s.ephemeral.DeleteExpired(ctx); err != nil {
 		return err
 	}
 

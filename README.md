@@ -3,7 +3,7 @@
 Embedded auth library for Go services: users, sessions, MFA, passkeys, device
 keys, OAuth/OIDC and Solana login, RBAC permission groups, API keys, signed
 documents and delegated tokens, running in your process against your Postgres
-(18+) and Redis. Tests exercise the embedded HTTP handlers directly; AuthKit
+(18+). Redis is optional and only shares rate limits. Tests exercise the embedded HTTP handlers directly; AuthKit
 owns its PostgreSQL migration source and runs it through migratekit.
 
 One module, `github.com/open-rails/authkit`, includes the core and every adapter.
@@ -22,17 +22,12 @@ first-factor continuations, atomic registration, and workflow test coverage.
 See [contact ownership](docs/security/contact-ownership.md) for why unproven
 accounts cannot add login methods and what the first address proof revokes.
 
-Without `Deps.Redis`, AuthKit keeps rate limits, codes and login state in
-process memory, which is correct for a single replica only; multi-replica
-deployments must configure Redis or Garnet. See
-[rate limits](docs/security/rate-limits.md) for the per-address and per-account
-policy.
-
-Redis-compatible stores must support atomic `GETDEL` and atomic Lua
-(`EVAL`/`EVALSHA`); proof claims and counters depend on those guarantees.
-For Garnet, enable both `--lua true` and `--lua-transaction-mode true`.
-Garnet's [configuration reference](https://microsoft.github.io/garnet/docs/getting-started/configuration)
-describes the transaction mode that locks script keys for execution.
+Codes, reset tokens, ceremonies, OIDC/SIWS login state and attempt counters
+live in Postgres (`ephemeral_kv`), so every replica shares them. Rate limits
+are per process unless `authhttp.Config.Redis` (any `redis.UniversalClient`)
+is set; see [rate limits](docs/security/rate-limits.md). The Redis limiter needs
+atomic Lua (`EVAL`/`EVALSHA`); for Garnet enable `--lua true` and
+`--lua-transaction-mode true`.
 
 ## Migrations
 
@@ -69,8 +64,8 @@ access provisioned separately; runtime credentials never need migration rights.
 ## PostgreSQL maintenance
 
 AuthKit runs `CleanupExpiredAuthState` through River on startup and hourly.
-It removes expired sessions, terminal credentials and expired retained history;
-Redis and in-memory TTL state keep their local expiry behavior. AuthKit also
+It removes expired ephemeral rows, sessions, terminal credentials and expired
+retained history. AuthKit also
 owns the fixed 30-day recoverable account deletion lifecycle and its durable
 application callbacks. There is no separate purge adapter to register.
 
@@ -90,7 +85,7 @@ err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOp
 	River: ownership, RuntimePool: runtimePool,
 })
 // The host initializes its River schema through River's migrator.
-runtime, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, Redis: rdb, River: ownership})
+runtime, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, River: ownership})
 jobs, err := riverhelpers.New(ctx, runtimePool, &river.Config{Schema: "public"},
     runtime.RiverJobs(), billing.RiverJobs())
 err = runtime.Start(ctx) // checks composition; never starts the host client
@@ -125,9 +120,10 @@ Set HTTP policy in the runtime constructor, then obtain and mount its routes:
 ```go
 cfg.HTTP = authhttp.Config{
     TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
+    Redis:          rdb,                    // optional: rate limits shared by replicas
     Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
 }
-runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Redis: rdb, Email: mailer})
+runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Email: mailer})
 if err != nil {
     return err
 }

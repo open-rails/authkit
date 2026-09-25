@@ -1,8 +1,8 @@
 # Security tests
 
 `securitytest/` attacks AuthKit as a host embeds it: `embedded.New` with the
-`authhttp` surface under `/auth/v1`, a scratch PostgreSQL database and real
-memory/Redis stores. Every test runs in the `workflows` CI job;
+`authhttp` surface under `/auth/v1`, a scratch PostgreSQL database and a real
+Redis for shared rate limits. Every test runs in the `workflows` CI job;
 `scripts/check.sh` fails the job if any listed test is skipped or missing.
 Add a row and a test for every new attack class.
 
@@ -33,7 +33,7 @@ Add a row and a test for every new attack class.
 | Oversized form_post callback body | `TestSecurityFormPostCallbackIsBounded` |
 | Outbound fetch to reserved ranges, including NAT64/6to4 | `TestSecurityOutboundAddressGuard` |
 | Purged user's username re-registered | `TestSecurityPurgedUsernameStaysReserved` |
-| Replicas share Redis budgets; without Redis the single-replica memory store is automatic (a deployment requirement, see [rate limits](security/rate-limits.md)) | `TestSecurityMultiReplicaStores` |
+| A token or code issued on one replica replayed or guessed across replicas; replicas share Redis rate-limit budgets | `TestSecurityMultiReplicaStores` |
 | Stranger locks an account out with wrong passwords; guessing address keeps guessing; IPv6 address rotation within a /64 | `TestSecurityPasswordLimitIsPerAddress` |
 | Forged `X-Forwarded-For`/`CF-Connecting-IP` resets rate limits | `TestSecurityClientAddressSpoofing` |
 | Removed signing key still accepted or published; new key not published | `TestSecurityKeyRotationIsPublished` |

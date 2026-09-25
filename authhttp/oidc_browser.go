@@ -166,7 +166,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		sd.StepUpReturnTo = start.stepUp.StepUpReturnTo
 		sd.StepUpStartedAt = start.stepUp.StepUpStartedAt
 	}
-	if err := s.oidcStates.Put(r.Context(), state, sd); err != nil {
+	if err := s.svc.PutOIDCState(r.Context(), state, sd); err != nil {
 		fail(http.StatusInternalServerError, authkit.CodeStateStoreFailed)
 		return
 	}
@@ -216,7 +216,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)
 		return
 	}
-	sd, ok, err := s.oidcStates.Consume(r.Context(), state)
+	sd, ok, err := s.svc.ConsumeOIDCState(r.Context(), state)
 	if err != nil || !ok || sd.Provider != name {
 		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, authkit.CodeInvalidState)
 		return

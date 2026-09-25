@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -73,10 +72,8 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 func newHardeningService(t *testing.T) (*engine, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
-	store := memorystore.NewKV()
-	t.Cleanup(store.Close)
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
-		Deps{Postgres: testdb.Pool(t), EphemeralStore: store, Email: sender})
+		Deps{Postgres: testdb.Pool(t), Email: sender})
 	return svc, sender
 }
 

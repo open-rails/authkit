@@ -243,7 +243,7 @@ func (s *engine) clearPendingIndexes(ctx context.Context, rec pendingChange) {
 	}
 	if rec.Kind.isRegister() && rec.Username != "" {
 		value, _ := json.Marshal(pendingChangeIndex{Key: rec.key(), ID: rec.ID})
-		_, _ = s.ephemeralStore.CompareAndConsume(ctx, pendingChangeUserKey(rec.Kind, rec.Username), value)
+		_, _ = s.ephemeral.CompareAndConsume(ctx, pendingChangeUserKey(rec.Kind, rec.Username), value)
 	}
 }
 

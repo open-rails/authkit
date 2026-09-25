@@ -2,14 +2,12 @@ package embedded
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
@@ -22,17 +20,12 @@ type Deps struct {
 	River *RiverOwnership
 
 	// Postgres is the durable store. Required by every host-facing constructor.
-	Postgres *pgxpool.Pool
-	// Redis backs the ephemeral store, namespaced by Ephemeral.KeyPrefix
-	// (#307). Nil selects the per-process memory store (single replica only).
-	// Redis-compatible servers must provide atomic Lua execution (EVAL/EVALSHA)
-	// for conditional proof claims and counters, as well as atomic GETDEL.
-	Redis *redis.Client
-	// EphemeralStore is a host-supplied store; mutually exclusive with Redis.
-	EphemeralStore EphemeralStore
-	Email          EmailSender
-	SMS            SMSSender
-	Entitlements   EntitlementsProvider
+	// It also holds AuthKit's short-lived auth state (codes, ceremonies,
+	// attempt counters), shared by every replica.
+	Postgres     *pgxpool.Pool
+	Email        EmailSender
+	SMS          SMSSender
+	Entitlements EntitlementsProvider
 	// Deletion hooks run durably through River, never inside the request's
 	// transaction. Soft deletion must preserve recoverable host data; hard
 	// deletion is finalization work after 30 days and before identity purge.
@@ -65,13 +58,6 @@ type Deps struct {
 	Clock func() time.Time
 }
 
-func (d Deps) validate() error {
-	if d.Redis != nil && d.EphemeralStore != nil {
-		return errors.New("authkit: Deps.Redis and Deps.EphemeralStore are mutually exclusive")
-	}
-	return nil
-}
-
 func (s *engine) applyDeps(d Deps) error {
 	if d.Postgres != nil {
 		pool, err := schemaPool(d.Postgres, s.dbSchema())
@@ -80,9 +66,8 @@ func (s *engine) applyDeps(d Deps) error {
 		}
 		s.pg = pool
 		s.q = db.New(pool)
+		s.ephemeral = &ephemeralKV{q: s.q, now: d.Clock}
 	}
-	s.redisClient = d.Redis
-	s.ephemeralStore = d.EphemeralStore
 	s.email = d.Email
 	s.sms = d.SMS
 	s.entitlements = d.Entitlements

@@ -22,12 +22,8 @@ holds a whole /64.
 
 ## Where the state lives
 
-With `Deps.Redis` (Redis or Garnet), limits, codes and OIDC/SIWS login state are
-shared by every replica. Without it AuthKit uses process memory automatically
-and logs one startup warning. That is correct for a single replica only: with
-several, each keeps its own budgets and a login started on one cannot finish on
-another. Multi-replica deployments must configure Redis or Garnet.
-
-A custom `Deps.EphemeralStore` backs codes and pending registrations but not the
-HTTP limiter or OIDC/SIWS state, which then stay in memory unless
-`authhttp.Config.Redis` is set.
+Codes, attempt counters and OIDC/SIWS login state live in Postgres and are
+shared by every replica. Rate-limit budgets are shared through
+`authhttp.Config.Redis` (Redis or Garnet, keys under `RedisKeyPrefix`). Without
+it each process keeps its own budgets, so the effective limit is multiplied by
+the replica count; the per-code attempt caps still hold.

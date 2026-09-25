@@ -15,7 +15,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.RBAC = []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "operator", Permissions: []string{embedded.PermRootUsersDelete, embedded.PermRootUsersRecover}})}
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "memory"}, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg)
 	register := func(name string) (authkit.TokenSet, string) {
 		t.Helper()
 		response := f.expect(http.StatusAccepted, f.post("/register", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))

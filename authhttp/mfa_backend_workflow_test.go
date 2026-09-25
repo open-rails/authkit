@@ -5,28 +5,18 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/redis/go-redis/v9"
-
 	"github.com/open-rails/authkit/internal/testdb"
 
 	"github.com/stretchr/testify/require"
 )
 
-// Real command denial reproduces a Redis-compatible server that can store a
-// challenge but cannot execute its atomic claim. The same workflow covers read
-// and persistence failures: none should be presented as a mistyped OTP.
+// Real Postgres failures: a store that can hold a challenge but cannot read
+// or claim it, and a failing factor write. None should be presented as a
+// mistyped OTP.
 func TestMFAEnrollmentBackendFailures(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	admin := testdb.ScratchRedis(t)
 	ctx := context.Background()
-	name, password := "authkit_mfa_"+uniqueSuffix(), uniqueSuffix()+uniqueSuffix()
-	require.NoError(t, admin.Do(ctx, "ACL", "SETUSER", name, "on", ">"+password, "~*", "+@all").Err())
-	t.Cleanup(func() { require.NoError(t, admin.Do(ctx, "ACL", "DELUSER", name).Err()) })
-	opts := *admin.Options()
-	opts.Username, opts.Password = name, password
-	restricted := redis.NewClient(&opts)
-	t.Cleanup(func() { _ = restricted.Close() })
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "restricted-redis", rdb: restricted}, newServerTestConfig())
+	f := newAccountFlow(t, pg.Pool, newServerTestConfig())
 	for _, method := range []string{"totp", "sms"} {
 		for _, failure := range []string{"read", "claim", "persistence"} {
 			t.Run(method+"/"+failure, func(t *testing.T) {
@@ -59,13 +49,10 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				proof()
 				restore := func() {}
 				switch failure {
-				case "read", "claim":
-					commands := []any{"ACL", "SETUSER", name, "-get"}
-					if failure == "claim" {
-						commands = []any{"ACL", "SETUSER", name, "-eval", "-evalsha"}
-					}
-					require.NoError(t, admin.Do(ctx, commands...).Err())
-					restore = func() { require.NoError(t, admin.Do(ctx, "ACL", "SETUSER", name, "+get", "+eval", "+evalsha").Err()) }
+				case "read":
+					restore = takeEphemeralOffline(t, pg.Pool)
+				case "claim":
+					restore = failEphemeralClaims(t, pg.Pool, "")
 				case "persistence":
 					_, err := pg.Pool.Exec(ctx, `CREATE FUNCTION mfa_backend_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected factor persistence failure'; END $$; CREATE TRIGGER mfa_backend_failure BEFORE INSERT ON mfa_factors FOR EACH ROW EXECUTE FUNCTION mfa_backend_failure()`)
 					require.NoError(t, err)

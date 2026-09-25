@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 
 	"github.com/open-rails/authkit/ratelimit"
@@ -25,15 +26,18 @@ type Config struct {
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 
-	// Redis overrides the engine's Redis client for the HTTP layer's OIDC/SIWS
-	// state caches and rate limiter. Nil reuses embedded.Deps.Redis (#210), so
-	// most hosts never set it.
-	Redis *redis.Client
+	// Redis shares rate-limit counters across replicas. Nil keeps them per
+	// process. It holds no other AuthKit state.
+	Redis redis.UniversalClient
+	// RedisKeyPrefix namespaces the rate-limit keys so several deployments can
+	// share one Redis (#307). Empty derives "authkit:<schema>:"; a trailing ':'
+	// is added when missing. Must match ^[a-z0-9_.:-]{1,64}$.
+	RedisKeyPrefix string
 
 	// RateLimits overlays bucket-specific limits onto DefaultRateLimits (#242).
 	RateLimits map[string]ratelimit.Limit
 	// Limiter replaces AuthKit's automatic limiter. ADVANCED: normal
-	// deployments let AuthKit own the policy (Redis-backed when Redis is wired,
+	// deployments let AuthKit own the policy (Redis-backed when Redis is set,
 	// in-memory otherwise). RateLimits are not applied to a custom limiter.
 	Limiter RateLimiter
 	// DisableRateLimiting turns rate limiting off. TESTS ONLY: it removes the
@@ -96,6 +100,22 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
+
+func redisKeyPrefix(prefix, schema string) (string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "authkit:" + schema + ":"
+	}
+	if !strings.HasSuffix(prefix, ":") {
+		prefix += ":"
+	}
+	if !redisKeyPrefixRE.MatchString(prefix) {
+		return "", fmt.Errorf("authkit: invalid authhttp.Config.RedisKeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", prefix)
+	}
+	return prefix, nil
 }
 
 func parseProxyCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {

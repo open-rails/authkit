@@ -18,7 +18,7 @@ func TestConfiguredPasswordPolicyIsEnforcedAndPublished(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.Password = password.Policy{MinLength: 12, MaxLength: 20}
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "memory"}, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))
 	var wire struct {
@@ -84,7 +84,7 @@ func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) 
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "memory"}, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))
 	var wire struct {
@@ -120,7 +120,7 @@ func TestHostPasswordCompositionAndUsernameBounds(t *testing.T) {
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.Password = password.Policy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
 	cfg.Username = authkit.UsernamePolicy{MinLength: 6, MaxLength: 12}
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "memory"}, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))
 	var wire struct {

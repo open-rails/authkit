@@ -45,18 +45,13 @@ func (f oidcFlow) callback(t *testing.T, h http.Handler, provider, state string)
 	return w.Header().Get("Location")
 }
 
-// #288/7: on a real pool and both ephemeral stores, the callback must reject a
-// forged state, a state started for another provider, a tampered nonce, a
-// tampered PKCE verifier, and a replay of an already-consumed state — and only
-// the genuine flow completes.
+// #288/7: the callback must reject a forged state, a state started for another
+// provider, a tampered nonce, a tampered PKCE verifier, and a replay of an
+// already-consumed state — and only the genuine flow completes, on any replica.
 func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
-	forEachStore(t, testOIDCCallbackStateIsBoundAndSingleUse)
-}
-
-func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	srv, err := newTestService(newServerClient(t, newServerTestConfig(), pool, store.engineOpts()...), workflowHTTPConfig())
+	srv, err := newTestService(newServerClient(t, newServerTestConfig(), pool), workflowHTTPConfig())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 
@@ -101,11 +96,11 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		idp.SetNonce(f.nonce)
 		idp.ExpectCodeChallenge(f.codeChallenge)
 		t.Cleanup(func() { idp.ExpectCodeChallenge("") })
-		sd, ok, err := srv.oidcStates.Consume(ctx, f.state)
+		sd, ok, err := srv.svc.ConsumeOIDCState(ctx, f.state)
 		require.NoError(t, err)
 		require.True(t, ok)
 		sd.Verifier = "tampered-" + sd.Verifier
-		require.NoError(t, srv.oidcStates.Put(ctx, f.state, sd))
+		require.NoError(t, srv.svc.PutOIDCState(ctx, f.state, sd))
 		rejected(f.callback(t, h, "custom", f.state), authkit.CodeOIDCExchangeFailed)
 	})
 
@@ -124,8 +119,22 @@ func testOIDCCallbackStateIsBoundAndSingleUse(t *testing.T, store ephemeralStore
 		require.False(t, strings.Contains(loc, "error="), loc)
 
 		rejected(f.callback(t, h, "custom", f.state), authkit.CodeInvalidState)
-		_, ok, err := srv.oidcStates.Consume(ctx, f.state)
+		_, ok, err := srv.svc.ConsumeOIDCState(ctx, f.state)
 		require.NoError(t, err)
 		require.False(t, ok, "consumed state must be gone from the store")
+	})
+
+	t.Run("state issued by one replica completes on another", func(t *testing.T) {
+		replica, err := newTestService(newServerClient(t, newServerTestConfig(), pool), workflowHTTPConfig())
+		require.NoError(t, err)
+		t.Cleanup(replica.Close)
+		setTestProviders(replica, idp.Provider("custom", authprovider.WithPKCE(true)), other.Provider("other"))
+		f := startOIDCFlow(t, h, "custom")
+		idp.SetNonce(f.nonce)
+		idp.ExpectCodeChallenge(f.codeChallenge)
+		t.Cleanup(func() { idp.ExpectCodeChallenge("") })
+		loc := f.callback(t, replica.oidcHandler(), "custom", f.state)
+		require.Contains(t, loc, "access_token", loc)
+		rejected(f.callback(t, h, "custom", f.state), authkit.CodeInvalidState)
 	})
 }

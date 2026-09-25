@@ -17,7 +17,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.RBAC = []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "reader", Permissions: []string{"root:posts:read"}})}
-	f := newAccountFlow(t, pg.Pool, ephemeralStore{name: "memory"}, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg)
 	setTestProviders(f.service, authprovider.Google("google-client", "secret"), authprovider.Discord("discord-client", "secret"))
 	f.mount()
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))

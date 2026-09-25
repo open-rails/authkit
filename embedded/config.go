@@ -12,7 +12,7 @@ import (
 
 // Config is the host-provided configuration for an AuthKit Runtime. Fields are
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
-// runtime dependencies (Postgres, Redis, senders) are Deps.
+// runtime dependencies (Postgres, senders) are Deps.
 type Config struct {
 	// HTTP configures the optional runtime-owned HTTP surface during New.
 	// Pass authhttp.Config. Nil keeps the runtime headless; hosts that must
@@ -42,9 +42,6 @@ type Config struct {
 	Username authkit.UsernamePolicy
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
-	// Ephemeral governs the short-lived state backend (2FA codes, pending
-	// registrations, reset tokens, rate-limit counters).
-	Ephemeral EphemeralConfig
 	// Identity declares external OAuth2/OIDC identity providers.
 	Identity IdentityConfig
 	// APIKeys configures opaque permission-group-owned machine credentials.
@@ -281,19 +278,6 @@ type RegistrationConfig struct {
 // variables here (#231): key material and the dev opt-in come from the host's
 // explicit configuration; binaries (cmd/authkit-server) read env once at their
 // own boundary and set these fields.
-// EphemeralConfig governs the ephemeral (short-lived state) backend. Without
-// Redis, AuthKit keeps codes, login state and rate limits in process memory,
-// which is correct only for a single replica; multi-replica deployments must
-// configure Redis/Garnet.
-type EphemeralConfig struct {
-	// KeyPrefix namespaces every Redis key this deployment writes (ephemeral
-	// store, OIDC/SIWS caches, rate-limit counters) so several AuthKit
-	// deployments can share one Redis database (#307). Empty derives
-	// "authkit:<schema>:"; a trailing ':' is added when missing. Must match
-	// ^[a-z0-9_.:-]{1,64}$.
-	KeyPrefix string
-}
-
 type KeysConfig struct {
 	// Source can be nil — if nil, authkit resolves keys from the filesystem:
 	// <Path>/keys.json (default /vault/auth), hot-reloaded on rotation. When no

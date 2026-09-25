@@ -15,7 +15,7 @@ import (
 
 // Limiter is a Redis-backed sliding window limiter using ZSETs.
 type Limiter struct {
-	rdb    *redis.Client
+	rdb    redis.UniversalClient
 	ctx    context.Context
 	limits map[string]ratelimit.Limit
 	prefix string
@@ -23,7 +23,7 @@ type Limiter struct {
 
 // New builds a Redis sliding-window limiter whose keys live under prefix (the
 // deployment namespace, #307): <prefix><key>:<bucket>.
-func New(rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) (*Limiter, error) {
+func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix string) (*Limiter, error) {
 	if err := ratelimit.ValidateLimits(limits); err != nil {
 		return nil, err
 	}

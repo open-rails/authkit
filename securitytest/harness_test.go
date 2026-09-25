@@ -63,7 +63,7 @@ type hostConfig struct {
 type hostOption func(*hostConfig)
 
 func withRedis(rdb *redis.Client) hostOption {
-	return func(c *hostConfig) { c.deps.Redis = rdb }
+	return func(c *hostConfig) { c.http.Redis = rdb }
 }
 
 func withEngine(fn func(*embedded.Config)) hostOption {
