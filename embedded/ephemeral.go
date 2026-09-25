@@ -18,26 +18,18 @@ import (
 // ephemeralKV is AuthKit's short-lived auth state in Postgres (ephemeral_kv):
 // codes, tokens, ceremonies, OIDC/SIWS state and attempt counters. Every
 // replica sees the same rows, and each operation is a single statement, so
-// single-use claims and counters are atomic across the fleet. Expired rows are
-// invisible to reads and purged by the maintenance job.
+// single-use claims and counters are atomic across the fleet. Expiry always
+// uses the database clock (never Deps.Clock), so skewed replicas agree on
+// what is live. Expired rows are invisible to reads and purged by the
+// maintenance job.
 type ephemeralKV struct {
 	pool *pgxpool.Pool
 	q    *db.Queries
-	// now is the host clock (Deps.Clock); nil uses the database clock.
-	now func() time.Time
 }
 
 // ephemeralSweepBatch bounds each purge statement so it never holds many row
 // locks at once.
 const ephemeralSweepBatch = 1000
-
-func (k *ephemeralKV) at() *time.Time {
-	if k.now == nil {
-		return nil
-	}
-	t := k.now()
-	return &t
-}
 
 func ephemeralTTL(ttl time.Duration) (int64, error) {
 	if ttl <= 0 {
@@ -47,7 +39,7 @@ func ephemeralTTL(ttl time.Duration) (int64, error) {
 }
 
 func (k *ephemeralKV) Get(ctx context.Context, key string) ([]byte, bool, error) {
-	v, err := k.q.EphemeralGet(ctx, db.EphemeralGetParams{Key: key, AtTime: k.at()})
+	v, err := k.q.EphemeralGet(ctx, key)
 	return ephemeralValue(v, err)
 }
 
@@ -59,7 +51,7 @@ func (k *ephemeralKV) Set(ctx context.Context, key string, value []byte, ttl tim
 	if value == nil {
 		value = []byte{}
 	}
-	return k.q.EphemeralSet(ctx, db.EphemeralSetParams{Key: key, Value: value, AtTime: k.at(), TtlUs: us})
+	return k.q.EphemeralSet(ctx, db.EphemeralSetParams{Key: key, Value: value, TtlUs: us})
 }
 
 func (k *ephemeralKV) Del(ctx context.Context, key string) error {
@@ -71,14 +63,14 @@ func (k *ephemeralKV) Del(ctx context.Context, key string) error {
 // whose key is the secret (passkey challenge, reset token) must use it, never
 // Get+Del.
 func (k *ephemeralKV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
-	v, err := k.q.EphemeralConsume(ctx, db.EphemeralConsumeParams{Key: key, AtTime: k.at()})
+	v, err := k.q.EphemeralConsume(ctx, key)
 	return ephemeralValue(v, err)
 }
 
 // CompareAndConsume deletes a live key only while it still holds expected, so
 // an old reader can neither win twice nor consume a newer issuance.
 func (k *ephemeralKV) CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error) {
-	n, err := k.q.EphemeralCompareAndConsume(ctx, db.EphemeralCompareAndConsumeParams{Key: key, Expected: expected, AtTime: k.at()})
+	n, err := k.q.EphemeralCompareAndConsume(ctx, db.EphemeralCompareAndConsumeParams{Key: key, Expected: expected})
 	return n == 1, err
 }
 
@@ -89,14 +81,15 @@ func (k *ephemeralKV) Incr(ctx context.Context, key string, ttl time.Duration) (
 	if err != nil {
 		return 0, err
 	}
-	return k.q.EphemeralIncr(ctx, db.EphemeralIncrParams{Key: key, AtTime: k.at(), TtlUs: us})
+	return k.q.EphemeralIncr(ctx, db.EphemeralIncrParams{Key: key, TtlUs: us})
 }
 
-// DeleteExpired purges expired rows in bounded batches.
-func (k *ephemeralKV) DeleteExpired(ctx context.Context) (int64, error) {
+// purgeExpiredEphemeral deletes expired rows in bounded batches. It runs on
+// the main pool so it never occupies the small pool live claims use.
+func (s *engine) purgeExpiredEphemeral(ctx context.Context) (int64, error) {
 	var total int64
 	for {
-		n, err := k.q.EphemeralDeleteExpired(ctx, db.EphemeralDeleteExpiredParams{AtTime: k.at(), BatchSize: ephemeralSweepBatch})
+		n, err := s.q.EphemeralDeleteExpired(ctx, ephemeralSweepBatch)
 		total += n
 		if err != nil || n < ephemeralSweepBatch {
 			return total, err

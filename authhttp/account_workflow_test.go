@@ -96,7 +96,7 @@ func workflowHTTPConfig() Config {
 	for bucket := range limits {
 		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 	}
-	return Config{DirectPeerIP: true, RateLimits: limits}
+	return Config{DirectPeerIP: true, RateLimits: limits, PerProcessRateLimits: true}
 }
 
 func (f *accountFlow) request(method, path, token string, body any) flowResponse {

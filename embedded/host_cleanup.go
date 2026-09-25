@@ -39,7 +39,7 @@ func (s *engine) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if _, err := s.ephemeral.DeleteExpired(ctx); err != nil {
+	if _, err := s.purgeExpiredEphemeral(ctx); err != nil {
 		return err
 	}
 

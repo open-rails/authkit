@@ -56,9 +56,10 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 	}
 	capture := &mountCapture{cfg: authhttp.Config{
-		DirectPeerIP: true,
-		RateLimits:   limits,
-		Mount:        authhttp.MountOptions{RefreshCookie: true},
+		DirectPeerIP:         true,
+		RateLimits:           limits,
+		PerProcessRateLimits: true,
+		Mount:                authhttp.MountOptions{RefreshCookie: true},
 	}}
 	outbox := &Outbox{}
 	cfg := embedded.Config{

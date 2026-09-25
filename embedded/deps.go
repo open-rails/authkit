@@ -54,7 +54,9 @@ type Deps struct {
 	// fetches (#264); nil builds the timeout-bounded, redirect-refusing,
 	// SSRF-guarded default.
 	OutboundHTTP *http.Client
-	// Clock replaces the engine clock for TTL and grace-window decisions.
+	// Clock replaces the engine clock for TTL and grace-window decisions. It
+	// never governs ephemeral state (codes, claims, counters), which always
+	// expires by the database clock so replicas agree.
 	Clock func() time.Time
 }
 
@@ -78,7 +80,7 @@ func (s *engine) applyDeps(d Deps) error {
 			pool.Close()
 			return err
 		}
-		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), now: d.Clock}
+		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
 	}
 	s.email = d.Email
 	s.sms = d.SMS

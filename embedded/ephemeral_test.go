@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -111,18 +110,17 @@ func TestEphemeralIncrIsAtomicAndKeepsItsTTL(t *testing.T) {
 
 func TestEphemeralExpiry(t *testing.T) {
 	core := ephemeralEngine(t)
-	clk := testclock.New()
-	kv, ctx := &ephemeralKV{q: core.ephemeral.q, now: clk.Now}, t.Context()
+	kv, ctx := core.ephemeral, t.Context()
 
-	require.NoError(t, kv.Set(ctx, "code", []byte("v"), time.Minute))
-	require.NoError(t, kv.Set(ctx, "cas", []byte("v"), time.Minute))
-	n, err := kv.Incr(ctx, "counter", time.Minute)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), n)
-	_, err = kv.Incr(ctx, "counter", time.Minute)
+	require.NoError(t, kv.Set(ctx, "code", []byte("v"), time.Hour))
+	require.NoError(t, kv.Set(ctx, "cas", []byte("v"), time.Hour))
+	for range 2 {
+		_, err := kv.Incr(ctx, "counter", time.Hour)
+		require.NoError(t, err)
+	}
+	_, err := core.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 millisecond'`)
 	require.NoError(t, err)
 
-	clk.Advance(time.Minute)
 	_, ok, err := kv.Get(ctx, "code")
 	require.NoError(t, err)
 	require.False(t, ok, "an expired row is missing")
@@ -132,21 +130,27 @@ func TestEphemeralExpiry(t *testing.T) {
 	claimed, err := kv.CompareAndConsume(ctx, "cas", []byte("v"))
 	require.NoError(t, err)
 	require.False(t, claimed)
-	n, err = kv.Incr(ctx, "counter", time.Minute)
+	n, err := kv.Incr(ctx, "counter", time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), n, "an expired counter restarts")
 
 	require.Error(t, kv.Set(ctx, "forever", []byte("v"), 0))
 	_, err = kv.Incr(ctx, "forever", -time.Second)
 	require.Error(t, err)
+}
 
-	// Without a host clock the database clock decides.
-	require.NoError(t, core.ephemeral.Set(ctx, "db-clock", []byte("v"), time.Hour))
-	_, err = core.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 millisecond' WHERE key = 'db-clock'`)
+// A host clock far from the database's never changes what is live.
+func TestEphemeralIgnoresHostClock(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	skewed := func() time.Time { return time.Now().Add(24 * time.Hour) }
+	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, Clock: skewed})
 	require.NoError(t, err)
-	_, ok, err = core.ephemeral.Consume(ctx, "db-clock")
+	t.Cleanup(core.Close)
+	ctx := t.Context()
+	require.NoError(t, core.ephemeral.Set(ctx, "proof", []byte("v"), time.Minute))
+	_, ok, err := core.ephemeral.Get(ctx, "proof")
 	require.NoError(t, err)
-	require.False(t, ok)
+	require.True(t, ok)
 }
 
 func TestEphemeralSweepPurgesOnlyExpiredRows(t *testing.T) {
@@ -157,7 +161,7 @@ SELECT 'expired:' || i, '\x00', now() - interval '1 second' FROM generate_series
 	require.NoError(t, err)
 	require.NoError(t, core.ephemeral.Set(ctx, "live", []byte("v"), time.Hour))
 
-	n, err := core.ephemeral.DeleteExpired(ctx)
+	n, err := core.purgeExpiredEphemeral(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int64(2*ephemeralSweepBatch+5), n)
 	var rows int

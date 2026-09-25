@@ -26,8 +26,11 @@ type Config struct {
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 
-	// Redis shares rate-limit counters across replicas. Nil keeps them per
-	// process. It holds no other AuthKit state.
+	// Rate limiting is an explicit choice; exactly one of Redis, Limiter,
+	// PerProcessRateLimits and DisableRateLimiting is required.
+	//
+	// Redis shares rate-limit counters across replicas. It holds no other
+	// AuthKit state.
 	Redis redis.UniversalClient
 	// RedisKeyPrefix namespaces the rate-limit keys so several deployments can
 	// share one Redis (#307). Empty derives "authkit:<schema>:"; a trailing ':'
@@ -36,10 +39,13 @@ type Config struct {
 
 	// RateLimits overlays bucket-specific limits onto DefaultRateLimits (#242).
 	RateLimits map[string]ratelimit.Limit
-	// Limiter replaces AuthKit's automatic limiter. ADVANCED: normal
-	// deployments let AuthKit own the policy (Redis-backed when Redis is set,
-	// in-memory otherwise). RateLimits are not applied to a custom limiter.
+	// Limiter replaces AuthKit's limiter. ADVANCED: RateLimits are not applied
+	// to a custom limiter.
 	Limiter RateLimiter
+	// PerProcessRateLimits keeps counters in each process. Correct for one
+	// replica only: N replicas allow N times every limit, including password
+	// guesses.
+	PerProcessRateLimits bool
 	// DisableRateLimiting turns rate limiting off. TESTS ONLY: it removes the
 	// brute-force and spam protection.
 	DisableRateLimiting bool
@@ -83,10 +89,16 @@ func (c Config) Validate() error {
 	if _, err := parseProxyCIDRs("Cloudflare proxy", c.CloudflareProxies); err != nil {
 		return err
 	}
-	if c.Limiter != nil && c.DisableRateLimiting {
-		return errors.New("authkit: authhttp.Config.Limiter and DisableRateLimiting are mutually exclusive")
+	choices := 0
+	for _, set := range []bool{c.Redis != nil, c.Limiter != nil, c.PerProcessRateLimits, c.DisableRateLimiting} {
+		if set {
+			choices++
+		}
 	}
-	if !c.DisableRateLimiting && c.Limiter == nil {
+	if choices != 1 {
+		return errors.New("authkit: choose exactly one rate limiter: authhttp.Config.Redis (shared by replicas), Limiter, PerProcessRateLimits (single replica only) or DisableRateLimiting (tests only)")
+	}
+	if c.Limiter == nil && !c.DisableRateLimiting {
 		if err := ratelimit.ValidateLimits(c.RateLimits); err != nil {
 			return err
 		}

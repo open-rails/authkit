@@ -49,7 +49,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	cfg.RateLimits[RLPasswordLogin] = ratelimit.Limit{Limit: 2, Window: time.Minute}
 	cfg.RateLimits[RLPasswordStepUp] = ratelimit.Limit{Limit: 2, Window: time.Minute}
 	if rdb != nil {
-		cfg.Redis = rdb
+		cfg.Redis, cfg.PerProcessRateLimits = rdb, false
 	}
 	svc, err := newTestService(client, cfg)
 	require.NoError(t, err)
@@ -161,14 +161,14 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 
 	// A valid HTTP config can still fail the cross-layer document policy.
 	// Failed construction must not strand workers the caller cannot close.
-	svc, err := construct(Config{DirectPeerIP: true, Documents: []DocumentProvider{&documents.Service{}}})
+	svc, err := construct(Config{DirectPeerIP: true, PerProcessRateLimits: true, Documents: []DocumentProvider{&documents.Service{}}})
 	require.ErrorContains(t, err, "Readers is empty")
 	require.Nil(t, svc)
 	require.False(t, hasWorkers(), "failed construction leaked background workers")
 
-	cfg := Config{DirectPeerIP: true}
+	cfg := Config{DirectPeerIP: true, PerProcessRateLimits: true}
 	if rdb != nil {
-		cfg.Redis = rdb
+		cfg.Redis, cfg.PerProcessRateLimits = rdb, false
 	}
 	svc, err = construct(cfg)
 	require.NoError(t, err)
@@ -182,4 +182,10 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 	if rdb != nil {
 		require.NoError(t, rdb.Ping(t.Context()).Err(), "the host's Redis client remains usable")
 	}
+}
+
+func TestRateLimiterIsAnExplicitChoice(t *testing.T) {
+	require.ErrorContains(t, Config{DirectPeerIP: true}.Validate(), "choose exactly one rate limiter")
+	require.ErrorContains(t, Config{DirectPeerIP: true, PerProcessRateLimits: true, DisableRateLimiting: true}.Validate(), "choose exactly one rate limiter")
+	require.NoError(t, Config{DirectPeerIP: true, PerProcessRateLimits: true}.Validate())
 }

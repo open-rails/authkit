@@ -3,7 +3,7 @@
 Embedded auth library for Go services: users, sessions, MFA, passkeys, device
 keys, OAuth/OIDC and Solana login, RBAC permission groups, API keys, signed
 documents and delegated tokens, running in your process against your Postgres
-(18+). Redis is optional and only shares rate limits. Tests exercise the embedded HTTP handlers directly; AuthKit
+(18+). Redis only shares rate limits across replicas. Tests exercise the embedded HTTP handlers directly; AuthKit
 owns its PostgreSQL migration source and runs it through migratekit.
 
 One module, `github.com/open-rails/authkit`, includes the core and every adapter.
@@ -23,9 +23,10 @@ See [contact ownership](docs/security/contact-ownership.md) for why unproven
 accounts cannot add login methods and what the first address proof revokes.
 
 Codes, reset tokens, ceremonies, OIDC/SIWS login state and attempt counters
-live in Postgres (`ephemeral_kv`), so every replica shares them. Rate limits
-are per process unless `authhttp.Config.Redis` (any `redis.UniversalClient`)
-is set; see [rate limits](docs/security/rate-limits.md). The Redis limiter needs
+live in Postgres (`ephemeral_kv`), so every replica shares them. The rate
+limiter is a required choice: `authhttp.Config.Redis` (any
+`redis.UniversalClient`) shares limits across replicas, `PerProcessRateLimits`
+is for a single replica; see [rate limits](docs/security/rate-limits.md). The Redis limiter needs
 atomic Lua (`EVAL`/`EVALSHA`); for Garnet enable `--lua true` and
 `--lua-transaction-mode true`.
 
@@ -120,7 +121,7 @@ Set HTTP policy in the runtime constructor, then obtain and mount its routes:
 ```go
 cfg.HTTP = authhttp.Config{
     TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
-    Redis:          rdb,                    // optional: rate limits shared by replicas
+    Redis:          rdb,                    // or PerProcessRateLimits for one replica
     Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
 }
 runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Email: mailer})

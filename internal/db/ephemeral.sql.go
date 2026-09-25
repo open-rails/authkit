@@ -7,23 +7,21 @@ package db
 
 import (
 	"context"
-	"time"
 )
 
 const ephemeralCompareAndConsume = `-- name: EphemeralCompareAndConsume :execrows
 DELETE FROM ephemeral_kv
 WHERE key = $1 AND value = $2
-  AND expires_at > COALESCE($3::timestamptz, now())
+  AND expires_at > now()
 `
 
 type EphemeralCompareAndConsumeParams struct {
 	Key      string
 	Expected []byte
-	AtTime   *time.Time
 }
 
 func (q *Queries) EphemeralCompareAndConsume(ctx context.Context, arg EphemeralCompareAndConsumeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, ephemeralCompareAndConsume, arg.Key, arg.Expected, arg.AtTime)
+	result, err := q.db.Exec(ctx, ephemeralCompareAndConsume, arg.Key, arg.Expected)
 	if err != nil {
 		return 0, err
 	}
@@ -32,17 +30,12 @@ func (q *Queries) EphemeralCompareAndConsume(ctx context.Context, arg EphemeralC
 
 const ephemeralConsume = `-- name: EphemeralConsume :one
 DELETE FROM ephemeral_kv
-WHERE key = $1 AND expires_at > COALESCE($2::timestamptz, now())
+WHERE key = $1 AND expires_at > now()
 RETURNING value
 `
 
-type EphemeralConsumeParams struct {
-	Key    string
-	AtTime *time.Time
-}
-
-func (q *Queries) EphemeralConsume(ctx context.Context, arg EphemeralConsumeParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, ephemeralConsume, arg.Key, arg.AtTime)
+func (q *Queries) EphemeralConsume(ctx context.Context, key string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, ephemeralConsume, key)
 	var value []byte
 	err := row.Scan(&value)
 	return value, err
@@ -61,18 +54,13 @@ const ephemeralDeleteExpired = `-- name: EphemeralDeleteExpired :execrows
 DELETE FROM ephemeral_kv
 WHERE key IN (
   SELECT e.key FROM ephemeral_kv e
-  WHERE e.expires_at <= COALESCE($1::timestamptz, now())
-  ORDER BY e.expires_at LIMIT $2 FOR UPDATE SKIP LOCKED
-) AND expires_at <= COALESCE($1::timestamptz, now())
+  WHERE e.expires_at <= now()
+  ORDER BY e.expires_at LIMIT $1 FOR UPDATE SKIP LOCKED
+) AND expires_at <= now()
 `
 
-type EphemeralDeleteExpiredParams struct {
-	AtTime    *time.Time
-	BatchSize int64
-}
-
-func (q *Queries) EphemeralDeleteExpired(ctx context.Context, arg EphemeralDeleteExpiredParams) (int64, error) {
-	result, err := q.db.Exec(ctx, ephemeralDeleteExpired, arg.AtTime, arg.BatchSize)
+func (q *Queries) EphemeralDeleteExpired(ctx context.Context, batchSize int64) (int64, error) {
+	result, err := q.db.Exec(ctx, ephemeralDeleteExpired, batchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -82,18 +70,13 @@ func (q *Queries) EphemeralDeleteExpired(ctx context.Context, arg EphemeralDelet
 const ephemeralGet = `-- name: EphemeralGet :one
 
 SELECT value FROM ephemeral_kv
-WHERE key = $1 AND expires_at > COALESCE($2::timestamptz, now())
+WHERE key = $1 AND expires_at > now()
 `
 
-type EphemeralGetParams struct {
-	Key    string
-	AtTime *time.Time
-}
-
-// Each operation is one statement. at_time is NULL (the database clock)
-// unless the host injected a clock.
-func (q *Queries) EphemeralGet(ctx context.Context, arg EphemeralGetParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, ephemeralGet, arg.Key, arg.AtTime)
+// Each operation is one statement. Expiry always uses the database clock, so
+// replicas with skewed clocks agree on what is live.
+func (q *Queries) EphemeralGet(ctx context.Context, key string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, ephemeralGet, key)
 	var value []byte
 	err := row.Scan(&value)
 	return value, err
@@ -101,25 +84,24 @@ func (q *Queries) EphemeralGet(ctx context.Context, arg EphemeralGetParams) ([]b
 
 const ephemeralIncr = `-- name: EphemeralIncr :one
 INSERT INTO ephemeral_kv AS kv (key, value, expires_at)
-VALUES ($1, '\x31'::bytea, COALESCE($2::timestamptz, now()) + $3::bigint * interval '1 microsecond')
+VALUES ($1, '\x31'::bytea, now() + $2::bigint * interval '1 microsecond')
 ON CONFLICT (key) DO UPDATE SET
-  value = CASE WHEN kv.expires_at <= COALESCE($2::timestamptz, now()) THEN EXCLUDED.value
+  value = CASE WHEN kv.expires_at <= now() THEN EXCLUDED.value
     ELSE convert_to((convert_from(kv.value, 'UTF8')::bigint + 1)::text, 'UTF8') END,
-  expires_at = CASE WHEN kv.expires_at <= COALESCE($2::timestamptz, now()) THEN EXCLUDED.expires_at
+  expires_at = CASE WHEN kv.expires_at <= now() THEN EXCLUDED.expires_at
     ELSE kv.expires_at END
 RETURNING convert_from(value, 'UTF8')::bigint AS n
 `
 
 type EphemeralIncrParams struct {
-	Key    string
-	AtTime *time.Time
-	TtlUs  int64
+	Key   string
+	TtlUs int64
 }
 
 // The TTL is set when the counter starts and never extended; an expired
 // counter restarts at 1.
 func (q *Queries) EphemeralIncr(ctx context.Context, arg EphemeralIncrParams) (int64, error) {
-	row := q.db.QueryRow(ctx, ephemeralIncr, arg.Key, arg.AtTime, arg.TtlUs)
+	row := q.db.QueryRow(ctx, ephemeralIncr, arg.Key, arg.TtlUs)
 	var n int64
 	err := row.Scan(&n)
 	return n, err
@@ -127,23 +109,17 @@ func (q *Queries) EphemeralIncr(ctx context.Context, arg EphemeralIncrParams) (i
 
 const ephemeralSet = `-- name: EphemeralSet :exec
 INSERT INTO ephemeral_kv (key, value, expires_at)
-VALUES ($1, $2, COALESCE($3::timestamptz, now()) + $4::bigint * interval '1 microsecond')
+VALUES ($1, $2, now() + $3::bigint * interval '1 microsecond')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
 `
 
 type EphemeralSetParams struct {
-	Key    string
-	Value  []byte
-	AtTime *time.Time
-	TtlUs  int64
+	Key   string
+	Value []byte
+	TtlUs int64
 }
 
 func (q *Queries) EphemeralSet(ctx context.Context, arg EphemeralSetParams) error {
-	_, err := q.db.Exec(ctx, ephemeralSet,
-		arg.Key,
-		arg.Value,
-		arg.AtTime,
-		arg.TtlUs,
-	)
+	_, err := q.db.Exec(ctx, ephemeralSet, arg.Key, arg.Value, arg.TtlUs)
 	return err
 }

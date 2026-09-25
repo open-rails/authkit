@@ -108,9 +108,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if err := s.validate(cfg); err != nil {
 		return nil, err
 	}
-	// AuthKit owns the rate-limit policy unless the host replaced or disabled
-	// the limiter: Redis-backed when Config.Redis is set, so limits are shared
-	// across instances; per-process otherwise.
+	// Config.Validate guarantees exactly one limiter choice.
 	switch {
 	case hcfg.Limiter != nil:
 		s.rl = hcfg.Limiter
@@ -141,7 +139,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 			ml.StartCleanup(ctx, time.Minute)
 			s.closers = append(s.closers, cancel)
 			s.rl = ml
-			slog.Info("authkit: rate limiter", "backend", "memory")
+			slog.Warn("authkit: rate limits are per-process (PerProcessRateLimits) — every replica multiplies each limit, including password guesses; set authhttp.Config.Redis for multiple replicas")
 		}
 	}
 	return s, nil
