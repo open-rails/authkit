@@ -81,10 +81,19 @@ type Provider interface {
 	// often let a tenant or user choose the claimed email, so they are
 	// untrusted unless the host opts in with WithTrustedEmailVerification.
 	TrustsEmailVerification() bool
+	// AuthCodeURL and Exchange wrap ErrProviderUnavailable when the provider
+	// could not be reached or answered 5xx/429.
 	AuthCodeURL(ctx context.Context, req AuthRequest) (string, error)
 	Exchange(ctx context.Context, req ExchangeRequest) (Identity, error)
 	// Validate checks the static configuration; it performs no network calls.
 	Validate() error
+}
+
+// HealthChecker is implemented by providers that cache remote state (OIDC
+// discovery). CheckHealth performs no I/O, so a host can register it as an
+// optional dependency probe.
+type HealthChecker interface {
+	CheckHealth(ctx context.Context) error
 }
 
 // Secret produces the client secret sent on a code exchange.
@@ -187,6 +196,7 @@ func newBase(name, issuer, clientID string, secret Secret, scopes []string, pkce
 	if b.displayName == "" {
 		b.displayName = b.name
 	}
+	b.httpClient = withOutageTracking(b.httpClient)
 	return b
 }
 

@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -139,6 +140,10 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	authURL, err := p.AuthCodeURL(r.Context(), authprovider.AuthRequest{
 		State: state, Nonce: nonce, CodeChallenge: challenge, RedirectURI: redirectURI, Params: start.params,
 	})
+	if errors.Is(err, authprovider.ErrProviderUnavailable) {
+		fail(http.StatusServiceUnavailable, authkit.CodeProviderUnavailable)
+		return
+	}
 	if err != nil {
 		fail(http.StatusBadRequest, authkit.CodeOIDCBeginFailed)
 		return
@@ -225,6 +230,10 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	identity, err := p.Exchange(r.Context(), authprovider.ExchangeRequest{
 		Code: code, CodeVerifier: sd.Verifier, Nonce: sd.Nonce, RedirectURI: sd.RedirectURI,
 	})
+	if errors.Is(err, authprovider.ErrProviderUnavailable) {
+		s.failBrowserFlow(w, r, &sd, name, http.StatusServiceUnavailable, authkit.CodeProviderUnavailable)
+		return
+	}
 	if err != nil || strings.TrimSpace(identity.Subject) == "" {
 		s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, authkit.CodeOIDCExchangeFailed)
 		return

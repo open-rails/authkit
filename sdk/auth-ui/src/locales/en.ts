@@ -604,6 +604,8 @@ export const en = {
     provider_error: "The provider returned an error. Please try again.",
     provider_link_failed: "The account could not be linked.",
     provider_not_linked: "That provider is not linked.",
+    provider_unavailable:
+      "The sign-in provider is temporarily unavailable. Try again shortly.",
     rate_limited: "Too many attempts. Please try again later.",
     regenerate_codes_failed: "Backup codes could not be regenerated.",
     registration_disabled: "Registration is currently disabled.",

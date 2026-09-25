@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +31,9 @@ type fakeOIDCIdP struct {
 	key *rsa.PrivateKey
 	kid string
 
+	// outage makes every endpoint answer 503 ("503") or drop the connection ("reset").
+	outage atomic.Value
+
 	mu            sync.Mutex
 	nonce         string
 	codeChallenge string
@@ -42,6 +46,15 @@ func newFakeOIDCIdP(t *testing.T, clientID string) *fakeOIDCIdP {
 	require.NoError(t, err)
 	f := &fakeOIDCIdP{ClientID: clientID, key: key, kid: "idp-" + uniqueSuffix(), claims: map[string]any{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch f.outage.Load() {
+		case "503":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		case "reset":
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+			return
+		}
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			w.Header().Set("Content-Type", "application/json")

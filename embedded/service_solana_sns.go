@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/netguard"
 )
 
 const (
@@ -47,7 +49,7 @@ type defaultSolanaSNSResolver struct {
 
 func newDefaultSolanaSNSResolver() defaultSolanaSNSResolver {
 	return defaultSolanaSNSResolver{
-		client:  http.DefaultClient,
+		client:  netguard.Client(defaultSolanaSNSLookupTimeout, false),
 		baseURL: defaultSolanaSNSProxyURL,
 	}
 }
@@ -62,11 +64,7 @@ func (r defaultSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, addres
 	if err != nil {
 		return "", err
 	}
-	client := r.client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
+	resp, err := r.client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -117,14 +115,16 @@ type solanaSNSProfile struct {
 // SNS resolution is AuthKit-owned and always-on with fixed timeout/cache — there is
 // no host toggle or override (the only prerequisite is a Postgres store to read/write).
 // solanaSNS holds the SNS-resolution state the resolver does not own: the
-// cache TTL, fixed in production and settable by tests to force staleness. The
-// injected resolver (Runtime.solanaSNSResolver) joins it when #314 moves
-// dependency injection onto the Deps struct.
+// cache TTL, fixed in production and settable by tests to force staleness,
+// and the users whose resolution is running (one background lookup per user).
 type solanaSNS struct {
 	cacheTTL time.Duration
+
+	mu       sync.Mutex
+	inflight map[string]bool
 }
 
-func (c solanaSNS) ttl() time.Duration {
+func (c *solanaSNS) ttl() time.Duration {
 	if c.cacheTTL > 0 {
 		return c.cacheTTL
 	}
@@ -149,11 +149,31 @@ func normalizeSolanaSNSName(name string) (string, error) {
 	return normalized, nil
 }
 
+// maybeResolveSolanaSNSAfterLink refreshes SNS metadata in the background so
+// a slow or unavailable resolver never delays the link or login that
+// triggered it. Concurrent triggers for one user coalesce.
 func (s *engine) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
 	if s.pg == nil {
 		return
 	}
-	_, _ = s.resolveAndStoreSolanaSNS(ctx, userID, address)
+	s.sns.mu.Lock()
+	if s.sns.inflight[userID] {
+		s.sns.mu.Unlock()
+		return
+	}
+	if s.sns.inflight == nil {
+		s.sns.inflight = map[string]bool{}
+	}
+	s.sns.inflight[userID] = true
+	s.sns.mu.Unlock()
+	go func() {
+		defer func() {
+			s.sns.mu.Lock()
+			delete(s.sns.inflight, userID)
+			s.sns.mu.Unlock()
+		}()
+		_, _ = s.resolveAndStoreSolanaSNS(context.WithoutCancel(ctx), userID, address)
+	}()
 }
 
 // resolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
@@ -259,9 +279,7 @@ func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*So
 	}
 	if stale {
 		status = SolanaSNSStatusStale
-		go func() {
-			_, _ = s.resolveAndStoreSolanaSNS(context.Background(), userID, address)
-		}()
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, address)
 	}
 
 	return &SolanaLinkedAccount{

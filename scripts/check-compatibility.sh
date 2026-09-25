@@ -76,11 +76,20 @@ def preserve(want, got, path):
     elif type(want) is not type(got) or want != got:
         raise SystemExit(f"published wire contract changed: {path}")
 
+# #398: a feature whose sender or provider is unavailable answers 503 instead
+# of an opaque 500. Pre-v1 hard cut for exactly these availability codes.
+unavailable_500_to_503 = {"email_registration_unavailable", "email_verification_unavailable",
+                          "phone_2fa_unavailable", "phone_registration_unavailable",
+                          "phone_verification_unavailable"}
+
 for fixture in (old_root / "authhttp/testdata/wire").glob("*.json"):
     current = new_root / "authhttp/testdata/wire" / fixture.name
     if not current.is_file():
         raise SystemExit(f"published wire fixture removed: {fixture.name}")
-    preserve(json.loads(fixture.read_text()), json.loads(current.read_text()), fixture.name)
+    want = json.loads(fixture.read_text())
+    if pre_v1 and fixture.name == "error-statuses.json":
+        want.update({code: 503 for code in unavailable_500_to_503 if want.get(code) == 500})
+    preserve(want, json.loads(current.read_text()), fixture.name)
 print("route and wire compatibility: published requirements preserved")
 PY
 

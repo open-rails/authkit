@@ -78,6 +78,12 @@ func (p *oauth2Provider) AuthCodeURL(_ context.Context, req AuthRequest) (string
 }
 
 func (p *oauth2Provider) Exchange(ctx context.Context, req ExchangeRequest) (Identity, error) {
+	ctx, classify := trackOutage(ctx)
+	identity, err := p.exchange(ctx, req)
+	return identity, classify(err)
+}
+
+func (p *oauth2Provider) exchange(ctx context.Context, req ExchangeRequest) (Identity, error) {
 	secret, err := p.clientSecret(ctx)
 	if err != nil {
 		return Identity{}, err
