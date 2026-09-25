@@ -17,9 +17,12 @@ import (
 )
 
 const (
-	// discoveryTTL bounds how long discovered metadata is fresh. Stale metadata
-	// keeps serving while one background loop rediscovers it.
+	// discoveryTTL bounds how long discovered metadata (and the key set built
+	// with it) is fresh. Stale metadata keeps serving while one background loop
+	// rediscovers it, up to discoveryMaxStale after the last success; past that
+	// logins fail closed, so blocking discovery cannot keep revoked keys valid.
 	discoveryTTL            = time.Hour
+	discoveryMaxStale       = 4 * time.Hour
 	discoveryAttemptTimeout = 5 * time.Second
 	discoveryBackoffBase    = 500 * time.Millisecond
 	discoveryBackoffMax     = time.Minute
@@ -32,21 +35,22 @@ const (
 func OIDC(name, issuer, clientID, clientSecret string, opts ...Option) Provider {
 	b := newBase(name, issuer, clientID, StaticSecret(clientSecret), []string{"openid", "email", "profile"}, true, opts)
 	b.scopes = ensureOpenID(b.scopes)
-	return &oidcProvider{base: b, ttl: discoveryTTL, backoffBase: discoveryBackoffBase, backoffMax: discoveryBackoffMax}
+	return &oidcProvider{base: b, ttl: discoveryTTL, maxStale: discoveryMaxStale,
+		backoffBase: discoveryBackoffBase, backoffMax: discoveryBackoffMax, now: time.Now}
 }
 
-// discovery is the issuer metadata a login needs. keys is reused across
-// rediscoveries of the same jwks_uri so its cached signing keys survive.
+// discovery is the issuer metadata a login needs, with a key set built for it.
 type discovery struct {
-	endpoint oauth2.Endpoint
-	jwksURI  string
-	keys     oidc.KeySet
-	expiry   time.Time
+	endpoint  oauth2.Endpoint
+	keys      oidc.KeySet
+	fetchedAt time.Time
+	expiry    time.Time
 }
 
 type oidcProvider struct {
 	base
-	ttl, backoffBase, backoffMax time.Duration
+	ttl, maxStale, backoffBase, backoffMax time.Duration
+	now                                    func() time.Time
 
 	mu         sync.Mutex
 	disc       *discovery
@@ -64,6 +68,9 @@ func (p *oidcProvider) Validate() error { return p.validate() }
 func (p *oidcProvider) CheckHealth(context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.disc != nil && p.pastMaxStaleLocked() {
+		return fmt.Errorf("%w: %s discovery older than %s, logins failing closed: %w", ErrProviderUnavailable, p.name, p.maxStale, cmp.Or(p.lastErr, errDiscoveryPastMaxStale))
+	}
 	if p.lastErr != nil {
 		return fmt.Errorf("%w: %s discovery: %w", ErrProviderUnavailable, p.name, p.lastErr)
 	}
@@ -148,8 +155,8 @@ func (p *oidcProvider) exchange(ctx context.Context, d *discovery, req ExchangeR
 // the loop succeeds.
 func (p *oidcProvider) discovery(ctx context.Context) (*discovery, error) {
 	p.mu.Lock()
-	d := p.disc
-	if d == nil || time.Now().After(d.expiry) {
+	d := p.usableLocked()
+	if d == nil || p.now().After(d.expiry) {
 		p.startRefreshLocked()
 	}
 	attempted := p.attempted
@@ -162,12 +169,26 @@ func (p *oidcProvider) discovery(ctx context.Context) (*discovery, error) {
 	case <-ctx.Done():
 	}
 	p.mu.Lock()
-	d, err := p.disc, cmp.Or(p.lastErr, ctx.Err())
+	d, err := p.usableLocked(), cmp.Or(p.lastErr, ctx.Err(), errDiscoveryPastMaxStale)
 	p.mu.Unlock()
 	if d == nil {
 		return nil, fmt.Errorf("%w: %s discovery: %w", ErrProviderUnavailable, p.name, err)
 	}
 	return d, nil
+}
+
+var errDiscoveryPastMaxStale = errors.New("discovery metadata exceeds max stale")
+
+func (p *oidcProvider) pastMaxStaleLocked() bool {
+	return p.now().Sub(p.disc.fetchedAt) > max(p.maxStale, p.ttl)
+}
+
+// usableLocked returns the cached discovery unless it is past MaxStale.
+func (p *oidcProvider) usableLocked() *discovery {
+	if p.disc == nil || p.pastMaxStaleLocked() {
+		return nil
+	}
+	return p.disc
 }
 
 func (p *oidcProvider) startRefreshLocked() {
@@ -186,16 +207,15 @@ func (p *oidcProvider) refreshLoop(attempted chan struct{}) {
 		p.mu.Lock()
 		p.lastErr = err
 		if err == nil {
+			now := p.now()
 			d := &discovery{
-				endpoint: oauth2.Endpoint{AuthURL: cfg.AuthorizationEndpoint, TokenURL: cfg.TokenEndpoint},
-				jwksURI:  cfg.JwksURI,
-				expiry:   time.Now().Add(p.ttl),
+				endpoint:  oauth2.Endpoint{AuthURL: cfg.AuthorizationEndpoint, TokenURL: cfg.TokenEndpoint},
+				fetchedAt: now,
+				expiry:    now.Add(p.ttl),
 			}
-			if p.disc != nil && p.disc.jwksURI == d.jwksURI {
-				d.keys = p.disc.keys
-			} else {
-				d.keys = rp.NewRemoteKeySet(p.httpClient, d.jwksURI)
-			}
+			// A fresh key set per discovery: the library's set never drops keys,
+			// so reusing it would keep keys the IdP has revoked.
+			d.keys = rp.NewRemoteKeySet(p.httpClient, cfg.JwksURI)
 			p.disc, p.refreshing = d, false
 		}
 		p.mu.Unlock()

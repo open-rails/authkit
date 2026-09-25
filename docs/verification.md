@@ -95,16 +95,18 @@ Key sources have distinct owners:
 - `JWKSURI` is fetched and cached for `CacheTTL` (default 10 minutes), which
   also applies to any initial supplied keys. Expired keys keep verifying while
   one background loop per issuer refetches them (3s per attempt, capped jittered
-  backoff, until success); requests never wait on it. Stale keys are trusted
-  for at most `MaxStale` (default 24 hours) after the last successful fetch, so
-  blocking our fetch cannot keep a revoked key valid. An issuer with no usable
-  keys gets one bounded attempt, then `503 issuer_keys_unavailable` until the
-  loop succeeds; other issuers are unaffected. Unknown KIDs and signature
-  failures trigger a throttled refresh. External JWKS revocation therefore takes
-  effect on the first successful refresh after `CacheTTL`, and at the latest
-  `MaxStale` after the last successful fetch. `Verifier.IssuerKeyStatuses()`
-  reports each JWKS issuer (including key `Age` and `Expired`) and
-  `Verifier.CheckIssuerKeys` is a no-I/O probe for a dependency supervisor.
+  backoff, until success); requests never wait on it. Only transport errors,
+  5xx and 429 keep cached keys: any other answer is authoritative, so its valid
+  keys replace the cache (malformed, weak or unsupported keys are skipped) and
+  one without usable keys, a 4xx or a non-JSON body drops it. Stale keys are
+  trusted for at most `MaxStale` (default 4 hours, never below `CacheTTL`) after
+  the last successful fetch, so blocking our fetch cannot keep a revoked key
+  valid. An issuer with no usable keys gets one bounded attempt, then
+  `503 issuer_keys_unavailable` (expired or wrong-audience tokens still get
+  their 401); other issuers are unaffected. Unknown KIDs and signature failures
+  trigger a throttled refresh. `Verifier.IssuerKeyStatuses()` reports each JWKS
+  issuer (including key `Age` and `Expired`) and `Verifier.CheckIssuerKeys` is
+  a no-I/O probe for a dependency supervisor.
 
 PEM, JWK, raw public keys and built-in signing keys use the same supported-key
 policy: RSA 2048–8192 bits, P-256/P-384/P-521, or Ed25519. Invalid key sets cannot
