@@ -18,7 +18,7 @@ func TestRuntimeRoutesNativeAnchorsAndOriginalRequest(t *testing.T) {
 	const path = "/identity/password/login?proof=original%2Fbytes"
 	const body = "{ \"identifier\" : \"unknown@example.test\", \"password\":\"wrong\" }\n"
 	var seenURI, seenBody string
-	cfg := authhttp.Config{DirectPeerIP: true, Mount: authhttp.MountOptions{APIPrefix: "/identity", Wrap: func(_ authhttp.RouteSpec, next http.Handler) http.Handler {
+	cfg := authhttp.Config{DirectPeerIP: true, PerProcessRateLimits: true, Mount: authhttp.MountOptions{APIPrefix: "/identity", Wrap: func(_ authhttp.RouteSpec, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
 				seenURI = r.RequestURI

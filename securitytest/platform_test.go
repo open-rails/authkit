@@ -2,13 +2,10 @@ package securitytest
 
 import (
 	"bytes"
-	"context"
 	"crypto"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,79 +18,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sharedStore is a host-supplied ephemeral store. It is shared state for the
-// engine, but it does not back the HTTP limiter or OIDC/SIWS caches.
-type sharedStore struct {
-	mu sync.Mutex
-	m  map[string][]byte
-}
-
-func (s *sharedStore) Get(_ context.Context, k string) ([]byte, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v, ok := s.m[k]
-	return v, ok, nil
-}
-func (s *sharedStore) Set(_ context.Context, k string, v []byte, _ time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.m == nil {
-		s.m = map[string][]byte{}
-	}
-	s.m[k] = v
-	return nil
-}
-func (s *sharedStore) Del(_ context.Context, k string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.m, k)
-	return nil
-}
-func (s *sharedStore) Consume(_ context.Context, k string) ([]byte, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v, ok := s.m[k]
-	delete(s.m, k)
-	return v, ok, nil
-}
-func (s *sharedStore) CompareAndConsume(_ context.Context, k string, want []byte) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if v, ok := s.m[k]; ok && bytes.Equal(v, want) {
-		delete(s.m, k)
-		return true, nil
-	}
-	return false, nil
-}
-func (s *sharedStore) Incr(_ context.Context, k string, _ time.Duration) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var n int64
-	_ = json.Unmarshal(s.m[k], &n)
-	n++
-	if s.m == nil {
-		s.m = map[string][]byte{}
-	}
-	s.m[k], _ = json.Marshal(n)
-	return n, nil
-}
-
-// TestSecurityMultiReplicaStores: with Redis every replica shares one set of
-// budgets and login state. Without Redis AuthKit runs on the per-process memory
-// store, which is correct only for a single replica (docs/security/rate-limits.md).
+// TestSecurityMultiReplicaStores: codes, tokens and attempt budgets live in
+// Postgres, so every replica shares them; rate-limit budgets are shared
+// through Redis.
 func TestSecurityMultiReplicaStores(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	s := signer()
-	t.Run("without Redis the memory store is automatic", func(t *testing.T) {
-		for _, deps := range []embedded.Deps{{Postgres: pg.Pool}, {Postgres: pg.Pool, EphemeralStore: &sharedStore{}}} {
-			runtime, err := embedded.New(embedded.Config{
-				Keys:  embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
-				Token: embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
-				HTTP:  authhttp.Config{DirectPeerIP: true},
-			}, deps)
-			require.NoError(t, err)
-			runtime.Close()
+	t.Run("a reset token issued on one replica is spent once on any", func(t *testing.T) {
+		one := newHost(t, withHTTP(generousLimits))
+		two := one.replica()
+		a := one.newAccount("replica-reset")
+		require.Less(t, one.post("/password/reset/request", map[string]string{"identifier": a.email}, "").status, 300)
+		token := one.mail.last(t, `^reset to=`+a.email+` .* token=(\S+)`)
+		body := map[string]string{"token": token, "new_password": "Replica-reset-passphrase-4"}
+		resp := two.post("/password/reset/confirm", body, "")
+		require.Less(t, resp.status, 300, resp.String())
+		replay := one.post("/password/reset/confirm", body, "")
+		require.GreaterOrEqual(t, replay.status, 400, replay.String())
+	})
+
+	t.Run("second-factor guesses are budgeted across replicas", func(t *testing.T) {
+		one := newHost(t, withHTTP(behindProxy), withHTTP(generousLimits))
+		two := one.replica()
+		a := one.newAccount("replica-mfa")
+		one.enrollEmail2FA(a)
+		ch := one.passwordStep(a, "198.51.100.30")
+		code := one.mail.last(t, `^login to=`+a.email+` code=(\S+)`)
+		for i := range 5 {
+			h := []*host{one, two}[i%2]
+			resp := h.secondStep(a, ch, wrongCode(code), fmt.Sprintf("203.0.113.%d", 100+i))
+			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		}
+		resp := two.secondStep(a, ch, code, "203.0.113.200")
+		require.Equal(t, http.StatusUnauthorized, resp.status, "misses on another replica did not count: %s", resp)
 	})
 
 	t.Run("Redis budgets are shared by every replica", func(t *testing.T) {

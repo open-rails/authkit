@@ -13,10 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
-	"github.com/redis/go-redis/v9"
 )
 
 // Keyset is a fixed active signer + public-key set for the low-level
@@ -98,7 +96,7 @@ var (
 	ErrDeviceKeysDisabled      = authkit.ErrDeviceKeysDisabled
 )
 
-// (storage layer collapsed into direct Postgres/Redis helpers)
+// (storage layer collapsed into direct Postgres helpers)
 
 // engine owns local business logic and resources behind Runtime and Client.
 type engine struct {
@@ -119,8 +117,7 @@ type engine struct {
 	keys jwtkit.KeySource
 
 	// Only resources allocated by New are closed with the client.
-	ownedMemoryStore *memorystore.KV
-	ownedKeySource   *jwtkit.FileKeySource
+	ownedKeySource *jwtkit.FileKeySource
 
 	email        EmailSender
 	sms          SMSSender
@@ -135,9 +132,8 @@ type engine struct {
 	solanaSNSResolver    SolanaSNSResolver
 	sns                  solanaSNS
 	// now is the engine clock for TTL/grace decisions; Deps.Clock overrides it.
-	now            func() time.Time
-	ephemeralStore EphemeralStore
-	redisClient    *redis.Client // Deps.Redis; resolved into ephemeralStore by newService (#307)
+	now       func() time.Time
+	ephemeral *ephemeralKV // nil without Postgres
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.

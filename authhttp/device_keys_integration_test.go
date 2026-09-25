@@ -145,15 +145,13 @@ func mapKeys[V any](values map[string]V) []string {
 }
 
 func TestNativeCredentialWorkflow(t *testing.T) {
-	forEachStore(t, func(t *testing.T, store ephemeralStore) {
-		t.Run("passkey", func(t *testing.T) { testPasskeyFullCeremonyAndAssurance(t, store) })
-		t.Run("device_key", func(t *testing.T) { testDeviceKeyLifecycle(t, store) })
-	})
+	t.Run("passkey", func(t *testing.T) { testPasskeyFullCeremonyAndAssurance(t) })
+	t.Run("device_key", func(t *testing.T) { testDeviceKeyLifecycle(t) })
 }
 
-func testDeviceKeyLifecycle(t *testing.T, store ephemeralStore) {
+func testDeviceKeyLifecycle(t *testing.T) {
 	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t, store.engineOpts()...)
+	srv, sender := deviceKeyTestServer(t)
 	pool := srv.svc.Postgres()
 	email := uniqueEmail("device-key")
 	publicKey, privateKey := newDeviceKey(t)

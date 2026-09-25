@@ -38,7 +38,6 @@ func TestMaintenanceQueueNames(t *testing.T) {
 			}
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.Ephemeral.KeyPrefix = "queue-test:" // This independent namespace need not include the full schema name.
 			hosted, err := newEngine(cfg, Deps{Postgres: pool, River: RiverFromHost()})
 			require.NoError(t, err)
 			defer hosted.Close()
@@ -66,7 +65,6 @@ func TestLongIdentitySchemaRunsRiverCleanup(t *testing.T) {
 			require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, schema, MigrationOptions{River: ownership}))
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.Ephemeral.KeyPrefix = "queue-test:" // This independent namespace need not include the full schema name.
 			core, err := newEngine(cfg, Deps{Postgres: pg.Pool, River: ownership})
 			require.NoError(t, err)
 			defer core.Close()

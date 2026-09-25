@@ -101,7 +101,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
 				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
 			}
-			cfg := Config{DirectPeerIP: true}
+			cfg := Config{DirectPeerIP: true, PerProcessRateLimits: true}
 			if fail {
 				cfg.Mount.APIPrefix = "invalid prefix"
 			}

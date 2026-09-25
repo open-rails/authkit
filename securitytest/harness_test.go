@@ -63,7 +63,7 @@ type hostConfig struct {
 type hostOption func(*hostConfig)
 
 func withRedis(rdb *redis.Client) hostOption {
-	return func(c *hostConfig) { c.deps.Redis = rdb }
+	return func(c *hostConfig) { c.http.Redis, c.http.PerProcessRateLimits = rdb, false }
 }
 
 func withEngine(fn func(*embedded.Config)) hostOption {
@@ -110,7 +110,7 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 			},
 		},
 		deps: embedded.Deps{Postgres: pg.Pool, Email: mail},
-		http: authhttp.Config{DirectPeerIP: true, Mount: authhttp.MountOptions{APIPrefix: apiPrefix}},
+		http: authhttp.Config{DirectPeerIP: true, PerProcessRateLimits: true, Mount: authhttp.MountOptions{APIPrefix: apiPrefix}},
 	}
 	for _, opt := range opts {
 		opt(&cfg)

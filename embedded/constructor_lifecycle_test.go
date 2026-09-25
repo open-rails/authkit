@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/puddle/v2"
 	"github.com/open-rails/authkit/internal/db"
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +84,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		})
 		require.NoError(t, err)
 		t.Cleanup(client.Close)
-		require.Eventually(t, func() bool { return resourceCount(t) == 2 }, time.Second, time.Millisecond)
+		require.Eventually(t, func() bool { return resourceCount(t) == 1 }, time.Second, time.Millisecond)
 		client.Close()
 		client.Close()
 		awaitClosed(t)
@@ -103,21 +102,16 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	})
 
 	t.Run("borrowed", func(t *testing.T) {
-		store := memorystore.NewKV(memorystore.WithSweepInterval(time.Millisecond))
-		t.Cleanup(store.Close)
 		keys, err := jwtkit.NewFileKeySource(dir, time.Millisecond, nil)
 		require.NoError(t, err)
 		t.Cleanup(keys.Close)
 		cfg := config
 		cfg.Keys.Source = keys
-		client, err := newEngine(cfg, Deps{EphemeralStore: store})
+		client, err := newEngine(cfg, Deps{})
 		require.NoError(t, err)
 		client.Close()
 
-		// Exercise background work after Close.
-		// Get would expire a value on access even if its sweeper had stopped.
-		require.NoError(t, store.Set(context.Background(), "expires", []byte("value"), time.Millisecond))
-		require.Eventually(t, func() bool { return store.Len() == 0 }, time.Second, time.Millisecond)
+		// A borrowed key source keeps reloading after Close.
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "keys.json"),
 			bytes.ReplaceAll(data, []byte(`"lifecycle"`), []byte(`"rotated"`)), 0600))
 		future := time.Now().Add(time.Second)

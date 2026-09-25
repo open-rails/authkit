@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 
 	"github.com/open-rails/authkit/ratelimit"
@@ -25,17 +26,26 @@ type Config struct {
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 
-	// Redis overrides the engine's Redis client for the HTTP layer's OIDC/SIWS
-	// state caches and rate limiter. Nil reuses embedded.Deps.Redis (#210), so
-	// most hosts never set it.
-	Redis *redis.Client
+	// Rate limiting is an explicit choice; exactly one of Redis, Limiter,
+	// PerProcessRateLimits and DisableRateLimiting is required.
+	//
+	// Redis shares rate-limit counters across replicas. It holds no other
+	// AuthKit state.
+	Redis redis.UniversalClient
+	// RedisKeyPrefix namespaces the rate-limit keys so several deployments can
+	// share one Redis (#307). Empty derives "authkit:<schema>:"; a trailing ':'
+	// is added when missing. Must match ^[a-z0-9_.:-]{1,64}$.
+	RedisKeyPrefix string
 
 	// RateLimits overlays bucket-specific limits onto DefaultRateLimits (#242).
 	RateLimits map[string]ratelimit.Limit
-	// Limiter replaces AuthKit's automatic limiter. ADVANCED: normal
-	// deployments let AuthKit own the policy (Redis-backed when Redis is wired,
-	// in-memory otherwise). RateLimits are not applied to a custom limiter.
+	// Limiter replaces AuthKit's limiter. ADVANCED: RateLimits are not applied
+	// to a custom limiter.
 	Limiter RateLimiter
+	// PerProcessRateLimits keeps counters in each process. Correct for one
+	// replica only: N replicas allow N times every limit, including password
+	// guesses.
+	PerProcessRateLimits bool
 	// DisableRateLimiting turns rate limiting off. TESTS ONLY: it removes the
 	// brute-force and spam protection.
 	DisableRateLimiting bool
@@ -79,10 +89,16 @@ func (c Config) Validate() error {
 	if _, err := parseProxyCIDRs("Cloudflare proxy", c.CloudflareProxies); err != nil {
 		return err
 	}
-	if c.Limiter != nil && c.DisableRateLimiting {
-		return errors.New("authkit: authhttp.Config.Limiter and DisableRateLimiting are mutually exclusive")
+	choices := 0
+	for _, set := range []bool{c.Redis != nil, c.Limiter != nil, c.PerProcessRateLimits, c.DisableRateLimiting} {
+		if set {
+			choices++
+		}
 	}
-	if !c.DisableRateLimiting && c.Limiter == nil {
+	if choices != 1 {
+		return errors.New("authkit: choose exactly one rate limiter: authhttp.Config.Redis (shared by replicas), Limiter, PerProcessRateLimits (single replica only) or DisableRateLimiting (tests only)")
+	}
+	if c.Limiter == nil && !c.DisableRateLimiting {
 		if err := ratelimit.ValidateLimits(c.RateLimits); err != nil {
 			return err
 		}
@@ -96,6 +112,22 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
+
+func redisKeyPrefix(prefix, schema string) (string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "authkit:" + schema + ":"
+	}
+	if !strings.HasSuffix(prefix, ":") {
+		prefix += ":"
+	}
+	if !redisKeyPrefixRE.MatchString(prefix) {
+		return "", fmt.Errorf("authkit: invalid authhttp.Config.RedisKeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", prefix)
+	}
+	return prefix, nil
 }
 
 func parseProxyCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {

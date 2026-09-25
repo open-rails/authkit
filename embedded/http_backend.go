@@ -8,8 +8,8 @@ import (
 	authkit "github.com/open-rails/authkit"
 	siws "github.com/open-rails/authkit/internal/siws"
 	jwtkit "github.com/open-rails/authkit/jwtkit"
+	oidckit "github.com/open-rails/authkit/oidckit"
 	verify "github.com/open-rails/authkit/verify"
-	"github.com/redis/go-redis/v9"
 	net "net"
 	time "time"
 )
@@ -60,14 +60,13 @@ type HTTPBackend interface {
 	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error)
 	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error)
 	EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error)
-	EphemeralRedisClient() *redis.Client
 	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error)
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error)
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error)
 	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (LoginOutcome, error)
 	ConfirmAccountRecovery(ctx context.Context, token string) error
 	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error)
-	GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error)
+	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error)
 	GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error)
 	GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error)
@@ -79,7 +78,7 @@ type HTTPBackend interface {
 	HasPassword(ctx context.Context, userID string) (bool, error)
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
 	JWKS() jwtkit.JWKS
-	LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error
+	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error)
 	ListPasskeys(ctx context.Context, userID string) ([]Passkey, error)
 	ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error)
@@ -100,8 +99,8 @@ type HTTPBackend interface {
 	PublicNativeUserRegistrationEnabled() bool
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error)
-	RedisKeyPrefix() string
-	EphemeralBackend() string
+	PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error
+	ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error)
 	RegisterApplicationFromDomain(ctx context.Context, domain string) (*RegisteredApplication, error)
@@ -145,5 +144,5 @@ type HTTPBackend interface {
 	VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error)
 	VerifyPendingPassword(ctx context.Context, email, pass string) bool
 	VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool
-	VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error)
+	VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error)
 }

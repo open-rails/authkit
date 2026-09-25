@@ -11,13 +11,11 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
-	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 )
 
-// Close stops the background work New started: memory cache and limiter sweeps.
+// Close stops the background work New started: the memory limiter sweep.
 // The engine and Redis client are borrowed and remain owned by the host.
 // Idempotent; safe on a nil Service.
 func (s *Service) Close() {
@@ -49,7 +47,6 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	s := &Service{
 		dpopRequestURL:    hcfg.DPoPRequestURL,
 		svc:               coreSvc,
-		rd:                hcfg.Redis,
 		clientIP:          DefaultClientIP(),
 		clientIPExplicit:  hcfg.ClientIP != nil,
 		directPeerIP:      hcfg.DirectPeerIP,
@@ -66,19 +63,6 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if len(hcfg.Languages.Supported) > 0 || strings.TrimSpace(hcfg.Languages.Default) != "" {
 		lc := hcfg.Languages
 		s.langCfg = &lc
-	}
-
-	// #210: take Redis ONCE. Config.Redis overrides; otherwise the engine's
-	// client backs the HTTP layer's OIDC/SIWS caches and rate limiter too — one
-	// Redis instance, single source of truth, no split-brain ephemeral state.
-	if s.rd == nil {
-		s.rd = coreSvc.EphemeralRedisClient()
-	}
-	// OIDC/SIWS state and the default limiter live in Redis or in this process;
-	// a custom Deps.EphemeralStore does not back them. The engine already
-	// logged the all-memory case.
-	if s.rd == nil && coreSvc.EphemeralBackend() != "memory" {
-		slog.Warn("authkit: HTTP rate limits and OIDC/SIWS state: in-memory (no Redis configured) — per-process; configure Redis/Garnet for multiple replicas")
 	}
 
 	verOpts := []verify.VerifierOption{
@@ -124,9 +108,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if err := s.validate(cfg); err != nil {
 		return nil, err
 	}
-	// AuthKit owns the rate-limit policy unless the host replaced or disabled
-	// the limiter: Redis-backed when Redis is wired, so limits are shared
-	// across instances; in-memory otherwise.
+	// Config.Validate guarantees exactly one limiter choice.
 	switch {
 	case hcfg.Limiter != nil:
 		s.rl = hcfg.Limiter
@@ -137,8 +119,12 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 		for bucket, lim := range hcfg.RateLimits {
 			limits[bucket] = lim
 		}
-		if s.rd != nil {
-			rl, err := redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
+		if hcfg.Redis != nil {
+			prefix, err := redisKeyPrefix(hcfg.RedisKeyPrefix, coreSvc.Schema())
+			if err != nil {
+				return nil, err
+			}
+			rl, err := redislimiter.New(hcfg.Redis, limits, prefix+"ratelimit:")
 			if err != nil {
 				return nil, err
 			}
@@ -153,20 +139,8 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 			ml.StartCleanup(ctx, time.Minute)
 			s.closers = append(s.closers, cancel)
 			s.rl = ml
-			slog.Info("authkit: rate limiter", "backend", "memory")
+			slog.Warn("authkit: rate limits are per-process (PerProcessRateLimits) — every replica multiplies each limit, including password guesses; set authhttp.Config.Redis for multiple replicas")
 		}
-	}
-
-	// All fallible setup is complete before starting background cache workers.
-	// Construct only the selected backend and retain it for the service lifetime.
-	if s.rd != nil {
-		s.oidcStates = redisstore.NewStateCache(s.rd, coreSvc.RedisKeyPrefix()+"oidc:state:", 0)
-		s.siwsChallenges = redisstore.NewSIWSCache(s.rd, coreSvc.RedisKeyPrefix()+"siws:nonce:", 15*time.Minute)
-	} else {
-		states := memorystore.NewStateCache(15 * time.Minute)
-		challenges := memorystore.NewSIWSCache(15 * time.Minute)
-		s.oidcStates, s.siwsChallenges = states, challenges
-		s.closers = append(s.closers, func() { _ = states.Close() }, func() { _ = challenges.Close() })
 	}
 	return s, nil
 }

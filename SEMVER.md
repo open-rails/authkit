@@ -139,7 +139,7 @@ component exports follow the same MAJOR/MINOR/PATCH rules as plane A.
   are identified by immutable UUID and a resolved name never transfers
   authority (`docs/naming-policy.md`).
 - **Interfaces consumers implement** — `EmailSender`, `SMSSender`,
-  `EntitlementsProvider`, `EphemeralStore`, `CustomRoleResolver`,
+  `EntitlementsProvider`, `CustomRoleResolver`,
   `authprovider.Provider`, `authhttp.DocumentProvider`, `verify.LivenessSource`,
   `verify.PermissionChecker` — adding a method is MAJOR.
 - **Verify-only build graph.** Root and `verify` import no Postgres, Redis or

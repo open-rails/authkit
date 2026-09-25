@@ -101,7 +101,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 	cfg := s.svc.Config()
 	domain := siwsRequestDomain(siwsDomainFromConfig(cfg.Frontend.BaseURL, cfg.Token.Issuer), r)
 
-	input, err := s.svc.GenerateSIWSChallenge(r.Context(), s.siwsChallenges, domain, address, req.Username)
+	input, err := s.svc.GenerateSIWSChallenge(r.Context(), domain, address, req.Username)
 	if err != nil {
 		serverErr(w, authkit.CodeChallengeFailed, err)
 		return
@@ -119,7 +119,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	out, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsChallenges, output, nil)
+	out, err := s.svc.VerifySIWSAndLogin(r.Context(), output, nil)
 	if err != nil {
 		writeError(w, fallback(remap(err, siwsCodes), authkit.CodeAuthenticationFailed))
 		return
@@ -158,7 +158,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.svc.LinkSolanaWallet(r.Context(), s.siwsChallenges, claims.UserID, output); err != nil {
+	if err := s.svc.LinkSolanaWallet(r.Context(), claims.UserID, output); err != nil {
 		writeError(w, remap(err, siwsCodes))
 		return
 	}

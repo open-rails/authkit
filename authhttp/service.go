@@ -14,24 +14,13 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/siws"
-	"github.com/open-rails/authkit/oidckit"
-	"github.com/redis/go-redis/v9"
 )
-
-// oidcStateCache requires atomic consumption so concurrent callbacks cannot
-// redeem the same state. Both stores constructed by New implement it.
-type oidcStateCache interface {
-	Put(context.Context, string, oidckit.StateData) error
-	Consume(context.Context, string) (oidckit.StateData, bool, error)
-}
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
 	dpopRequestURL      func(*http.Request) string
 	svc                 embedded.HTTPBackend
 	verifier            *verify.Verifier
-	rd                  *redis.Client
 	rl                  RateLimiter
 	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
@@ -41,8 +30,6 @@ type Service struct {
 	trustedProxies      []netip.Prefix                   // Config.TrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
-	oidcStates          oidcStateCache
-	siwsChallenges      siws.ChallengeCache
 	langCfg             *LanguageConfig
 	// documentProviders are the published-document services from
 	// Config.Documents (#260): served by the RouteDocuments mount and stamped +

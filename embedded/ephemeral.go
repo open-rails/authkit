@@ -3,98 +3,112 @@ package embedded
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	memorystore "github.com/open-rails/authkit/internal/storage/memory"
-	redisstore "github.com/open-rails/authkit/internal/storage/redis"
-	"github.com/redis/go-redis/v9"
+	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/oidckit"
 )
 
-// EphemeralStore is a minimal key-value interface used for short-lived auth state.
-// Implementations should honor TTL on Set and treat missing keys as (found=false, err=nil).
-type EphemeralStore interface {
-	Get(ctx context.Context, key string) ([]byte, bool, error)
-	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	Del(ctx context.Context, key string) error
-	// Consume atomically returns AND deletes a key in a single operation, so the
-	// value is delivered to AT MOST ONE caller even under concurrent reads
-	// (Redis GETDEL / a single locked get-delete). Single-use credentials whose
-	// KEY is the secret — a WebAuthn/passkey challenge, a password-reset token —
-	// MUST be read via Consume, never Get+Del: a non-atomic read-then-delete lets
-	// two concurrent requests both observe the value before either deletes it,
-	// defeating the single-use guarantee (replay). Missing key => (nil, false, nil).
-	Consume(ctx context.Context, key string) ([]byte, bool, error)
-	// CompareAndConsume deletes a live key only while it still holds expected.
-	// OTP/link representations use one canonical record; an old reader can
-	// neither win twice nor consume a newer issuance. Missing/mismatch => false.
-	CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error)
-	// Incr atomically increments the integer at key and returns the new value,
-	// creating it as 1 with ttl when absent (the TTL is set once, not on every
-	// increment). Attempt caps MUST use it: a Get+Set counter lets K concurrent
-	// wrong guesses all read the same n and the cap never fires (#306).
-	Incr(ctx context.Context, key string, ttl time.Duration) (int64, error)
+// ephemeralKV is AuthKit's short-lived auth state in Postgres (ephemeral_kv):
+// codes, tokens, ceremonies, OIDC/SIWS state and attempt counters. Every
+// replica sees the same rows, and each operation is a single statement, so
+// single-use claims and counters are atomic across the fleet. Expiry always
+// uses the database clock (never Deps.Clock), so skewed replicas agree on
+// what is live. Expired rows are invisible to reads and purged by the
+// maintenance job.
+type ephemeralKV struct {
+	pool *pgxpool.Pool
+	q    *db.Queries
 }
 
-// EphemeralRedisClient returns the *redis.Client backing the engine's ephemeral
-// store when it is Redis-backed (Deps.Redis), or nil for a memory store. The HTTP
-// transport reuses it so a host that wired Redis on the engine doesn't also have
-// to pass it to authhttp — one Redis client, no split-brain ephemeral state
-// (authkit #210). The type assertion is also THE redis-vs-memory discriminator.
-func (s *engine) EphemeralRedisClient() *redis.Client {
-	if s == nil {
-		return nil
+// ephemeralSweepBatch bounds each purge statement so it never holds many row
+// locks at once.
+const ephemeralSweepBatch = 1000
+
+func ephemeralTTL(ttl time.Duration) (int64, error) {
+	if ttl <= 0 {
+		return 0, errors.New("authkit: ephemeral TTL must be positive")
 	}
-	if kv, ok := s.ephemeralStore.(*redisstore.KV); ok {
-		return kv.Client()
-	}
-	return nil
+	return ttl.Microseconds(), nil
 }
 
-// resolveEphemeralStore turns Deps.Redis into the namespaced Redis store once
-// the (normalized) config is known (#307).
-func (s *engine) resolveEphemeralStore() {
-	if s.redisClient == nil {
-		return
-	}
-	s.ephemeralStore = redisstore.NewKV(s.redisClient, s.cfg.Ephemeral.KeyPrefix)
+func (k *ephemeralKV) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	v, err := k.q.EphemeralGet(ctx, key)
+	return ephemeralValue(v, err)
 }
 
-// RedisKeyPrefix is the namespace every Redis key of this deployment is written
-// under (ephemeral store, OIDC/SIWS caches, rate-limit counters).
-func (s *engine) RedisKeyPrefix() string { return s.cfg.Ephemeral.KeyPrefix }
-
-// EphemeralBackend names the live ephemeral store: "redis", "memory", "custom"
-// (a host-supplied EphemeralStore) or "none".
-func (s *engine) EphemeralBackend() string {
-	switch s.ephemeralStore.(type) {
-	case nil:
-		return "none"
-	case *redisstore.KV:
-		return "redis"
-	case *memorystore.KV:
-		return "memory"
+func (k *ephemeralKV) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	us, err := ephemeralTTL(ttl)
+	if err != nil {
+		return err
 	}
-	return "custom"
+	if value == nil {
+		value = []byte{}
+	}
+	return k.q.EphemeralSet(ctx, db.EphemeralSetParams{Key: key, Value: value, TtlUs: us})
 }
 
-// logEphemeralBackend names the live backend once at startup. Without Redis
-// the per-process memory store is used automatically: fine for one replica,
-// wrong for several.
-func (s *engine) logEphemeralBackend() {
-	backend := s.EphemeralBackend()
-	if backend == "memory" {
-		slog.Warn("authkit: ephemeral store: in-memory (no Redis configured) — rate limits and login state are per-process; configure Redis/Garnet for multiple replicas")
-		return
+func (k *ephemeralKV) Del(ctx context.Context, key string) error {
+	return k.q.EphemeralDelete(ctx, key)
+}
+
+// Consume deletes and returns a live key in one statement: of any number of
+// concurrent callers, at most one receives the value. Single-use credentials
+// whose key is the secret (passkey challenge, reset token) must use it, never
+// Get+Del.
+func (k *ephemeralKV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
+	v, err := k.q.EphemeralConsume(ctx, key)
+	return ephemeralValue(v, err)
+}
+
+// CompareAndConsume deletes a live key only while it still holds expected, so
+// an old reader can neither win twice nor consume a newer issuance.
+func (k *ephemeralKV) CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error) {
+	n, err := k.q.EphemeralCompareAndConsume(ctx, db.EphemeralCompareAndConsumeParams{Key: key, Expected: expected})
+	return n == 1, err
+}
+
+// Incr returns distinct consecutive values to concurrent callers. The TTL is
+// set when the counter starts and never extended; attempt caps must use it.
+func (k *ephemeralKV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	us, err := ephemeralTTL(ttl)
+	if err != nil {
+		return 0, err
 	}
-	slog.Info("authkit: ephemeral store", "backend", backend)
+	return k.q.EphemeralIncr(ctx, db.EphemeralIncrParams{Key: key, TtlUs: us})
+}
+
+// purgeExpiredEphemeral deletes expired rows in bounded batches. It runs on
+// the main pool so it never occupies the small pool live claims use.
+func (s *engine) purgeExpiredEphemeral(ctx context.Context) (int64, error) {
+	var total int64
+	for {
+		n, err := s.q.EphemeralDeleteExpired(ctx, ephemeralSweepBatch)
+		total += n
+		if err != nil || n < ephemeralSweepBatch {
+			return total, err
+		}
+	}
+}
+
+func ephemeralValue(v []byte, err error) ([]byte, bool, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return v, true, nil
 }
 
 func (s *engine) useEphemeralStore() bool {
-	return s != nil && s.ephemeralStore != nil
+	return s != nil && s.ephemeral != nil
 }
 
 func (s *engine) ephemSetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
@@ -105,7 +119,7 @@ func (s *engine) ephemSetJSON(ctx context.Context, key string, value any, ttl ti
 	if err != nil {
 		return err
 	}
-	return s.ephemeralStore.Set(ctx, key, b, ttl)
+	return s.ephemeral.Set(ctx, key, b, ttl)
 }
 
 func (s *engine) ephemGetJSON(ctx context.Context, key string, out any) (bool, error) {
@@ -118,7 +132,7 @@ func (s *engine) ephemReadJSON(ctx context.Context, key string, out any) ([]byte
 	if !s.useEphemeralStore() {
 		return nil, false, fmt.Errorf("ephemeral store unavailable")
 	}
-	raw, ok, err := s.ephemeralStore.Get(ctx, key)
+	raw, ok, err := s.ephemeral.Get(ctx, key)
 	if err != nil || !ok {
 		return nil, false, err
 	}
@@ -132,7 +146,7 @@ func (s *engine) claimProof(ctx context.Context, key string, expected []byte) er
 	if !s.useEphemeralStore() || len(expected) == 0 {
 		return jwt.ErrTokenUnverifiable
 	}
-	claimed, err := s.ephemeralStore.CompareAndConsume(ctx, key, expected)
+	claimed, err := s.ephemeral.CompareAndConsume(ctx, key, expected)
 	if err != nil {
 		return err
 	}
@@ -146,14 +160,14 @@ func (s *engine) ephemSetString(ctx context.Context, key, value string, ttl time
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
-	return s.ephemeralStore.Set(ctx, key, []byte(value), ttl)
+	return s.ephemeral.Set(ctx, key, []byte(value), ttl)
 }
 
 func (s *engine) ephemGetString(ctx context.Context, key string) (string, bool, error) {
 	if !s.useEphemeralStore() {
 		return "", false, fmt.Errorf("ephemeral store unavailable")
 	}
-	b, ok, err := s.ephemeralStore.Get(ctx, key)
+	b, ok, err := s.ephemeral.Get(ctx, key)
 	if err != nil || !ok {
 		return "", ok, err
 	}
@@ -168,7 +182,7 @@ func (s *engine) ephemConsumeJSON(ctx context.Context, key string, out any) (boo
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store unavailable")
 	}
-	b, ok, err := s.ephemeralStore.Consume(ctx, key)
+	b, ok, err := s.ephemeral.Consume(ctx, key)
 	if err != nil || !ok {
 		return false, err
 	}
@@ -179,7 +193,7 @@ func (s *engine) ephemConsumeString(ctx context.Context, key string) (string, bo
 	if !s.useEphemeralStore() {
 		return "", false, fmt.Errorf("ephemeral store unavailable")
 	}
-	b, ok, err := s.ephemeralStore.Consume(ctx, key)
+	b, ok, err := s.ephemeral.Consume(ctx, key)
 	if err != nil || !ok {
 		return "", ok, err
 	}
@@ -190,14 +204,14 @@ func (s *engine) ephemIncr(ctx context.Context, key string, ttl time.Duration) (
 	if !s.useEphemeralStore() {
 		return 0, fmt.Errorf("ephemeral store unavailable")
 	}
-	return s.ephemeralStore.Incr(ctx, key, ttl)
+	return s.ephemeral.Incr(ctx, key, ttl)
 }
 
 func (s *engine) ephemDel(ctx context.Context, key string) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
-	return s.ephemeralStore.Del(ctx, key)
+	return s.ephemeral.Del(ctx, key)
 }
 
 // ClaimDPoPProof implements dpop.ReplayGuard using the configured shared
@@ -208,4 +222,22 @@ func (s *engine) ClaimDPoPProof(ctx context.Context, key string, ttl time.Durati
 	}
 	n, err := s.ephemIncr(ctx, "dpop:proof:"+key, ttl)
 	return n == 1 && err == nil, err
+}
+
+const (
+	keyOIDCState = "oidc:state:"
+	oidcStateTTL = 15 * time.Minute
+)
+
+// PutOIDCState records a pending browser login for the provider callback.
+func (s *engine) PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error {
+	return s.ephemSetJSON(ctx, keyOIDCState+state, data, oidcStateTTL)
+}
+
+// ConsumeOIDCState claims a pending browser login once; concurrent callbacks
+// cannot both win it.
+func (s *engine) ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error) {
+	var d oidckit.StateData
+	ok, err := s.ephemConsumeJSON(ctx, keyOIDCState+state, &d)
+	return d, ok, err
 }

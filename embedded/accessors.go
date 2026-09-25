@@ -107,10 +107,6 @@ func (s *engine) close() {
 		surface.Close()
 	}
 	s.closeRiver()
-	if s.ownedMemoryStore != nil {
-		s.ownedMemoryStore.Close()
-		s.ownedMemoryStore = nil
-	}
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()
 		s.ownedKeySource = nil
@@ -120,6 +116,9 @@ func (s *engine) close() {
 		// be starting. pgxpool safely rejects work after Close; clearing the
 		// handles instead races readers and can turn that error into a panic.
 		s.pg.Close()
+	}
+	if s.ephemeral != nil {
+		s.ephemeral.pool.Close()
 	}
 }
 

@@ -67,8 +67,8 @@ func (s *engine) solanaIssuer() string {
 }
 
 // GenerateSIWSChallenge creates a new SIWS challenge for the given address.
-// The challenge is stored in the cache and must be verified within 15 minutes.
-func (s *engine) GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error) {
+// The challenge must be verified within 15 minutes.
+func (s *engine) GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error) {
 	// Validate the address format
 	if err := siws.ValidateAddress(address); err != nil {
 		return siws.SignInInput{}, fmt.Errorf("invalid solana address: %w", err)
@@ -93,20 +93,31 @@ func (s *engine) GenerateSIWSChallenge(ctx context.Context, cache siws.Challenge
 		Address:   address,
 		Username:  username,
 		IssuedAt:  now,
-		ExpiresAt: now.Add(15 * time.Minute),
+		ExpiresAt: now.Add(siwsChallengeTTL),
 		Input:     input,
 	}
 
-	if err := cache.Put(ctx, input.Nonce, challengeData); err != nil {
+	if err := s.ephemSetJSON(ctx, keySIWSNonce+input.Nonce, challengeData, siwsChallengeTTL); err != nil {
 		return siws.SignInInput{}, fmt.Errorf("failed to store challenge: %w", err)
 	}
 
 	return input, nil
 }
 
+const (
+	keySIWSNonce     = "siws:nonce:"
+	siwsChallengeTTL = 15 * time.Minute
+)
+
+func (s *engine) consumeSIWSChallenge(ctx context.Context, nonce string) (siws.ChallengeData, bool, error) {
+	var d siws.ChallengeData
+	ok, err := s.ephemConsumeJSON(ctx, keySIWSNonce+nonce, &d)
+	return d, ok, err
+}
+
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
 // It shares the normal MFA/recovery/session tail with other first factors.
-func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error) {
+func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error) {
 	var userID string
 	var created bool
 	if s.pg == nil {
@@ -119,11 +130,9 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 		return LoginOutcome{}, fmt.Errorf("failed to parse signed message: %w", err)
 	}
 
-	// Atomically consume the challenge by nonce (single-use). GETDEL (Redis) /
-	// locked get-and-delete (memory) guarantees only one concurrent caller wins
-	// the nonce, so a replayed signed message within the challenge TTL cannot be
-	// verified twice (closes the AK-IMPL-2d replay window — authkit #90).
-	challengeData, found, err := cache.Consume(ctx, parsedInput.Nonce)
+	// Consume the nonce (single-use): only one concurrent caller wins it, so a
+	// replayed signed message cannot be verified twice (authkit #90).
+	challengeData, found, err := s.consumeSIWSChallenge(ctx, parsedInput.Nonce)
 	if err != nil {
 		return LoginOutcome{}, fmt.Errorf("failed to consume challenge: %w", err)
 	}
@@ -196,7 +205,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCac
 }
 
 // LinkSolanaWallet links a Solana wallet to an existing user account.
-func (s *engine) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error {
+func (s *engine) LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -210,13 +219,8 @@ func (s *engine) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache
 		return fmt.Errorf("failed to parse signed message: %w", err)
 	}
 
-	// Atomically consume the challenge by nonce (single-use), exactly like the
-	// login path. GETDEL (Redis) / locked get-and-delete (memory) guarantees only
-	// one concurrent caller wins the nonce, so a replayed signed message within
-	// the challenge TTL cannot be verified twice. Using Get+Del here left a TOCTOU
-	// replay window and could leak the nonce for its full TTL on a Del error
-	// (AK security audit F5).
-	challengeData, found, err := cache.Consume(ctx, parsedInput.Nonce)
+	// Consume the nonce exactly like the login path (AK security audit F5).
+	challengeData, found, err := s.consumeSIWSChallenge(ctx, parsedInput.Nonce)
 	if err != nil {
 		return fmt.Errorf("failed to consume challenge: %w", err)
 	}

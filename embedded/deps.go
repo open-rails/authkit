@@ -2,14 +2,12 @@ package embedded
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
@@ -22,17 +20,12 @@ type Deps struct {
 	River *RiverOwnership
 
 	// Postgres is the durable store. Required by every host-facing constructor.
-	Postgres *pgxpool.Pool
-	// Redis backs the ephemeral store, namespaced by Ephemeral.KeyPrefix
-	// (#307). Nil selects the per-process memory store (single replica only).
-	// Redis-compatible servers must provide atomic Lua execution (EVAL/EVALSHA)
-	// for conditional proof claims and counters, as well as atomic GETDEL.
-	Redis *redis.Client
-	// EphemeralStore is a host-supplied store; mutually exclusive with Redis.
-	EphemeralStore EphemeralStore
-	Email          EmailSender
-	SMS            SMSSender
-	Entitlements   EntitlementsProvider
+	// It also holds AuthKit's short-lived auth state (codes, ceremonies,
+	// attempt counters), shared by every replica.
+	Postgres     *pgxpool.Pool
+	Email        EmailSender
+	SMS          SMSSender
+	Entitlements EntitlementsProvider
 	// Deletion hooks run durably through River, never inside the request's
 	// transaction. Soft deletion must preserve recoverable host data; hard
 	// deletion is finalization work after 30 days and before identity purge.
@@ -61,15 +54,10 @@ type Deps struct {
 	// fetches (#264); nil builds the timeout-bounded, redirect-refusing,
 	// SSRF-guarded default.
 	OutboundHTTP *http.Client
-	// Clock replaces the engine clock for TTL and grace-window decisions.
+	// Clock replaces the engine clock for TTL and grace-window decisions. It
+	// never governs ephemeral state (codes, claims, counters), which always
+	// expires by the database clock so replicas agree.
 	Clock func() time.Time
-}
-
-func (d Deps) validate() error {
-	if d.Redis != nil && d.EphemeralStore != nil {
-		return errors.New("authkit: Deps.Redis and Deps.EphemeralStore are mutually exclusive")
-	}
-	return nil
 }
 
 func (s *engine) applyDeps(d Deps) error {
@@ -80,9 +68,20 @@ func (s *engine) applyDeps(d Deps) error {
 		}
 		s.pg = pool
 		s.q = db.New(pool)
+		// Flows read and claim ephemeral state while holding a transaction's
+		// connection. A separate small pool keeps those single statements from
+		// waiting on connections held by the transactions waiting on them.
+		ephemeralPool, err := schemaPool(d.Postgres, s.dbSchema(), func(c *pgxpool.Config) {
+			c.MaxConns = max(2, c.MaxConns/4)
+			c.MinConns = 0
+			c.MaxConnIdleTime = time.Minute
+		})
+		if err != nil {
+			pool.Close()
+			return err
+		}
+		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
 	}
-	s.redisClient = d.Redis
-	s.ephemeralStore = d.EphemeralStore
 	s.email = d.Email
 	s.sms = d.SMS
 	s.entitlements = d.Entitlements
@@ -107,13 +106,16 @@ func (s *engine) applyDeps(d Deps) error {
 // and changing its search_path would leak AuthKit's namespace into those
 // queries. The clone preserves the host pool's connection hooks, then applies
 // the AuthKit search_path after the host's AfterConnect hook has run.
-func schemaPool(source *pgxpool.Pool, schema string) (*pgxpool.Pool, error) {
+func schemaPool(source *pgxpool.Pool, schema string, tune ...func(*pgxpool.Config)) (*pgxpool.Pool, error) {
 	if source == nil {
 		return nil, nil
 	}
 	cfg := source.Config().Copy()
 	if cfg == nil || cfg.ConnConfig == nil {
 		return nil, fmt.Errorf("authkit: Postgres pool has no connection configuration")
+	}
+	for _, t := range tune {
+		t(cfg)
 	}
 	searchPath := pgx.Identifier{schema}.Sanitize() + ", public"
 	setSearchPath := func(cc *pgx.ConnConfig) {
