@@ -112,7 +112,7 @@ func TestEphemeralIncrIsAtomicAndKeepsItsTTL(t *testing.T) {
 func TestEphemeralExpiry(t *testing.T) {
 	core := ephemeralEngine(t)
 	clk := testclock.New()
-	kv, ctx := &ephemeralKV{q: core.q, now: clk.Now}, t.Context()
+	kv, ctx := &ephemeralKV{q: core.ephemeral.q, now: clk.Now}, t.Context()
 
 	require.NoError(t, kv.Set(ctx, "code", []byte("v"), time.Minute))
 	require.NoError(t, kv.Set(ctx, "cas", []byte("v"), time.Minute))

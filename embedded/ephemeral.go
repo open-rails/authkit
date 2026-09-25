@@ -9,6 +9,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/oidckit"
@@ -20,7 +21,8 @@ import (
 // single-use claims and counters are atomic across the fleet. Expired rows are
 // invisible to reads and purged by the maintenance job.
 type ephemeralKV struct {
-	q *db.Queries
+	pool *pgxpool.Pool
+	q    *db.Queries
 	// now is the host clock (Deps.Clock); nil uses the database clock.
 	now func() time.Time
 }

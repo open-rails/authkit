@@ -1051,6 +1051,7 @@ func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engi
 	t.Helper()
 	c, err := newTestRuntime(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...))
 	require.NoError(t, err)
+	t.Cleanup(c.Close)
 	return c
 }
 

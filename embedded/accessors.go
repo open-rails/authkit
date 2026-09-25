@@ -117,6 +117,9 @@ func (s *engine) close() {
 		// handles instead races readers and can turn that error into a panic.
 		s.pg.Close()
 	}
+	if s.ephemeral != nil {
+		s.ephemeral.pool.Close()
+	}
 }
 
 // Schema returns the Postgres schema AuthKit's tables live in ("profiles"

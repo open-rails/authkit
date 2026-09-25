@@ -46,6 +46,7 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 
 	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
 	require.NoError(t, err)
+	t.Cleanup(coreSvc.Close)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)
 	require.NoError(t, err)

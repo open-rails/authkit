@@ -66,7 +66,19 @@ func (s *engine) applyDeps(d Deps) error {
 		}
 		s.pg = pool
 		s.q = db.New(pool)
-		s.ephemeral = &ephemeralKV{q: s.q, now: d.Clock}
+		// Flows read and claim ephemeral state while holding a transaction's
+		// connection. A separate small pool keeps those single statements from
+		// waiting on connections held by the transactions waiting on them.
+		ephemeralPool, err := schemaPool(d.Postgres, s.dbSchema(), func(c *pgxpool.Config) {
+			c.MaxConns = max(2, c.MaxConns/4)
+			c.MinConns = 0
+			c.MaxConnIdleTime = time.Minute
+		})
+		if err != nil {
+			pool.Close()
+			return err
+		}
+		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), now: d.Clock}
 	}
 	s.email = d.Email
 	s.sms = d.SMS
@@ -92,13 +104,16 @@ func (s *engine) applyDeps(d Deps) error {
 // and changing its search_path would leak AuthKit's namespace into those
 // queries. The clone preserves the host pool's connection hooks, then applies
 // the AuthKit search_path after the host's AfterConnect hook has run.
-func schemaPool(source *pgxpool.Pool, schema string) (*pgxpool.Pool, error) {
+func schemaPool(source *pgxpool.Pool, schema string, tune ...func(*pgxpool.Config)) (*pgxpool.Pool, error) {
 	if source == nil {
 		return nil, nil
 	}
 	cfg := source.Config().Copy()
 	if cfg == nil || cfg.ConnConfig == nil {
 		return nil, fmt.Errorf("authkit: Postgres pool has no connection configuration")
+	}
+	for _, t := range tune {
+		t(cfg)
 	}
 	searchPath := pgx.Identifier{schema}.Sanitize() + ", public"
 	setSearchPath := func(cc *pgx.ConnConfig) {
