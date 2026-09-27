@@ -86,8 +86,10 @@ func pendingChangeKey(kind PendingChangeKind, id string) string {
 	return keyPendingChange + string(kind) + ":" + id
 }
 
+// Usernames are case-insensitive identities, so one pending hold covers every
+// spelling of a name.
 func pendingChangeUserKey(kind PendingChangeKind, username string) string {
-	return keyPendingChangeUser + string(kind) + ":" + strings.TrimSpace(username)
+	return keyPendingChangeUser + string(kind) + ":" + strings.ToLower(strings.TrimSpace(username))
 }
 
 // Link pointers are namespaced per kind: the HTTP confirm handlers try each
@@ -221,7 +223,7 @@ func (s *engine) pendingChangeUsernameTaken(ctx context.Context, username string
 			continue
 		}
 		rec, ok, _ := s.loadPendingChange(ctx, index.Key)
-		if ok && rec.ID == index.ID && rec.Username == username {
+		if ok && rec.ID == index.ID && strings.EqualFold(rec.Username, strings.TrimSpace(username)) {
 			return true
 		}
 	}

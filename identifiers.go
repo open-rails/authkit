@@ -42,6 +42,15 @@ func RootGroup() GroupRef { return GroupRef{Persona: RootPersona} }
 
 func (g GroupRef) IsRoot() bool { return g.Persona == RootPersona }
 
+// Canonical returns g's stored spelling. Instance slugs are stored lowercase,
+// so a slug typed in any case addresses the same group.
+func (g GroupRef) Canonical() GroupRef {
+	return GroupRef{
+		Persona:  Persona(strings.TrimSpace(string(g.Persona))),
+		Instance: strings.ToLower(strings.TrimSpace(g.Instance)),
+	}
+}
+
 func (g GroupRef) String() string {
 	if g.Instance == "" {
 		return string(g.Persona)

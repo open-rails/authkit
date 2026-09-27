@@ -63,8 +63,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group authkit.Gro
 		return out, err
 	}
 	sch := s.groupSchemaOrDefault()
-	group.Persona = authkit.Persona(strings.TrimSpace(string(group.Persona)))
-	group.Instance = strings.ToLower(strings.TrimSpace(group.Instance))
+	group = group.Canonical()
 	persona, slug := group.Persona, group.Instance
 	ownerUserID = strings.TrimSpace(ownerUserID)
 	out.InstanceSlug = slug

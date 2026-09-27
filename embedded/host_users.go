@@ -552,7 +552,12 @@ func (s *engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 		oldName = *old
 	}
 	if strings.EqualFold(oldName, username) {
-		return nil
+		if oldName == username || authority != normalRename {
+			return nil
+		}
+		// Same identity, new display spelling: no name claim, alias or cooldown.
+		_, err := q.Exec(ctx, `UPDATE users SET username=$2,updated_at=$3 WHERE id=$1::uuid`, id, username, s.namingNow())
+		return err
 	}
 	if authority == normalRename {
 		if err := s.ValidateUsername(username); err != nil {
