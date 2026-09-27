@@ -1,8 +1,10 @@
 # AuthKit v1 fresh schema baseline
 
 AuthKit's pre-launch schema is being consolidated into one authored baseline.
-Earlier AuthKit migration histories are unsupported and must be rebuilt from
-approved source data. Migration never drops an existing application's tables.
+Databases built by the v0.106.2–v0.124.0 baselines are converted in place (see
+[Retired baselines](#retired-baselines)); older histories are unsupported and
+must be rebuilt from approved source data. Migration never drops an existing
+application's tables.
 The migration source is private to AuthKit. Hosts call
 `embedded.ApplyMigrations`, which uses the canonical `authkit` ledger
 namespace and creates the configured target schema.
@@ -26,10 +28,27 @@ migration begins. With host-owned River, its grants remain host-owned too.
 deletion and delivery receipts. `0002_group_soft_deletion.up.sql` adds retained
 inactive group state without rewriting that published baseline or existing rows.
 Call `embedded.ApplyMigrations` to initialize a fresh database or apply numbered
-follow-up migrations to that exact baseline. Earlier incompatible prerelease
-schemas still require a fresh database; there is no ledger adoption, repair,
-or automatic reset path. River owns its independent migration chain. Published
-tags remain immutable.
+follow-up migrations to that exact baseline. River owns its independent
+migration chain. Published tags remain immutable.
+
+## Retired baselines
+
+`embedded.ApplyMigrations` converts a database built by a retired baseline
+before applying anything else (migratekit verified conversions,
+`internal/migrations/retired`):
+
+| Built by | Ledger | Conversion |
+|---|---|---|
+| v0.106.2–v0.123.0 | retired `0001` | erasure obligations become recoverable deletion tables |
+| v0.124.0 | retired `0001`, `0002_recoverable_account_deletion` | drops the `jobs_enqueued` adoption flag |
+
+It runs only when the ledger and the schema's shape both match the retired
+chain, and commits only a schema equal to a fresh current `0001`, so the
+remaining migrations then apply normally. Accounts inside the retired deletion
+lifecycle, or deletions v0.124.0 never scheduled, need River jobs a conversion
+cannot create; the upgrade refuses and says to run v0.124.0 first. An edited
+applied migration refuses unless the schema still equals a fresh build (strict
+integrity). Anything older than v0.106.2 still requires a fresh database.
 
 The baseline refuses existing AuthKit-owned relation names. Empty precreated
 schemas and unrelated host tables are allowed and remain untouched. Repeated
