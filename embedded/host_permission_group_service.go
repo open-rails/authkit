@@ -121,11 +121,10 @@ type CreatePermissionGroupRequest = authkit.CreatePermissionGroupRequest
 // over the wire).
 func (s *engine) CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error) {
 	sch := s.groupSchemaOrDefault()
-	req.Persona = authkit.Persona(strings.TrimSpace(string(req.Persona)))
-	req.InstanceSlug = strings.TrimSpace(req.InstanceSlug)
-	req.ParentPersona = authkit.Persona(strings.TrimSpace(string(req.ParentPersona)))
-	req.ParentInstanceSlug = strings.TrimSpace(req.ParentInstanceSlug)
-	group := authkit.GroupRef{Persona: req.Persona, Instance: req.InstanceSlug}
+	group := authkit.GroupRef{Persona: req.Persona, Instance: req.InstanceSlug}.Canonical()
+	parentGroup := authkit.GroupRef{Persona: req.ParentPersona, Instance: req.ParentInstanceSlug}.Canonical()
+	req.Persona, req.InstanceSlug = group.Persona, group.Instance
+	req.ParentPersona, req.ParentInstanceSlug = parentGroup.Persona, parentGroup.Instance
 	td, ok := sch.Persona(req.Persona)
 	if !ok {
 		return "", fmt.Errorf("unknown group persona %q: %w", req.Persona, authkit.ErrUnknownGroupPersona)
@@ -278,8 +277,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 // resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
 // the singleton and ignores instance_slug.
 func (s *engine) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g authkit.GroupRef) (string, error) {
-	g.Persona = authkit.Persona(strings.TrimSpace(string(g.Persona)))
-	g.Instance = strings.TrimSpace(g.Instance)
+	g = g.Canonical()
 	if g.IsRoot() {
 		return st.RootGroupID(ctx)
 	}
@@ -421,8 +419,7 @@ func (s *engine) DeletePermissionGroup(ctx context.Context, group authkit.GroupR
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	group.Persona = authkit.Persona(strings.TrimSpace(string(group.Persona)))
-	group.Instance = strings.TrimSpace(group.Instance)
+	group = group.Canonical()
 	if group.IsRoot() {
 		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
 	}

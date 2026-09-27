@@ -48,8 +48,7 @@ func (d *GroupDirectory) Close() {
 }
 
 func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {
-	group.Persona = authkit.Persona(strings.TrimSpace(string(group.Persona)))
-	group.Instance = strings.ToLower(strings.TrimSpace(group.Instance))
+	group = group.Canonical()
 	var id string
 	var err error
 	if group.IsRoot() {

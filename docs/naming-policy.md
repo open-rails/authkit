@@ -5,6 +5,18 @@ schema/type, not a group instance. Usernames and `(persona, slug)` remain separa
 namespaces. Public routes resolve a current name or active alias to one UUID;
 authorization and the operation must retain that same UUID.
 
+## Case
+
+Names are never case-sensitive and never refused for their case. A username
+keeps the spelling its owner chose for display (`users.username` is `citext`),
+while uniqueness, login, availability, pending-registration holds and alias
+resolution all use the lowercase key in `name_claims`: `Fidika` and `fidika` are
+one account, and registering either while the other exists is `username taken`.
+Renaming to a different case of your own name changes only the display spelling
+(no claim, alias or cooldown). Group instance slugs are URL keys and are stored
+lowercase; any case a caller sends is folded (`GroupRef.Canonical`) before
+validation and lookup.
+
 ## Configuration
 
 `embedded.Config.Naming` accepts `authkit.NamingConfig`. Omitted fields mean
