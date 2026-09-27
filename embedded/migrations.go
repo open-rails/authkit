@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
+	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/migratekit"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -72,7 +73,10 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 		return fmt.Errorf("authkit: create PostgreSQL migrator: %w", err)
 	}
 	defer migrator.Close()
-	if err := migrator.WithSchema(normalized).ApplyMigrations(ctx, migrations); err != nil {
+	// Strict integrity: an edited applied migration refuses unless the schema
+	// is unchanged. Databases built by a retired baseline are converted.
+	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithConversions(retired.Conversions()...)
+	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
 	if opts.River != nil && opts.River.fromHost {

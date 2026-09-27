@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mr-tron/base58 v1.3.0
-	github.com/open-rails/migratekit v1.0.4
+	github.com/open-rails/migratekit v1.10.0
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/riverqueue/river v0.47.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.47.0
