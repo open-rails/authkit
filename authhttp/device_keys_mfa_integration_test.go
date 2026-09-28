@@ -99,4 +99,6 @@ func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {
 	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 	_, err = srv.svc.BeginDeviceKeyLogin(ctx, "00000000-0000-0000-0000-000000000000")
 	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
+	_, err = srv.svc.ActiveDeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
+	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 }

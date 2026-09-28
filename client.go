@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"crypto/ed25519"
 	"time"
 )
 
@@ -44,6 +45,10 @@ type Client interface {
 	// callers fail closed; unknown ids are absent and a gate treats that as a
 	// denial.
 	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]UserLiveness, error)
+	// ActiveDeviceKeys returns the user's unrevoked device public keys in
+	// enrollment order, for a host that admits the user's machines. Errors
+	// propagate; ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+	ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519.PublicKey, error)
 	UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error
 
 	// --- admin directory ---
