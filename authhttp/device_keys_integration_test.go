@@ -182,6 +182,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, user.EmailVerified)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, user.ID) })
+	requireActiveDeviceKeys(t, srv, user.ID, publicKey)
 	meResponse := serveAuthJSON(srv, http.MethodGet, "/me", "", enrolled.AccessToken)
 	require.Equal(t, http.StatusOK, meResponse.Code, meResponse.Body.String())
 	var me struct {
@@ -258,6 +259,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.Equal(t, claims["sub"], unverifiedAccessClaims(t, second.AccessToken)["sub"])
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
 	require.Equal(t, []string{email}, sender.deviceKeyNotices(), "an independent machine notifies the existing owner")
+	requireActiveDeviceKeys(t, srv, user.ID, publicKey, secondPublic)
 	listed := serveAuthJSON(srv, http.MethodGet, "/device-keys", "", second.AccessToken)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	var list struct {
@@ -288,9 +290,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.Equal(t, 2, total)
 	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, proof.AccessToken)
 	require.Equal(t, http.StatusNoContent, revoked.Code, revoked.Body.String())
-	var live int
-	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&live))
-	require.Equal(t, 1, live)
+	requireActiveDeviceKeys(t, srv, user.ID, secondPublic)
 
 	// The replaced machine can no longer mint a token; the kept machine can.
 	status, raw = postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": first.DeviceKey.ID})
@@ -311,6 +311,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, logout.Code, logout.Body.String())
 	retry := serveAuthJSON(srv, http.MethodDelete, logoutPath, "", kept.AccessToken)
 	require.Equal(t, http.StatusNoContent, retry.Code, retry.Body.String())
+	requireActiveDeviceKeys(t, srv, user.ID)
 	attack := serveAuthJSON(srv, http.MethodDelete, "/device-keys/"+first.DeviceKey.ID, "", kept.AccessToken)
 	require.Equal(t, http.StatusUnauthorized, attack.Code, attack.Body.String())
 
@@ -322,6 +323,17 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		"signature":     signDeviceChallenge(t, secondPrivate, testDeviceEnrollmentDomain, reenroll.Challenge),
 	})
 	require.Equal(t, http.StatusBadRequest, status)
+}
+
+func requireActiveDeviceKeys(t *testing.T, srv *Service, userID string, want ...string) {
+	t.Helper()
+	keys, err := srv.svc.ActiveDeviceKeys(context.Background(), userID)
+	require.NoError(t, err)
+	var got []string
+	for _, key := range keys {
+		got = append(got, base64.RawURLEncoding.EncodeToString(key))
+	}
+	require.Equal(t, want, got)
 }
 
 func loginDeviceKey(t *testing.T, srv *Service, id string, privateKey ed25519.PrivateKey) deviceKeyTokenBody {

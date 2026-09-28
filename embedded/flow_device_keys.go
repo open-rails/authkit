@@ -479,6 +479,20 @@ func (s *engine) ListDeviceKeys(ctx context.Context, userID, currentID string) (
 	return keys, rows.Err()
 }
 
+// ActiveDeviceKeys returns the user's unrevoked device public keys in
+// enrollment order.
+func (s *engine) ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519.PublicKey, error) {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return nil, err
+	}
+	rows, err := s.pg.Query(ctx, `SELECT public_key FROM user_device_keys
+		WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[ed25519.PublicKey])
+}
+
 // RevokeDeviceKey idempotently revokes one key owned by the caller. The
 // token's own key is checked live in the same transaction first, so a revoked
 // machine cannot use the remainder of its access-token lifetime to revoke a

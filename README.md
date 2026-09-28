@@ -451,7 +451,8 @@ present its second factor) enrol a per-machine key. `login/begin` +
 `login/finish` exchange a signed challenge for a short access token and
 nothing else — no refresh session. `GET /api/v1/device-keys`,
 `DELETE /api/v1/device-keys/{id}` and `POST /api/v1/device-keys/revoke-others`
-manage keys; a revoked machine cannot revoke its replacement.
+manage keys; a revoked machine cannot revoke its replacement. A host admitting
+a user's machines reads their live keys with `Client.ActiveDeviceKeys`.
 
 ## Two-factor enrollment
 
