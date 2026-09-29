@@ -51,7 +51,7 @@ type ServiceConfig struct {
 
 // Publication is one application document an AuthKit deployment signs with
 // its own key, stores, serves to its configured readers and stamps into the
-// delegated tokens it mints (authkit.Auth.PublishDocument).
+// delegated tokens it mints (authkit.Client.PublishDocument).
 type Publication struct {
 	// Type is the versioned application document type (e.g. "example.catalog/v1").
 	Type string

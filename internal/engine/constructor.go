@@ -338,7 +338,7 @@ func newEngine(cfg Config, deps Deps) (_ *Engine, err error) {
 	// service-owned orgs off; a bad reference fails construction, not the
 	// first registration.
 	if norm.Applications.SelfRegistration {
-		persona := iam.Persona(strings.TrimSpace(string(norm.Applications.OrgPersona)))
+		persona := norm.Applications.OrgPersona
 		if _, ok := gs.Persona(persona); !ok || persona == iam.RootPersona {
 			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)
 		}

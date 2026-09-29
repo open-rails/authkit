@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -54,9 +55,9 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 	if err := contact.ValidateEmail(email); err != nil {
 		return iam.AccountInviteCreated{}, err
 	}
-	role := iam.Role(strings.ToLower(strings.TrimSpace(string(i.Role))))
+	role := i.Role
 	carriesRole := !i.Group.IsZero()
-	if carriesRole != (role != "") {
+	if carriesRole != !role.IsZero() {
 		return iam.AccountInviteCreated{}, errmodel.ErrInvalidInvite
 	}
 	if carriesRole && !s.externalInvitesEnabled() {
@@ -72,8 +73,7 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 	}
 	out := iam.AccountInviteCreated{Code: secret.RandB64(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
 	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		var groupID *string
-		var roleParam *iam.Role
+		var groupID, roleParam *string
 		if carriesRole {
 			if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
 				return err
@@ -81,7 +81,8 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 			if err := s.requireRoleGrant(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
 				return err
 			}
-			groupID, roleParam = &g.ID, &role
+			name := role.Name()
+			groupID, roleParam = &g.ID, &name
 		} else {
 			auth, err := s.actorAuthority(ctx, st, a, g)
 			if err != nil {
@@ -143,8 +144,8 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 type registrationInvite struct {
 	ID      string
 	GroupID *string
-	Role    *iam.Role
-	Persona *iam.Persona
+	Role    *string
+	Persona *string
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
@@ -202,11 +203,11 @@ func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 	if invite.GroupID != nil && invite.Role != nil {
 		var persona iam.Persona
 		if invite.Persona != nil {
-			persona = *invite.Persona
+			persona = ident.Persona(*invite.Persona)
 		}
 		st := s.groupStoreFor(tx)
 		st.actor = iam.UserActor(userID)
-		return s.assignInvitedRole(ctx, st, *invite.GroupID, persona, userID, *invite.Role)
+		return s.assignInvitedRole(ctx, st, *invite.GroupID, persona, userID, ident.Role(persona, *invite.Role))
 	}
 	return nil
 }

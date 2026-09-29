@@ -20,7 +20,9 @@ import (
 // root:users:read.
 func TestSecuritySessionEventHistory(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
-		c.Roles = authkit.RoleConfig{Roles: []authkit.Role{{Persona: iam.RootPersona, Name: "auditor", Permissions: []string{iam.PermRootUsersRead}}}}
+		r := authkit.NewRoles()
+		r.Root.Role("auditor", r.Root.Users.Read)
+		c.Roles = r
 	}))
 	ctx := context.Background()
 	a, other := h.newAccount("history"), h.newAccount("historyother")

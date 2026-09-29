@@ -22,9 +22,10 @@ import (
 	twilioemail "github.com/open-rails/authkit/adapters/twilio/email"
 	twiliosms "github.com/open-rails/authkit/adapters/twilio/sms"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/verify"
 )
 
-func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
+func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
 	err := authkit.Migrate(
 		ctx,
@@ -71,7 +72,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
 				DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
 				// Rate limits live in memory; set Redis when you run more than one copy of your server.
 			},
-			Roles: roles, // See below for our RBAC system
+			Roles: rbac, // See below for our RBAC system
 		},
 		authkit.Deps{
 			Postgres: db,     // required: users, sessions and short-lived auth state
@@ -81,37 +82,36 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
 	)
 }
 
-var roles = authkit.RoleConfig{
+var (
+	rbac = authkit.NewRoles()
+
 	// Persona's are types of permission groups. root (the whole site) exists by default.
-	Personas: map[string]authkit.Persona{
-		// we'll have permission group per reddit-channel, like /c/golang
-		"channel": {
-			// Our own custom permissions, in addition to the ones that authkit includes automatically.
-			Permissions: []string{
-				"channel:posts:edit", "channel:posts:delete", "channel:posts:approve",
-				"channel:self:edit",   // change the channel's own data: its name, description and rules
-				"channel:self:delete", // delete the channel ("self" is just our name for the channel itself)
-			},
-		},
-	},
+	// we'll have permission group per reddit-channel, like /c/golang
+	Channel = rbac.Persona("channel")
+
+	// Our own custom permissions, in addition to the ones that authkit includes automatically.
+	PostsEdit     = Channel.Permission("posts", "edit")
+	PostsDelete   = Channel.Permission("posts", "delete")
+	PostsApprove  = Channel.Permission("posts", "approve")
+	ChannelEdit   = Channel.Permission("self", "edit")   // change the channel's own data: its name, description and rules
+	ChannelDelete = Channel.Permission("self", "delete") // delete the channel ("self" is just our name for the channel itself)
+
 	// Roles are bundles of permissions, scoped to a specific persona.
 	// There is always a singleton persona; root
-	Roles: []authkit.Role{
-		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}}, // edit, delete and approve posts
-		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
-			"channel:*",    // everything in every channel, deleting it included
-			"root:users:*", // read, ban, delete and manage user accounts
-		}},
-	},
-}
+	Moderator = Channel.Role("moderator", Channel.Resource("posts").All()) // edit, delete and approve posts
+	Admin     = rbac.Root.Role("admin",
+		Channel.All(),         // everything in every channel, deleting it included
+		rbac.Root.Users.All(), // read, ban, delete and manage user accounts
+	)
+)
 
-func seed(ctx context.Context, auth *authkit.Auth) (iam.User, error) {
+func seed(ctx context.Context, auth *authkit.Client) (iam.User, error) {
 	email := os.Getenv("ADMIN_EMAIL")
 	if email == "" {
 		return iam.User{}, errors.New("set ADMIN_EMAIL to the first admin's address")
 	}
 	// Creates the user if they don't exist, and grants them the admin role defined above
-	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), "admin")
+	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), Admin)
 }
 
 // Our application-specific table
@@ -125,10 +125,10 @@ var errChannelTaken = errors.New("that channel already exists")
 
 // createChannel makes channel name, owned by ownerID: our row and AuthKit's permission group
 // commit together or not at all.
-func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth, name, ownerID string) error {
+func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Client, name, ownerID string) error {
 	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		owner := iam.UserSubject(ownerID)
-		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: Channel.Persona, Owner: &owner}, authkit.InTx(tx))
 		if err != nil {
 			return err
 		}
@@ -178,16 +178,9 @@ func run(ctx context.Context) error {
 	return r.Run(":8080")
 }
 
-func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
+func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 	f := &forum{auth: auth, db: db, posts: map[int]*Post{}}
-	signedIn := authkitgin.Required(auth.Verifier())
-
-	// may signs the person in, then asks AuthKit: do they hold perm in the channel from the URL?
-	may := func(perm iam.Perm) gin.HandlerFunc {
-		return authkitgin.RequirePermission(auth, perm, func(c *gin.Context) iam.GroupRef {
-			return iam.GroupByID(c.GetString("channel"))
-		})
-	}
+	signedIn := authkitgin.Required(auth)
 
 	r.GET("/c", f.listChannels)             // anyone can browse the channels
 	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
@@ -198,16 +191,16 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 	ch.POST("/posts", signedIn, f.createPost) // anyone signed in can post
 
 	// moderator-specific routes:
-	ch.GET("/queue", may("channel:posts:approve"), f.listPosts(false))         // see pending posts
-	ch.PATCH("/posts/:id", may("channel:posts:edit"), f.editPost)              // edit a post
-	ch.DELETE("/posts/:id", may("channel:posts:delete"), f.deletePost)         // delete a post
-	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approvePost) // approve / disapprove posts
+	ch.GET("/queue", authkitgin.RequirePermission(auth, PostsApprove), f.listPosts(false))         // see pending posts
+	ch.PATCH("/posts/:id", authkitgin.RequirePermission(auth, PostsEdit), f.editPost)              // edit a post
+	ch.DELETE("/posts/:id", authkitgin.RequirePermission(auth, PostsDelete), f.deletePost)         // delete a post
+	ch.POST("/posts/:id/approve", authkitgin.RequirePermission(auth, PostsApprove), f.approvePost) // approve / disapprove posts
 
 	// admin-specific routes:
-	ch.PUT("/moderators/:user_id", signedIn, f.appoint)        // appoint a moderator
-	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)     // remove a moderator
-	ch.PATCH("", may("channel:self:edit"), f.editChannel)      // edit channel settings
-	ch.DELETE("", may("channel:self:delete"), f.deleteChannel) // delete channel
+	ch.PUT("/moderators/:user_id", signedIn, f.appoint)                               // appoint a moderator
+	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)                            // remove a moderator
+	ch.PATCH("", authkitgin.RequirePermission(auth, ChannelEdit), f.editChannel)      // edit channel settings
+	ch.DELETE("", authkitgin.RequirePermission(auth, ChannelDelete), f.deleteChannel) // delete channel
 }
 
 type Post struct {
@@ -220,7 +213,7 @@ type Post struct {
 }
 
 type forum struct {
-	auth   *authkit.Auth
+	auth   *authkit.Client
 	db     *pgxpool.Pool
 	mu     sync.Mutex
 	posts  map[int]*Post
@@ -236,14 +229,15 @@ func (f *forum) channel(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.AbortWithStatusJSON(iam.ErrorResponse(err))
 		return
 	}
 	c.Set("channel", groupID)
+	authkitgin.SetGroup(c, iam.GroupByID(groupID)) // the group RequirePermission checks
 }
 
-// Channel is what our channels table says about a channel.
-type Channel struct {
+// ChannelRow is what our channels table says about a channel.
+type ChannelRow struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -252,12 +246,12 @@ type Channel struct {
 func (f *forum) listChannels(c *gin.Context) {
 	rows, err := f.db.Query(c.Request.Context(), `SELECT name, description FROM channels ORDER BY name`)
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
-	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Channel])
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[ChannelRow])
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.JSON(http.StatusOK, out)
@@ -265,11 +259,11 @@ func (f *forum) listChannels(c *gin.Context) {
 
 // getChannel is GET /c/:channel: one channel's page.
 func (f *forum) getChannel(c *gin.Context) {
-	var out Channel
+	var out ChannelRow
 	err := f.db.QueryRow(c.Request.Context(), `SELECT name, description FROM channels WHERE group_id = $1`,
 		c.GetString("channel")).Scan(&out.Name, &out.Description)
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.JSON(http.StatusOK, out)
@@ -277,7 +271,7 @@ func (f *forum) getChannel(c *gin.Context) {
 
 // createChannel is POST /c. Which names are taken is our rule, not AuthKit's.
 func (f *forum) createChannel(c *gin.Context) {
-	who, ok := authkitgin.Actor(c)
+	who, ok := verify.ActorFromContext(c.Request.Context())
 	if !ok || who.Kind() != iam.ActorUser {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only people can start channels"})
 		return
@@ -299,7 +293,7 @@ func (f *forum) createChannel(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.Status(http.StatusCreated)
@@ -316,7 +310,7 @@ func (f *forum) editChannel(c *gin.Context) {
 	}
 	_, err := f.db.Exec(c.Request.Context(), `UPDATE channels SET description = $2 WHERE group_id = $1`, c.GetString("channel"), in.Description)
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -332,7 +326,7 @@ func (f *forum) deleteChannel(c *gin.Context) {
 		return f.auth.DeleteGroup(ctx, iam.GroupByID(id), authkit.InTx(tx))
 	})
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -354,7 +348,7 @@ func (f *forum) listPosts(approved bool) gin.HandlerFunc {
 }
 
 func (f *forum) createPost(c *gin.Context) {
-	who, ok := authkitgin.Actor(c) // who is posting?
+	who, ok := verify.ActorFromContext(c.Request.Context()) // who is posting?
 	if !ok || who.Kind() != iam.ActorUser {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only people can post"})
 		return
@@ -402,18 +396,18 @@ func (f *forum) withPost(c *gin.Context, change func(*Post)) {
 // appoint pins the moderator badge on someone in this channel (PUT) or takes it back (DELETE).
 // AuthKit decides whether the caller may: this channel's owner or an admin, yes; Bob, no.
 func (f *forum) appoint(c *gin.Context) {
-	actor, _ := authkitgin.Actor(c) // no actor? AuthKit refuses the empty one
+	actor, _ := verify.ActorFromContext(c.Request.Context()) // no actor? AuthKit refuses the empty one
 	change := f.auth.AssignGroupRoles
 	if c.Request.Method == http.MethodDelete {
 		change = f.auth.UnassignGroupRoles
 	}
 	who := []iam.Subject{iam.UserSubject(c.Param("user_id"))}
-	res, err := change(c.Request.Context(), actor, iam.GroupByID(c.GetString("channel")), who, "moderator")
+	res, err := change(c.Request.Context(), actor, iam.GroupByID(c.GetString("channel")), who, Moderator)
 	if err == nil {
 		err = res[0].Err
 	}
 	if err != nil {
-		authkitgin.Error(c, err)
+		c.JSON(iam.ErrorResponse(err))
 		return
 	}
 	c.Status(http.StatusNoContent)

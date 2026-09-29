@@ -9,6 +9,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/helpers/auth"
 )
@@ -252,7 +253,7 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	}
 	var scope *PermissionScope
 	if c.BoundToPermissionGroup() {
-		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: iam.Persona(c.PermissionGroupPersona)}
+		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: ident.Persona(c.PermissionGroupPersona)}
 	}
 	return DelegatedPrincipal{
 		PermissionGroup:                 scope,
@@ -328,14 +329,14 @@ func (c Claims) PermissionGroupAllows(scope PermissionScope) bool {
 	}
 	return c.PermissionGroupID != "" && scope.GroupID != "" && c.PermissionGroupID == scope.GroupID &&
 		c.PermissionGroupAuthorityIssuer != "" && c.PermissionGroupAuthorityIssuer == scope.AuthorityIssuer &&
-		c.PermissionGroupPersona != "" && iam.Persona(c.PermissionGroupPersona) == scope.Persona
+		c.PermissionGroupPersona != "" && ident.Persona(c.PermissionGroupPersona) == scope.Persona
 }
 
 // HasPermission reports whether the claims carry a permission token covering
 // the requested concrete permission.
 func (c Claims) HasPermission(perm iam.Perm) bool {
 	for _, p := range c.Permissions {
-		if perm.Matches(iam.Perm(p)) {
+		if perm.Matches(ident.Perm(p)) {
 			return true
 		}
 	}
@@ -381,6 +382,16 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	}
 	cl, ok := v.(Claims)
 	return cl, ok
+}
+
+// IdentityFromContext is the verified caller's provider-neutral identity
+// (user, device key, API key, remote application or delegated principal).
+func IdentityFromContext(ctx context.Context) (auth.Identity, bool) {
+	cl, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return auth.Identity{}, false
+	}
+	return cl.Identity()
 }
 
 func GetClaims(ctx context.Context) (Claims, error) {

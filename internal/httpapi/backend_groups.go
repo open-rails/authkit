@@ -17,7 +17,7 @@ type groupsBackend interface {
 	AssignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
 	UnassignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
 	RemoveGroupMembers(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error)
-	DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, r iam.CustomRole) error
+	DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error)
 	DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, role iam.Role) error
 	PermissionGroupSchema() *rbac.Schema
 }

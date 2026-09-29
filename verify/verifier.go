@@ -22,6 +22,7 @@ import (
 	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -282,12 +283,12 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}
 	return Claims{
 		APIKeyID:    p.ID,
-		Permissions: p.Permissions,
+		Permissions: ident.Strings(p.Permissions),
 		TokenType:   APIKeyPrincipalType,
 		// Bind the key's authority to the group instance it was minted on (#248).
 		PermissionGroupID:              p.Group.ID,
 		PermissionGroupAuthorityIssuer: p.Issuer,
-		PermissionGroupPersona:         string(p.Group.Persona),
+		PermissionGroupPersona:         p.Group.Persona.String(),
 	}, true, nil
 }
 
@@ -316,9 +317,9 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*iam.R
 	return ra, nil
 }
 
-func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string, error) {
+func permissionsWithinAuthority(claimedPerms []string, authorityPerms []iam.Perm) ([]string, error) {
 	if claimedPerms == nil {
-		return authorityPerms, nil
+		return ident.Strings(authorityPerms), nil
 	}
 	eff := make([]string, 0, len(claimedPerms))
 	seen := map[string]struct{}{}
@@ -329,7 +330,7 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 		}
 		ok := false
 		for _, grant := range authorityPerms {
-			if iam.Perm(p).Matches(iam.Perm(grant)) {
+			if ident.Perm(p).Matches(grant) {
 				ok = true
 				break
 			}
@@ -377,7 +378,7 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *iam.Rem
 		// resolved server-side alongside the permission ceiling.
 		PermissionGroupID:              authority.PermissionGroupID,
 		PermissionGroupAuthorityIssuer: authority.AuthorityIssuer,
-		PermissionGroupPersona:         string(authority.Persona),
+		PermissionGroupPersona:         authority.Persona.String(),
 	}, nil
 }
 

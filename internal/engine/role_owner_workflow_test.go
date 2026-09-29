@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -31,8 +32,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
 		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, CustomRoles: true, RemoteApplications: true}},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
-			{Persona: iam.RootPersona, Name: "reader", Permissions: []string{"root:users:ban"}},
+			{Persona: "root", Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
+			{Persona: "root", Name: "reader", Permissions: []string{"root:users:ban"}},
 			{Persona: "org", Name: "reader", Permissions: []string{"org:records:read"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},
 		},
@@ -47,42 +48,41 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		return u.ID
 	}
 	owner, manager, peer := user(), user(), user()
-	grantRole(t, svc, iam.RootGroup(), iam.UserSubject(owner), iam.OwnerRole)
+	grantRole(t, svc, iam.RootGroup(), iam.UserSubject(owner), "owner")
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
-	role := func(gid, uid string) iam.Role {
-		r, err := svc.groupStore().directRole(ctx, gid, iam.UserSubject(uid))
+	role := func(gid, uid string) string {
+		r, err := svc.groupStore().directRoleName(ctx, gid, iam.UserSubject(uid))
 		require.NoError(t, err)
 		return r
 	}
 	t.Run("replacement_and_noop", func(t *testing.T) {
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(manager), iam.RootGroup(), iam.UserSubject(owner), "reader"), iam.ErrRoleAssignmentEscalation)
-		require.ErrorIs(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), iam.OwnerRole), iam.ErrLastOwner)
+		require.ErrorIs(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), "owner"), iam.ErrLastOwner)
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), "reader"), iam.ErrLastOwner)
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), iam.OwnerRole))
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), " owner "))
-		grantRole(t, svc, iam.RootGroup(), iam.UserSubject(owner), " owner ")
-		require.ErrorIs(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), " owner "), iam.ErrLastOwner)
-		require.ErrorIs(t, unassignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner), " owner "), iam.ErrLastOwner)
+		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), "owner"))
+		grantRole(t, svc, iam.RootGroup(), iam.UserSubject(owner), "owner")
+		require.ErrorIs(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), "owner"), iam.ErrLastOwner)
+		require.ErrorIs(t, unassignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner), "owner"), iam.ErrLastOwner)
 		require.NoError(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(owner), "reader")) // absent assignment
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(peer), iam.OwnerRole))
+		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(peer), "owner"))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(peer), "reader"))
-		require.Equal(t, iam.OwnerRole, role(root, owner))
+		require.Equal(t, "owner", role(root, owner))
 	})
 	t.Run("bounded_invite_is_not_a_demotion", func(t *testing.T) {
-		invite, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: "reader"})
+		invite, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: mustRole("root:reader")})
 		require.NoError(t, err)
 		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(owner), invite.Code)
 		require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 		recipient := user()
 		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(recipient), invite.Code)
 		require.NoError(t, err)
-		require.Equal(t, iam.Role("reader"), role(root, recipient))
+		require.Equal(t, "reader", role(root, recipient))
 		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(recipient), invite.Code)
 		require.NoError(t, err, "same recipient is idempotent")
 		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(user()), invite.Code)
 		require.ErrorIs(t, err, iam.ErrInviteLinkNotFound)
 		// A link never outlives its creator's authority (ak#394).
-		pending, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: "reader"})
+		pending, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: mustRole("root:reader")})
 		require.NoError(t, err)
 		require.NoError(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 		require.Empty(t, role(root, manager))
@@ -91,7 +91,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 	})
 	group := func(uid string) (iam.GroupRef, string) {
-		id, err := seedGroup(ctx, svc, "org", uid)
+		id, err := seedGroup(ctx, svc, ident.Persona("org"), uid)
 		require.NoError(t, err)
 		return iam.GroupByID(id), id
 	}
@@ -105,8 +105,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		human := user()
 		g, gid := group(human)
 		a := app(gid)
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.RemoteApplicationSubject(a.ID), iam.OwnerRole))
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.RemoteApplicationSubject(a.ID), " owner "))
+		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.RemoteApplicationSubject(a.ID), "owner"))
 		bounded := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(bounded), "manager"))
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(bounded), g, iam.RemoteApplicationSubject(a.ID), "reader"), iam.ErrRoleAssignmentEscalation)
@@ -115,7 +114,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		_, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.ErrorIs(t, err, iam.ErrLastOwner)
 		require.ErrorIs(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), a.Slug), iam.ErrLastOwner)
-		grantRole(t, svc, g, iam.UserSubject(human), iam.OwnerRole)
+		grantRole(t, svc, g, iam.UserSubject(human), "owner")
 		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.NoError(t, err)
 		require.ErrorIs(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)), iam.ErrLastOwner, "disabled app is not a recovery owner")
@@ -123,7 +122,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.NoError(t, err)
 		require.NoError(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)))
-		grantRole(t, svc, g, iam.UserSubject(human), iam.OwnerRole)
+		grantRole(t, svc, g, iam.UserSubject(human), "owner")
 		require.NoError(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), a.Slug))
 	})
 	t.Run("subtree_cascade_cannot_count_cross_control_owners", func(t *testing.T) {
@@ -132,7 +131,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		survivor, survivorID := group(human)
 		for range 2 {
 			a := app(controllerID)
-			require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), survivor, iam.RemoteApplicationSubject(a.ID), iam.OwnerRole), iam.ErrRemoteApplicationNotFound)
+			require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), survivor, iam.RemoteApplicationSubject(a.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 			// Historical invalid assignments are not operational owners. Even if
 			// present, neither removal nor a concurrent subtree cascade may count them.
 			_, err := svc.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, survivorID, a.ID)
@@ -177,7 +176,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		_, err = svc.updateImportedUser(ctx, sole, newAccount{Username: "importedowner", BannedAt: &now})
 		require.ErrorIs(t, err, iam.ErrLastOwner)
 		alternate := user()
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(sole), g, iam.UserSubject(alternate), iam.OwnerRole))
+		require.NoError(t, assignRole(ctx, svc, iam.UserActor(sole), g, iam.UserSubject(alternate), "owner"))
 		require.NoError(t, svc.Ban(ctx, iam.SystemActor(), alternate, iam.Ban{}))
 		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
 		require.NoError(t, svc.Unban(ctx, iam.SystemActor(), alternate))
@@ -198,27 +197,27 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		human := user()
 		g, gid := group(human)
 		other := user()
-		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), g, iam.CustomRole{Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
+		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), g, "editor", []string{"org:records:read", "org:records:write"}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(other), "editor"))
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human), "editor"), iam.ErrLastOwner)
-		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), g, iam.CustomRole{Name: "editor", Permissions: []string{"org:records:read"}}))
-		require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(human), g, "editor"))
+		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), g, "editor", []string{"org:records:read"}))
+		require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(human), g, mustRole("org:editor")))
 		require.Empty(t, role(gid, other))
-		require.Equal(t, iam.OwnerRole, role(gid, human))
+		require.Equal(t, "owner", role(gid, human))
 	})
 	t.Run("concurrent_owner_departures", func(t *testing.T) {
 		for _, op := range []string{"remove", "unassign", "replace", "ban", "soft-delete", "mfa", "mfa-factor"} {
 			t.Run(op, func(t *testing.T) {
 				one, two := user(), user()
 				g, gid := group(one)
-				require.NoError(t, assignRole(ctx, svc, iam.UserActor(one), g, iam.UserSubject(two), iam.OwnerRole))
+				require.NoError(t, assignRole(ctx, svc, iam.UserActor(one), g, iam.UserSubject(two), "owner"))
 				raceSvc := svc
 				if strings.HasPrefix(op, "mfa") {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = iam.TwoFactorOptional
 					cfg.Roles = RoleConfig{
 						Personas: map[string]Persona{"org": {RequireMFA: []string{"org:members:manage"}}},
-						Roles:    []Role{{Persona: "org", Name: iam.OwnerRole, Permissions: []string{"org:*"}}},
+						Roles:    []Role{{Persona: "org", Name: "owner", Permissions: []string{"org:*"}}},
 					}
 					raceSvc = mustNewWithKeys(t, cfg, keyset{}, Deps{Postgres: hostPool})
 					_, err := raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
@@ -240,7 +239,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					case "remove":
 						return removeMember(ctx, svc, iam.UserActor(uid), g, iam.UserSubject(uid))
 					case "unassign":
-						return unassignRole(ctx, svc, iam.UserActor(uid), g, iam.UserSubject(uid), iam.OwnerRole)
+						return unassignRole(ctx, svc, iam.UserActor(uid), g, iam.UserSubject(uid), "owner")
 					case "replace":
 						return assignRole(ctx, svc, iam.UserActor(uid), g, iam.UserSubject(uid), "reader")
 					case "ban":
@@ -287,7 +286,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		customGroup, customGID := group(human)
 		customActor, customTarget := user(), user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customActor), "manager"))
-		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), customGroup, iam.CustomRole{Name: "auditor", Permissions: []string{"org:records:read"}}))
+		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), customGroup, "auditor", []string{"org:records:read"}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customTarget), "auditor"))
 		expiringActor := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(expiringActor), "manager"))
@@ -300,12 +299,12 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{"target_promotion", func() error {
 				return assignRole(ctx, svc, iam.UserActor(manager), iam.RootGroup(), iam.UserSubject(target), "reader")
 			}, func(st *permissionGroupStore) error {
-				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.OwnerRole)
+				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.RootPersona.OwnerRole())
 			}, iam.ErrRoleAssignmentEscalation},
 			{"custom_role_redefinition", func() error {
 				return assignRole(ctx, svc, iam.UserActor(customActor), customGroup, iam.UserSubject(customTarget), "reader")
 			}, func(st *permissionGroupStore) error {
-				return st.UpsertCustomRole(ctx, customGID, "auditor", []string{"org:records:write"})
+				return st.UpsertCustomRole(ctx, customGID, mustRole("org:auditor"), []string{"org:records:write"})
 			}, iam.ErrRoleAssignmentEscalation},
 			{"ban_while_queued_revokes_authority", func() error {
 				return assignRole(ctx, svc, iam.UserActor(expiringActor), iam.RootGroup(), iam.UserSubject(peer), "reader")
@@ -346,13 +345,13 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				}
 				switch tc.name {
 				case "target_promotion":
-					require.Equal(t, iam.OwnerRole, role(root, target))
+					require.Equal(t, "owner", role(root, target))
 				case "custom_role_redefinition":
-					require.Equal(t, iam.Role("auditor"), role(customGID, customTarget))
+					require.Equal(t, "auditor", role(customGID, customTarget))
 				case "actor_revocation":
 					require.Empty(t, role(root, manager))
 				case "ban_expiry_after_transaction_start":
-					require.Equal(t, iam.Role("reader"), role(root, peer))
+					require.Equal(t, "reader", role(root, peer))
 				}
 			})
 		}

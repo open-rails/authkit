@@ -15,12 +15,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // grantsCoverAll reports whether actorGrants cover every permission in targetGrants.
 func grantsCoverAll(actorGrants, targetGrants []string) bool {
 	for _, tp := range targetGrants {
-		if !iam.AnyGrantCovers(actorGrants, iam.Perm(tp)) {
+		if !rbac.Covers(actorGrants, ident.Perm(tp)) {
 			return false
 		}
 	}
@@ -32,7 +34,6 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 // COVER(old) and the last-owner check. An application subject must be
 // controlled by the group. An already-held role is a no-op.
 func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
-	role = iam.Role(strings.TrimSpace(string(role)))
 	prepare := func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
@@ -50,11 +51,11 @@ func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.Grou
 		if err := s.requireRoleCover(ctx, st, auth, g, role); err != nil {
 			return err
 		}
-		old, err := st.directRole(ctx, g.ID, subject)
+		old, err := st.directRole(ctx, g, subject)
 		if err != nil || old == role {
 			return err
 		}
-		if old != "" {
+		if !old.IsZero() {
 			if err := s.requireRoleCover(ctx, st, auth, g, old); err != nil {
 				return err
 			}
@@ -95,10 +96,9 @@ func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupS
 // subject kind and COVER(role), then the last-owner check. A subject not
 // holding role is a no-op.
 func (s *Engine) UnassignGroupRoles(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	prepare := func(*permissionGroupStore, groupTarget) error {
-		if role == "" {
-			return iam.ErrRoleNotAssignable
+	prepare := func(_ *permissionGroupStore, g groupTarget) error {
+		if role.IsZero() || role.Persona() != g.Persona {
+			return fmt.Errorf("role %q is not a role of a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}
 		return nil
 	}
@@ -110,7 +110,7 @@ func (s *Engine) UnassignGroupRoles(ctx context.Context, a iam.Actor, ref iam.Gr
 		if err := s.requireRoleCover(ctx, st, auth, g, role); err != nil {
 			return err
 		}
-		current, err := st.directRole(ctx, g.ID, subject)
+		current, err := st.directRole(ctx, g, subject)
 		if err != nil || current != role {
 			return err
 		}
@@ -129,8 +129,8 @@ func (s *Engine) RemoveGroupMembers(ctx context.Context, a iam.Actor, ref iam.Gr
 		if err != nil {
 			return err
 		}
-		current, err := st.directRole(ctx, g.ID, subject)
-		if err != nil || current == "" {
+		current, err := st.directRole(ctx, g, subject)
+		if err != nil || current.IsZero() {
 			return err
 		}
 		if err := s.requireRoleCover(ctx, st, auth, g, current); err != nil {
@@ -279,7 +279,7 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	for rows.Next() {
 		var subject iam.Subject
 		var role iam.Role
-		if err := rows.Scan(&subject.Kind, &subject.ID, &role); err != nil {
+		if err := rows.Scan(&subject.Kind, &subject.ID, scanRole(&role, g.Persona)); err != nil {
 			return nil, err
 		}
 		held[subject] = role

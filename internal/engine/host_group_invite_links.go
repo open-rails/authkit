@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -71,8 +72,8 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 	if !s.externalInvitesEnabled() {
 		return iam.InviteLinkCreated{}, iam.ErrExternalInvitesDisabled
 	}
-	role := iam.Role(strings.ToLower(strings.TrimSpace(string(l.Role))))
-	if role == "" {
+	role := l.Role
+	if role.IsZero() {
 		return iam.InviteLinkCreated{}, errmodel.ErrInvalidInvite
 	}
 	ttl := l.ExpiresIn
@@ -88,7 +89,7 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 			return err
 		}
 		return st.q.QueryRow(ctx, `INSERT INTO group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
- VALUES($1::uuid,$2,$3::uuid,$4,$5) RETURNING id::text`, g.ID, role, nullable(creator), sha256Hex(out.Code), out.ExpiresAt).Scan(&out.ID)
+ VALUES($1::uuid,$2,$3::uuid,$4,$5) RETURNING id::text`, g.ID, role.Name(), nullable(creator), sha256Hex(out.Code), out.ExpiresAt).Scan(&out.ID)
 	})
 	if err != nil {
 		return iam.InviteLinkCreated{}, err
@@ -120,7 +121,7 @@ func (s *Engine) InviteLinks(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 	}
 	links, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.InviteLink, error) {
 		var l iam.InviteLink
-		err := row.Scan(&l.ID, &l.Role, &l.InvitedBy, &l.CreatedAt, &l.ExpiresAt, &l.RedeemedAt, &l.RevokedAt)
+		err := row.Scan(&l.ID, scanRole(&l.Role, g.Persona), &l.InvitedBy, &l.CreatedAt, &l.ExpiresAt, &l.RedeemedAt, &l.RevokedAt)
 		return l, err
 	})
 	if err != nil {
@@ -141,7 +142,7 @@ func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 			return iam.ErrInviteLinkNotFound
 		}
 		var role iam.Role
-		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, g.ID).Scan(&role)
+		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, g.ID).Scan(scanRole(&role, g.Persona))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInviteLinkNotFound
 		}
@@ -185,19 +186,20 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 			return err
 		}
-		var linkID string
+		var linkID, role string
 		var redeemedAt, expiresAt, revokedAt *time.Time
 		var issuerOK bool
 		err = st.q.QueryRow(ctx, `SELECT l.id::text, g.id::text, g.persona, l.role, l.redeemed_at, l.expires_at, l.revoked_at, `+issuerLive("l.invited_by")+`
  FROM group_invite_links l JOIN permission_groups g ON g.id=l.permission_group_id
  WHERE l.code_hash=$1 AND l.permission_group_id=$2::uuid
- FOR UPDATE OF l`, codeHash, groupID).Scan(&linkID, &out.GroupID, &out.Persona, &out.Role, &redeemedAt, &expiresAt, &revokedAt, &issuerOK)
+ FOR UPDATE OF l`, codeHash, groupID).Scan(&linkID, &out.GroupID, scanPersona(&out.Persona), &role, &redeemedAt, &expiresAt, &revokedAt, &issuerOK)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInviteLinkNotFound
 		}
 		if err != nil {
 			return err
 		}
+		out.Role = ident.Role(out.Persona, role)
 		if revokedAt != nil || !issuerOK {
 			return errmodel.ErrInviteLinkRevoked
 		}
@@ -246,7 +248,7 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 		return err
 	}
-	var inviteID string
+	var inviteID, role string
 	var consumedAt, revokedAt *time.Time
 	var expiresAt time.Time
 	var issuerOK, addressed bool
@@ -254,13 +256,14 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
        EXISTS(SELECT 1 FROM users u WHERE u.id=$3::uuid AND lower(u.email::text)=lower(i.email::text) AND u.email_verified)
  FROM account_registration_invites i JOIN permission_groups g ON g.id=i.permission_group_id AND g.deleted_at IS NULL
  WHERE i.code_hash=$1 AND i.permission_group_id=$2::uuid
- FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.GroupID, &out.Persona, &out.Role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
+ FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.GroupID, scanPersona(&out.Persona), &role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !addressed {
 		return iam.ErrInviteLinkNotFound
 	}
 	if err != nil {
 		return err
 	}
+	out.Role = ident.Role(out.Persona, role)
 	if revokedAt != nil || !issuerOK {
 		return errmodel.ErrInviteLinkRevoked
 	}
@@ -294,6 +297,6 @@ func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM group_user_roles
 		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3)`,
-		groupID, userID, role).Scan(&exists)
+		groupID, userID, role.Name()).Scan(&exists)
 	return exists, err
 }

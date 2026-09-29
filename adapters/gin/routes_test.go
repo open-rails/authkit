@@ -31,7 +31,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	}
-	auth := testhttp.Auth(t, cfg)
+	auth := testhttp.Client(t, cfg)
 	engine := gin.New()
 	require.NoError(t, Mount(engine, auth))
 	engine.NoRoute(func(c *gin.Context) { c.Status(418) })

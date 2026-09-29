@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
@@ -70,8 +71,8 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	persona := iam.Persona(strings.TrimSpace(string(q.Persona)))
-	if _, ok := s.groupSchemaOrDefault().Persona(persona); persona != "" && (!ok || persona == iam.RootPersona) {
+	persona := q.Persona
+	if _, ok := s.groupSchemaOrDefault().Persona(persona); !persona.IsZero() && (!ok || persona == iam.RootPersona) {
 		return out, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	after, err := decodePageCursor(q.Page.Cursor, 1)
@@ -82,7 +83,7 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups
  WHERE persona<>'root' AND ($1='' OR persona=$1) AND ($2 OR deleted_at IS NULL)
  AND ($3='' OR id>$3::uuid)
- ORDER BY id LIMIT $4`, persona, q.IncludeDeleted, after[0], limit+1)
+ ORDER BY id LIMIT $4`, persona.String(), q.IncludeDeleted, after[0], limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -121,7 +122,7 @@ func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.Li
 	mfaPersonas := []string{} // never NULL: ANY(NULL) is NULL, not false
 	for _, persona := range s.groupSchemaOrDefault().Personas() {
 		if s.ownersNeedMFA(persona) {
-			mfaPersonas = append(mfaPersonas, string(persona))
+			mfaPersonas = append(mfaPersonas, persona.String())
 		}
 	}
 	limit := p.PageLimit()
@@ -147,7 +148,7 @@ func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.Li
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1]
-		out.Next = encodePageCursor(string(last.Persona), last.ID)
+		out.Next = encodePageCursor(last.Persona.String(), last.ID)
 	}
 	return out, nil
 }
@@ -173,7 +174,12 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	}
 	roles := make([]string, 0, len(q.Roles))
 	for _, r := range q.Roles {
-		roles = append(roles, strings.TrimSpace(string(r)))
+		if r.Persona() == g.Persona {
+			roles = append(roles, r.Name())
+		}
+	}
+	if len(q.Roles) > 0 && len(roles) == 0 {
+		return out, nil // no role of this group's persona: nobody holds one
 	}
 	limit := q.Page.PageLimit()
 	rows, err := s.pg.Query(ctx, `SELECT kind, id, role FROM (
@@ -193,7 +199,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	defer rows.Close()
 	for rows.Next() {
 		var m iam.GroupMember
-		if err := rows.Scan(&m.Subject.Kind, &m.Subject.ID, &m.Role); err != nil {
+		if err := rows.Scan(&m.Subject.Kind, &m.Subject.ID, scanRole(&m.Role, g.Persona)); err != nil {
 			return out, err
 		}
 		out.Items = append(out.Items, m)
@@ -257,9 +263,11 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	defer rows.Close()
 	for rows.Next() {
 		var m iam.Membership
-		if err := rows.Scan(&m.Group.ID, &m.Group.Persona, &m.Group.CreatedAt, &m.Group.DeletedAt, &m.Role); err != nil {
+		var role string
+		if err := rows.Scan(&m.Group.ID, scanPersona(&m.Group.Persona), &m.Group.CreatedAt, &m.Group.DeletedAt, &role); err != nil {
 			return out, err
 		}
+		m.Role = ident.Role(m.Group.Persona, role)
 		out.Items = append(out.Items, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -268,7 +276,7 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1].Group
-		out.Next = encodePageCursor(string(last.Persona), last.ID)
+		out.Next = encodePageCursor(last.Persona.String(), last.ID)
 	}
 	return out, nil
 }

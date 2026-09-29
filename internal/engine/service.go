@@ -41,7 +41,7 @@ type entitlementFilterProvider interface {
 
 // (storage layer collapsed into direct Postgres helpers)
 
-// Engine owns local business logic and resources behind Auth.
+// Engine owns local business logic and resources behind Client.
 type Engine struct {
 	closeOnce sync.Once
 

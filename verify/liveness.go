@@ -9,7 +9,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// LivenessSource reads accounts for the liveness gate: *authkit.Auth, or a
+// LivenessSource reads accounts for the liveness gate: *authkit.Client, or a
 // host's own implementation. Unknown ids are absent.
 type LivenessSource interface {
 	Users(ctx context.Context, ids []string) (map[string]iam.User, error)

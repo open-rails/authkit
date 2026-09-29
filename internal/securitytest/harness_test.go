@@ -46,7 +46,7 @@ var signer = sync.OnceValue(func() *jwtkit.RSASigner {
 type host struct {
 	t      *testing.T
 	cfg    hostConfig
-	auth   *authkit.Auth
+	auth   *authkit.Client
 	pool   *pgxpool.Pool
 	server *httptest.Server
 	mail   *outbox
@@ -134,7 +134,7 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 
 // fork serves runtime's configured routes; every route shares the one
 // canonical AuthKit mount.
-func (h *host) fork(runtime *authkit.Auth) *host {
+func (h *host) fork(runtime *authkit.Client) *host {
 	h.t.Helper()
 	require.NotNil(h.t, runtime.Handler())
 	server := httptest.NewServer(runtime.Handler())
@@ -389,18 +389,39 @@ func (p phones) SendLoginCode(_ context.Context, phone, code string) error {
 
 func (p phones) SendContactChanged(context.Context, string, iam.ContactChange) error { return nil }
 
-// grantRole assigns role with system authority; the test fails otherwise.
-func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
+// roleIn resolves the role name for ref's persona through the schema, as a
+// host reading a name at run time does.
+func roleIn(t testing.TB, auth *authkit.Client, ref iam.GroupRef, name string) iam.Role {
 	t.Helper()
-	res, err := auth.AssignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, role)
+	g, err := auth.Group(t.Context(), ref)
+	require.NoError(t, err)
+	role, err := auth.Role(g.Persona, name)
+	require.NoError(t, err)
+	return role
+}
+
+// role resolves a role name of persona through the schema.
+func (h *host) role(persona iam.Persona, name string) iam.Role {
+	h.t.Helper()
+	r, err := h.auth.Role(persona, name)
+	require.NoError(h.t, err)
+	return r
+}
+
+// grantRole assigns the role name of ref's persona with system authority; the
+// test fails otherwise.
+func grantRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
+	t.Helper()
+	res, err := auth.AssignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 }
 
-// revokeRole unassigns role with system authority; the test fails otherwise.
-func revokeRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
+// revokeRole unassigns the role name with system authority; the test fails
+// otherwise.
+func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
-	res, err := auth.UnassignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, role)
+	res, err := auth.UnassignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 }

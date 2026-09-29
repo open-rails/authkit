@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ func TestGroupRoleOperations(t *testing.T) {
 	roles := RoleConfig{
 		Personas: map[string]Persona{"root": {Permissions: []string{"root:posts:edit"}}},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "editor", Permissions: []string{"root:posts:edit"}},
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{string(iam.PermMembersManage(iam.RootPersona)), "root:posts:edit"}},
+			{Persona: "root", Name: "editor", Permissions: []string{"root:posts:edit"}},
+			{Persona: "root", Name: "admin", Permissions: []string{iam.PermMembersManage(iam.RootPersona).String(), "root:posts:edit"}},
 		},
 	}
 	engine := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://group-roles.test"},
@@ -33,30 +34,30 @@ func TestGroupRoleOperations(t *testing.T) {
 	owner, admin, editor, other := newUser("owner"), newUser("admin"), newUser("editor"), newUser("other")
 
 	// The system skips authority rules, never invariants.
-	grantRole(t, engine, root, owner, iam.OwnerRole)
-	require.ErrorIs(t, unassignRole(ctx, engine, iam.SystemActor(), root, owner, iam.OwnerRole), iam.ErrLastOwner)
+	grantRole(t, engine, root, owner, "owner")
+	require.ErrorIs(t, unassignRole(ctx, engine, iam.SystemActor(), root, owner, "owner"), iam.ErrLastOwner)
 	require.ErrorIs(t, assignRole(ctx, engine, iam.SystemActor(), root, owner, "editor"), iam.ErrLastOwner)
 	require.ErrorIs(t, assignRole(ctx, engine, iam.SystemActor(), root, stranger, "editor"), iam.ErrUserNotFound)
-	_, err := engine.AssignGroupRoles(ctx, iam.SystemActor(), root, []iam.Subject{editor}, "unknown")
+	_, err := engine.AssignGroupRoles(ctx, iam.SystemActor(), root, []iam.Subject{editor}, mustRole("root:unknown"))
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
-	_, err = engine.AssignGroupRoles(ctx, iam.Actor{}, root, []iam.Subject{editor}, "editor")
+	_, err = engine.AssignGroupRoles(ctx, iam.Actor{}, root, []iam.Subject{editor}, mustRole("root:editor"))
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "the zero actor is refused")
 
 	// root:members:manage lets a bounded admin grant what it covers, never more.
 	grantRole(t, engine, root, admin, "admin")
-	res, err := engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor, other, stranger}, "editor")
+	res, err := engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor, other, stranger}, mustRole("root:editor"))
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 	require.NoError(t, res[1].Err)
 	require.ErrorIs(t, res[2].Err, iam.ErrUserNotFound, "items fail independently")
-	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(admin.ID), root, other, iam.OwnerRole), iam.ErrRoleAssignmentEscalation)
+	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(admin.ID), root, other, "owner"), iam.ErrRoleAssignmentEscalation)
 	require.ErrorIs(t, removeMember(ctx, engine, iam.UserActor(admin.ID), root, owner), iam.ErrRoleAssignmentEscalation)
 	require.ErrorIs(t, unassignRole(ctx, engine, iam.UserActor(editor.ID), root, other, "editor"), iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(owner.ID).Within("root:posts:*"), root, other, "admin"), iam.ErrInsufficientAuthority, "a ceiling narrows even the owner")
+	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(owner.ID).Within(ident.Perm("root:posts:*")), root, other, "admin"), iam.ErrInsufficientAuthority, "a ceiling narrows even the owner")
 
 	held, err := engine.GroupRoles(ctx, root, []iam.Subject{owner, admin, editor, other, stranger})
 	require.NoError(t, err)
-	require.Equal(t, map[iam.Subject]iam.Role{owner: iam.OwnerRole, admin: "admin", editor: "editor", other: "editor"}, held)
+	require.Equal(t, map[iam.Subject]iam.Role{owner: mustRole("root:owner"), admin: mustRole("root:admin"), editor: mustRole("root:editor"), other: mustRole("root:editor")}, held)
 
 	res, err = engine.RemoveGroupMembers(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor, stranger})
 	require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestGroupRoleOperations(t *testing.T) {
 
 	// A banned actor is not live, whatever roles it still holds.
 	require.NoError(t, engine.Ban(ctx, iam.SystemActor(), admin.ID, iam.Ban{}))
-	_, err = engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor}, "editor")
+	_, err = engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor}, mustRole("root:editor"))
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 
 	// MFA follows permissions and binds the system too.
@@ -86,8 +87,8 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Roles: RoleConfig{
 			Personas: map[string]Persona{"org": {Permissions: []string{"org:catalog:read"}}},
 			Roles: []Role{
-				{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*"}},
-				{Persona: iam.RootPersona, Name: "banner", Permissions: []string{iam.PermRootUsersBan}},
+				{Persona: "root", Name: "org-admin", Permissions: []string{"org:*"}},
+				{Persona: "root", Name: "banner", Permissions: []string{iam.PermRootUsersBan.String()}},
 				{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			},
 		}}, keyset{}, Deps{Postgres: pg.Pool})
@@ -100,13 +101,13 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	founder, orgAdmin, banner, siteOwner, member := newUser("founder"), newUser("orgadmin"), newUser("banner"), newUser("siteowner"), newUser("member")
 	_, err := engine.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	acmeID, err := seedGroup(ctx, engine, "org", founder.ID)
+	acmeID, err := seedGroup(ctx, engine, ident.Persona("org"), founder.ID)
 	require.NoError(t, err)
 	acme := iam.GroupByID(acmeID)
 	root := iam.RootGroup()
 	grantRole(t, engine, root, orgAdmin, "org-admin")
 	grantRole(t, engine, root, banner, "banner")
-	grantRole(t, engine, root, siteOwner, iam.OwnerRole)
+	grantRole(t, engine, root, siteOwner, "owner")
 	can := func(s iam.Subject, g iam.GroupRef, p iam.Perm) bool {
 		t.Helper()
 		ok, err := engine.Can(ctx, actorOf(s), g, p)
@@ -114,12 +115,12 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 		return ok
 	}
 
-	require.True(t, can(orgAdmin, acme, "org:members:manage"))
+	require.True(t, can(orgAdmin, acme, ident.Perm("org:members:manage")))
 	require.NoError(t, assignRole(ctx, engine, iam.UserActor(orgAdmin.ID), acme, member, "member"))
-	require.NoError(t, assignRole(ctx, engine, iam.UserActor(orgAdmin.ID), acme, member, iam.OwnerRole), "org:* on root covers the org owner role")
+	require.NoError(t, assignRole(ctx, engine, iam.UserActor(orgAdmin.ID), acme, member, "owner"), "org:* on root covers the org owner role")
 	require.True(t, can(banner, root, iam.PermRootUsersBan))
 	require.False(t, can(banner, acme, iam.PermRootUsersBan), "root permissions count only on root")
-	require.False(t, can(siteOwner, acme, "org:members:manage"), "root:* never stands in for a persona permission")
+	require.False(t, can(siteOwner, acme, ident.Perm("org:members:manage")), "root:* never stands in for a persona permission")
 	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(siteOwner.ID), acme, member, "member"), iam.ErrInsufficientAuthority)
 }
 
@@ -143,8 +144,8 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 			Roles: []Role{
 				{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 				{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}},
-				{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
-				{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*", iam.PermRootUsersBan}},
+				{Persona: "root", Name: "moderator", Permissions: []string{iam.PermRootUsersBan.String()}},
+				{Persona: "root", Name: "org-admin", Permissions: []string{"org:*", iam.PermRootUsersBan.String()}},
 			},
 		}}, keyset{}, Deps{Postgres: pg.Pool})
 	ctx := t.Context()
@@ -159,9 +160,9 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 	f.founder = f.newUser("founder")
 	_, err := e.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	f.acmeID, err = seedGroup(ctx, e, "org", f.founder.ID)
+	f.acmeID, err = seedGroup(ctx, e, ident.Persona("org"), f.founder.ID)
 	require.NoError(t, err)
-	otherID, err := seedGroup(ctx, e, "org", f.founder.ID)
+	otherID, err := seedGroup(ctx, e, ident.Persona("org"), f.founder.ID)
 	require.NoError(t, err)
 	f.acme, f.other = iam.GroupByID(f.acmeID), iam.GroupByID(otherID)
 	manager := f.newUser("manager")
@@ -181,14 +182,14 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 func TestRoleOperationsNeverEscalate(t *testing.T) {
 	f := newEscalationFixture(t)
 	ctx := t.Context()
-	key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: "manager"})
+	key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: mustRole("org:manager")})
 	require.NoError(t, err)
 	actors := map[string]iam.Actor{
 		"user":                  iam.UserActor(f.manager),
 		"api_key":               iam.APIKeyActor(key.ID),
 		"remote_application":    iam.RemoteApplicationActor(f.appID),
-		"delegated_local":       iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://escalation.test", Subject: f.manager, Permissions: []iam.Perm{"org:*"}}),
-		"delegated_application": iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://acme-app.escalation.test", Subject: "customer", Permissions: []iam.Perm{"org:*"}, RemoteApplicationID: f.appID, GroupID: f.acmeID}),
+		"delegated_local":       iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://escalation.test", Subject: f.manager, Permissions: []iam.Perm{ident.Perm("org:*")}}),
+		"delegated_application": iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://acme-app.escalation.test", Subject: "customer", Permissions: []iam.Perm{ident.Perm("org:*")}, RemoteApplicationID: f.appID, GroupID: f.acmeID}),
 	}
 	for name, actor := range actors {
 		t.Run(name, func(t *testing.T) {
@@ -196,13 +197,13 @@ func TestRoleOperationsNeverEscalate(t *testing.T) {
 			require.NoError(t, assignRole(ctx, f.engine, actor, f.acme, fresh, "member"), "a covered role is grantable")
 			require.NoError(t, removeMember(ctx, f.engine, actor, f.acme, fresh))
 			for op, err := range map[string]error{
-				"grant owner":          assignRole(ctx, f.engine, actor, f.acme, f.newUser(name), iam.OwnerRole),
+				"grant owner":          assignRole(ctx, f.engine, actor, f.acme, f.newUser(name), "owner"),
 				"replace the owner":    assignRole(ctx, f.engine, actor, f.acme, f.founder, "member"),
-				"unassign the owner":   unassignRole(ctx, f.engine, actor, f.acme, f.founder, iam.OwnerRole),
+				"unassign the owner":   unassignRole(ctx, f.engine, actor, f.acme, f.founder, "owner"),
 				"remove the owner":     removeMember(ctx, f.engine, actor, f.acme, f.founder),
-				"promote itself":       assignRole(ctx, f.engine, actor, f.acme, iam.UserSubject(f.manager), iam.OwnerRole),
+				"promote itself":       assignRole(ctx, f.engine, actor, f.acme, iam.UserSubject(f.manager), "owner"),
 				"act in another group": assignRole(ctx, f.engine, actor, f.other, f.newUser(name), "member"),
-				"act beyond a ceiling": assignRole(ctx, f.engine, actor.Within("org:catalog:read"), f.acme, f.newUser(name), "member"),
+				"act beyond a ceiling": assignRole(ctx, f.engine, actor.Within(ident.Perm("org:catalog:read")), f.acme, f.newUser(name), "member"),
 			} {
 				require.Error(t, err, op)
 				require.True(t, errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrInsufficientAuthority), "%s: %v", op, err)
@@ -210,16 +211,16 @@ func TestRoleOperationsNeverEscalate(t *testing.T) {
 		})
 	}
 	t.Run("foreign_delegation", func(t *testing.T) {
-		foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://foreign.test", Subject: f.manager, Permissions: []iam.Perm{"org:*"}})
+		foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://foreign.test", Subject: f.manager, Permissions: []iam.Perm{ident.Perm("org:*")}})
 		require.ErrorIs(t, assignRole(ctx, f.engine, foreign, f.acme, f.newUser("foreign"), "member"), iam.ErrInsufficientAuthority)
 	})
 	t.Run("system", func(t *testing.T) {
-		require.NoError(t, assignRole(ctx, f.engine, iam.SystemActor(), f.acme, f.newUser("op"), iam.OwnerRole))
+		require.NoError(t, assignRole(ctx, f.engine, iam.SystemActor(), f.acme, f.newUser("op"), "owner"))
 		require.ErrorIs(t, removeMember(ctx, f.engine, iam.SystemActor(), f.other, f.founder), iam.ErrLastOwner)
 	})
 	roles, err := f.engine.GroupRoles(ctx, f.acme, []iam.Subject{f.founder, iam.UserSubject(f.manager)})
 	require.NoError(t, err)
-	require.Equal(t, map[iam.Subject]iam.Role{f.founder: iam.OwnerRole, iam.UserSubject(f.manager): "manager"}, roles)
+	require.Equal(t, map[iam.Subject]iam.Role{f.founder: mustRole("org:owner"), iam.UserSubject(f.manager): mustRole("org:manager")}, roles)
 }
 
 // ACCT covers the target's grants in root and in every group it holds a role
@@ -254,9 +255,9 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 		t.Run(end, func(t *testing.T) {
 			creator := f.newUser("creator")
 			grantRole(t, f.engine, f.acme, creator, "manager")
-			key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(creator.ID), f.acme, iam.NewAPIKey{Name: end + "-key", Role: "member"})
+			key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(creator.ID), f.acme, iam.NewAPIKey{Name: end + "-key", Role: mustRole("org:member")})
 			require.NoError(t, err)
-			link, err := f.engine.CreateInviteLink(ctx, iam.UserActor(creator.ID), f.acme, iam.NewInviteLink{Role: "member"})
+			link, err := f.engine.CreateInviteLink(ctx, iam.UserActor(creator.ID), f.acme, iam.NewInviteLink{Role: mustRole("org:member")})
 			require.NoError(t, err)
 			if end == "ban" {
 				require.NoError(t, f.engine.Ban(ctx, iam.SystemActor(), creator.ID, iam.Ban{}))

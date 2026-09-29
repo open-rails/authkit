@@ -50,9 +50,11 @@ result describes that moment, not a guarantee against later concurrent changes.
 
 ## Actors
 
-`verify.ActorFromClaims` (and `ActorFromContext`, `authkitgin.Actor`,
-`authkitfiber.Actor`) turns verified claims into the `iam.Actor` that host
-operations take. It never yields the system.
+`verify.ActorFromClaims` (and `ActorFromContext`) turns verified claims into
+the `iam.Actor` that host operations take; it never yields the system. Any
+router reads the request's caller the same way: `ActorFromContext`,
+`ClaimsFromContext`, `UserClaimsFromContext` and `IdentityFromContext` with
+`r.Context()` (net/http), `c.Request.Context()` (Gin) or `c.Context()` (Fiber).
 
 | Verified token | Actor |
 | --- | --- |

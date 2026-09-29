@@ -18,7 +18,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Roles = RoleConfig{
 		Personas: map[string]Persona{"root": {Permissions: []string{"root:posts:read"}}},
-		Roles:    []Role{{Persona: iam.RootPersona, Name: "reader", Permissions: []string{"root:posts:read"}}},
+		Roles:    []Role{{Persona: "root", Name: "reader", Permissions: []string{"root:posts:read"}}},
 	}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	f.service.SetProviders(authprovider.Google("google-client", "secret"), authprovider.Discord("discord-client", "secret"))

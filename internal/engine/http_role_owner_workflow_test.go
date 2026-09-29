@@ -7,6 +7,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	owner, token := newInstanceTestUser(t, srv, "ownerflow")
 	manager, managerToken := newInstanceTestUser(t, srv, "managerflow")
 	peer, _ := newInstanceTestUser(t, srv, "peerflow")
-	gid, err := seedGroup(ctx, client, "org", owner)
+	gid, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	group := iam.GroupByID(gid)
 	base := "/groups/" + gid
@@ -53,7 +54,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	w = serveAuthJSON(srv, http.MethodDelete, base+"/members/"+owner, "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	allowed, err := client.Can(ctx, iam.UserActor(peer), group, "org:members:manage")
+	allowed, err := client.Can(ctx, iam.UserActor(peer), group, ident.Perm("org:members:manage"))
 	require.NoError(t, err)
 	require.True(t, allowed)
 }
@@ -61,7 +62,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := orgTestConfig()
-	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
+	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: "root", Name: "admin", Permissions: []string{"root:members:*", iam.PermRootUsersRead.String()}})
 	cfg.Roles.Personas["root"] = Persona{APIKeys: true}
 	// root:members:manage needs MFA; this test is about actor kinds, not MFA.
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
@@ -71,7 +72,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	owner, ownerToken := newInstanceTestUser(t, srv, "rootowner")
 	admin, adminToken := newInstanceTestUser(t, srv, "rootadmin")
 	target, targetToken := newInstanceTestUser(t, srv, "roottarget")
-	seedRole(t, client, iam.RootGroup(), iam.UserSubject(owner), iam.OwnerRole)
+	seedRole(t, client, iam.RootGroup(), iam.UserSubject(owner), "owner")
 	grantRole(t, client, iam.RootGroup(), iam.UserSubject(admin), "admin")
 	call := func(method, user, role, token string, status int) {
 		t.Helper()
@@ -87,7 +88,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 
 	// A bounded admin promotes to roles it covers, never to or over an owner.
 	call(http.MethodPut, target, "site-admin", adminToken, http.StatusNoContent)
-	require.Equal(t, iam.Role("site-admin"), rootRole(target))
+	require.Equal(t, mustRole("root:site-admin"), rootRole(target))
 	call(http.MethodPut, target, "owner", adminToken, http.StatusForbidden)
 	call(http.MethodPut, owner, "site-admin", adminToken, http.StatusForbidden)
 	call(http.MethodPut, admin, "site-admin", targetToken, http.StatusForbidden)
@@ -99,9 +100,9 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 
 	// Machine and delegated actors never reach the management plane, even
 	// with the authority to act.
-	_, keyToken, err := client.MintAPIKey(t.Context(), iam.UserActor(owner), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: "admin"})
+	_, keyToken, err := client.MintAPIKey(t.Context(), iam.UserActor(owner), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: mustRole("root:admin")})
 	require.NoError(t, err)
-	delegated, err := client.MintDelegatedAccessToken(t.Context(), iam.SystemActor(), iam.DelegatedAccess{Audiences: []string{"test-app"}, Subject: admin, Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
+	delegated, err := client.MintDelegatedAccessToken(t.Context(), iam.SystemActor(), iam.DelegatedAccess{Audiences: []string{"test-app"}, Subject: admin, Permissions: []string{"root:members:*", iam.PermRootUsersRead.String()}})
 	require.NoError(t, err)
 	for _, token := range []string{keyToken, delegated.Value} {
 		w := serveAuthJSON(srv, http.MethodPut, "/admin/users/"+target+"/roles/site-admin", "", token)

@@ -32,7 +32,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	}
-	auth := testhttp.Auth(t, cfg)
+	auth := testhttp.Client(t, cfg)
 	app := fiber.New()
 	require.NoError(t, authkitfiber.Mount(app, auth))
 	app.Use(func(c fiber.Ctx) error { return c.SendStatus(418) })

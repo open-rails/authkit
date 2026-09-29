@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // groupTarget is a GroupRef resolved to a live group. Persona is the stored
@@ -41,7 +43,7 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 		return groupTarget{}, iam.ErrGroupNotFound
 	}
 	var g groupTarget
-	err := st.q.QueryRow(ctx, `SELECT id::text, persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL`, ref.ID()).Scan(&g.ID, &g.Persona)
+	err := st.q.QueryRow(ctx, `SELECT id::text, persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL`, ref.ID()).Scan(&g.ID, scanPersona(&g.Persona))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return groupTarget{}, iam.ErrGroupNotFound
 	}
@@ -91,12 +93,12 @@ type authority struct {
 // covers is the effective-coverage check: the base grants cover p and every
 // ceiling permits it. The system covers everything.
 func (a authority) covers(p iam.Perm) bool {
-	return a.system || iam.AnyGrantCovers(a.grants, p) && a.actor.CeilingCovers(p)
+	return a.system || rbac.Covers(a.grants, p) && a.actor.CeilingCovers(p)
 }
 
 func (a authority) coversAll(grants []string) bool {
 	for _, g := range grants {
-		if !a.covers(iam.Perm(g)) {
+		if !a.covers(ident.Perm(g)) {
 			return false
 		}
 	}
@@ -210,7 +212,7 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	var gid string
 	var role iam.Role
 	err := st.q.QueryRow(ctx, `SELECT k.permission_group_id::text, k.role FROM api_keys k JOIN permission_groups g ON g.id=k.permission_group_id
- WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL AND `+issuerLive("k.created_by"), keyID).Scan(&gid, &role)
+ WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL AND `+issuerLive("k.created_by"), keyID).Scan(&gid, scanRole(&role, g.Persona))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
@@ -306,7 +308,7 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 	}
 	for rows.Next() {
 		var g groupTarget
-		if err := rows.Scan(&g.ID, &g.Persona); err != nil {
+		if err := rows.Scan(&g.ID, scanPersona(&g.Persona)); err != nil {
 			rows.Close()
 			return err
 		}

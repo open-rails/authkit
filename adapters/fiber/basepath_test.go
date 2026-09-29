@@ -16,7 +16,7 @@ import (
 // The issuer's path roots every native route: JWKS and the API answer beneath
 // it, nothing answers at the root, and OIDC redirects to the mounted callback.
 func TestMountUnderIssuerBasePath(t *testing.T) {
-	auth := testhttp.AuthAt(t, "https://example.com/auth", testhttp.HTTP())
+	auth := testhttp.ClientAt(t, "https://example.com/auth", testhttp.HTTP())
 	app := fiber.New()
 	require.NoError(t, authkitfiber.Mount(app, auth))
 	var mounted int

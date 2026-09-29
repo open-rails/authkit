@@ -56,9 +56,9 @@ type Config struct {
 	// in explicitly before RouteDeviceKeys is mounted or the engine issues
 	// enrollment/login challenges (#293).
 	DeviceKeys DeviceKeysConfig
-	// Roles declares personas, their permission catalogs and roles. The zero
-	// value is root-only.
-	Roles RoleConfig
+	// Roles is the permission model: personas, their permissions and roles
+	// (NewRoles). nil is root-only.
+	Roles *Roles
 
 	// Applications configures application self-registration (#264): domain-
 	// proven remote applications with service-owned orgs. Zero value = disabled
@@ -73,7 +73,7 @@ type Config struct {
 	Delegated DelegatedConfig
 
 	// Documents configures the published signed-document surface (#260): the
-	// remote applications that may fetch documents (Auth.PublishDocument) from
+	// remote applications that may fetch documents (Client.PublishDocument) from
 	// GET|HEAD {BasePath}/.well-known/authkit/documents/{digest}. Without readers the
 	// route is not mounted and nothing may be published.
 	Documents DocumentsConfig

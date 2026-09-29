@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +54,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		},
 		Roles: []Role{
 			{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}},
-			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []iam.Role{"reader"}},
+			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []string{"reader"}},
 			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
 		},
 	}
@@ -73,23 +74,23 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.NoError(t, err)
 		return id, iam.GroupByID(id)
 	}
-	assign := func(ref iam.GroupRef, role iam.Role) {
+	assign := func(ref iam.GroupRef, role string) {
 		grantRole(t, client, ref, subject, role)
 	}
 
-	reader, readerRef := create("channel")
+	reader, readerRef := create(ident.Persona("channel"))
 	assign(readerRef, "reader")
-	moderated, moderatedRef := create("channel")
+	moderated, moderatedRef := create(ident.Persona("channel"))
 	assign(moderatedRef, "moderator")
-	section, sectionRef := create("section")
+	section, sectionRef := create(ident.Persona("section"))
 	assign(sectionRef, "editor")
-	curated, curatedRef := create("channel")
-	require.NoError(t, rt.DefineGroupRole(ctx, iam.UserActor(owner.ID), curatedRef, iam.CustomRole{Name: "curator", Permissions: []string{"channel:posts:write"}}))
+	curated, curatedRef := create(ident.Persona("channel"))
+	require.NoError(t, defineRole(rt, ctx, iam.UserActor(owner.ID), curatedRef, "curator", []string{"channel:posts:write"}))
 	assign(curatedRef, "curator")
-	retired, retiredRef := create("channel")
+	retired, retiredRef := create(ident.Persona("channel"))
 	assign(retiredRef, "reader")
 	require.NoError(t, client.DeleteGroup(ctx, iam.GroupByID(retired), nil))
-	unassigned, unassignedRef := create("channel")
+	unassigned, unassignedRef := create(ident.Persona("channel"))
 	unknown := uuid.NewString()
 
 	ids := []string{reader, moderated, section, curated, retired, unassigned, unknown, "not-a-uuid", reader}
@@ -121,10 +122,10 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	want := map[string][]iam.Perm{
-		reader:    {"channel:posts:read"},
-		moderated: {"channel:posts:read", "channel:posts:write"},
-		section:   {"section:pages:write"},
-		curated:   {"channel:posts:write"},
+		reader:    {ident.Perm("channel:posts:read")},
+		moderated: {ident.Perm("channel:posts:read"), ident.Perm("channel:posts:write")},
+		section:   {ident.Perm("section:pages:write")},
+		curated:   {ident.Perm("channel:posts:write")},
 	}
 	require.Len(t, perms, len(want))
 	for id, grants := range want {
@@ -134,7 +135,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		single, err := effectivePermissions(ctx, client, actor, ref)
 		require.NoError(t, err)
 		require.ElementsMatch(t, single, perms[id], "group %s", ref)
-		for _, perm := range []iam.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
+		for _, perm := range []iam.Perm{ident.Perm("channel:posts:read"), ident.Perm("channel:posts:write"), ident.Perm("section:pages:write")} {
 			allowed, err := client.Can(ctx, actor, iam.GroupByID(id), perm)
 			require.NoError(t, err)
 			covered := false

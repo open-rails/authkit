@@ -1,7 +1,7 @@
 package httpapi
 
 // ak#260: the mounted published-document surface. AuthKit owns the store, the
-// publish lifecycle (Auth.PublishDocument) and this route; reader
+// publish lifecycle (Client.PublishDocument) and this route; reader
 // authorization is config (Config.Documents.Readers), never a host callback.
 
 import (
@@ -45,7 +45,7 @@ func (s *Service) documentsHandler() http.Handler {
 		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootDomain &&
 			byDomain[strings.ToLower(claims.RemoteApplicationDomain)]:
 		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootManual &&
-			iam.Persona(claims.PermissionGroupPersona) == iam.RootPersona && byIssuer[claims.Issuer]:
+			claims.PermissionGroupPersona == iam.RootPersona.String() && byIssuer[claims.Issuer]:
 		default:
 			return documents.ErrUnauthorized
 		}

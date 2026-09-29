@@ -333,7 +333,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		perms []string
 	}{
 		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
-		{"root authority the user lacks", manager, []string{iam.PermRootUsersBan}},
+		{"root authority the user lacks", manager, []string{iam.PermRootUsersBan.String()}},
 		{"wildcard", moderator, []string{"*"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,12 +345,12 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
 		resp := mint(manager, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = mint(moderator, iam.PermRootUsersBan, "resource:read")
+		resp = mint(moderator, iam.PermRootUsersBan.String(), "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
 		perm := iam.Perm(iam.PermRootUsersBan)
-		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: jwtkit.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
+		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: jwtkit.DelegatedAccessTokenType, Permissions: []string{perm.String()}}
 		ok, err := verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, ok)

@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 var errTwoFARequired = errmodel.E(errmodel.CodeTwoFARequired)
@@ -103,14 +104,12 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 // reach one the schema marks as needing MFA (Persona.RequireMFA). A custom
 // role is looked up in gid; with gid empty only catalog roles are known.
 func (s *Engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, role iam.Role) (bool, error) {
-	persona = iam.Persona(strings.TrimSpace(string(persona)))
-	role = iam.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	if def, ok := sch.Role(persona, role); ok {
 		return def.RequiresMFA, nil
 	}
 	gid = strings.TrimSpace(gid)
-	if gid == "" || role == "" {
+	if gid == "" || role.IsZero() || role.Persona() != persona {
 		return false, nil
 	}
 	grants, _, err := newPermissionGroupStore(q).CustomRole(ctx, gid, role)
@@ -142,9 +141,11 @@ func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 	var assignments []assignment
 	for rows.Next() {
 		var a assignment
-		if err := rows.Scan(&a.gid, &a.persona, &a.role); err != nil {
+		var role string
+		if err := rows.Scan(&a.gid, scanPersona(&a.persona), &role); err != nil {
 			return false, err
 		}
+		a.role = ident.Role(a.persona, role)
 		assignments = append(assignments, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -230,10 +231,12 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	var candidates []authflow.RemovedMFARoleAssignment
 	for rows.Next() {
 		var r authflow.RemovedMFARoleAssignment
-		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.Role); err != nil {
+		var role string
+		if err := rows.Scan(&r.PermissionGroupID, scanPersona(&r.Persona), &role); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		r.Role = ident.Role(r.Persona, role)
 		candidates = append(candidates, r)
 	}
 	rerr := rows.Err()

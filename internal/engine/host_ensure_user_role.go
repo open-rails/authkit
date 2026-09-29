@@ -26,7 +26,6 @@ import (
 // refused with ErrContactNotVerified: a pre-registered account is never
 // adopted, and nothing here marks a contact verified.
 func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.GroupRef, role iam.Role) (iam.User, error) {
-	role = iam.Role(strings.TrimSpace(string(role)))
 	key, value, err := ensureUserKey(u)
 	if err != nil {
 		return iam.User{}, err
@@ -65,7 +64,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.Grou
 			}
 		}
 		subject := iam.UserSubject(id)
-		current, err := st.directRole(ctx, g.ID, subject)
+		current, err := st.directRole(ctx, g, subject)
 		if err != nil {
 			return err
 		}
@@ -79,7 +78,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.Grou
 					"identifier": value, "channel": string(key), "reason": "contact_unproven",
 				}))
 			}
-			if current != "" {
+			if !current.IsZero() {
 				if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
 					return err
 				}
@@ -165,10 +164,10 @@ func lockEnsureUser(ctx context.Context, q db.DBTX, key iam.UserKey, value strin
 // roleHeld reports whether current already gives what role would: the same
 // role, the group's owner role, or a role whose grants cover role's.
 func (s *Engine) roleHeld(ctx context.Context, st *permissionGroupStore, g groupTarget, current, role iam.Role) (bool, error) {
-	switch current {
-	case "":
+	switch {
+	case current.IsZero():
 		return false, nil
-	case role, iam.OwnerRole:
+	case current == role, current.IsOwner():
 		return true, nil
 	}
 	have, err := s.roleGrants(ctx, st, g, current)

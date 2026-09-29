@@ -28,7 +28,7 @@ Not covered: anything under `internal/`, test helpers, log lines, metric names.
 
 ## Packages
 
-Public: `authkit` (`New`, `Migrate`, configuration and `*Auth`), `iam`
+Public: `authkit` (`New`, `Migrate`, configuration and `*Client`), `iam`
 (shared types, standard library only), `verify` (database-free verification),
 `jwtkit`, `documents`, `authprovider`, `authtest`, `devicekey` (the device-key
 client) and `adapters/*`. The

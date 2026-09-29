@@ -171,7 +171,7 @@ func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool,
 	require.NoError(t, err)
 	inviter, err := fixtureBackend(srv.Backend()).createUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	seedRole(t, fixtureBackend(srv.Backend()), iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole)
+	seedRole(t, fixtureBackend(srv.Backend()), iam.RootGroup(), iam.UserSubject(inviter.ID), "owner")
 	invite, err := srv.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: email})
 	require.NoError(t, err)
 	return inviter.ID, invite
@@ -867,8 +867,8 @@ func orgTestConfig() Config {
 			RemoteApplications: true,
 		}},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "site-admin", Permissions: []string{iam.PermRootUsersRead}},
-			{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*"}},
+			{Persona: "root", Name: "site-admin", Permissions: []string{iam.PermRootUsersRead.String()}},
+			{Persona: "root", Name: "org-admin", Permissions: []string{"org:*"}},
 			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: "org", Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},
 		},

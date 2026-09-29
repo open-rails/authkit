@@ -9,6 +9,8 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -46,7 +48,7 @@ func checkMapped[T any](t *testing.T, mapping func(T) any) {
 func fillLeaves(v reflect.Value, path, target string, leaves *[]string) {
 	typ := v.Type()
 	switch {
-	case typ == reflect.TypeFor[*RiverOwnership]():
+	case typ == reflect.TypeFor[*RiverOwnership](), typ == reflect.TypeFor[*Roles](), typ == reflect.TypeFor[iam.Persona]():
 	case typ.Kind() == reflect.Struct:
 		for i := range typ.NumField() {
 			if f := typ.Field(i); f.IsExported() {
@@ -114,6 +116,11 @@ func nonZero(typ reflect.Type) reflect.Value {
 		if typ == reflect.TypeFor[*RiverOwnership]() {
 			return reflect.ValueOf(RiverFromHost())
 		}
+		if typ == reflect.TypeFor[*Roles]() {
+			roles := NewRoles()
+			roles.Persona("v17")
+			return reflect.ValueOf(roles)
+		}
 		v = reflect.New(typ.Elem())
 		if typ.Elem().Kind() != reflect.Struct {
 			v.Elem().Set(nonZero(typ.Elem()))
@@ -135,6 +142,9 @@ func nonZero(typ reflect.Type) reflect.Value {
 		}
 		panic("no test implementation of " + typ.String())
 	case reflect.Struct:
+		if typ == reflect.TypeFor[iam.Persona]() {
+			return reflect.ValueOf(ident.Persona("v17"))
+		}
 		for i := range typ.NumField() {
 			if typ.Field(i).IsExported() {
 				v.Field(i).Set(nonZero(typ.Field(i).Type))

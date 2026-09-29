@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // customRoleRequest is the body for defining a per-group custom role. Whether
@@ -27,23 +28,24 @@ func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role := iam.Role(strings.TrimSpace(body.Role))
-	if err := s.svc.DefineGroupRole(r.Context(), actor, iam.GroupByID(g.ID), iam.CustomRole{Name: role, Permissions: body.Permissions}); err != nil {
+	role, err := s.svc.DefineGroupRole(r.Context(), actor, iam.GroupByID(g.ID), body.Role, ident.Perms(body.Permissions)...)
+	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"group_id":    g.ID,
 		"persona":     g.Persona,
-		"role":        role,
+		"role":        role.Name(),
 		"permissions": body.Permissions,
 	})
 }
 
 // groupCustomRoleDelete removes a custom role from the group, and it from
 // every holder, under the same authority rule as define.
-func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, role iam.Role) {
-	if role == "" {
+func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, name string) {
+	role := ident.Role(g.Persona, strings.TrimSpace(name))
+	if role.IsZero() {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
@@ -51,5 +53,5 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 		s.writeGroupOpError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": g.ID, "persona": g.Persona, "role": role})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": g.ID, "persona": g.Persona, "role": role.Name()})
 }

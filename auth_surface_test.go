@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAuthPublicSurface keeps Auth's surface a deliberate choice: every method
+// TestClientPublicSurface keeps Auth's surface a deliberate choice: every method
 // is in exactly one of two lists. Methods whose rules depend on who acts take
 // the acting iam.Actor right after ctx; host operations (your code decides),
 // reads, lifecycle and HTTP take none.
-func TestAuthPublicSurface(t *testing.T) {
+func TestClientPublicSurface(t *testing.T) {
 	takesActor := []string{
 		// Accounts and sessions.
 		"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
@@ -38,17 +38,19 @@ func TestAuthPublicSurface(t *testing.T) {
 		"ActiveDeviceKeys", "Sessions", "SessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "OwnerlessGroups", "GroupRoles", "KnownPermission",
 		"APIKeys", "ResolveAPIKey", "InviteLinks",
+		// Names read at run time, resolved through Config.Roles.
+		"Persona", "Permission", "Role", "ParseBootstrapManifestYAML", "LoadBootstrapManifestFile",
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",
 		// Lifecycle: host wiring at boot and health probes.
 		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth", "PublishDocument",
 		// HTTP surface and request verification.
 		"Handler", "Routes", "Patterns", "Mount", "Verifier", "NewVerifier",
-		"Require", "Optional", "RequireLive", "RequirePermission",
+		"Require", "Optional", "RequireLive", "RequirePermission", "RequirePermissionOn",
 		// Signing that grants no AuthKit authority.
 		"MintServiceJWT", "MintRemoteApplicationAccessToken",
 	}
 
-	typ := reflect.TypeFor[*authkit.Auth]()
+	typ := reflect.TypeFor[*authkit.Client]()
 	var names []string
 	for m := range typ.Methods() {
 		names = append(names, m.Name)

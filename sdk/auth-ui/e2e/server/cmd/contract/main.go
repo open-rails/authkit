@@ -51,7 +51,7 @@ func run(out, dsn string) error {
 
 	var c contract
 	for _, r := range rt.Routes() {
-		c.Routes = append(c.Routes, route{Method: r.Method, Path: r.Path, Group: string(r.Group), Auth: string(r.Auth), Permission: string(r.Permission)})
+		c.Routes = append(c.Routes, route{Method: r.Method, Path: r.Path, Group: string(r.Group), Auth: string(r.Auth), Permission: r.Permission})
 	}
 	sort.Slice(c.Routes, func(i, j int) bool {
 		if c.Routes[i].Path != c.Routes[j].Path {

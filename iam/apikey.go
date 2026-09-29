@@ -26,7 +26,7 @@ type APIKey struct {
 	LookupID    string // the public lookup id embedded in the token
 	Name        string
 	Role        Role
-	Permissions []string
+	Permissions []Perm
 	CreatedBy   string // "" = issued by the system
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
@@ -50,6 +50,6 @@ type APIKeyPrincipal struct {
 	Group       Group
 	Issuer      string // the issuer of the AuthKit deployment holding the key
 	Role        Role
-	Permissions []string
+	Permissions []Perm
 	ExpiresAt   *time.Time
 }

@@ -3,37 +3,37 @@ package iam
 import "testing"
 
 func TestActor(t *testing.T) {
-	for _, a := range []Actor{{}, UserActor(" "), APIKeyActor(""), RemoteApplicationActor(""), DelegatedActor(DelegatedGrant{Subject: "s"}), SystemActor().Within("org:*"), Actor{}.Within("org:*")} {
+	for _, a := range []Actor{{}, UserActor(" "), APIKeyActor(""), RemoteApplicationActor(""), DelegatedActor(DelegatedGrant{Subject: "s"}), SystemActor().Within(Perm{"org:*"}), Actor{}.Within(Perm{"org:*"})} {
 		if !a.IsZero() || a.Kind() != "" || a.String() != "invalid" {
 			t.Fatalf("want the zero actor, got %v", a)
 		}
 	}
 	op := SystemActor()
-	if op.IsZero() || op.Kind() != ActorSystem || op.ID() != "" || op.Bounded() || !op.CeilingCovers("root:users:ban") {
+	if op.IsZero() || op.Kind() != ActorSystem || op.ID() != "" || op.Bounded() || !op.CeilingCovers(Perm{"root:users:ban"}) {
 		t.Fatalf("system = %v", op)
 	}
 	u := UserActor(" user-1 ")
-	if u.ID() != "user-1" || u.String() != "user:user-1" || u.Bounded() || !u.CeilingCovers("org:members:manage") {
+	if u.ID() != "user-1" || u.String() != "user:user-1" || u.Bounded() || !u.CeilingCovers(Perm{"org:members:manage"}) {
 		t.Fatalf("user = %v", u)
 	}
 	// Within intersects: each ceiling must permit the permission.
-	narrowed := u.Within("org:members:*", "org:catalog:read").Within("org:*:manage")
-	for perm, want := range map[Perm]bool{"org:members:manage": true, "org:catalog:read": false, "org:settings:manage": false, "repo:members:manage": false} {
+	narrowed := u.Within(Perm{"org:members:*"}, Perm{"org:catalog:read"}).Within(Perm{"org:*:manage"})
+	for perm, want := range map[Perm]bool{Perm{"org:members:manage"}: true, Perm{"org:catalog:read"}: false, Perm{"org:settings:manage"}: false, Perm{"repo:members:manage"}: false} {
 		if got := narrowed.CeilingCovers(perm); got != want {
 			t.Fatalf("CeilingCovers(%s) = %v, want %v", perm, got, want)
 		}
 	}
-	if u.Bounded() || !u.CeilingCovers("org:catalog:read") {
+	if u.Bounded() || !u.CeilingCovers(Perm{"org:catalog:read"}) {
 		t.Fatal("Within must not alias the receiver")
 	}
-	if nothing := u.Within(); !nothing.Bounded() || nothing.CeilingCovers("org:members:read") {
+	if nothing := u.Within(); !nothing.Bounded() || nothing.CeilingCovers(Perm{"org:members:read"}) {
 		t.Fatal("an empty ceiling permits nothing")
 	}
-	grant := DelegatedGrant{Issuer: "https://auth.test", Subject: "user-2", Permissions: []Perm{"org:catalog:read"}}
+	grant := DelegatedGrant{Issuer: "https://auth.test", Subject: "user-2", Permissions: []Perm{Perm{"org:catalog:read"}}}
 	d := DelegatedActor(grant)
-	grant.Permissions[0] = "org:*"
+	grant.Permissions[0] = Perm{"org:*"}
 	g, ok := d.Delegation()
-	if !ok || d.Kind() != ActorDelegated || d.ID() != "user-2" || g.Permissions[0] != "org:catalog:read" || d.CeilingCovers("org:catalog:write") {
+	if !ok || d.Kind() != ActorDelegated || d.ID() != "user-2" || g.Permissions[0] != (Perm{"org:catalog:read"}) || d.CeilingCovers(Perm{"org:catalog:write"}) {
 		t.Fatalf("delegated = %v %+v", d, g)
 	}
 	if _, ok := u.Delegation(); ok {

@@ -47,7 +47,7 @@ func (s *Engine) requireDefinedGroupRole(ctx context.Context, st *permissionGrou
 // CreateGroup creates a group of a declared persona. ng.Owner, when set, must
 // be a live account; it is seeded with the owner role.
 func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) (iam.Group, error) {
-	persona := iam.Persona(strings.TrimSpace(string(ng.Persona)))
+	persona := ng.Persona
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona {
 		return iam.Group{}, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
@@ -72,10 +72,10 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) 
 			return err
 		}
 		if owner != nil {
-			if err := s.requireMFAForRoleAssignment(ctx, st.q, id, persona, *owner, iam.OwnerRole); err != nil {
+			if err := s.requireMFAForRoleAssignment(ctx, st.q, id, persona, *owner, persona.OwnerRole()); err != nil {
 				return err
 			}
-			if err := st.AssignRole(ctx, id, *owner, iam.OwnerRole); err != nil {
+			if err := st.AssignRole(ctx, id, *owner, persona.OwnerRole()); err != nil {
 				return err
 			}
 		}
@@ -117,7 +117,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 		}
 		var persona iam.Persona
 		var deleted bool
-		err := st.q.QueryRow(ctx, `SELECT persona, deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, ref.ID()).Scan(&persona, &deleted)
+		err := st.q.QueryRow(ctx, `SELECT persona, deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, ref.ID()).Scan(scanPersona(&persona), &deleted)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrGroupNotFound
 		}

@@ -117,7 +117,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			if fail {
 				cfg.HTTP.APIPath = "invalid prefix"
 			}
-			var runtime *authkit.Auth
+			var runtime *authkit.Client
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) {
 				runtime, err = authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
@@ -135,7 +135,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	}
 }
 
-func newPublicRuntime(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool) *authkit.Auth {
+func newPublicRuntime(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool) *authkit.Client {
 	t.Helper()
 	r, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pool})
 	require.NoError(t, err)

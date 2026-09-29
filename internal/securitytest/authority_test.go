@@ -19,39 +19,49 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
-const orgPersona iam.Persona = "org"
+var orgPersona = ident.Persona("org")
 
-func withRBAC(c *authkit.Config) {
-	c.Roles = authkit.RoleConfig{
-		Personas: map[string]authkit.Persona{
-			string(orgPersona): {Permissions: []string{"org:catalog:read", "org:settings:edit"}, RemoteApplications: true, APIKeys: true, CustomRoles: true},
-		},
-		Roles: []authkit.Role{
-			{Persona: iam.RootPersona, Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
-			{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersManage, iam.PermRootUsersRead}},
-			{Persona: orgPersona, Name: "member", Permissions: []string{"org:catalog:read"}},
-			{Persona: orgPersona, Name: "manager", Permissions: []string{"org:catalog:read"}, Includes: []iam.Role{"member-admin", "credential-admin", "role-admin"}},
-			{Persona: orgPersona, Name: "member-admin", Permissions: []string{"org:members:manage", "org:members:read"}},
-			{Persona: orgPersona, Name: "credential-admin", Permissions: []string{"org:credentials:*"}},
-			{Persona: orgPersona, Name: "role-admin", Permissions: []string{"org:roles:*"}},
-		},
-	}
+// securityModel is the permission model most security tests run: an org
+// persona with every capability, and a spread of root and org roles.
+type securityModel struct {
+	*authkit.Roles
+	org         *authkit.PersonaDef
+	catalogRead iam.Perm
 }
 
-// grant assigns role with system authority. The holder of an MFA-required
-// role enrolls the email second factor first.
-func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
+func newSecurityModel(root ...authkit.PersonaOption) securityModel {
+	r := authkit.NewRoles(root...)
+	users := r.Root.Users
+	r.Root.Role("superadmin", users.Read, users.Ban, users.Delete, users.Manage, users.Invite)
+	r.Root.Role("moderator", users.Ban)
+	r.Root.Role("admin", users.Ban, users.Manage, users.Read)
+	org := r.Persona("org", authkit.RemoteApplications, authkit.APIKeys, authkit.CustomRoles)
+	catalogRead := org.Permission("catalog", "read")
+	org.Permission("settings", "edit")
+	org.Role("member", catalogRead)
+	memberAdmin := org.Role("member-admin", org.Members.Manage, org.Members.Read)
+	credentialAdmin := org.Role("credential-admin", org.Credentials.All())
+	roleAdmin := org.Role("role-admin", org.Roles.All())
+	org.Role("manager", catalogRead, memberAdmin, credentialAdmin, roleAdmin)
+	return securityModel{Roles: r, org: org, catalogRead: catalogRead}
+}
+
+func withRBAC(c *authkit.Config) { c.Roles = newSecurityModel().Roles }
+
+// grant assigns the role name of group's persona with system authority. The
+// holder of an MFA-required role enrolls the email second factor first.
+func (h *host) grant(group iam.GroupRef, a account, name string) {
 	h.t.Helper()
-	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.SystemActor(), group, []iam.Subject{iam.UserSubject(a.id)}, role)
+	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.SystemActor(), group, []iam.Subject{iam.UserSubject(a.id)}, roleIn(h.t, h.auth, group, name))
 	require.NoError(h.t, err)
 	if errors.Is(res[0].Err, iam.ErrTwoFAEnrollmentRequired) {
 		h.enrollEmail2FA(a)
-		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), role)
+		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), name)
 		return
 	}
 	require.NoError(h.t, res[0].Err)
@@ -220,13 +230,13 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	ownerAllowed, err := h.auth.Can(ctx, iam.UserActor(manager.id), group, ownerOnly)
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
-	stillOwner, err := h.auth.Can(ctx, iam.UserActor(owner.id), group, "org:members:manage")
+	stillOwner, err := h.auth.Can(ctx, iam.UserActor(owner.id), group, ident.Perm("org:members:manage"))
 	require.NoError(t, err)
 	require.True(t, stillOwner)
 }
 
 // ownerOnly is an org permission only the owner (org:*) holds.
-const ownerOnly iam.Perm = "org:settings:edit"
+var ownerOnly = ident.Perm("org:settings:edit")
 
 // createOrg creates an org owned by owner, as the host does.
 func (h *host) createOrg(ctx context.Context, owner account) (iam.GroupRef, error) {
@@ -526,7 +536,7 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	})
 }
 
-// ownerlessGroups pages through Auth.OwnerlessGroups one group at a time.
+// ownerlessGroups pages through Client.OwnerlessGroups one group at a time.
 func (h *host) ownerlessGroups() []string {
 	h.t.Helper()
 	var ids []string
@@ -557,14 +567,14 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	g, err := h.auth.Group(ctx, group)
 	require.NoError(t, err)
 	token := h.login(founder).AccessToken
-	app := h.registerApp(base, token, "r1-app", iam.OwnerRole)
+	app := h.registerApp(base, token, "r1-app", "owner")
 
 	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
 	require.Equal(t, "last_owner", resp.errorCode())
 	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{founder.id})), iam.ErrLastOwner)
 	require.ErrorIs(t, h.auth.Ban(ctx, iam.SystemActor(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
-	require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
+	require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 	require.NotContains(t, h.ownerlessGroups(), g.ID)
 
 	t.Run("OwnerlessGroups lists groups without an owner", func(t *testing.T) {
@@ -575,12 +585,12 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 			empty = append(empty, created.ID)
 		}
 		require.Subset(t, h.ownerlessGroups(), empty)
-		grantRole(t, h.auth, iam.GroupByID(empty[0]), iam.UserSubject(h.newAccount("r1adopter").id), iam.OwnerRole)
+		grantRole(t, h.auth, iam.GroupByID(empty[0]), iam.UserSubject(h.newAccount("r1adopter").id), "owner")
 		require.NotContains(t, h.ownerlessGroups(), empty[0])
 		require.Contains(t, h.ownerlessGroups(), empty[1])
 	})
 	t.Run("control: with a second owner the founder leaves and its application's role goes", func(t *testing.T) {
-		h.grant(group, h.newAccount("r1second"), iam.OwnerRole)
+		h.grant(group, h.newAccount("r1second"), "owner")
 		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))

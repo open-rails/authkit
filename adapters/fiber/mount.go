@@ -14,7 +14,7 @@ import (
 // RouteNamePrefix identifies routes registered by Mount in app.GetRoutes().
 const RouteNamePrefix = "authkit."
 
-// Surface is AuthKit's HTTP surface; *authkit.Auth implements it.
+// Surface is AuthKit's HTTP surface; *authkit.Client implements it.
 type Surface interface {
 	Handler() http.Handler
 	Patterns() []string

@@ -28,6 +28,7 @@ import (
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -115,7 +116,7 @@ func TestRequiredOptionalParity(t *testing.T) {
 					})).ServeHTTP(want, r)
 					app := fiber.New()
 					app.Get(tc.path, adapter, func(c fiber.Ctx) error {
-						cl, _ := authkitfiber.Claims(c)
+						cl, _ := verify.ClaimsFromContext(c.Context())
 						return c.SendString("user:" + cl.UserID)
 					})
 					status, headers, body := request(t, app, http.MethodGet, tc.path, tc.authorization)
@@ -147,15 +148,15 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			app := fiber.New()
 			app.Get("/", authkitfiber.Required(newVerifier(t, issuer, local)), func(c fiber.Ctx) error {
-				cl, ok := authkitfiber.Claims(c)
+				cl, ok := verify.ClaimsFromContext(c.Context())
 				if !ok {
 					t.Error("verified claims missing")
 				}
-				p, ok := authkitfiber.Identity(c)
+				p, ok := verify.IdentityFromContext(c.Context())
 				if !ok || p.Kind != auth.KindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
 					t.Errorf("principal = %+v, present = %v", p, ok)
 				}
-				user, ok := authkitfiber.UserClaims(c)
+				user, ok := verify.UserClaimsFromContext(c.Context())
 				if ok != local {
 					t.Errorf("UserClaims present = %v, local = %v", ok, local)
 				}
@@ -174,7 +175,7 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 					t.Errorf("user = %+v, want %+v", user, want)
 				}
 				user.Entitlements[0], user.AMR[0] = "mutated", "mutated"
-				again, _ := authkitfiber.UserClaims(c)
+				again, _ := verify.UserClaimsFromContext(c.Context())
 				if again.Entitlements[0] != "blog" || again.AMR[0] != "pwd" {
 					t.Error("UserClaims exposes mutable claim slices")
 				}
@@ -200,14 +201,14 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 				next.ServeHTTP(w, r.WithContext(verify.SetClaims(r.Context(), cl)))
 			})
 		}), func(c fiber.Ctx) error {
-			if _, ok := authkitfiber.UserClaims(c); ok {
+			if _, ok := verify.UserClaimsFromContext(c.Context()); ok {
 				t.Error("machine/delegated principal exposed as a local user")
 			}
 			want, wantOK := cl.Identity()
-			if p, ok := authkitfiber.Identity(c); ok != wantOK || p != want {
+			if p, ok := verify.IdentityFromContext(c.Context()); ok != wantOK || p != want {
 				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
-			if a, ok := authkitfiber.Actor(c); ok && a.Kind() == iam.ActorUser {
+			if a, ok := verify.ActorFromContext(c.Context()); ok && a.Kind() == iam.ActorUser {
 				t.Errorf("machine/delegated principal acts as user %v", a)
 			}
 			return c.SendStatus(http.StatusNoContent)
@@ -217,25 +218,13 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			t.Fatalf("status = %d", status)
 		}
 	}
-	if _, ok := authkitfiber.Claims(nil); ok {
-		t.Error("nil context has claims")
-	}
-	if _, ok := authkitfiber.UserClaims(nil); ok {
-		t.Error("nil context has user")
-	}
-	if _, ok := authkitfiber.Identity(nil); ok {
-		t.Error("nil context has principal")
-	}
-	if _, ok := authkitfiber.Actor(nil); ok {
-		t.Error("nil context has actor")
-	}
 }
 
 func TestOptionalDoesNotLeakClaimsAcrossRequests(t *testing.T) {
 	issuer := newIssuer(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
-		user, _ := authkitfiber.UserClaims(c)
+		user, _ := verify.UserClaimsFromContext(c.Context())
 		return c.SendString(user.UserID)
 	})
 	for i := 0; i < 10; i++ {
@@ -254,7 +243,7 @@ func TestConcurrentRequestsKeepClaimsIsolated(t *testing.T) {
 	issuer := newIssuer(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
-		user, _ := authkitfiber.UserClaims(c)
+		user, _ := verify.UserClaimsFromContext(c.Context())
 		return c.SendString(user.UserID)
 	})
 	// Complete Fiber's lazy startup before driving concurrent requests.
@@ -457,7 +446,7 @@ func (a authority) Verifier() *verify.Verifier { return a.v }
 func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.f(ctx, actor, ref, perm)
 }
-func (authority) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
+func (authority) KnownPermission(perm iam.Perm) bool { return perm.String() == "blog:posts:write" }
 
 func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	issuer := newIssuer(t)
@@ -466,15 +455,21 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		calls := 0
 		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 			calls++
-			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm != "blog:posts:write" {
+			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm.String() != "blog:posts:write" {
 				t.Errorf("permission input = %v %v %q", actor, ref, perm)
 			}
 			return allow, nil
 		}}
 		app := fiber.New()
-		app.Get("/blogs/:blog", authkitfiber.RequirePermission(auth, "blog:posts:write", func(c fiber.Ctx) iam.GroupRef {
-			return iam.GroupByID(c.Params("blog"))
-		}), func(c fiber.Ctx) error {
+		load := func(c fiber.Ctx) error {
+			authkitfiber.SetGroup(c, iam.GroupByID(c.Params("blog")))
+			return c.Next()
+		}
+		app.Get("/unloaded/:blog", authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:write")), func(c fiber.Ctx) error {
+			t.Error("a route with no group reached its handler")
+			return nil
+		})
+		app.Get("/blogs/:blog", load, authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:write")), func(c fiber.Ctx) error {
 			if !allow {
 				t.Error("denied permission reached handler")
 			}
@@ -492,6 +487,10 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		if status != want || calls != 1 {
 			t.Fatalf("response = %d %q, calls = %d; want %d and one lookup", status, body, calls, want)
 		}
+		status, _, body = request(t, app, http.MethodGet, "/unloaded/"+group.ID(), "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		if status != http.StatusInternalServerError || calls != 1 {
+			t.Fatalf("no group: %d %q, calls = %d; want a closed 500 with no lookup", status, body, calls)
+		}
 	}
 }
 
@@ -502,7 +501,7 @@ func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
 			t.Fatal("an unregistered permission must panic when the route is built")
 		}
 	}()
-	authkitfiber.RequirePermission(auth, "blog:posts:delete", nil)
+	authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:delete"))
 }
 
 type livenessSource func(context.Context, []string) (map[string]iam.User, error)
@@ -545,7 +544,7 @@ func TestRequiredLive(t *testing.T) {
 			}
 			app := fiber.New()
 			app.Get("/", middleware, func(c fiber.Ctx) error {
-				user, ok := authkitfiber.UserClaims(c)
+				user, ok := verify.UserClaimsFromContext(c.Context())
 				if !ok || user.Username != "fresh" || user.Email != "fresh@example.com" || !user.EmailVerified {
 					t.Errorf("fresh user = %+v, present = %v", user, ok)
 				}
@@ -706,7 +705,7 @@ func TestOptionalLive(t *testing.T) {
 	app := fiber.New()
 	app.Use(middleware)
 	app.Get("/", func(c fiber.Ctx) error {
-		user, ok := authkitfiber.UserClaims(c)
+		user, ok := verify.UserClaimsFromContext(c.Context())
 		if !ok {
 			return c.SendString("anonymous")
 		}
@@ -740,3 +739,24 @@ type surface struct {
 
 func (s surface) Handler() http.Handler { return s.handler }
 func (s surface) Patterns() []string    { return s.patterns }
+
+// A Fiber handler behind Required reads the verified caller from c.Context(),
+// the same call net/http and Gin handlers make.
+func TestActorFromContextBehindRequired(t *testing.T) {
+	issuer := newIssuer(t)
+	app := fiber.New()
+	app.Get("/", authkitfiber.Required(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
+		actor, ok := verify.ActorFromContext(c.Context())
+		if !ok || actor.Kind() != iam.ActorUser {
+			t.Errorf("actor = %v, %v", actor, ok)
+		}
+		return c.SendString(actor.ID())
+	})
+	status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+	if status != http.StatusOK || body != "user-1" {
+		t.Fatalf("got %d %q", status, body)
+	}
+	if status, _, _ := request(t, app, http.MethodGet, "/", ""); status != http.StatusUnauthorized {
+		t.Fatalf("anonymous = %d; Required must stop before the handler", status)
+	}
+}

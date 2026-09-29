@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -14,59 +15,58 @@ func readmeRoles() RoleConfig {
 	return RoleConfig{
 		Personas: map[string]Persona{
 			"channel": {
-				Permissions: []string{"channel:posts:edit", "channel:posts:delete", "channel:posts:approve", "channel:metadata:edit"},
+				Permissions: []string{"channel:posts:edit", "channel:posts:delete", "channel:posts:approve", "channel:self:edit", "channel:self:delete"},
 			},
-			"root": {Permissions: []string{"root:channels:delete"}},
 		},
 		Roles: []Role{
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*", "root:users:*", "root:channels:delete"}},
+			{Persona: "root", Name: "admin", Permissions: []string{"channel:*", "root:users:*"}},
 		},
 	}
 }
 
 func TestRoleConfigCompiles(t *testing.T) {
 	cfg := readmeRoles()
-	cfg.Roles = append(cfg.Roles, Role{Persona: "channel", Name: "lead", Permissions: []string{"channel:members:manage"}, Includes: []iam.Role{"moderator"}})
+	cfg.Roles = append(cfg.Roles, Role{Persona: "channel", Name: "lead", Permissions: []string{"channel:members:manage"}, Includes: []string{"moderator"}})
 	s, err := cfg.schema()
 	require.NoError(t, err)
-	lead, ok := s.Role("channel", "lead")
+	lead, ok := s.RoleNamed(ident.Persona("channel"), "lead")
 	require.True(t, ok)
 	require.Equal(t, []string{"channel:members:manage", "channel:posts:*"}, lead.Permissions, "includes are flattened")
-	owner, ok := s.Role("channel", iam.OwnerRole)
+	owner, ok := s.RoleNamed(ident.Persona("channel"), "owner")
 	require.True(t, ok)
 	require.Equal(t, []string{"channel:*"}, owner.Permissions)
-	rootOwner, ok := s.Role(iam.RootPersona, iam.OwnerRole)
+	rootOwner, ok := s.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
 	require.True(t, ok)
 	require.True(t, rootOwner.RequiresMFA)
 	for perm, known := range map[iam.Perm]bool{
-		"channel:posts:edit":       true,
-		"channel:members:manage":   true,
-		"channel:metadata:edit":    true,
-		"root:channels:delete":     true,
-		"channel:self:read":        false, // AuthKit registers no self permissions
-		"channel:self:delete":      false,
-		"channel:members:read":     true,
-		"channel:roles:manage":     false, // CustomRoles is off
-		"channel:roles:read":       false,
-		"channel:credentials:read": false, // APIKeys and RemoteApplications are off
-		"root:users:read":          true,
-		"root:users:ban":           true,
-		"root:users:delete":        true,
-		"root:users:manage":        true,
-		"root:users:invite":        true,
-		"root:members:read":        true,
-		"root:members:manage":      true,
-		"root:users:recover":       false,
-		"root:resources:read":      false,
-		"root:roles:manage":        false,
-		"root:credentials:manage":  false,
-		"root:self:read":           false,
-		"root:settings:read":       false,
-		"channel:settings:read":    false,
-		"channel:posts:pin":        false,
-		"channel:*":                false,
-		"org:posts:edit":           false,
+		ident.Perm("channel:posts:edit"):       true,
+		ident.Perm("channel:members:manage"):   true,
+		ident.Perm("channel:self:edit"):        true, // the app's own: self is just a resource name
+		ident.Perm("channel:self:delete"):      true,
+		ident.Perm("channel:self:read"):        false, // AuthKit registers no self permissions
+		ident.Perm("root:channels:delete"):     false,
+		ident.Perm("channel:members:read"):     true,
+		ident.Perm("channel:roles:manage"):     false, // CustomRoles is off
+		ident.Perm("channel:roles:read"):       false,
+		ident.Perm("channel:credentials:read"): false, // APIKeys and RemoteApplications are off
+		ident.Perm("root:users:read"):          true,
+		ident.Perm("root:users:ban"):           true,
+		ident.Perm("root:users:delete"):        true,
+		ident.Perm("root:users:manage"):        true,
+		ident.Perm("root:users:invite"):        true,
+		ident.Perm("root:members:read"):        true,
+		ident.Perm("root:members:manage"):      true,
+		ident.Perm("root:users:recover"):       false,
+		ident.Perm("root:resources:read"):      false,
+		ident.Perm("root:roles:manage"):        false,
+		ident.Perm("root:credentials:manage"):  false,
+		ident.Perm("root:self:read"):           false,
+		ident.Perm("root:settings:read"):       false,
+		ident.Perm("channel:settings:read"):    false,
+		ident.Perm("channel:posts:pin"):        false,
+		ident.Perm("channel:*"):                false,
+		ident.Perm("org:posts:edit"):           false,
 	} {
 		require.Equal(t, known, s.KnownPermission(perm), perm)
 	}
@@ -78,7 +78,7 @@ func TestRoleConfigCapabilityBuiltins(t *testing.T) {
 		"root": {CustomRoles: true, RemoteApplications: true},
 	}}.schema()
 	require.NoError(t, err)
-	for _, perm := range []iam.Perm{"org:roles:manage", "org:credentials:read", "org:credentials:manage", "root:roles:manage", "root:credentials:manage"} {
+	for _, perm := range []iam.Perm{ident.Perm("org:roles:manage"), ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:roles:manage"), ident.Perm("root:credentials:manage")} {
 		require.True(t, s.KnownPermission(perm), perm)
 	}
 }
@@ -97,20 +97,20 @@ func TestRoleConfigRejects(t *testing.T) {
 		"foreign catalog entry":           {RoleConfig{Personas: channel("org:posts:edit")}, `must start with "channel:"`},
 		"unknown persona":                 {RoleConfig{Roles: []Role{{Persona: "channel", Name: "moderator"}}}, `unknown persona "channel"`},
 		"duplicate role":                  {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod"}, {Persona: "channel", Name: "mod"}}}, "declared twice"},
-		"role name":                       {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "Admin"}}}, "name must match"},
+		"role name":                       {RoleConfig{Roles: []Role{{Persona: "root", Name: "Admin"}}}, "name must match"},
 		"unregistered permission":         {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:posts:pin"}}}}, "matches no permission"},
 		"wildcard over nothing":           {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:comments:*"}}}}, "matches no permission"},
-		"bare wildcard":                   {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "all", Permissions: []string{"*"}}}}, "persona segment"},
+		"bare wildcard":                   {RoleConfig{Roles: []Role{{Persona: "root", Name: "all", Permissions: []string{"*"}}}}, "persona segment"},
 		"persona role holds root":         {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"root:users:ban"}}}}, "cross-persona"},
 		"persona role holds other":        {RoleConfig{Personas: map[string]Persona{"channel": {}, "org": {}}, Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"org:*"}}}}, "cross-persona"},
-		"root role undeclared":            {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*"}}}}, `unknown persona "channel"`},
+		"root role undeclared":            {RoleConfig{Roles: []Role{{Persona: "root", Name: "admin", Permissions: []string{"channel:*"}}}}, `unknown persona "channel"`},
 		"roles:manage needs custom roles": {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:roles:manage"}}}}, "matches no permission"},
 		"credentials need a capability":   {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:credentials:*"}}}}, "matches no permission"},
-		"no built-in self":                {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:self:read"}}}}, "matches no permission"},
-		"owner redefined":                 {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: iam.OwnerRole, Permissions: []string{"channel:posts:edit"}}}}, "must hold exactly"},
-		"include of another persona":      {RoleConfig{Personas: channel(), Roles: []Role{{Persona: iam.RootPersona, Name: "admin"}, {Persona: "channel", Name: "mod", Includes: []iam.Role{"admin"}}}}, `includes unknown role "admin"`},
-		"include cycle":                   {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"b"}}, {Persona: iam.RootPersona, Name: "b", Includes: []iam.Role{"a"}}}}, "includes cycle"},
-		"self include":                    {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"a"}}}}, "includes cycle"},
+		"no built-in self":                {RoleConfig{Roles: []Role{{Persona: "root", Name: "admin", Permissions: []string{"root:self:read"}}}}, "matches no permission"},
+		"owner redefined":                 {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "owner", Permissions: []string{"channel:posts:edit"}}}}, "must hold exactly"},
+		"include of another persona":      {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "root", Name: "admin"}, {Persona: "channel", Name: "mod", Includes: []string{"admin"}}}}, `includes unknown role "admin"`},
+		"include cycle":                   {RoleConfig{Roles: []Role{{Persona: "root", Name: "a", Includes: []string{"b"}}, {Persona: "root", Name: "b", Includes: []string{"a"}}}}, "includes cycle"},
+		"self include":                    {RoleConfig{Roles: []Role{{Persona: "root", Name: "a", Includes: []string{"a"}}}}, "includes cycle"},
 		"MFA outside the catalog":         {RoleConfig{Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:edit"}, RequireMFA: []string{"channel:posts:pin"}}}}, "matches no permission"},
 		"MFA of another persona":          {RoleConfig{Personas: map[string]Persona{"channel": {RequireMFA: []string{"root:users:ban"}}}}, `must start with "channel:"`},
 		"MFA bare wildcard":               {RoleConfig{Personas: map[string]Persona{"channel": {RequireMFA: []string{"*"}}}}, "persona segment"},
@@ -140,10 +140,10 @@ func TestRolesWorkflow(t *testing.T) {
 	grantRole(t, a, iam.RootGroup(), admin, "admin")
 
 	owner := func(s iam.Subject) *iam.Subject { return &s }
-	ann, err := a.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(admin)}, nil)
+	ann, err := a.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(admin)}, nil)
 	require.NoError(t, err)
 	announcements := iam.GroupByID(ann.ID)
-	gl, err := a.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(bob)}, nil)
+	gl, err := a.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(bob)}, nil)
 	require.NoError(t, err)
 	golang := iam.GroupByID(gl.ID)
 	grantRole(t, a, golang, carol, "moderator")
@@ -154,21 +154,21 @@ func TestRolesWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		return ok
 	}
-	require.True(t, can(admin, golang, "channel:posts:delete"), "a role held on root applies in every group")
-	require.True(t, can(bob, golang, "channel:metadata:edit"), "the owner holds every channel permission")
-	require.False(t, can(bob, announcements, "channel:metadata:edit"), "in its own channel only")
-	require.True(t, can(admin, iam.RootGroup(), "root:channels:delete"))
-	require.False(t, can(bob, iam.RootGroup(), "root:channels:delete"))
-	require.True(t, can(carol, golang, "channel:posts:approve"))
-	require.False(t, can(carol, announcements, "channel:posts:approve"), "a channel role applies only in its group")
-	require.False(t, can(carol, golang, "channel:members:manage"))
+	require.True(t, can(admin, golang, ident.Perm("channel:posts:delete")), "a role held on root applies in every group")
+	require.True(t, can(bob, golang, ident.Perm("channel:self:delete")), "the owner holds every channel permission")
+	require.False(t, can(bob, announcements, ident.Perm("channel:self:delete")), "in its own channel only")
+	require.True(t, can(admin, announcements, ident.Perm("channel:self:delete")))
+	require.False(t, can(carol, golang, ident.Perm("channel:self:edit")), "moderators can't edit the channel")
+	require.True(t, can(carol, golang, ident.Perm("channel:posts:approve")))
+	require.False(t, can(carol, announcements, ident.Perm("channel:posts:approve")), "a channel role applies only in its group")
+	require.False(t, can(carol, golang, ident.Perm("channel:members:manage")))
 
-	_, err = a.Can(ctx, actorOf(carol), golang, "channel:posts:pin")
+	_, err = a.Can(ctx, actorOf(carol), golang, ident.Perm("channel:posts:pin"))
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	_, err = a.Can(ctx, actorOf(carol), golang, "channel:self:delete")
+	_, err = a.Can(ctx, actorOf(carol), golang, ident.Perm("channel:self:read"))
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	require.True(t, a.KnownPermission("channel:posts:edit"))
-	require.False(t, a.KnownPermission("channel:posts:pin"))
-	require.NotPanics(t, func() { verify.RequirePermission(a, "channel:posts:edit", nil) })
-	require.Panics(t, func() { verify.RequirePermission(a, "channel:posts:pin", nil) })
+	require.True(t, a.KnownPermission(ident.Perm("channel:posts:edit")))
+	require.False(t, a.KnownPermission(ident.Perm("channel:posts:pin")))
+	require.NotPanics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:edit")) })
+	require.Panics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:pin")) })
 }

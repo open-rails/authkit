@@ -17,7 +17,7 @@ import (
 // it, nothing answers at the root, and OIDC redirects to the mounted callback.
 func TestMountUnderIssuerBasePath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	auth := testhttp.AuthAt(t, "https://example.com/auth", testhttp.HTTP())
+	auth := testhttp.ClientAt(t, "https://example.com/auth", testhttp.HTTP())
 	router := gin.New()
 	require.NoError(t, Mount(router, auth))
 	router.NoRoute(func(c *gin.Context) { c.Status(http.StatusTeapot) })

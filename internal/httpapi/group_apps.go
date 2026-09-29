@@ -110,10 +110,14 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 // in the group (#263) — the SubjectKindRemoteApplication symmetric of the member-role
 // route, gated <persona>:credentials:manage by the generated route table. The
 // :app slug must resolve to an application controlled by the addressed group.
-func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, appSlug string, role iam.Role) {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	if appSlug == "" || role == "" {
+func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, appSlug, name string) {
+	if appSlug == "" || strings.TrimSpace(name) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, name)
+	if err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
 	app, err := s.svc.GetRemoteApplicationBySlug(r.Context(), appSlug)
@@ -130,7 +134,7 @@ func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, g i
 		"group_id": g.ID,
 		"persona":  g.Persona,
 		"app":      appSlug,
-		"role":     role,
+		"role":     role.Name(),
 	})
 }
 

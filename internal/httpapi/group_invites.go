@@ -29,7 +29,12 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, g 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	l := iam.NewInviteLink{Role: iam.Role(strings.TrimSpace(body.Role))}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, body.Role)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	l := iam.NewInviteLink{Role: role}
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
 		l.ExpiresIn = time.Duration(*body.ExpiresInSeconds) * time.Second
 	}
@@ -58,7 +63,7 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g 
 	for _, l := range page.Items {
 		m := map[string]any{
 			"id":         l.ID,
-			"role":       l.Role,
+			"role":       l.Role.Name(),
 			"created_at": l.CreatedAt,
 		}
 		if l.InvitedBy != "" {
@@ -119,6 +124,6 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		"ok":       true,
 		"group_id": res.GroupID,
 		"persona":  res.Persona,
-		"role":     res.Role,
+		"role":     res.Role.Name(),
 	})
 }

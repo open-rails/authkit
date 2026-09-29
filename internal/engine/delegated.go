@@ -101,7 +101,7 @@ func (s *Engine) checkDelegatedGrant(ctx context.Context, userID string, permiss
 		return err
 	}
 	for _, perm := range permissions {
-		if !s.delegatedPermissionHeld(auth, iam.Perm(strings.TrimSpace(perm))) {
+		if !s.delegatedPermissionHeld(auth, strings.TrimSpace(perm)) {
 			return iam.ErrDelegationRefused
 		}
 	}
@@ -122,13 +122,14 @@ func (s *Engine) rootUserAuthority(ctx context.Context, userID string) (authorit
 	return s.actorAuthority(ctx, st, iam.UserActor(userID), groupTarget{ID: rootID, Persona: iam.RootPersona})
 }
 
-func (s *Engine) delegatedPermissionHeld(auth authority, perm iam.Perm) bool {
-	namespace, _, _ := strings.Cut(string(perm), ":")
+func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
+	namespace, _, _ := strings.Cut(perm, ":")
 	sch := s.groupSchemaOrDefault()
-	if _, ok := sch.Persona(iam.Persona(namespace)); !ok && namespace != "*" {
+	if _, ok := sch.PersonaNamed(namespace); !ok && namespace != "*" {
 		return true
 	}
-	return sch.KnownPermission(perm) && auth.covers(perm)
+	p, known := sch.Permission(perm)
+	return known && auth.covers(p)
 }
 
 // signingKID is the kid protected header of a compact JWS this engine signed.

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newUsersRuntime(t *testing.T) *authkit.Auth {
+func newUsersRuntime(t *testing.T) *authkit.Client {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	auth := newPublicRuntime(t, testConfig(t), pg.Pool)
@@ -220,15 +220,15 @@ func TestListUsersKeysetPaging(t *testing.T) {
 func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig(t)
-	cfg.Roles = authkit.RoleConfig{
-		Personas: map[string]authkit.Persona{"team": {Permissions: []string{"team:docs:read"}}},
-		Roles:    []authkit.Role{{Persona: "team", Name: "member", Permissions: []string{"team:docs:read"}}},
-	}
+	roles := authkit.NewRoles()
+	team := roles.Persona("team")
+	member := team.Role("member", team.Permission("docs", "read"))
+	cfg.Roles = roles
 	auth := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(auth.Close)
 	ctx := t.Context()
 	op := iam.SystemActor()
-	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "team"})
+	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: team.Persona})
 	require.NoError(t, err)
 	ref := iam.GroupByID(g.ID)
 	ids := map[string]string{}
@@ -239,7 +239,7 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 		ids[name] = u.ID
 		subjects = append(subjects, iam.UserSubject(u.ID))
 	}
-	res, err := auth.AssignGroupRoles(ctx, op, ref, subjects, "member")
+	res, err := auth.AssignGroupRoles(ctx, op, ref, subjects, member)
 	require.NoError(t, err)
 	for _, r := range res {
 		require.NoError(t, r.Err)

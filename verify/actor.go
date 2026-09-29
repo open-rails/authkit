@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -58,7 +59,7 @@ func ActorFromContext(ctx context.Context) (iam.Actor, bool) {
 func perms(ps []string) []iam.Perm {
 	out := make([]iam.Perm, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, iam.Perm(p))
+		out = append(out, ident.Perm(p))
 	}
 	return out
 }

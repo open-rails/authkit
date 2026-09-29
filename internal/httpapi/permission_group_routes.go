@@ -172,13 +172,13 @@ func (s *Service) GroupHandler(gr GroupRoute) http.HandlerFunc {
 		case OpMemberRemove:
 			s.groupMemberRemove(w, r, g, actor, pathParam(r, "user"))
 		case OpMemberRoleAssign:
-			s.groupMemberRole(w, r, g, actor, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
+			s.groupMemberRole(w, r, g, actor, pathParam(r, "user"), pathParam(r, "role"))
 		case OpRolesList:
 			s.groupRolesList(w, g)
 		case OpRoleDefine:
 			s.groupCustomRoleDefine(w, r, g, actor)
 		case OpRoleDelete:
-			s.groupCustomRoleDelete(w, r, g, actor, iam.Role(pathParam(r, "role")))
+			s.groupCustomRoleDelete(w, r, g, actor, pathParam(r, "role"))
 		case OpAPIKeysList:
 			s.groupAPIKeyList(w, r, g)
 		case OpAPIKeyMint:
@@ -192,7 +192,7 @@ func (s *Service) GroupHandler(gr GroupRoute) http.HandlerFunc {
 		case OpRemoteAppDelete:
 			s.groupRemoteAppDelete(w, r, g, actor, pathParam(r, "app"))
 		case OpRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, g, actor, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
+			s.groupRemoteAppRole(w, r, g, actor, pathParam(r, "app"), pathParam(r, "role"))
 		case OpInviteLinkList:
 			s.groupInviteLinkList(w, r, g)
 		case OpInviteLinkMint:

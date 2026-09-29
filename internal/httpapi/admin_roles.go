@@ -45,9 +45,14 @@ func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootR
 		return
 	}
 	userID := strings.TrimSpace(r.PathValue("user_id"))
-	role := iam.Role(strings.TrimSpace(r.PathValue("role")))
-	if userID == "" || role == "" {
+	name := strings.TrimSpace(r.PathValue("role"))
+	if userID == "" || name == "" {
 		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(iam.RootPersona, name)
+	if err != nil {
+		writeError(w, remap(err, notFoundCodes, groupOpCodes))
 		return
 	}
 	res, err := op(r.Context(), actor, iam.RootGroup(), []iam.Subject{iam.UserSubject(userID)}, role)

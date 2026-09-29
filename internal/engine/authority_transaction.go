@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // lockAuthority precedes every group, account, MFA and session row lock in an
@@ -155,10 +156,12 @@ SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text
 		}
 		for rows.Next() {
 			var c sweptCredential
-			if err := rows.Scan(&c.table, &c.id, &c.group.ID, &c.group.Persona, &c.role, &c.creator, &c.needsCreator); err != nil {
+			var role string
+			if err := rows.Scan(&c.table, &c.id, &c.group.ID, scanPersona(&c.group.Persona), &role, &c.creator, &c.needsCreator); err != nil {
 				rows.Close()
 				return err
 			}
+			c.role = ident.Role(c.group.Persona, role)
 			creds = append(creds, c)
 		}
 		rows.Close()
@@ -213,7 +216,7 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 	switch {
 	case machine:
 		capability = iam.PermCredentialsManage(c.group.Persona)
-	case c.role == "":
+	case c.role.IsZero():
 		capability = iam.PermRootUsersInvite
 	}
 	err := s.creatorCovers(ctx, st, c.creator, c.group, capability, c.role)
@@ -235,7 +238,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 	}
 	if c.table == "group_remote_application_roles" {
 		app := iam.RemoteApplicationSubject(c.id)
-		if c.role == iam.OwnerRole && !st.reconcile {
+		if c.role.IsOwner() && !st.reconcile {
 			if err := s.refuseOwnerLoss(ctx, st, c.group.ID, app); err != nil {
 				return err
 			}
@@ -243,10 +246,10 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 		if err := st.UnassignSubject(ctx, c.group.ID, app); err != nil {
 			return err
 		}
-		if c.role == iam.OwnerRole && st.reconcile {
+		if c.role.IsOwner() && st.reconcile {
 			err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.Subject{})
 			if errors.Is(err, iam.ErrLastOwner) {
-				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (Auth.OwnerlessGroups lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
+				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (Client.OwnerlessGroups lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
 				return nil
 			}
 			return err
@@ -265,7 +268,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 // banned, deleted or reserved), holds capability and covers role. A plain
 // registration invite carries no role, so it needs capability only.
 func (s *Engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
-	if role == "" {
+	if role.IsZero() {
 		auth, err := s.actorAuthority(ctx, st, iam.UserActor(creator), g)
 		if err != nil {
 			return err
@@ -288,12 +291,18 @@ func (s *Engine) revokeCredentialsOf(ctx context.Context, st *permissionGroupSto
 	return s.revokeUncoveredCredentials(ctx, st, authorityTouch{groupID: rootID, userID: userID})
 }
 
-func (st *permissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
+func (st *permissionGroupStore) directRole(ctx context.Context, g groupTarget, subject iam.Subject) (iam.Role, error) {
+	name, err := st.directRoleName(ctx, g.ID, subject)
+	return ident.Role(g.Persona, name), err
+}
+
+// directRoleName is the name of the subject's role in the group, "" for none.
+func (st *permissionGroupStore) directRoleName(ctx context.Context, gid string, subject iam.Subject) (string, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return "", err
 	}
-	var role iam.Role
+	var role string
 	err = st.q.QueryRow(ctx, fmt.Sprintf(`SELECT role FROM %s WHERE permission_group_id=$1::uuid AND %s=$2::uuid`, table, column), gid, subject.ID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -321,14 +330,14 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 // an owner (unusable, or an application where owners need MFA) creates no
 // ownership loss; empty bootstrap groups also remain possible.
 func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, gid string, subject iam.Subject) error {
-	role, err := st.directRole(ctx, gid, subject)
-	if err != nil || role != iam.OwnerRole {
+	role, err := st.directRoleName(ctx, gid, subject)
+	if err != nil || role != ownerRoleName {
 		return err
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
 	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApplication {
 		var persona iam.Persona
-		err = st.q.QueryRow(ctx, `SELECT a.permission_group_id=$2::uuid, g.persona FROM remote_applications a JOIN permission_groups g ON g.id=$2::uuid WHERE a.id=$1::uuid`, subject.ID, gid).Scan(&live, &persona)
+		err = st.q.QueryRow(ctx, `SELECT a.permission_group_id=$2::uuid, g.persona FROM remote_applications a JOIN permission_groups g ON g.id=$2::uuid WHERE a.id=$1::uuid`, subject.ID, gid).Scan(&live, scanPersona(&persona))
 		live = live && !s.ownersNeedMFA(persona)
 	}
 	if err != nil || !live {
@@ -340,14 +349,14 @@ func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, 
 // ownersNeedMFA reports whether only MFA-enrolled users count as owners of a
 // persona's groups; applications then never do.
 func (s *Engine) ownersNeedMFA(persona iam.Persona) bool {
-	owner, _ := s.groupSchemaOrDefault().Role(persona, iam.OwnerRole)
+	owner, _ := s.groupSchemaOrDefault().Role(persona, persona.OwnerRole())
 	return s.TwoFactorEnabled() && (s.requireMFAEnrollment() || owner.RequiresMFA)
 }
 
 func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupStore, gid string, excluding iam.Subject) error {
 	var persona iam.Persona
 	var inactive bool
-	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona, &inactive); err != nil {
+	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(scanPersona(&persona), &inactive); err != nil {
 		return err
 	}
 	if inactive {
@@ -418,12 +427,12 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 // Redemption can retain or increase its recipient's role, never strip grants.
 func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
 	subject := iam.UserSubject(userID)
-	old, err := st.directRole(ctx, gid, subject)
+	g := groupTarget{ID: gid, Persona: persona}
+	old, err := st.directRole(ctx, g, subject)
 	if err != nil {
 		return err
 	}
-	if old != "" && old != role {
-		g := groupTarget{ID: gid, Persona: persona}
+	if !old.IsZero() && old != role {
 		oldGrants, err := s.roleGrants(ctx, st, g, old)
 		if err != nil {
 			return err

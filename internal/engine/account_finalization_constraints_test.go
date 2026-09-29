@@ -39,7 +39,7 @@ func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "member"}}}
+	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "member"}}}
 	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)

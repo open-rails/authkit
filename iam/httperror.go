@@ -30,20 +30,28 @@ type ErrorEnvelope struct {
 // its code. Anything that is not an AuthKit error, and every server failure,
 // is written as 500 internal_error.
 func WriteError(w http.ResponseWriter, err error) {
+	status, body := ErrorResponse(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// ErrorResponse is WriteError's status and envelope, for any router:
+// Gin `c.JSON(iam.ErrorResponse(err))`, Fiber `status, body :=
+// iam.ErrorResponse(err); return c.Status(status).JSON(body)`.
+func ErrorResponse(err error) (int, ErrorEnvelope) {
 	e := errmodel.Wire(err)
 	var param *string
 	if p := e.Param(); p != "" {
 		param = &p
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(e.Status())
-	_ = json.NewEncoder(w).Encode(ErrorEnvelope{Error: ErrorObject{
+	return e.Status(), ErrorEnvelope{Error: ErrorObject{
 		Type:     errorType(e.Status()),
 		Code:     e.Code(),
 		Message:  e.Message(),
 		Param:    param,
 		Metadata: e.Metadata(),
-	}})
+	}}
 }
 
 func errorType(status int) string {
