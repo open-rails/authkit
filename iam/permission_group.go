@@ -3,7 +3,6 @@ package iam
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -11,13 +10,19 @@ import (
 // is a programming error, so it has no wire code.
 var ErrUnknownPermission = errors.New("iam: unknown permission")
 
-// segmentRe matches ONE lowercase permission segment (persona, resource, or
-// action): a letter followed by letters/digits/hyphens.
-var segmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-
 // ValidPermissionSegment reports whether s is one permission segment (a
-// persona, resource, action or custom role name).
-func ValidPermissionSegment(s string) bool { return segmentRe.MatchString(s) }
+// persona, resource, action or custom role name): [a-z][a-z0-9-]*.
+func ValidPermissionSegment(s string) bool {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if c := s[i]; (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 // ValidatePermission checks a CONCRETE catalog permission: EXACTLY three
 // lowercase segments `<persona>:<resource>:<action>` (e.g. `merchant:catalog:update`,
@@ -28,7 +33,7 @@ func ValidatePermission(p string) error {
 		return fmt.Errorf("permission %q must be exactly three segments <persona>:<resource>:<action>", p)
 	}
 	for _, s := range segs {
-		if !segmentRe.MatchString(s) {
+		if !ValidPermissionSegment(s) {
 			return fmt.Errorf("permission %q: segment %q must match [a-z][a-z0-9-]*", p, s)
 		}
 	}
@@ -51,7 +56,7 @@ func ValidateGrantPattern(g string) error {
 		return fmt.Errorf("empty grant")
 	}
 	segs := strings.Split(g, ":")
-	if !segmentRe.MatchString(segs[0]) {
+	if !ValidPermissionSegment(segs[0]) {
 		return fmt.Errorf("grant %q: persona segment must be a literal lowercase name (no bare *)", g)
 	}
 	switch len(segs) {
@@ -61,10 +66,10 @@ func ValidateGrantPattern(g string) error {
 		}
 		return nil
 	case 3:
-		if !segmentRe.MatchString(segs[1]) {
+		if !ValidPermissionSegment(segs[1]) {
 			return fmt.Errorf("grant %q: resource segment must match [a-z][a-z0-9-]*", g)
 		}
-		if segs[2] != PermWildcard && !segmentRe.MatchString(segs[2]) {
+		if segs[2] != PermWildcard && !ValidPermissionSegment(segs[2]) {
 			return fmt.Errorf("grant %q: action segment must be a name or *", g)
 		}
 		return nil
