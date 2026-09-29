@@ -164,13 +164,11 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 	extra["provider"] = solanaProviderSlug
 	extra["solana_address"] = output.Account.Address
 
-	var version int64
-	var providerID string
-	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, s.solanaIssuer(), output.Account.Address).Scan(&version, &providerID)
+	link, err := s.q.UserProviderVerifiedLink(ctx, db.UserProviderVerifiedLinkParams{UserID: userID, Issuer: s.solanaIssuer(), Subject: output.Account.Address})
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
 	out.Created = created
 	return out, err
 }

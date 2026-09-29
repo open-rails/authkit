@@ -249,6 +249,21 @@ func (q *Queries) MFASetDefaultFactor(ctx context.Context, arg MFASetDefaultFact
 	return result.RowsAffected(), nil
 }
 
+const mFASetEmailFactorAddress = `-- name: MFASetEmailFactorAddress :exec
+UPDATE mfa_factors SET email = $1::text, updated_at = now()
+WHERE user_id = $2 AND method = 'email'
+`
+
+type MFASetEmailFactorAddressParams struct {
+	Email  string
+	UserID string
+}
+
+func (q *Queries) MFASetEmailFactorAddress(ctx context.Context, arg MFASetEmailFactorAddressParams) error {
+	_, err := q.db.Exec(ctx, mFASetEmailFactorAddress, arg.Email, arg.UserID)
+	return err
+}
+
 const mFASettingsByUser = `-- name: MFASettingsByUser :one
 SELECT user_id, enabled, backup_codes, created_at, updated_at
 FROM mfa_settings
@@ -298,4 +313,37 @@ func (q *Queries) MFAUsable(ctx context.Context, userID string) (bool, error) {
 	var usable bool
 	err := row.Scan(&usable)
 	return usable, err
+}
+
+const userGroupRoles = `-- name: UserGroupRoles :many
+SELECT a.permission_group_id, g.persona, a.role
+FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
+WHERE a.user_id = $1
+`
+
+type UserGroupRolesRow struct {
+	PermissionGroupID string
+	Persona           string
+	Role              string
+}
+
+// Every role the user holds, with its group's persona.
+func (q *Queries) UserGroupRoles(ctx context.Context, userID string) ([]UserGroupRolesRow, error) {
+	rows, err := q.db.Query(ctx, userGroupRoles, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserGroupRolesRow
+	for rows.Next() {
+		var i UserGroupRolesRow
+		if err := rows.Scan(&i.PermissionGroupID, &i.Persona, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

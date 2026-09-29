@@ -96,3 +96,18 @@ RETURNING verified_at;
 
 -- name: UserProvidersDeleteByUser :exec
 DELETE FROM user_providers WHERE user_id = sqlc.arg(user_id)::uuid;
+
+-- name: UserProviderVerifiedLink :one
+-- What a provider sign-in proves: the account's credential version and the verified link.
+SELECT u.credential_version, p.id AS provider_id
+FROM users u JOIN user_providers p ON p.user_id = u.id
+WHERE u.id = sqlc.arg(user_id) AND p.issuer = sqlc.arg(issuer) AND p.subject = sqlc.arg(subject) AND p.verified_at IS NOT NULL;
+
+-- name: UserProviderProofSource :one
+SELECT id FROM user_providers
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND issuer = sqlc.arg(issuer) AND subject = sqlc.arg(subject)
+  AND verified_at IS NOT NULL
+FOR UPDATE;
+
+-- name: UserNotDeleted :one
+SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL);

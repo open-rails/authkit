@@ -112,36 +112,13 @@ func (s *Engine) roleRequiresMFA(_ context.Context, _ db.DBTX, _ string, persona
 // requireSessionMFAStateWith (login/refresh session establishment) — never
 // per-request middleware — since it hits the database.
 func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
-	rows, err := q.Query(ctx,
-		`SELECT a.permission_group_id::text, g.persona, a.role
-		   FROM group_user_roles a
-		   JOIN permission_groups g ON g.id = a.permission_group_id
-		  WHERE a.user_id = $1::uuid`,
-		userID)
+	assignments, err := db.New(q).UserGroupRoles(ctx, userID)
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
-	type assignment struct {
-		gid     string
-		persona iam.Persona
-		role    iam.Role
-	}
-	var assignments []assignment
-	for rows.Next() {
-		var a assignment
-		var role string
-		if err := rows.Scan(&a.gid, scanPersona(&a.persona), &role); err != nil {
-			return false, err
-		}
-		a.role = ident.Role(a.persona, role)
-		assignments = append(assignments, a)
-	}
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
 	for _, a := range assignments {
-		requires, err := s.roleRequiresMFA(ctx, q, a.gid, a.persona, a.role)
+		persona := ident.Persona(a.Persona)
+		requires, err := s.roleRequiresMFA(ctx, q, a.PermissionGroupID, persona, ident.Role(persona, a.Role))
 		if err != nil {
 			return false, err
 		}
@@ -177,24 +154,9 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 	return nil
 }
 
+// userHasEnabledMFA reports whether 2FA is enabled and has a factor.
 func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, error) {
-	var enabled bool
-	err := q.QueryRow(ctx,
-		`SELECT enabled FROM mfa_settings WHERE user_id = $1::uuid`,
-		userID).Scan(&enabled)
-	if errors.Is(err, pgx.ErrNoRows) || !enabled {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	var hasFactor bool
-	if err := q.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM mfa_factors WHERE user_id = $1::uuid)`,
-		userID).Scan(&hasFactor); err != nil {
-		return false, err
-	}
-	return hasFactor, nil
+	return db.New(q).MFAUsable(ctx, userID)
 }
 
 // removeMFARequiredUserRoles strips a user's MFA-required role assignments when
@@ -205,37 +167,14 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 // currently enforcing it, and application-mode toggles must never themselves
 // mutate role/2FA state (only gate checks).
 func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]authflow.RemovedMFARoleAssignment, error) {
-	rows, err := q.Query(ctx,
-		`SELECT a.permission_group_id::text, g.persona, a.role
-		   FROM group_user_roles a
-		   JOIN permission_groups g ON g.id = a.permission_group_id
-		  WHERE a.user_id = $1::uuid`,
-		userID)
+	assignments, err := db.New(q).UserGroupRoles(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	// Drain + close the cursor BEFORE issuing any further query on q: q may be a
-	// single-connection pgx.Tx, which cannot interleave a new query with an
-	// still-open result set from a prior one.
-	var candidates []authflow.RemovedMFARoleAssignment
-	for rows.Next() {
-		var r authflow.RemovedMFARoleAssignment
-		var role string
-		if err := rows.Scan(&r.PermissionGroupID, scanPersona(&r.Persona), &role); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		r.Role = ident.Role(r.Persona, role)
-		candidates = append(candidates, r)
-	}
-	rerr := rows.Err()
-	rows.Close()
-	if rerr != nil {
-		return nil, rerr
-	}
-
 	var removals []authflow.RemovedMFARoleAssignment
-	for _, r := range candidates {
+	for _, a := range assignments {
+		persona := ident.Persona(a.Persona)
+		r := authflow.RemovedMFARoleAssignment{PermissionGroupID: a.PermissionGroupID, Persona: persona, Role: ident.Role(persona, a.Role)}
 		needsMFA, err := s.roleRequiresMFA(ctx, q, r.PermissionGroupID, r.Persona, r.Role)
 		if err != nil {
 			return nil, err

@@ -9,6 +9,254 @@ import (
 	"context"
 )
 
+const passkeyDelete = `-- name: PasskeyDelete :execrows
+UPDATE user_passkeys SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+`
+
+type PasskeyDeleteParams struct {
+	ID     string
+	UserID string
+}
+
+func (q *Queries) PasskeyDelete(ctx context.Context, arg PasskeyDeleteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, passkeyDelete, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const passkeyExistsForRP = `-- name: PasskeyExistsForRP :one
+SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1 AND rpid = $2 AND deleted_at IS NULL)
+`
+
+type PasskeyExistsForRPParams struct {
+	UserID string
+	Rpid   string
+}
+
+func (q *Queries) PasskeyExistsForRP(ctx context.Context, arg PasskeyExistsForRPParams) (bool, error) {
+	row := q.db.QueryRow(ctx, passkeyExistsForRP, arg.UserID, arg.Rpid)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const passkeyHandleByUser = `-- name: PasskeyHandleByUser :one
+SELECT user_handle FROM user_passkey_handles WHERE user_id = $1
+`
+
+func (q *Queries) PasskeyHandleByUser(ctx context.Context, userID string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, passkeyHandleByUser, userID)
+	var user_handle []byte
+	err := row.Scan(&user_handle)
+	return user_handle, err
+}
+
+const passkeyHandleUpsert = `-- name: PasskeyHandleUpsert :one
+INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2)
+ON CONFLICT (user_id) DO UPDATE SET user_handle = user_passkey_handles.user_handle
+RETURNING user_handle
+`
+
+type PasskeyHandleUpsertParams struct {
+	UserID     string
+	UserHandle []byte
+}
+
+// A concurrent first registration keeps the handle already stored.
+func (q *Queries) PasskeyHandleUpsert(ctx context.Context, arg PasskeyHandleUpsertParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, passkeyHandleUpsert, arg.UserID, arg.UserHandle)
+	var user_handle []byte
+	err := row.Scan(&user_handle)
+	return user_handle, err
+}
+
+const passkeyHandleUser = `-- name: PasskeyHandleUser :one
+SELECT user_id FROM user_passkey_handles WHERE user_handle = $1
+`
+
+func (q *Queries) PasskeyHandleUser(ctx context.Context, userHandle []byte) (string, error) {
+	row := q.db.QueryRow(ctx, passkeyHandleUser, userHandle)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const passkeyInsert = `-- name: PasskeyInsert :one
+INSERT INTO user_passkeys
+  (user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at, deleted_at
+`
+
+type PasskeyInsertParams struct {
+	UserID                  string
+	Rpid                    string
+	CredentialID            []byte
+	PublicKey               []byte
+	SignCount               int64
+	CloneWarning            bool
+	Aaguid                  []byte
+	Transports              []string
+	AuthenticatorAttachment string
+	Flags                   []byte
+	AttestationType         string
+	AttestationFmt          string
+	Label                   *string
+}
+
+func (q *Queries) PasskeyInsert(ctx context.Context, arg PasskeyInsertParams) (UserPasskey, error) {
+	row := q.db.QueryRow(ctx, passkeyInsert,
+		arg.UserID,
+		arg.Rpid,
+		arg.CredentialID,
+		arg.PublicKey,
+		arg.SignCount,
+		arg.CloneWarning,
+		arg.Aaguid,
+		arg.Transports,
+		arg.AuthenticatorAttachment,
+		arg.Flags,
+		arg.AttestationType,
+		arg.AttestationFmt,
+		arg.Label,
+	)
+	var i UserPasskey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Rpid,
+		&i.CredentialID,
+		&i.PublicKey,
+		&i.SignCount,
+		&i.CloneWarning,
+		&i.Aaguid,
+		&i.Transports,
+		&i.AuthenticatorAttachment,
+		&i.Flags,
+		&i.AttestationType,
+		&i.AttestationFmt,
+		&i.Label,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const passkeyLiveForUpdate = `-- name: PasskeyLiveForUpdate :one
+SELECT id FROM user_passkeys WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE
+`
+
+type PasskeyLiveForUpdateParams struct {
+	ID     string
+	UserID string
+}
+
+func (q *Queries) PasskeyLiveForUpdate(ctx context.Context, arg PasskeyLiveForUpdateParams) (string, error) {
+	row := q.db.QueryRow(ctx, passkeyLiveForUpdate, arg.ID, arg.UserID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const passkeyRecordUse = `-- name: PasskeyRecordUse :one
+UPDATE user_passkeys
+SET sign_count = $1, clone_warning = $2, flags = $3, last_used_at = now()
+WHERE user_id = $4 AND rpid = $5 AND credential_id = $6 AND deleted_at IS NULL
+RETURNING id
+`
+
+type PasskeyRecordUseParams struct {
+	SignCount    int64
+	CloneWarning bool
+	Flags        []byte
+	UserID       string
+	Rpid         string
+	CredentialID []byte
+}
+
+func (q *Queries) PasskeyRecordUse(ctx context.Context, arg PasskeyRecordUseParams) (string, error) {
+	row := q.db.QueryRow(ctx, passkeyRecordUse,
+		arg.SignCount,
+		arg.CloneWarning,
+		arg.Flags,
+		arg.UserID,
+		arg.Rpid,
+		arg.CredentialID,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const passkeyRename = `-- name: PasskeyRename :execrows
+UPDATE user_passkeys SET label = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
+`
+
+type PasskeyRenameParams struct {
+	Label  *string
+	ID     string
+	UserID string
+}
+
+func (q *Queries) PasskeyRename(ctx context.Context, arg PasskeyRenameParams) (int64, error) {
+	result, err := q.db.Exec(ctx, passkeyRename, arg.Label, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const passkeysByUser = `-- name: PasskeysByUser :many
+SELECT id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at, deleted_at FROM user_passkeys WHERE user_id = $1 AND rpid = $2 AND deleted_at IS NULL ORDER BY created_at, id
+`
+
+type PasskeysByUserParams struct {
+	UserID string
+	Rpid   string
+}
+
+// The user's live passkeys for one relying party.
+func (q *Queries) PasskeysByUser(ctx context.Context, arg PasskeysByUserParams) ([]UserPasskey, error) {
+	rows, err := q.db.Query(ctx, passkeysByUser, arg.UserID, arg.Rpid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserPasskey
+	for rows.Next() {
+		var i UserPasskey
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Rpid,
+			&i.CredentialID,
+			&i.PublicKey,
+			&i.SignCount,
+			&i.CloneWarning,
+			&i.Aaguid,
+			&i.Transports,
+			&i.AuthenticatorAttachment,
+			&i.Flags,
+			&i.AttestationType,
+			&i.AttestationFmt,
+			&i.Label,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const passkeysDeleteByUser = `-- name: PasskeysDeleteByUser :exec
 
 UPDATE user_passkeys SET deleted_at = now() WHERE user_id = $1::uuid AND deleted_at IS NULL

@@ -86,3 +86,13 @@ UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now()
 -- 2FA is enabled and has a factor.
 SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.enabled
   AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = m.user_id))::boolean AS usable;
+
+-- name: UserGroupRoles :many
+-- Every role the user holds, with its group's persona.
+SELECT a.permission_group_id, g.persona, a.role
+FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
+WHERE a.user_id = $1;
+
+-- name: MFASetEmailFactorAddress :exec
+UPDATE mfa_factors SET email = sqlc.arg(email)::text, updated_at = now()
+WHERE user_id = sqlc.arg(user_id) AND method = 'email';
