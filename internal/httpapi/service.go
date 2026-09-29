@@ -80,8 +80,7 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 // rateLimitedByIdentifier checks an additional per-identifier key for the given
 // bucket, on top of the route's per-IP check. Use it only where the secret space
 // is small (one-time codes) or to stop one address being flooded with messages;
-// never for passwords, where it would let strangers lock accounts out
-// (docs/security/rate-limits.md).
+// never for passwords, where it would let strangers lock accounts out.
 //
 // identifier should be normalised (lowercased / trimmed) before being passed in.
 // An empty identifier is a no-op (returns false).

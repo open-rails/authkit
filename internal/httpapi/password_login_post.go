@@ -23,7 +23,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Passwords are high-entropy secrets: the route's per-IP bucket is the only
-	// limit, so no stranger can lock an account out (docs/security/rate-limits.md).
+	// limit, so no stranger can lock an account out.
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
 		fail(w, errmodel.CodeInvalidRequest)

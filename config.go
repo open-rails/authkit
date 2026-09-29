@@ -264,7 +264,7 @@ type RegistrationConfig struct {
 	// Verification controls registration verification: "none"|"optional"|
 	// "required". Empty defaults to "none". Every policy stores the address
 	// unverified until proven; "optional" also sends a code at registration.
-	// Unproven accounts cannot add login methods (docs/security/contact-ownership.md).
+	// Unproven accounts cannot add login methods.
 	Verification iam.RegistrationVerificationPolicy
 	// NativeUserMode controls public native-user self-registration. Empty
 	// defaults to "open". Non-open modes disable every public user-creation path;
