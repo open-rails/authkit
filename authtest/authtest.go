@@ -1,7 +1,7 @@
 // Package authtest runs AuthKit in a host's Go tests: a real Client on a
 // scratch PostgreSQL schema, an Outbox that captures every email and SMS, and
 // helpers for the usual setup (a verified user, a signed-in session, a role,
-// an authenticator app, a device key).
+// an authenticator app, a device key, a replica, a stale session).
 //
 //	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 //		c.Roles = myapp.Roles()
@@ -124,7 +124,78 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		t.Fatalf("authtest: new client: %v", err)
 	}
 	t.Cleanup(auth.Close)
+	remember(t, auth, cfg, deps)
 	return auth, outbox
+}
+
+// Replica builds another Client on auth's database and schema, as another
+// replica of the deployment runs: the Config and Deps auth was built with
+// (its Outbox included), then opts. A different Token.Issuer makes a sibling
+// deployment sharing the account store; different HTTPConfig serves the same
+// accounts another way. Replace, never mutate, the maps and slices opts
+// change: the replica shares auth's. auth must come from New or Replica.
+func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client {
+	t.Helper()
+	b := builtWith(t, auth)
+	var s setup
+	for _, opt := range opts {
+		opt(&s)
+	}
+	cfg, deps := b.cfg, b.deps
+	for _, fn := range s.config {
+		fn(&cfg)
+	}
+	for _, fn := range s.deps {
+		fn(&deps)
+	}
+	replica, err := authkit.New(context.Background(), cfg, deps)
+	if err != nil {
+		t.Fatalf("authtest: replica: %v", err)
+	}
+	t.Cleanup(replica.Close)
+	remember(t, replica, cfg, deps)
+	return replica
+}
+
+// StaleSession moves the sign-in of the session behind accessToken a day into
+// the past, as if its user signed in long ago: routes that need a recent
+// sign-in then ask for a step-up. auth must come from New or Replica.
+func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) {
+	t.Helper()
+	b := builtWith(t, auth)
+	claims, err := auth.Verifier().Verify(context.Background(), accessToken)
+	if err != nil || claims.SessionID == "" {
+		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
+	}
+	tag, err := b.deps.Postgres.Exec(context.Background(), `UPDATE `+pgx.Identifier{b.cfg.Schema, "refresh_sessions"}.Sanitize()+`
+		SET last_authenticated_at = now() - interval '1 day',
+		    mfa_authenticated_at = CASE WHEN mfa_authenticated_at IS NULL THEN NULL ELSE now() - interval '1 day' END
+		WHERE id = $1::uuid`, claims.SessionID)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("authtest: stale session %s: %v", claims.SessionID, err)
+	}
+}
+
+// built is what New or Replica built a Client with.
+type built struct {
+	cfg  authkit.Config
+	deps authkit.Deps
+}
+
+var clients sync.Map // *authkit.Client → built
+
+func remember(t testing.TB, auth *authkit.Client, cfg authkit.Config, deps authkit.Deps) {
+	clients.Store(auth, built{cfg: cfg, deps: deps})
+	t.Cleanup(func() { clients.Delete(auth) })
+}
+
+func builtWith(t testing.TB, auth *authkit.Client) built {
+	t.Helper()
+	b, ok := clients.Load(auth)
+	if !ok {
+		t.Fatal("authtest: the Client was not built by New or Replica")
+	}
+	return b.(built)
 }
 
 var keys = sync.OnceValue(func() jwtkit.StaticKeySource {
