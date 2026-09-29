@@ -38,5 +38,5 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 }
 
 func loginChallengeMetadata(userID string, ch *authflow.TwoFactorChallenge) map[string]any {
-	return map[string]any{"user_id": userID, "method": ch.Method, "verification_id": contact.MaskDestination(ch.Destination), "challenge": ch.Challenge, "default_factor": TwoFactorFactorResponse{ID: ch.Factor.ID, Method: ch.Factor.Method, IsDefault: ch.Factor.IsDefault, PhoneNumber: ch.Factor.PhoneNumber}, "available_factors": twoFactorFactorResponses(ch.Factors)}
+	return map[string]any{"user_id": userID, "method": ch.Method, "verification_id": contact.MaskDestination(ch.Destination), "challenge": ch.Challenge, "default_factor": twoFactorFactorResponse(ch.Factor), "available_factors": twoFactorFactorResponses(ch.Factors)}
 }

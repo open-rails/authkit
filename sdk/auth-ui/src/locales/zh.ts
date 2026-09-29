@@ -515,8 +515,6 @@ export const zh: AuthUiMessageBundle = {
     password_too_long: "密码太长。",
     password_too_short: "密码至少需要8个字符。",
     passwordless_disabled: "无密码登录已停用。",
-    pending_registration_not_found:
-      "未找到该地址或号码的待完成注册，请重新注册。",
     phone_already_verified: "您的手机号已验证。",
     phone_in_use: "该手机号已被使用。",
     phone_number_must_be_e164: "请使用国际格式输入手机号，例如 +1234567890。",

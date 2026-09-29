@@ -569,8 +569,6 @@ export const en = {
     password_too_long: "Password is too long.",
     password_too_short: "Password must be at least 8 characters.",
     passwordless_disabled: "Passwordless sign-in is disabled.",
-    pending_registration_not_found:
-      "No pending registration was found for that address or number. Please sign up again.",
     phone_already_verified: "Your phone number is already verified.",
     phone_in_use: "This phone number is already in use.",
     phone_number_must_be_e164:

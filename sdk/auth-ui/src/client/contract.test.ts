@@ -26,7 +26,6 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.signInWithPassword({ identifier: "a", password: "b" }),
     () => client.register({ identifier: "a", username: "u", password: "p" }),
     () => client.checkAvailability({ username: "u" }),
-    () => client.resendRegistration("a"),
     () => client.abandonRegistration({ identifier: "a", password: "p" }),
     () => client.requestVerification({ identifier: "a" }),
     () => client.confirmVerification({ identifier: "a", code: "c" }),

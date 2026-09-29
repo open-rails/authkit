@@ -111,6 +111,54 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	return out, nil
 }
 
+// OwnerlessGroups lists the live groups, root aside, that have no owner who
+// counts toward the last-owner rule (requireRemainingOwner), ordered by
+// persona, slug, then id: groups created without one, or left without one by
+// a credential sweep at boot. An owner whose required MFA enrollment is still
+// pending does not count.
+func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
+	var out iam.ListPage[iam.Group]
+	if err := s.requirePG(); err != nil {
+		return out, err
+	}
+	after, err := decodePageCursor(p.Cursor, 3)
+	if err != nil {
+		return out, err
+	}
+	mfaPersonas := []string{} // never NULL: ANY(NULL) is NULL, not false
+	for _, persona := range s.groupSchemaOrDefault().Personas() {
+		if s.ownersNeedMFA(persona) {
+			mfaPersonas = append(mfaPersonas, string(persona))
+		}
+	}
+	limit := p.PageLimit()
+	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups g
+ WHERE g.persona<>'root' AND g.deleted_at IS NULL
+ AND ($2='' OR (g.persona,COALESCE(g.instance_slug,''),g.id)>($2,$3,NULLIF($4,'')::uuid))
+ AND NOT `+usableOwner("g.id", "''", "NULL::uuid", "(g.persona=ANY($1::text[]))")+`
+ ORDER BY g.persona,COALESCE(g.instance_slug,''),g.id LIMIT $5`, mfaPersonas, after[0], after[1], after[2], limit+1)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		g, err := scanGroup(rows)
+		if err != nil {
+			return out, err
+		}
+		out.Items = append(out.Items, g)
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		last := out.Items[limit-1]
+		out.Next = encodePageCursor(string(last.Persona), last.Slug, last.ID)
+	}
+	return out, nil
+}
+
 // ListGroupMembers lists the subjects holding a role in a live group, ordered
 // by subject kind, then id.
 func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {

@@ -143,7 +143,6 @@ var (
 	CodePasswordTooLong                   = defParam("password_too_long", 400, "password", "The password is too long.")
 	CodePasswordTooShort                  = defParam("password_too_short", 400, "password", "The password is too short.")
 	CodePasswordlessDisabled              = def("passwordless_disabled", 403, "Passwordless login is disabled.")
-	CodePendingRegistrationNotFound       = def("pending_registration_not_found", 404, "No pending registration was found.")
 	CodePermissionNotGranted              = def("permission_not_granted", 403, "The token claims a permission it was not granted.")
 	CodePhoneAlreadyVerified              = def("phone_already_verified", 409, "The phone number is already verified.")
 	CodePhoneInUse                        = def("phone_in_use", 400, "That phone number is already in use.")

@@ -168,9 +168,9 @@ func (s *Engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 	return phoneTaken, usernameTaken, nil
 }
 
-// ResendRegistration reissues the pending signup while retaining its invitation,
+// resendRegistration reissues the pending signup while retaining its invitation,
 // username, password and language. A resend never creates an account.
-func (s *Engine) ResendRegistration(ctx context.Context, identifier string) (bool, error) {
+func (s *Engine) resendRegistration(ctx context.Context, identifier string) (bool, error) {
 	kind := kindRegisterEmail
 	if !strings.Contains(identifier, "@") {
 		kind = kindRegisterPhone

@@ -30,6 +30,8 @@ type TwoFactorFactorResponse struct {
 	Method      string  `json:"method"`
 	IsDefault   bool    `json:"is_default,omitempty"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
+	// Email is the masked address an email factor's codes go to.
+	Email *string `json:"email,omitempty"`
 }
 
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
@@ -247,12 +249,16 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []TwoFactorFactorResponse {
 	out := make([]TwoFactorFactorResponse, 0, len(factors))
 	for _, factor := range factors {
-		out = append(out, TwoFactorFactorResponse{
-			ID:          factor.ID,
-			Method:      factor.Method,
-			IsDefault:   factor.IsDefault,
-			PhoneNumber: factor.PhoneNumber,
-		})
+		out = append(out, twoFactorFactorResponse(factor))
+	}
+	return out
+}
+
+func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactorResponse {
+	out := TwoFactorFactorResponse{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault, PhoneNumber: factor.PhoneNumber}
+	if factor.Email != nil {
+		masked := contact.MaskDestination(*factor.Email)
+		out.Email = &masked
 	}
 	return out
 }

@@ -94,7 +94,6 @@ func TestMountCatalog(t *testing.T) {
 		require.NoError(t, err)
 		require.ElementsMatch(t, []iam.Route{
 			{Method: http.MethodPost, Path: "/auth/custom/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
-			{Method: http.MethodPost, Path: "/auth/custom/register/resend", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
 			{Method: http.MethodPost, Path: "/auth/custom/register/abandon", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
 		}, mount.Routes())
 		for _, ref := range []routeKey{

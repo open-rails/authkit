@@ -42,6 +42,11 @@ Roles: authkit.RoleConfig{
   hold it. `root:members:manage` and `root:users:manage` always need MFA, so
   root's owner, and any role editing other people's accounts, does. With 2FA
   disabled deployment-wide the rule is inert.
+- An account that needs MFA and has a passkey but no factor signs in only with
+  the passkey (`passkey_required`). When the passkey is lost, verify the person
+  out of band and call `ResetAccountMFA(ctx, iam.OperatorActor(), userID)`: it
+  removes the account's passkeys, factors, backup codes, device keys and
+  sessions, keeps its roles, and the next sign-in enrolls a factor.
 - Reserved slugs of persona p are creatable only by actors holding `p:*` on root.
 
 ## Built-in permissions

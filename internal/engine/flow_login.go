@@ -122,7 +122,7 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 	if err != nil || !valid {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
-	if _, err := s.ResendRegistration(ctx, identifier); err != nil {
+	if _, err := s.resendRegistration(ctx, identifier); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
 	channel := "email"

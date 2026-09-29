@@ -60,7 +60,6 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RLPasswordResetConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLVerifyRequest:        {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLVerifyConfirm:        {Limit: 10, Window: 10 * time.Minute},
-		RLRegisterResend:       {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLContactChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 
 		// User changes

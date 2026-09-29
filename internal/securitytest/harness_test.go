@@ -56,6 +56,7 @@ type hostConfig struct {
 	engine authkit.Config
 	deps   authkit.Deps
 	http   authkit.HTTPConfig
+	sms    bool
 }
 
 type hostOption func(*hostConfig)
@@ -70,6 +71,13 @@ func withEngine(fn func(*authkit.Config)) hostOption {
 
 func withHTTP(fn func(*authkit.HTTPConfig)) hostOption {
 	return func(c *hostConfig) { fn(&c.http) }
+}
+
+// withSMS delivers SMS to the host's outbox ("sms <kind> to=<phone> ...") and
+// offers SMS as a second factor.
+func withSMS(c *hostConfig) {
+	c.sms = true
+	c.engine.TwoFactor.Methods = append(c.engine.TwoFactor.Methods, iam.TwoFactorSMS)
 }
 
 // generousLimits keeps the ordinary per-IP buckets out of the way of tests
@@ -112,6 +120,9 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 	}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.sms {
+		cfg.deps.SMS = phones{mail}
 	}
 	cfg.engine.HTTP = cfg.http
 	runtime, err := authkit.New(context.Background(), cfg.engine, cfg.deps)
@@ -356,6 +367,27 @@ func (o *outbox) SendContactChanged(context.Context, string, string, iam.Contact
 func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, iam.DeviceKeyNotice) error {
 	return nil
 }
+
+func (o *outbox) SendMFAReset(_ context.Context, email, _ string) error {
+	return o.add("mfa-reset to=" + email)
+}
+
+// phones delivers SMS into the same outbox.
+type phones struct{ o *outbox }
+
+func (p phones) SendVerification(_ context.Context, phone string, msg iam.VerificationMessage) error {
+	return p.o.add("sms verification to=" + phone + " code=" + msg.Code)
+}
+
+func (p phones) SendPasswordResetLink(_ context.Context, phone, resetURL string) error {
+	return p.o.add("sms reset to=" + phone + " url=" + resetURL)
+}
+
+func (p phones) SendLoginCode(_ context.Context, phone, code string) error {
+	return p.o.add("sms login to=" + phone + " code=" + code)
+}
+
+func (p phones) SendContactChanged(context.Context, string, iam.ContactChange) error { return nil }
 
 // grantRole assigns role with operator authority; the test fails otherwise.
 func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {

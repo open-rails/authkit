@@ -187,7 +187,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 		if c.role == iam.OwnerRole && st.reconcile {
 			err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.Subject{})
 			if errors.Is(err, iam.ErrLastOwner) {
-				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one", "group_id", c.group.ID, "remote_application_id", c.id)
+				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (Auth.OwnerlessGroups lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
 				return nil
 			}
 			return err
@@ -294,17 +294,8 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 	if inactive {
 		return nil
 	}
-	needsMFA := s.ownersNeedMFA(persona)
 	var remains bool
-	err := st.q.QueryRow(ctx, `SELECT EXISTS(
- SELECT 1 FROM group_user_roles r JOIN users u ON u.id=r.user_id
- WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='user' AND u.id=$3::uuid)
- AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())
- AND (NOT $4 OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=u.id AND m.enabled
- AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
- UNION ALL
- SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE NOT $4 AND r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND `+registrarLive("a")+` AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
+	err := st.q.QueryRow(ctx, `SELECT `+usableOwner("$1::uuid", "$2::text", "$3::uuid", "$4::bool"), gid, string(excluding.Kind), nullable(excluding.ID), s.ownersNeedMFA(persona)).Scan(&remains)
 	if err != nil {
 		return err
 	}
@@ -312,6 +303,25 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 		return iam.ErrLastOwner
 	}
 	return nil
+}
+
+// usableOwner is a SQL predicate: group gid has an owner that counts, other
+// than the subject (kind, id): a live user, MFA-enrolled when needsMFA, or,
+// when owners need no MFA, an enabled application of the group itself whose
+// registrar is live. An application a departing user registered never stands
+// in for that user: its authority ends with theirs (R1).
+func usableOwner(gid, kind, id, needsMFA string) string {
+	return `EXISTS(
+ SELECT 1 FROM group_user_roles r JOIN users u ON u.id=r.user_id
+ WHERE r.permission_group_id=` + gid + ` AND r.role='owner' AND NOT (` + kind + `='user' AND u.id=` + id + `)
+ AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())
+ AND (NOT ` + needsMFA + ` OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=u.id AND m.enabled
+ AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
+ UNION ALL
+ SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
+ WHERE NOT ` + needsMFA + ` AND r.permission_group_id=` + gid + ` AND r.role='owner' AND NOT (` + kind + `='remote_application' AND a.id=` + id + `)
+ AND NOT (` + kind + `='user' AND a.registered_by IS NOT DISTINCT FROM ` + id + `)
+ AND a.enabled AND a.permission_group_id=r.permission_group_id AND ` + registrarLive("a") + ` AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`
 }
 
 func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroupStore, subject iam.Subject) error {

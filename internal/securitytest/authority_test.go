@@ -526,3 +526,65 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 		require.True(t, liveKey(t, h, group, founderKey.ID))
 	})
 }
+
+// ownerlessGroups pages through Auth.OwnerlessGroups one group at a time.
+func (h *host) ownerlessGroups() []string {
+	h.t.Helper()
+	var ids []string
+	page := iam.PageRequest{Limit: 1}
+	for {
+		out, err := h.auth.OwnerlessGroups(context.Background(), page)
+		require.NoError(h.t, err)
+		for _, g := range out.Items {
+			ids = append(ids, g.ID)
+		}
+		if out.Next == "" {
+			return ids
+		}
+		page.Cursor = out.Next
+	}
+}
+
+// TestSecurityOwnApplicationIsNoReplacementOwner (R1): an application a user
+// registered never stands in for that user as a group's owner, since its
+// authority ends with theirs. The last human owner cannot delete themselves,
+// be deleted or be banned while only their own application co-owns the
+// group; OwnerlessGroups lists groups that have no owner.
+func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	ctx := context.Background()
+	founder := h.newAccount("r1founder")
+	group, base := h.newOrg("r1", founder)
+	g, err := h.auth.Group(ctx, group)
+	require.NoError(t, err)
+	token := h.login(founder).AccessToken
+	app := h.registerApp(base, token, "r1-app", iam.OwnerRole)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
+	require.Equal(t, "last_owner", resp.errorCode())
+	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{founder.id})), iam.ErrLastOwner)
+	require.ErrorIs(t, h.auth.Ban(ctx, iam.OperatorActor(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
+	require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
+	require.NotContains(t, h.ownerlessGroups(), g.ID)
+
+	t.Run("OwnerlessGroups lists groups without an owner", func(t *testing.T) {
+		var empty []string
+		for range 2 {
+			created, _, err := h.auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: orgPersona, Slug: unique("r1empty")})
+			require.NoError(t, err)
+			empty = append(empty, created.ID)
+		}
+		require.Subset(t, h.ownerlessGroups(), empty)
+		grantRole(t, h.auth, iam.GroupByID(empty[0]), iam.UserSubject(h.newAccount("r1adopter").id), iam.OwnerRole)
+		require.NotContains(t, h.ownerlessGroups(), empty[0])
+		require.Contains(t, h.ownerlessGroups(), empty[1])
+	})
+	t.Run("control: with a second owner the founder leaves and its application's role goes", func(t *testing.T) {
+		h.grant(group, h.newAccount("r1second"), iam.OwnerRole)
+		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
+		require.NotContains(t, h.ownerlessGroups(), g.ID)
+	})
+}

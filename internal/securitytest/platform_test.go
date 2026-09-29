@@ -2,9 +2,11 @@ package securitytest
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -390,4 +392,64 @@ func TestSecurityVerifyRequestRevealsNothing(t *testing.T) {
 	require.Equal(t, before[verified], sent(verified), "a verified address was mailed a code")
 	require.Equal(t, before[unknown], sent(unknown))
 	require.Equal(t, before[unverified]+1, sent(unverified), "control: the unverified address gets its code")
+}
+
+// TestSecurityVerifyRequestByPhoneRevealsNothing (owner decision a, I8): an
+// anonymous verification request answers a verified, an unverified and an
+// unknown phone number alike, and texts a code only to the unverified one.
+func TestSecurityVerifyRequestByPhoneRevealsNothing(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withSMS)
+	ctx := context.Background()
+	phoneAccount := func(verified bool) string {
+		phone := "+1555" + uniqueDigits(7)
+		_, err := h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Username: unique("aphone"), Phone: phone, PhoneVerified: verified})
+		require.NoError(t, err)
+		return phone
+	}
+	verified, unverified, unknown := phoneAccount(true), phoneAccount(false), "+1555"+uniqueDigits(7)
+	sent := func(phone string) int { return h.mail.count(`^sms verification to=` + regexp.QuoteMeta(phone) + ` `) }
+	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
+	var bodies []string
+	for _, phone := range []string{verified, unverified, unknown} {
+		resp := h.post("/verify/request", map[string]string{"identifier": phone}, "")
+		require.Equal(t, http.StatusAccepted, resp.status, "%s: %s", phone, resp)
+		bodies = append(bodies, string(orEmpty(resp.body)))
+	}
+	require.Equal(t, bodies[0], bodies[1])
+	require.Equal(t, bodies[0], bodies[2])
+	require.Equal(t, before[verified], sent(verified), "a verified number was texted a code")
+	require.Equal(t, before[unknown], sent(unknown))
+	require.Equal(t, before[unverified]+1, sent(unverified), "control: the unverified number gets its code")
+}
+
+// TestSecurityRegistrationResendRevealsNothing (R5): there is no separate
+// registration resend to tell a pending sign-up from an account. The
+// anonymous verification request resends a pending registration's code and
+// answers a pending, a registered and an unknown address alike.
+func TestSecurityRegistrationResendRevealsNothing(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+		c.Registration.Verification = iam.RegistrationVerificationRequired
+	}))
+	pending := unique("r5pending") + "@security.test"
+	resp := h.post("/register", map[string]string{"identifier": pending, "username": unique("r5"), "password": password}, "")
+	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+	registered, unknown := h.newAccount("r5registered").email, unique("r5unknown")+"@security.test"
+	require.Equal(t, http.StatusNotFound, h.post("/register/resend", map[string]string{"identifier": registered}, "").status)
+
+	sent := func(email string) int { return h.mail.count(`^verification to=` + email + ` `) }
+	before := map[string]int{pending: sent(pending), registered: sent(registered), unknown: sent(unknown)}
+	var bodies []string
+	for _, email := range []string{pending, registered, unknown} {
+		resp := h.post("/verify/request", map[string]string{"identifier": email}, "")
+		require.Equal(t, http.StatusAccepted, resp.status, "%s: %s", email, resp)
+		bodies = append(bodies, string(orEmpty(resp.body)))
+	}
+	require.Equal(t, bodies[0], bodies[1])
+	require.Equal(t, bodies[0], bodies[2])
+	require.Equal(t, before[registered], sent(registered))
+	require.Equal(t, before[unknown], sent(unknown))
+	require.Equal(t, before[pending]+1, sent(pending), "control: the pending registration gets a new code")
+	resp = h.post("/verify/confirm", map[string]string{"identifier": pending, "code": h.verificationCode(pending)}, "")
+	require.Equal(t, http.StatusOK, resp.status, "the resent code did not complete the registration: %s", resp)
+	session(t, resp)
 }

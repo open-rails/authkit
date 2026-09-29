@@ -567,8 +567,6 @@ export const ja: AuthUiMessageBundle = {
     password_too_long: "パスワードが長すぎます。",
     password_too_short: "パスワードは8文字以上で入力してください。",
     passwordless_disabled: "パスワードなしのログインは無効になっています。",
-    pending_registration_not_found:
-      "そのアドレスまたは番号の保留中の登録が見つかりません。もう一度登録してください。",
     phone_already_verified: "電話番号はすでに認証されています。",
     phone_in_use: "この電話番号はすでに使用されています。",
     phone_number_must_be_e164:

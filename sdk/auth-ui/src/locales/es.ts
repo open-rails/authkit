@@ -588,8 +588,6 @@ export const es: AuthUiMessageBundle = {
     password_too_short: "La contraseña debe tener al menos 8 caracteres.",
     passwordless_disabled:
       "El inicio de sesión sin contraseña está deshabilitado.",
-    pending_registration_not_found:
-      "No se encontró un registro pendiente para esa dirección o número. Regístrate de nuevo.",
     phone_already_verified: "Tu número de teléfono ya está verificado.",
     phone_in_use: "Este número de teléfono ya está en uso.",
     phone_number_must_be_e164:

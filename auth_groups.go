@@ -74,6 +74,15 @@ func (a *Auth) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.PageR
 	return a.engine.ListSubjectGroups(ctx, s, p)
 }
 
+// OwnerlessGroups lists the live groups, root aside, that no owner counts for
+// under the last-owner rule, a page at a time: groups created without one, or
+// left without one by the credential sweep at boot, which only logs it. An
+// owner whose required MFA enrollment is pending does not count. Assign one
+// with AssignGroupRoles.
+func (a *Auth) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
+	return a.engine.OwnerlessGroups(ctx, p)
+}
+
 // CreateGroup creates a group. A user actor creates a group of a persona
 // whose GroupCreation is enabled and becomes its owner; a reserved slug needs
 // `<persona>:*` held on root, and the host's admission hooks apply. An

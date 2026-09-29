@@ -75,10 +75,6 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if err != nil {
 		return authflow.UserProfile{}, stageErr("load_2fa", err)
 	}
-	email := ""
-	if u.Email != nil {
-		email = *u.Email
-	}
 	// Cooldown-gated action availability (#262): a lookup failure omits the
 	// entry rather than failing the profile.
 	var availability []authflow.ActionAvailability
@@ -117,7 +113,7 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 			TimeUntilStepUpRequired:           timeUntilStepUpRequired,
 			StepUpRequiredForSensitiveActions: !in.StepUpSatisfied,
 			StepUpMethods:                     authflow.StepUpMethods(hasPassword, settings, providerSlugs, in.ProviderSupportsStepUp),
-			StepUp2FA:                         authflow.NewStepUpTwoFactorOptions(settings, email),
+			StepUp2FA:                         authflow.NewStepUpTwoFactorOptions(settings),
 			MFAEnabled:                        mfa.Enabled,
 			MFASatisfied:                      mfa.Satisfied,
 			MFAAllowedMethods:                 mfa.AllowedMethods,

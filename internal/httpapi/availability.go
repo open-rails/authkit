@@ -47,7 +47,7 @@ func actionForRateLimitBucket(bucket string) string {
 	switch bucket {
 	case RLPasswordResetRequest:
 		return authflow.ActionRequestPasswordReset
-	case RLVerifyRequest, RLRegisterResend, RLContactChangeRequest:
+	case RLVerifyRequest, RLContactChangeRequest:
 		return authflow.ActionRequestVerification
 	default:
 		action := strings.TrimPrefix(strings.TrimSpace(bucket), "auth_")

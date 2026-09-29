@@ -5,13 +5,15 @@ import (
 	stdlog "log"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 // finalizeChangeEmail applies a verified email change to an existing user,
-// revokes every other session and tells the previous address.
+// moves its email factor to the new address, revokes every other session and
+// tells the previous address.
 func (s *Engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
@@ -29,8 +31,15 @@ func (s *Engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 		return "", iam.ErrEmailInUse
 	}
 
-	if err := s.applyContactChange(ctx, rec, keepSessionID, func(q *db.Queries) error {
-		return mapUserUniqueViolation(q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target}))
+	if err := s.applyContactChange(ctx, rec, keepSessionID, func(tx pgx.Tx, q *db.Queries) error {
+		if err := mapUserUniqueViolation(q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target})); err != nil {
+			return err
+		}
+		// The account asked for this change with MFA and just proved the new
+		// mailbox, so its email factor moves there. Staff, operator and import
+		// changes never move it (P3, R3).
+		_, err := tx.Exec(ctx, `UPDATE mfa_factors SET email=$2, updated_at=now() WHERE user_id=$1::uuid AND method='email'`, rec.UserID, rec.Target)
+		return err
 	}); err != nil {
 		return "", err
 	}
@@ -62,7 +71,7 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 		return "", iam.ErrPhoneInUse
 	}
 
-	if err := s.applyContactChange(ctx, rec, keepSessionID, func(q *db.Queries) error {
+	if err := s.applyContactChange(ctx, rec, keepSessionID, func(_ pgx.Tx, q *db.Queries) error {
 		return mapUserUniqueViolation(q.UserApplyPhoneChange(ctx, db.UserApplyPhoneChangeParams{ID: rec.UserID, PhoneNumber: &rec.Target}))
 	}); err != nil {
 		return "", err
@@ -79,7 +88,7 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 // applyContactChange commits a recovery-identifier change and the revocation of
 // every other session in ONE transaction (as finishPasswordReset does, #199): a
 // hijacked contact must never go live while the sessions that hijacked it survive.
-func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keepSessionID *string, apply func(*db.Queries) error) error {
+func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keepSessionID *string, apply func(pgx.Tx, *db.Queries) error) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -90,7 +99,7 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keep
 		return err
 	}
 	userID := rec.UserID
-	if err := apply(q); err != nil {
+	if err := apply(tx, q); err != nil {
 		return err
 	}
 	revoked, err := revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
