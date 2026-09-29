@@ -84,8 +84,8 @@ func (s *Engine) rootGroup(ctx context.Context, st *permissionGroupStore) (strin
 // withGroupMutation runs apply in one authority transaction (advisory lock,
 // ReadCommitted, credential re-check before commit) with ref resolved and its
 // row locked.
-func (s *Engine) withGroupMutation(ctx context.Context, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
-	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+func (s *Engine) withGroupMutation(ctx context.Context, a iam.Actor, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
+	return s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		g, err := s.resolveGroup(ctx, st, ref)
 		if err != nil {
 			return err

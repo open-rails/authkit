@@ -25,7 +25,9 @@ func (s *Engine) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) 
 	return s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 }
 
-func (s *Engine) withAuthorityMutation(ctx context.Context, apply func(*permissionGroupStore) error) error {
+// withAuthorityMutation runs apply, a's change, in one authority transaction.
+// The zero actor is AuthKit itself.
+func (s *Engine) withAuthorityMutation(ctx context.Context, a iam.Actor, apply func(*permissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -35,6 +37,7 @@ func (s *Engine) withAuthorityMutation(ctx context.Context, apply func(*permissi
 	}
 	defer tx.Rollback(ctx)
 	st := s.groupStoreFor(tx)
+	st.actor = a
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -181,7 +184,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 				return err
 			}
 		}
-		if _, err := st.q.Exec(ctx, `DELETE FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND remote_application_id=$2::uuid`, c.group.ID, c.id); err != nil {
+		if err := st.UnassignSubject(ctx, c.group.ID, app); err != nil {
 			return err
 		}
 		if c.role == iam.OwnerRole && st.reconcile {

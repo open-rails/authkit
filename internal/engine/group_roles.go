@@ -158,7 +158,7 @@ func (s *Engine) groupRoleBatch(ctx context.Context, a iam.Actor, ref iam.GroupR
 	if len(subjects) == 0 {
 		return out, nil
 	}
-	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if prepare != nil {
 			if err := prepare(st, g); err != nil {
 				return err

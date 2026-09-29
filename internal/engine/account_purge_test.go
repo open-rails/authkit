@@ -24,7 +24,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	user, err := runtime.createUser(ctx, "purged@example.test", "purgeduser")
 	require.NoError(t, err)
 	var rootID string
-	require.NoError(t, runtime.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
 		rootID, err = runtime.rootGroup(ctx, st)
 		return err
 	}))

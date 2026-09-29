@@ -115,7 +115,8 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 	if registered != client.Schema() {
 		var pending bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE issuer=$1 AND completed_at IS NULL)
- OR EXISTS(SELECT 1 FROM account_deletions WHERE state IN ('deleted','finalizing') AND $1=ANY(recipients))`, s.cfg.Token.Issuer).Scan(&pending); err != nil {
+ OR EXISTS(SELECT 1 FROM account_deletions WHERE state IN ('deleted','finalizing') AND $1=ANY(recipients))
+ OR EXISTS(SELECT 1 FROM account_events WHERE issuer=$1)`, s.cfg.Token.Issuer).Scan(&pending); err != nil {
 			return err
 		}
 		if pending {
@@ -124,6 +125,11 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 		if _, err := tx.Exec(ctx, "UPDATE account_delivery_fleets SET river_schema=$2 WHERE issuer=$1", s.cfg.Token.Issuer, client.Schema()); err != nil {
 			return err
 		}
+	}
+	// A deployment with OnEvent subscribes its issuer to events from now on;
+	// one without unsubscribes, and what is pending is still delivered.
+	if _, err := tx.Exec(ctx, "UPDATE account_delivery_fleets SET events=$2 WHERE issuer=$1 AND events<>$2", s.cfg.Token.Issuer, s.onEvent != nil); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err

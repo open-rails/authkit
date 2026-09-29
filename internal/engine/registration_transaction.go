@@ -44,6 +44,9 @@ func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (r
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: user.ID, RequestedName: in.User.Username, Operation: iam.NameCreate}); err != nil {
 		return registeredAccount{}, err
 	}
+	if err := s.emitEvents(ctx, tx, iam.UserActor(user.ID), userEvent(iam.EventUserRegistered, user.ID)); err != nil {
+		return registeredAccount{}, err
+	}
 	if in.User.PasswordHash != "" {
 		if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: user.ID, PasswordHash: in.User.PasswordHash}); err != nil {
 			return registeredAccount{}, err

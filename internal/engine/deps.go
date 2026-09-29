@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -23,6 +24,7 @@ type Deps struct {
 	OnSoftDelete           func(context.Context, iam.UserDeletion) error
 	OnHardDelete           func(context.Context, iam.UserDeletion) error
 	OnRestore              func(context.Context, iam.UserDeletion) error
+	OnEvent                func(context.Context, iam.Event) error
 	DelegatedAuthorization iam.DelegationAuthorizer
 	ApplicationAdmission   func(ctx context.Context, domain string) error
 	InstanceAdmission      func(ctx context.Context, group iam.GroupRef, subject string) error
@@ -33,6 +35,9 @@ type Deps struct {
 }
 
 func (s *Engine) applyDeps(d Deps) error {
+	if d.OnEvent != nil && d.Postgres == nil {
+		return errors.New("authkit: OnEvent requires Deps.Postgres")
+	}
 	if d.Postgres != nil {
 		pool, err := schemaPool(d.Postgres, s.dbSchema())
 		if err != nil {
@@ -58,6 +63,7 @@ func (s *Engine) applyDeps(d Deps) error {
 	s.sms = d.SMS
 	s.SetEntitlements(d.Entitlements)
 	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
+	s.onEvent = d.OnEvent
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.appAdmission = d.ApplicationAdmission
 	s.instanceAdmission = d.InstanceAdmission

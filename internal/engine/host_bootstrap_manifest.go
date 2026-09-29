@@ -110,7 +110,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, a iam.Actor, manife
 	}
 	var result iam.BootstrapResult
 	var revocations []revocation
-	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		result, revocations = iam.BootstrapResult{}, nil
 		if opts.StartupOnly {
 			already, err := s.claimBootstrapApply(ctx, st.q, opts.Name)
@@ -253,6 +253,9 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 		}
 		m.id = u.ID
 		result.UsersCreated++
+		if err := st.record(ctx, userEvent(iam.EventUserRegistered, m.id)); err != nil {
+			return "", nil, err
+		}
 	} else {
 		if current, err = st.directRole(ctx, rootID, iam.UserSubject(m.id)); err != nil {
 			return "", nil, err

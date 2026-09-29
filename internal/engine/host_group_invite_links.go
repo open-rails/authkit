@@ -80,7 +80,7 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 		ttl = defaultGroupInviteTTL
 	}
 	out := iam.InviteLinkCreated{Code: secret.RandB64(32), ExpiresAt: time.Now().UTC().Add(min(ttl, maxGroupInviteTTL))}
-	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
 			return err
 		}
@@ -136,7 +136,7 @@ func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 		return err
 	}
 	linkID = strings.TrimSpace(linkID)
-	return s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !isUUID(linkID) {
 			return iam.ErrInviteLinkNotFound
 		}
@@ -173,7 +173,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 	}
 	redeemer := iam.UserSubject(a.ID())
 	codeHash := sha256Hex(code)
-	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		var groupID string
 		err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
 		if errors.Is(err, pgx.ErrNoRows) {

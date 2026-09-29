@@ -43,9 +43,14 @@ func (s *Engine) groupStore() *permissionGroupStore {
 	return s.groupStoreFor(s.pg)
 }
 
+// groupStoreFor is a store over q that records its events in q, the change's
+// transaction; set actor to the one making the change.
 func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 	st := newPermissionGroupStore(q)
 	st.now = s.namingNow
+	st.emit = func(ctx context.Context, a iam.Actor, events ...iam.Event) error {
+		return s.emitEvents(ctx, q, a, events...)
+	}
 	return st
 }
 
@@ -56,7 +61,7 @@ func (s *Engine) initializeGroups(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	if err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	if err := s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		_, err := st.ensureRootGroup(ctx)
 		return err
 	}); err != nil {
@@ -294,7 +299,7 @@ func (s *Engine) DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.Group
 		grants = append(grants, strings.TrimSpace(p))
 	}
 	sch := s.groupSchemaOrDefault()
-	return s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
 			return err
 		}
@@ -331,7 +336,7 @@ func (s *Engine) DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.Group
 	}
 	role = iam.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
-	return s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
 			return err
 		}

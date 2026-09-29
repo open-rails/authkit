@@ -37,7 +37,8 @@ const (
 type accountTx struct {
 	tx       pgx.Tx
 	q        *db.Queries
-	st       *permissionGroupStore
+	st       *permissionGroupStore // records events of the acting actor
+	userID   string                // the target, canonical
 	operator bool
 	self     bool
 	by       *string // the acting user; nil for the operator
@@ -60,10 +61,11 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	}
 	defer tx.Rollback(ctx)
 	st := s.groupStoreFor(tx)
+	st.actor = a
 	if err := s.lockAuthority(ctx, tx); err != nil {
 		return err
 	}
-	at := accountTx{tx: tx, q: s.qtx(tx), st: st, operator: a.Kind() == iam.ActorOperator, by: actorUserID(a)}
+	at := accountTx{tx: tx, q: s.qtx(tx), st: st, userID: userID, operator: a.Kind() == iam.ActorOperator, by: actorUserID(a)}
 	at.self = at.by != nil && *at.by == userID
 	switch {
 	case at.self && self == selfRefused:
@@ -179,6 +181,9 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 			return iam.User{}, err
 		}
 	}
+	if err := s.emitEvents(ctx, tx, a, userEvent(iam.EventUserRegistered, userID)); err != nil {
+		return iam.User{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return iam.User{}, err
 	}
@@ -213,9 +218,18 @@ func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u i
 	}
 	var revoked userUpdateRevocations
 	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, self, func(at accountTx) error {
-		var err error
-		revoked, err = s.applyUserUpdate(ctx, at, strings.TrimSpace(userID), u)
-		return err
+		before, err := readAccountIdentity(ctx, at.tx, at.userID)
+		if err != nil {
+			return err
+		}
+		if revoked, err = s.applyUserUpdate(ctx, at, strings.TrimSpace(userID), u); err != nil {
+			return err
+		}
+		changes, err := identityChanges(ctx, at.tx, at.userID, before)
+		if err != nil {
+			return err
+		}
+		return at.st.record(ctx, changes...)
 	})
 	if err != nil {
 		return iam.User{}, err
@@ -459,8 +473,12 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 			return err
 		}
 		var err error
-		revoked, err = s.revokeCredentialsTx(ctx, at.tx, userID)
-		return err
+		if revoked, err = s.revokeCredentialsTx(ctx, at.tx, userID); err != nil {
+			return err
+		}
+		banned := userEvent(iam.EventUserBanned, at.userID)
+		banned.Reason, banned.Until = deref(reason), until
+		return at.st.record(ctx, banned)
 	})
 	if err != nil {
 		return err
@@ -474,7 +492,14 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 // lifts their own ban.
 func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string) error {
 	return s.withAccountMutation(ctx, a, userID, iam.PermRootUsersBan, selfRefused, func(at accountTx) error {
-		return at.q.UserClearBan(ctx, userID)
+		var inForce bool
+		if err := at.tx.QueryRow(ctx, `SELECT banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until>now()) FROM users WHERE id=$1::uuid`, at.userID).Scan(&inForce); err != nil {
+			return err
+		}
+		if err := at.q.UserClearBan(ctx, userID); err != nil || !inForce {
+			return err
+		}
+		return at.st.record(ctx, userEvent(iam.EventUserUnbanned, at.userID))
 	})
 }
 
@@ -536,6 +561,9 @@ func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.C
 	if err := at.q.UserSoftDelete(ctx, userID); err != nil {
 		return nil, err
 	}
+	if err := at.st.record(ctx, userEvent(iam.EventUserDeleted, at.userID)); err != nil {
+		return nil, err
+	}
 	return revoked, s.createAccountDeletion(ctx, at.tx, client, userID, at.by)
 }
 
@@ -546,7 +574,7 @@ func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([
 	out := make([]iam.OpResult, 0, len(ids))
 	for _, id := range ids {
 		err := s.withAccountMutation(ctx, a, id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
-			return s.restoreAccountDeletionOn(ctx, at.tx, strings.TrimSpace(id), "")
+			return s.restoreAccountDeletionOn(ctx, at.tx, a, at.userID, "")
 		})
 		out = append(out, iam.OpResult{ID: id, Err: err})
 	}

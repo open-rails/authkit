@@ -88,7 +88,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	}
 	sch := s.groupSchemaOrDefault()
 	fingerprint := s.roleCatalogFingerprint()
-	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		if err := refuseShadowedCustomRoles(ctx, st, sch); err != nil {
 			return err

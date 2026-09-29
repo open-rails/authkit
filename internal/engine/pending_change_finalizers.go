@@ -99,7 +99,18 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keep
 		return err
 	}
 	userID := rec.UserID
+	before, err := readAccountIdentity(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
 	if err := apply(tx, q); err != nil {
+		return err
+	}
+	changes, err := identityChanges(ctx, tx, userID, before)
+	if err != nil {
+		return err
+	}
+	if err := s.emitEvents(ctx, tx, iam.UserActor(userID), changes...); err != nil {
 		return err
 	}
 	revoked, err := revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)

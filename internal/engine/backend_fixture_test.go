@@ -59,7 +59,7 @@ func revokeRole(t testing.TB, g groupRoleOps, ref iam.GroupRef, subject iam.Subj
 // second factor can exist: no authority rules and no MFA-required-role check.
 func seedRole(t testing.TB, e *Engine, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
-	require.NoError(t, e.withGroupMutation(t.Context(), ref, func(st *permissionGroupStore, g groupTarget) error {
+	require.NoError(t, e.withGroupMutation(t.Context(), iam.OperatorActor(), ref, func(st *permissionGroupStore, g groupTarget) error {
 		return st.AssignRole(t.Context(), g.ID, subject, role)
 	}))
 }

@@ -376,10 +376,15 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 		if err != nil {
 			return authflow.DeviceKey{}, "", false, err
 		}
-		_, err = q.Exec(ctx, `INSERT INTO users (id, email, email_verified)
+		tag, err := q.Exec(ctx, `INSERT INTO users (id, email, email_verified)
 VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 		if err != nil {
 			return authflow.DeviceKey{}, "", false, err
+		}
+		if tag.RowsAffected() == 1 {
+			if err := s.emitEvents(ctx, tx, iam.UserActor(userID), userEvent(iam.EventUserRegistered, userID)); err != nil {
+				return authflow.DeviceKey{}, "", false, err
+			}
 		}
 	}
 	var userID string

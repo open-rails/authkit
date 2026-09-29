@@ -338,7 +338,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					t.Fatalf("mutation escaped held authority lock: %v", err)
 				default:
 				}
-				require.NoError(t, tc.mutate(newPermissionGroupStore(raw)))
+				require.NoError(t, tc.mutate(svc.groupStoreFor(raw)))
 				require.NoError(t, tx.Commit(ctx))
 				if tc.want == nil {
 					require.NoError(t, <-done)

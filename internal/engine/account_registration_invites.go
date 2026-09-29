@@ -71,7 +71,7 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 		ttl = defaultAccountRegistrationInviteTTL
 	}
 	out := iam.AccountInviteCreated{Code: secret.RandB64(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
-	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		var groupID *string
 		var roleParam *iam.Role
 		if carriesRole {
@@ -204,7 +204,9 @@ func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 		if invite.Persona != nil {
 			persona = *invite.Persona
 		}
-		return s.assignInvitedRole(ctx, newPermissionGroupStore(q), *invite.GroupID, persona, userID, *invite.Role)
+		st := s.groupStoreFor(tx)
+		st.actor = iam.UserActor(userID)
+		return s.assignInvitedRole(ctx, st, *invite.GroupID, persona, userID, *invite.Role)
 	}
 	return nil
 }
