@@ -31,7 +31,8 @@ func TestAuthPublicSurface(t *testing.T) {
 	}
 	noActor := []string{
 		// Reads: the host is the trust boundary.
-		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ActiveDeviceKeys", "Sessions",
+		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ResolveUsername", "CheckUsername",
+		"ActiveDeviceKeys", "Sessions", "SessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "OwnerlessGroups", "GroupRoles", "KnownPermission",
 		"APIKeys", "ResolveAPIKey", "InviteLinks",
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",

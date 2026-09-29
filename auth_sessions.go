@@ -13,6 +13,12 @@ func (a *Auth) Sessions(ctx context.Context, userID string) ([]iam.Session, erro
 	return a.engine.Sessions(ctx, userID)
 }
 
+// SessionEvents pages the account's sign-in and session history, newest
+// first: sign-ins, failed sign-ins, revocations and password changes.
+func (a *Auth) SessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error) {
+	return a.engine.SessionEvents(ctx, userID, q)
+}
+
 // RevokeSession revokes one refresh session under ACCT(root:users:manage);
 // an account may revoke its own.
 func (a *Auth) RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string) error {

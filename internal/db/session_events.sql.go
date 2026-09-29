@@ -45,64 +45,6 @@ func (q *Queries) SessionEventInsert(ctx context.Context, arg SessionEventInsert
 	return err
 }
 
-const sessionEventsListByUser = `-- name: SessionEventsListByUser :many
-SELECT occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent
-FROM session_events
-WHERE user_id = $1
-  AND (cardinality($2::text[]) = 0 OR event = ANY($2::text[]))
-ORDER BY occurred_at DESC
-LIMIT $3
-`
-
-type SessionEventsListByUserParams struct {
-	UserID   string
-	Events   []string
-	RowLimit int64
-}
-
-type SessionEventsListByUserRow struct {
-	OccurredAt time.Time
-	Issuer     string
-	UserID     string
-	SessionID  string
-	Event      string
-	Method     *string
-	Reason     *string
-	IpAddr     *string
-	UserAgent  *string
-}
-
-// Per-user history, newest-first. An empty events array means all event types.
-func (q *Queries) SessionEventsListByUser(ctx context.Context, arg SessionEventsListByUserParams) ([]SessionEventsListByUserRow, error) {
-	rows, err := q.db.Query(ctx, sessionEventsListByUser, arg.UserID, arg.Events, arg.RowLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SessionEventsListByUserRow
-	for rows.Next() {
-		var i SessionEventsListByUserRow
-		if err := rows.Scan(
-			&i.OccurredAt,
-			&i.Issuer,
-			&i.UserID,
-			&i.SessionID,
-			&i.Event,
-			&i.Method,
-			&i.Reason,
-			&i.IpAddr,
-			&i.UserAgent,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const sessionEventsPruneBatch = `-- name: SessionEventsPruneBatch :execrows
 DELETE FROM session_events
 WHERE id IN (

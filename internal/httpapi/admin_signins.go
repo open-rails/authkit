@@ -2,38 +2,20 @@ package httpapi
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/iam"
 )
 
+// handleAdminUserSigninsGET pages an account's sign-ins and failed sign-ins,
+// newest first (?cursor=, ?limit=).
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
-	userID := strings.TrimSpace(r.PathValue("user_id"))
-	if userID == "" {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	events, err := s.svc.ListSessionEvents(r.Context(), userID, authflow.SessionEventCreated, authflow.SessionEventFailed)
+	page, err := s.svc.SessionEvents(r.Context(), r.PathValue("user_id"), iam.SessionEventQuery{
+		Kinds: []iam.SessionEventKind{iam.SessionEventCreated, iam.SessionEventFailed},
+		Page:  pageQuery(r),
+	})
 	if err != nil {
-		serverErr(w, "failed_to_list_signins", err)
+		writeError(w, err)
 		return
 	}
-
-	resp := make([]map[string]any, 0, len(events))
-	for _, e := range events {
-		resp = append(resp, map[string]any{
-			"occurred_at": e.OccurredAt,
-			"issuer":      e.Issuer,
-			"user_id":     e.UserID,
-			"session_id":  e.SessionID,
-			"event":       e.Event,
-			"method":      e.Method,
-			"reason":      e.Reason,
-			"ip_addr":     e.IPAddr,
-			"user_agent":  e.UserAgent,
-		})
-	}
-
-	writeList(w, resp, "")
+	writeList(w, page.Items, page.Next)
 }

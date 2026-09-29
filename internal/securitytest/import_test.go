@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"net/http"
+	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
@@ -409,6 +412,181 @@ func TestSecurityLinkProvider(t *testing.T) {
 	require.Equal(t, users, after, "the provider login created an account instead of using the linked one")
 	other := h.newAccount("linkedother")
 	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), other.id, l), errmodel.ErrProviderAlreadyLinked)
+}
+
+// TestSecurityImportProviders: an imported provider identity signs in to
+// exactly the imported account, and an import never binds an identity another
+// account holds, or one another row of the batch names. A merge links
+// identities only for a row bound by id or a contact verified on both sides.
+func TestSecurityImportProviders(t *testing.T) {
+	provider := &stubProvider{name: "impidp"}
+	h := newHost(t, withHTTP(generousLimits), withProviders(provider))
+	ctx := context.Background()
+	op := iam.OperatorActor()
+	link := func(prefix string) iam.ProviderLink {
+		return iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: unique(prefix)}
+	}
+	row := func(prefix string, links ...iam.ProviderLink) iam.ImportUser {
+		name := unique(prefix)
+		return iam.ImportUser{Email: name + "@security.test", EmailVerified: true, Username: name, Providers: links}
+	}
+	holder := h.newAccount("impholder")
+	held, fresh, skipped := link("heldsub"), link("freshsub"), link("skipsub")
+	require.NoError(t, h.auth.LinkProvider(ctx, op, holder.id, held))
+	exists := row("impexists", skipped)
+	exists.Email = holder.email
+	rows := []iam.ImportUser{
+		row("impfresh", fresh),
+		row("impheld", held),
+		row("impsame", fresh),
+		row("impwallet", iam.ProviderLink{Issuer: "solana:devnet", Provider: "solana", Subject: "wallet"}),
+		row("imptwice", link("twicea"), link("twiceb")),
+		row("impblank", iam.ProviderLink{Issuer: provider.Issuer()}),
+		exists,
+	}
+	res, err := h.auth.ImportUsers(ctx, op, rows, iam.ImportOptions{})
+	require.NoError(t, err)
+	require.Equal(t, iam.ImportInserted, res.Rows[0].Status)
+	for i, reason := range map[int]string{1: "provider_already_linked", 2: "provider_already_linked", 3: "invalid_provider", 4: "invalid_provider", 5: "invalid_provider"} {
+		require.Equal(t, iam.ImportRow{Index: i, Status: iam.ImportRejected, Reason: reason}, res.Rows[i])
+		require.False(t, h.emailTaken(rows[i].Email), "a rejected row left an account behind")
+	}
+	require.Equal(t, iam.ImportRow{Index: 6, UserID: holder.id, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportSkipped, Reason: "already_exists"}, res.Rows[6])
+	require.Equal(t, holder.id, h.providerOwner(held.Subject), "an import moved a linked identity")
+	require.Empty(t, h.providerOwner(skipped.Subject), "a skipped row linked an identity")
+	require.Equal(t, res.Rows[0].UserID, h.providerOwner(fresh.Subject))
+
+	provider.identity.Subject = fresh.Subject
+	resp := h.providerCallback(provider.name)
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	require.Equal(t, res.Rows[0].UserID, h.meID(session(t, resp).AccessToken))
+
+	t.Run("merge", func(t *testing.T) {
+		merge := iam.ImportOptions{OnConflict: iam.ImportMerge}
+		byID, byEmail, byBoth := link("mergeid"), link("mergeemail"), link("mergeboth")
+		target, other, both := h.newAccount("impmerge"), h.newAccount("impmergeother"), h.newAccount("impmergeboth")
+		out, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{
+			{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{byID}},
+			{Email: other.email, Username: unique("impmergex"), Providers: []iam.ProviderLink{byEmail}},
+			{ID: other.id, Username: other.username, Providers: []iam.ProviderLink{held}, Metadata: map[string]any{"stolen": true}},
+			{Email: both.email, EmailVerified: true, Username: unique("impmergey"), Providers: []iam.ProviderLink{byBoth}},
+		}, merge)
+		require.NoError(t, err)
+		require.Equal(t, iam.ImportRow{Index: 0, UserID: target.id, MatchedBy: iam.ImportMatchID, Status: iam.ImportMerged}, out.Rows[0])
+		require.Equal(t, iam.ImportRow{Index: 1, UserID: other.id, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportMerged}, out.Rows[1])
+		require.Equal(t, iam.ImportRow{Index: 2, Status: iam.ImportRejected, Reason: "provider_already_linked"}, out.Rows[2])
+		require.Equal(t, iam.ImportRow{Index: 3, UserID: both.id, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportMerged}, out.Rows[3])
+		require.Equal(t, target.id, h.providerOwner(byID.Subject))
+		require.Empty(t, h.providerOwner(byEmail.Subject), "a row not proven by id or a verified contact linked an identity")
+		require.Equal(t, holder.id, h.providerOwner(held.Subject))
+		require.Equal(t, both.id, h.providerOwner(byBoth.Subject))
+		var stolen bool
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata ? 'stolen' FROM users WHERE id=$1::uuid`, other.id).Scan(&stolen))
+		require.False(t, stolen, "a rejected merge kept part of its row")
+
+		again, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{link("mergesecond")}}}, merge)
+		require.NoError(t, err)
+		require.Equal(t, iam.ImportRow{Index: 0, Status: iam.ImportRejected, Reason: "provider_change_requires_unlink"}, again.Rows[0])
+	})
+}
+
+// TestSecurityImportedDeletionLifecycle: an imported deleted account is
+// what the operator's DeleteUsers leaves: it cannot sign in or restore
+// itself, OnSoftDelete runs, its recovery window runs from the imported
+// DeletedAt, and past the window it is purged after OnHardDelete with its
+// username kept. Without River such rows are refused whole.
+func TestSecurityImportedDeletionLifecycle(t *testing.T) {
+	var mu sync.Mutex
+	stages := map[string][]string{}
+	hook := func(stage string) func(context.Context, iam.UserDeletion) error {
+		return func(_ context.Context, d iam.UserDeletion) error {
+			mu.Lock()
+			defer mu.Unlock()
+			stages[d.UserID] = append(stages[d.UserID], stage)
+			return nil
+		}
+	}
+	stagesOf := func(id string) []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(stages[id])
+	}
+	h := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) {
+		d.OnSoftDelete, d.OnHardDelete, d.OnRestore = hook("soft"), hook("hard"), hook("restore")
+	}))
+	ctx := context.Background()
+	op := iam.OperatorActor()
+	raw, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	require.NoError(t, err)
+	recentAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	oldAt := time.Now().Add(-iam.UserRecoveryPeriod - time.Hour).UTC().Truncate(time.Microsecond)
+	future := time.Now().Add(time.Hour)
+	deletedRow := func(prefix string, at *time.Time) iam.ImportUser {
+		name := unique(prefix)
+		return iam.ImportUser{Email: name + "@security.test", EmailVerified: true, Username: name, PasswordHash: string(raw), HashAlgo: "bcrypt", DeletedAt: at}
+	}
+	recent, old := deletedRow("imprecent", &recentAt), deletedRow("impold", &oldAt)
+	res, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{recent, old, deletedRow("impfuture", &future)}, iam.ImportOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 2, res.Inserted)
+	require.Equal(t, iam.ImportRow{Index: 2, Status: iam.ImportRejected, Reason: "invalid_deleted_at"}, res.Rows[2])
+	recentID, oldID := res.Rows[0].UserID, res.Rows[1].UserID
+
+	u, err := h.auth.User(ctx, iam.UserByID(recentID), iam.IncludeDeleted())
+	require.NoError(t, err)
+	require.False(t, u.Live)
+	require.True(t, recentAt.Equal(*u.DeletedAt), "deleted_at %v, imported %v", u.DeletedAt, recentAt)
+	_, err = h.auth.User(ctx, iam.UserByEmail(recent.Email))
+	require.ErrorIs(t, err, iam.ErrUserNotFound)
+	var purgeAt time.Time
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT purge_at FROM account_deletions WHERE user_id=$1::uuid AND state='deleted'`, recentID).Scan(&purgeAt))
+	require.True(t, recentAt.Add(iam.UserRecoveryPeriod).Equal(purgeAt), "the recovery window does not run from the imported deletion")
+	login := h.post("/password/login", map[string]string{"identifier": recent.Email, "password": password}, "")
+	require.Equal(t, http.StatusUnauthorized, login.status, login.String())
+	require.Equal(t, "account_disabled", login.errorCode())
+
+	require.NoError(t, h.auth.Start(t.Context()))
+	require.Eventually(t, func() bool {
+		return slices.Equal(stagesOf(recentID), []string{"soft"}) && slices.Equal(stagesOf(oldID), []string{"soft", "hard"}) && !h.userExists(oldID)
+	}, 30*time.Second, 50*time.Millisecond, "recent %v, old %v", stagesOf(recentID), stagesOf(oldID))
+	require.ErrorIs(t, h.auth.CheckUsername(ctx, old.Username), iam.ErrUsernameInUse, "a purged import released its username")
+
+	require.NoError(t, opErr(h.auth.RestoreUsers(ctx, op, []string{recentID})))
+	require.Eventually(t, func() bool { return slices.Equal(stagesOf(recentID), []string{"soft", "restore"}) }, 30*time.Second, 50*time.Millisecond)
+	h.login(account{id: recentID, email: recent.Email})
+
+	t.Run("without River", func(t *testing.T) {
+		bare := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
+		row := deletedRow("impnoriver", &recentAt)
+		_, err := bare.auth.ImportUsers(ctx, op, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
+		require.Error(t, err)
+		require.False(t, bare.emailTaken(row.Email))
+	})
+}
+
+// providerOwner is the account holding subject, or "".
+func (h *host) providerOwner(subject string) string {
+	h.t.Helper()
+	var id string
+	require.NoError(h.t, h.pool.QueryRow(context.Background(), `SELECT COALESCE((SELECT user_id::text FROM user_providers WHERE subject=$1),'')`, subject).Scan(&id))
+	return id
+}
+
+func (h *host) meID(token string) string {
+	h.t.Helper()
+	resp := h.get("/me", token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var me struct {
+		ID string `json:"id"`
+	}
+	resp.json(h.t, &me)
+	return me.ID
+}
+
+func (h *host) userExists(id string) bool {
+	var exists bool
+	err := h.pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid)`, id).Scan(&exists)
+	return err != nil || exists
 }
 
 func (h *host) userIDByName(username string) string {
