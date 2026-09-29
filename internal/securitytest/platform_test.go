@@ -6,13 +6,13 @@ import (
 	"crypto"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -28,7 +28,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 		two := one.replica()
 		a := one.newAccount("replica-reset")
 		require.Less(t, one.post("/password/reset/request", map[string]string{"identifier": a.email}, "").status, 300)
-		token := one.mail.last(t, `^reset to=`+a.email+` .* token=(\S+)`)
+		token := one.mail.Last(t, authtest.PasswordReset, a.email).Token
 		body := map[string]string{"token": token, "new_password": "Replica-reset-passphrase-4"}
 		resp := two.post("/password/reset/confirm", body, "")
 		require.Less(t, resp.status, 300, resp.String())
@@ -42,7 +42,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 		a := one.newAccount("replica-mfa")
 		one.enrollEmail2FA(a)
 		ch := one.passwordStep(a, "198.51.100.30")
-		code := one.mail.last(t, `^login to=`+a.email+` code=(\S+)`)
+		code := one.mail.Last(t, authtest.LoginCode, a.email).Code
 		for i := range 5 {
 			h := []*host{one, two}[i%2]
 			resp := h.secondStep(a, ch, wrongCode(code), fmt.Sprintf("203.0.113.%d", 100+i))
@@ -379,7 +379,7 @@ func TestSecurityVerifyRequestRevealsNothing(t *testing.T) {
 	unverified := unique("aunverified") + "@security.test"
 	h.register(unverified)
 	unknown := unique("aunknown") + "@security.test"
-	sent := func(email string) int { return h.mail.count(`^verification to=` + email + ` `) }
+	sent := func(email string) int { return len(h.mail.Messages(authtest.Verification, email)) }
 	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
 	var bodies []string
 	for _, email := range []string{verified, unverified, unknown} {
@@ -407,7 +407,7 @@ func TestSecurityVerifyRequestByPhoneRevealsNothing(t *testing.T) {
 		return phone
 	}
 	verified, unverified, unknown := phoneAccount(true), phoneAccount(false), "+1555"+uniqueDigits(7)
-	sent := func(phone string) int { return h.mail.count(`^sms verification to=` + regexp.QuoteMeta(phone) + ` `) }
+	sent := func(phone string) int { return len(h.mail.Messages(authtest.Verification, phone)) }
 	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
 	var bodies []string
 	for _, phone := range []string{verified, unverified, unknown} {
@@ -436,7 +436,7 @@ func TestSecurityRegistrationResendRevealsNothing(t *testing.T) {
 	registered, unknown := h.newAccount("r5registered").email, unique("r5unknown")+"@security.test"
 	require.Equal(t, http.StatusNotFound, h.post("/register/resend", map[string]string{"identifier": registered}, "").status)
 
-	sent := func(email string) int { return h.mail.count(`^verification to=` + email + ` `) }
+	sent := func(email string) int { return len(h.mail.Messages(authtest.Verification, email)) }
 	before := map[string]int{pending: sent(pending), registered: sent(registered), unknown: sent(unknown)}
 	var bodies []string
 	for _, email := range []string{pending, registered, unknown} {

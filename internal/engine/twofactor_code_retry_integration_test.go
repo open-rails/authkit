@@ -6,6 +6,7 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,7 +35,7 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 		t.Helper()
 		ch := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": pass}))
 		require.Equal(t, "email", ch.Error.Metadata.Method)
-		return map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge}, f.email.lastLoginCode()
+		return map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge}, lastSent(f.email, testoutbox.LoginCode).Code
 	}
 	verify := func(body map[string]any, code string) flowResponse {
 		req := map[string]any{"code": code}
@@ -101,7 +102,7 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 		t.Helper()
 		ch := f.expect(403, f.request("POST", "/step-up/2fa", access, map[string]any{}))
 		require.Equal(t, "2fa_required", ch.Error.Code)
-		return f.email.lastLoginCode()
+		return lastSent(f.email, testoutbox.LoginCode).Code
 	}
 	code = send()
 	f.expect(401, stepUp(wrong(code)))
@@ -156,7 +157,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 		return f.request("POST", "/user/2fa", access, body)
 	}
 	f.expect(202, enroll(""))
-	code := f.email.verificationCode(t)
+	code := sentCode(t, f.email, testoutbox.Verification)
 	for range 4 {
 		require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
 	}
@@ -164,7 +165,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	require.Equal(t, "code_expired", errCode(401, enroll(code)))
 	require.Equal(t, "code_expired", errCode(401, enroll(wrongCode(code))))
 	f.expect(202, enroll(""))
-	code = f.email.verificationCode(t)
+	code = sentCode(t, f.email, testoutbox.Verification)
 	require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
 	f.expect(200, enroll(code))
 
@@ -176,7 +177,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	verify := func(code string) flowResponse {
 		return f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": code})
 	}
-	code = f.email.lastLoginCode()
+	code = lastSent(f.email, testoutbox.LoginCode).Code
 	for range 4 {
 		require.Equal(t, "invalid_code", errCode(401, verify(wrongCode(code))))
 	}
@@ -185,7 +186,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	require.Equal(t, "code_expired", errCode(401, verify(wrongCode(code))))
 	proof["factor_id"] = ch.Error.Metadata.AvailableFactors[0].ID
 	f.expect(403, f.post("/2fa/challenge", proof))
-	code = f.email.lastLoginCode()
+	code = lastSent(f.email, testoutbox.LoginCode).Code
 	require.Equal(t, "invalid_code", errCode(401, verify(wrongCode(code))))
 	access = f.expect(200, verify(code)).AccessToken
 
@@ -196,7 +197,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	send := func() string {
 		t.Helper()
 		require.Equal(t, "2fa_required", errCode(403, f.request("POST", "/step-up/2fa", access, map[string]any{})))
-		return f.email.lastLoginCode()
+		return lastSent(f.email, testoutbox.LoginCode).Code
 	}
 	require.Equal(t, "code_expired", errCode(401, stepUp("123456")))
 	code = send()

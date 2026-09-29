@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/stretchr/testify/require"
@@ -256,7 +257,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(u.ID), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, orgPersona.OwnerRole())))
 		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-		token := h.mail.last(t, `^reset to=`+email+` .* token=(\S+)`)
+		token := h.mail.Last(t, authtest.PasswordReset, email).Token
 		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")
 		require.Less(t, resp.status, 300, resp.String())
 		var orphaned bool

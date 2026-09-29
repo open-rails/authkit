@@ -62,7 +62,7 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	}
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rt.Outbox.List(r.URL.Query().Get("to")))
+		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))
 	})
 	// Ages the user's sessions, and their second-factor proofs, past the
 	// sensitive-action window, so the next refreshed token demands a step-up.

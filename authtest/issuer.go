@@ -1,4 +1,3 @@
-// Package testing provides utilities for testing applications that use authkit.
 package authtest
 
 import (
@@ -11,7 +10,8 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// TestIssuer provides a complete mock authentication setup for testing.
+// TestIssuer is a stand-in token issuer with a JWKS endpoint, for testing a
+// service that only verifies tokens (verify.Verifier) without running AuthKit.
 type TestIssuer struct {
 	server   *httptest.Server
 	signer   jwtkit.Signer

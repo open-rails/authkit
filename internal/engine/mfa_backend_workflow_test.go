@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +44,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 					if method == "totp" {
 						body["code"] = flowTOTP(t, start.Secret)
 					} else {
-						body["code"] = f.sms.verificationCode(t)
+						body["code"] = sentCode(t, f.sms, testoutbox.Verification)
 					}
 				}
 				proof()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/stretchr/testify/require"
@@ -79,7 +80,7 @@ func (h *host) register(email string) tokens {
 
 func (h *host) verificationCode(email string) string {
 	h.t.Helper()
-	return h.mail.last(h.t, `^verification to=`+email+` code=(\S+)`)
+	return h.mail.Last(h.t, authtest.Verification, email).Code
 }
 
 func (h *host) userID(email string) string {
@@ -195,7 +196,7 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 	}{
 		{"owner resets the password", func(t *testing.T, email string) tokens {
 			require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-			token := h.mail.last(t, `^reset to=`+email+` .* token=(\S+)`)
+			token := h.mail.Last(t, authtest.PasswordReset, email).Token
 			resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Owner-reclaimed-passphrase-4"}, "")
 			require.Less(t, resp.status, 300, resp.String())
 			resp = h.post("/password/login", map[string]string{"identifier": email, "password": "Owner-reclaimed-passphrase-4"}, "")

@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,16 +50,16 @@ func (b *deviceKeyTokenBody) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func deviceKeyTestServer(t *testing.T, engineOpts ...coreOpt) (*httpapi.Service, *captureEmailSender) {
+func deviceKeyTestServer(t *testing.T, engineOpts ...coreOpt) (*httpapi.Service, *testoutbox.Outbox) {
 	t.Helper()
 	return deviceKeyTestServerWithConfig(t, newServerTestConfig(), engineOpts...)
 }
 
-func deviceKeyTestServerWithConfig(t *testing.T, cfg Config, engineOpts ...coreOpt) (*httpapi.Service, *captureEmailSender) {
+func deviceKeyTestServerWithConfig(t *testing.T, cfg Config, engineOpts ...coreOpt) (*httpapi.Service, *testoutbox.Outbox) {
 	t.Helper()
 	pool := testdb.Pool(t)
-	sender := &captureEmailSender{}
-	opts := append([]coreOpt{withEmailSender(sender)}, engineOpts...)
+	sender := &testoutbox.Outbox{}
+	opts := append([]coreOpt{withEmailSender(sender.Email())}, engineOpts...)
 	srv, err := newTestService(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
 	require.NoError(t, err)
 	return srv, sender
@@ -101,11 +102,11 @@ func beginDeviceEnrollment(t *testing.T, srv *httpapi.Service, email, publicKey 
 	return challenge
 }
 
-func finishDeviceEnrollment(t *testing.T, srv *httpapi.Service, sender *captureEmailSender, challenge deviceKeyChallengeBody, privateKey ed25519.PrivateKey) deviceKeyTokenBody {
+func finishDeviceEnrollment(t *testing.T, srv *httpapi.Service, sender *testoutbox.Outbox, challenge deviceKeyChallengeBody, privateKey ed25519.PrivateKey) deviceKeyTokenBody {
 	t.Helper()
 	status, raw := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": challenge.EnrollmentID,
-		"code":          sender.verificationCode(t),
+		"code":          sentCode(t, sender, testoutbox.Verification),
 		"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, challenge.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
@@ -155,7 +156,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	enrollment := beginDeviceEnrollment(t, srv, email, publicKey)
 	// One typo does not burn the ceremony; the bounded attempt counter does.
 	wrongCode := "000000"
-	if sender.verificationCode(t) == wrongCode {
+	if sentCode(t, sender, testoutbox.Verification) == wrongCode {
 		wrongCode = "000001"
 	}
 	status, raw := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
@@ -195,7 +196,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	// Enrollment is single use.
 	status, _ = postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": enrollment.EnrollmentID,
-		"code":          sender.verificationCode(t),
+		"code":          sentCode(t, sender, testoutbox.Verification),
 		"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
@@ -231,7 +232,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		"signature":    signDeviceChallenge(t, privateKey, devicekey.LoginDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
-	require.Empty(t, sender.deviceKeyNotices(), "new accounts have no existing owner to notify")
+	require.Empty(t, deviceKeyNotices(sender), "new accounts have no existing owner to notify")
 	knownStatus, knownRaw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
 	unknownStatus, unknownRaw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": "018f6f74-9f0c-7b27-8000-000000000001"})
 	require.Equal(t, http.StatusAccepted, knownStatus)
@@ -254,7 +255,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	second := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
 	require.Equal(t, claims["sub"], unverifiedAccessClaims(t, second.AccessToken)["sub"])
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
-	require.Equal(t, []string{email}, sender.deviceKeyNotices(), "an independent machine notifies the existing owner")
+	require.Equal(t, []string{email}, deviceKeyNotices(sender), "an independent machine notifies the existing owner")
 	requireActiveDeviceKeys(t, srv, user.ID, publicKey, secondPublic)
 	listed := serveAuthJSON(srv, http.MethodGet, "/device-keys", "", second.AccessToken)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
@@ -315,7 +316,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	reenroll := beginDeviceEnrollment(t, srv, email, secondPublic)
 	status, _ = postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": reenroll.EnrollmentID,
-		"code":          sender.verificationCode(t),
+		"code":          sentCode(t, sender, testoutbox.Verification),
 		"signature":     signDeviceChallenge(t, secondPrivate, devicekey.EnrollmentDomain, reenroll.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)

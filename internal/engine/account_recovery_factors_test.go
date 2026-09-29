@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,7 +63,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	backups, err := fixtureBackend(f.service.Backend()).enableFactor(t.Context(), user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	beforeDelete := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
-	beforeCode := f.email.lastLoginCode()
+	beforeCode := lastSent(f.email, testoutbox.LoginCode).Code
 	remove(user.ID)
 	f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": beforeDelete.Error.Metadata.Challenge, "code": beforeCode}))
 	challenge := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
@@ -71,7 +72,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	f.expect(401, f.post("/account/recovery/confirm", map[string]any{"token": challenge.Error.Metadata.Challenge}))
 	f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": challenge.Error.Metadata.Challenge, "code": "wrong"}))
 	challenge = f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
-	code := f.email.lastLoginCode()
+	code := lastSent(f.email, testoutbox.LoginCode).Code
 	second := map[string]any{"user_id": user.ID, "challenge": challenge.Error.Metadata.Challenge, "code": code}
 	confirmed := f.expect(409, f.post("/2fa/verify", second))
 	f.expect(401, f.post("/2fa/verify", second))
@@ -85,7 +86,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	confirm(confirmed.raw)
 	remove(user.ID)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": *user.Email, "mode": "code"}))
-	challenge = f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": *user.Email, "code": f.email.verificationCode(t)}))
+	challenge = f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": *user.Email, "code": sentCode(t, f.email, testoutbox.Verification)}))
 	require.Equal(t, "backup_code", challenge.Error.Metadata.Method, "one mailbox cannot supply both factors")
 	confirmed = f.expect(409, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": challenge.Error.Metadata.Challenge, "code": backups[0], "backup_code": true}))
 	confirm(confirmed.raw)

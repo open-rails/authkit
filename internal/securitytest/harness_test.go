@@ -11,8 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -48,7 +47,7 @@ type host struct {
 	auth   *authkit.Client
 	pool   *pgxpool.Pool
 	server *httptest.Server
-	mail   *outbox
+	mail   *authtest.Outbox
 }
 
 type hostConfig struct {
@@ -72,8 +71,7 @@ func withHTTP(fn func(*authkit.HTTPConfig)) hostOption {
 	return func(c *hostConfig) { fn(&c.http) }
 }
 
-// withSMS delivers SMS to the host's outbox ("sms <kind> to=<phone> ...") and
-// offers SMS as a second factor.
+// withSMS delivers SMS to the host's outbox and offers SMS as a second factor.
 func withSMS(c *hostConfig) {
 	c.sms = true
 	c.engine.TwoFactor.Methods = append(c.engine.TwoFactor.Methods, iam.TwoFactorSMS)
@@ -94,7 +92,7 @@ func generousLimits(c *authkit.HTTPConfig) {
 func newHost(t *testing.T, opts ...hostOption) *host {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
-	mail := &outbox{}
+	mail := &authtest.Outbox{}
 	s := signer()
 	cfg := hostConfig{
 		engine: authkit.Config{
@@ -114,14 +112,14 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 				TOTPSecretKey: bytes.Repeat([]byte{7}, 32),
 			},
 		},
-		deps: authkit.Deps{Postgres: pg.Pool, Email: mail},
+		deps: authkit.Deps{Postgres: pg.Pool, Email: mail.Email()},
 		http: authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix},
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	if cfg.sms {
-		cfg.deps.SMS = phones{mail}
+		cfg.deps.SMS = mail.SMS()
 	}
 	cfg.engine.HTTP = cfg.http
 	runtime, err := authkit.New(context.Background(), cfg.engine, cfg.deps)
@@ -281,7 +279,7 @@ func (h *host) login(a account) tokens {
 		var ch challenge
 		resp.json(h.t, &ch)
 		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
-			"code": h.mail.last(h.t, `^login to=`+a.email+` code=(\S+)`)}, "")
+			"code": h.mail.Last(h.t, authtest.LoginCode, a.email).Code}, "")
 	}
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	return session(h.t, resp)
@@ -291,102 +289,6 @@ func (h *host) refresh(refreshToken string) response {
 	h.t.Helper()
 	return h.post("/token", map[string]string{"grant_type": "refresh_token", "refresh_token": refreshToken}, "")
 }
-
-// outbox captures every message AuthKit asks the host to deliver.
-type outbox struct {
-	mu   sync.Mutex
-	msgs []string
-}
-
-func (o *outbox) add(s string) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.msgs = append(o.msgs, s)
-	return nil
-}
-
-func (o *outbox) count(pattern string) int {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	re := regexp.MustCompile(pattern)
-	n := 0
-	for _, m := range o.msgs {
-		if re.MatchString(m) {
-			n++
-		}
-	}
-	return n
-}
-
-func (o *outbox) last(t *testing.T, pattern string) string {
-	t.Helper()
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	re := regexp.MustCompile(pattern)
-	for i := len(o.msgs) - 1; i >= 0; i-- {
-		if m := re.FindStringSubmatch(o.msgs[i]); m != nil {
-			return m[1]
-		}
-	}
-	t.Fatalf("no delivered message matches %q", pattern)
-	return ""
-}
-
-func (o *outbox) SendVerification(_ context.Context, email, _ string, msg iam.VerificationMessage) error {
-	return o.add("verification to=" + email + " code=" + msg.Code + " link=" + msg.LinkURL)
-}
-
-func (o *outbox) SendPasswordResetLink(_ context.Context, email, _, resetURL string) error {
-	token := ""
-	if u, err := url.Parse(resetURL); err == nil {
-		token = u.Query().Get("token")
-		if token == "" && u.Fragment != "" {
-			if q, err := url.ParseQuery(u.Fragment); err == nil {
-				token = q.Get("token")
-			}
-		}
-	}
-	return o.add("reset to=" + email + " url=" + resetURL + " token=" + token)
-}
-
-func (o *outbox) SendAccountRegistrationInvite(_ context.Context, email, link string) error {
-	return o.add("invite to=" + email + " link=" + link)
-}
-
-func (o *outbox) SendLoginCode(_ context.Context, email, _, code string) error {
-	return o.add("login to=" + email + " code=" + code)
-}
-
-func (o *outbox) SendWelcome(context.Context, string, string) error { return nil }
-
-func (o *outbox) SendContactChanged(context.Context, string, string, iam.ContactChange) error {
-	return nil
-}
-
-func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, iam.DeviceKeyNotice) error {
-	return nil
-}
-
-func (o *outbox) SendMFAReset(_ context.Context, email, _ string) error {
-	return o.add("mfa-reset to=" + email)
-}
-
-// phones delivers SMS into the same outbox.
-type phones struct{ o *outbox }
-
-func (p phones) SendVerification(_ context.Context, phone string, msg iam.VerificationMessage) error {
-	return p.o.add("sms verification to=" + phone + " code=" + msg.Code)
-}
-
-func (p phones) SendPasswordResetLink(_ context.Context, phone, resetURL string) error {
-	return p.o.add("sms reset to=" + phone + " url=" + resetURL)
-}
-
-func (p phones) SendLoginCode(_ context.Context, phone, code string) error {
-	return p.o.add("sms login to=" + phone + " code=" + code)
-}
-
-func (p phones) SendContactChanged(context.Context, string, iam.ContactChange) error { return nil }
 
 // roleIn resolves the role name for ref's persona through the schema, as a
 // host reading a name at run time does.

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
@@ -147,7 +148,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		requireRefusal(t, err, http.StatusForbidden, "step_up_required")
 
 		h.passwordStep(a, "198.51.100.61")
-		_, err = c.FinishEnrollment(ctx, e, priv, code, h.mail.last(t, `^login to=`+a.email+` code=(\S+)`))
+		_, err = c.FinishEnrollment(ctx, e, priv, code, h.mail.Last(t, authtest.LoginCode, a.email).Code)
 		requireRefusal(t, err, http.StatusUnauthorized, "invalid_code")
 		s, err := c.FinishEnrollment(ctx, e, priv, code, backup[0])
 		require.NoError(t, err)
@@ -168,7 +169,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		var sf *devicekey.SecondFactorRequired
 		require.ErrorAs(t, err, &sf)
 		require.Equal(t, "totp", sf.Method)
-		_, err = c.FinishEnrollment(ctx, e, priv, code, totp(t, secret, time.Now().Add(30*time.Second)))
+		_, err = c.FinishEnrollment(ctx, e, priv, code, authtest.TOTPCode(t, secret, time.Now().Add(30*time.Second)))
 		require.NoError(t, err)
 	})
 

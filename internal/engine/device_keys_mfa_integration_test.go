@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +44,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	finish := func(secondFactor string) (int, []byte) {
 		body := map[string]any{
 			"enrollment_id": enrollment.EnrollmentID,
-			"code":          sender.verificationCode(t),
+			"code":          sentCode(t, sender, testoutbox.Verification),
 			"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 		}
 		if secondFactor != "" {
@@ -83,7 +84,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	var keys int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1::uuid AND revoked_at IS NULL`, user.ID).Scan(&keys))
 	require.Equal(t, 1, keys)
-	require.Equal(t, []string{email}, sender.deviceKeyNotices())
+	require.Equal(t, []string{email}, deviceKeyNotices(sender))
 }
 
 func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {

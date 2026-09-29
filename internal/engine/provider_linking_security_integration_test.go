@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -162,8 +163,8 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			pool := testdb.Pool(t)
-			sender := &captureEmailSender{}
-			srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender)), WithoutRateLimiter())
+			sender := &testoutbox.Outbox{}
+			srv, err := newServer(newServerClient(t, newServerTestConfig(), pool, withEmailSender(sender.Email())), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
 			email := uniqueEmail("unverified-provider")
@@ -188,7 +189,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 			require.NotNil(t, providerEmail)
 			require.Equal(t, email, *providerEmail)
 			require.NoError(t, srv.Backend().RequestPasswordReset(ctx, email, time.Hour, nil, nil))
-			require.Empty(t, sender.resetURL)
+			require.Empty(t, lastSent(sender, testoutbox.PasswordReset).Link)
 			verified := true
 			callback = securityProviderLogin(t, srv, cfg, providerTestIdentity{Subject: "owner-" + uniqueSuffix(), Email: email, Verified: &verified}, "")
 			require.Equal(t, http.StatusOK, callback.Code, callback.Body.String())

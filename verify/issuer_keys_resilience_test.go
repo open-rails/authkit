@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"crypto"
 	"encoding/json"
 	"net/http"
@@ -10,13 +11,38 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/authtest"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const testAudience = "test-app"
+
+// testIssuer is an issuer URL and the key its tokens are signed with.
+type testIssuer struct {
+	url    string
+	signer *jwtkit.RSASigner
+}
+
+func newTestIssuer(t *testing.T, url string) testIssuer {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, url)
+	require.NoError(t, err)
+	return testIssuer{url: url, signer: signer}
+}
+
+func (i testIssuer) token(t *testing.T, sub string) string {
+	t.Helper()
+	now := time.Now()
+	token, err := jwtkit.SignWithType(context.Background(), i.signer, jwt.MapClaims{
+		"sub": sub, "iss": i.url, "aud": testAudience, "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),
+	}, jwtkit.AccessTokenType, true)
+	require.NoError(t, err)
+	return token
+}
 
 // jwksProvider serves a peer's JWKS and can be switched to hang (unreachable
 // within the attempt timeout), fail with 503, or drop connections.
@@ -59,18 +85,15 @@ func newJWKSProvider(t *testing.T, signer jwtkit.Signer) *jwksProvider {
 }
 
 func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
-	local := authtest.NewTestIssuer()
-	t.Cleanup(local.Close)
-	peer := authtest.NewTestIssuerWithAudience(local.Audience())
-	t.Cleanup(peer.Close)
-	provider := newJWKSProvider(t, peer.Signer())
+	local, peer := newTestIssuer(t, "https://local.example"), newTestIssuer(t, "https://peer.example")
+	provider := newJWKSProvider(t, peer.signer)
 
 	v := NewVerifier()
 	v.jwksAttemptTimeout, v.jwksBackoffBase, v.jwksBackoffMax = 300*time.Millisecond, 20*time.Millisecond, 100*time.Millisecond
-	require.NoError(t, v.AddIssuer(local.URL(), []string{local.Audience()}, IssuerOptions{
-		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.Signer().KID(): local.Signer().(jwtkit.PublicKeySigner).PublicKey()},
+	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
+		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.signer.KID(): local.signer.PublicKey()},
 	}))
-	require.NoError(t, v.AddIssuer(peer.URL(), []string{local.Audience()}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: 100 * time.Millisecond}))
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: 100 * time.Millisecond}))
 
 	h := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	call := func(token string) (int, string, time.Duration) {
@@ -83,8 +106,8 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &env)
 		return rec.Code, env.Error.Code, time.Since(start)
 	}
-	localToken := local.CreateToken("local-user", "local@example.test")
-	peerToken := peer.CreateToken("peer-user", "peer@example.test")
+	localToken := local.token(t, "local-user")
+	peerToken := peer.token(t, "peer-user")
 	status := func() IssuerKeyStatus {
 		sts := v.IssuerKeyStatuses()
 		require.Len(t, sts, 1)
@@ -155,20 +178,17 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 // past it the peer fails closed (so blocking our refetch cannot keep a revoked
 // key valid) and recovers on the next successful refetch.
 func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
-	local := authtest.NewTestIssuer()
-	t.Cleanup(local.Close)
-	peer := authtest.NewTestIssuerWithAudience(local.Audience())
-	t.Cleanup(peer.Close)
-	provider := newJWKSProvider(t, peer.Signer())
+	local, peer := newTestIssuer(t, "https://local.example"), newTestIssuer(t, "https://peer.example")
+	provider := newJWKSProvider(t, peer.signer)
 
 	var offset atomic.Int64
 	v := NewVerifier()
 	v.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
 	v.jwksAttemptTimeout, v.jwksBackoffBase, v.jwksBackoffMax = 300*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
-	require.NoError(t, v.AddIssuer(local.URL(), []string{local.Audience()}, IssuerOptions{
-		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.Signer().KID(): local.Signer().(jwtkit.PublicKeySigner).PublicKey()},
+	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
+		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.signer.KID(): local.signer.PublicKey()},
 	}))
-	require.NoError(t, v.AddIssuer(peer.URL(), []string{local.Audience()}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: time.Minute, MaxStale: time.Hour}))
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: time.Minute, MaxStale: time.Hour}))
 
 	h := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	call := func(token string) (int, string) {
@@ -180,8 +200,8 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &env)
 		return rec.Code, env.Error.Code
 	}
-	localToken := local.CreateToken("local-user", "local@example.test")
-	peerToken := peer.CreateToken("peer-user", "peer@example.test")
+	localToken := local.token(t, "local-user")
+	peerToken := peer.token(t, "peer-user")
 	status := func() IssuerKeyStatus { return v.IssuerKeyStatuses()[0] }
 
 	code, _ := call(peerToken)

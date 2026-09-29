@@ -6,11 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
@@ -168,8 +168,8 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 	// The attacker reads the victim's mailbox, including the victim's own
 	// sign-in codes.
 	h.passwordStep(victim, "198.51.100.41")
-	mailbox := func() string { return h.mail.last(t, `^login to=`+victim.email+` code=(\S+)`) }
-	sent := h.mail.count(`^login to=` + victim.email + ` `)
+	mailbox := func() string { return h.mail.Last(t, authtest.LoginCode, victim.email).Code }
+	sent := len(h.mail.Messages(authtest.LoginCode, victim.email))
 
 	stolen := newDeviceKey(t)
 	resp := h.deviceEnroll(stolen, victim.email, nil)
@@ -184,7 +184,7 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 	}
 	resp.json(t, &meta)
 	require.Equal(t, "backup_code", meta.Error.Metadata.Method, "the enrollment mailbox was offered as the second factor")
-	require.Equal(t, sent, h.mail.count(`^login to=`+victim.email+` `), "enrollment mailed a second-factor code to the enrollment mailbox")
+	require.Equal(t, sent, len(h.mail.Messages(authtest.LoginCode, victim.email)), "enrollment mailed a second-factor code to the enrollment mailbox")
 
 	resp = h.deviceEnroll(stolen, victim.email, mailbox)
 	require.Equal(t, http.StatusUnauthorized, resp.status, "a mailbox code bound a device key: %s", resp)
@@ -230,12 +230,12 @@ func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
 	}{
 		{"totp", func(a account) func() string {
 			secret, _ := h.enrollTOTP(h.login(a).AccessToken)
-			return func() string { return totp(t, secret, time.Now().Add(30*time.Second)) }
+			return func() string { return authtest.TOTPCode(t, secret, time.Now().Add(30*time.Second)) }
 		}},
 		{"sms", func(a account) func() string {
 			phone := "+1555" + uniqueDigits(7)
 			h.enrollSMS(h.login(a).AccessToken, phone)
-			return func() string { return h.mail.last(t, `^sms login to=`+regexp.QuoteMeta(phone)+` code=(\S+)`) }
+			return func() string { return h.mail.Last(t, authtest.LoginCode, phone).Code }
 		}},
 	} {
 		t.Run(tc.method, func(t *testing.T) {
