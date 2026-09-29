@@ -26,6 +26,7 @@ type Service struct {
 	clientIPExplicit    bool                             // Config.ClientIP: host owns the strategy; proxy sets are not composed
 	directPeerIP        bool                             // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
 	undeclaredProxyOnce sync.Once                        // one-shot tripwire: private peer carrying forwarded headers
+	unknownAddressOnce  sync.Once                        // one-shot tripwire: no client address at all
 	trustedProxies      []netip.Prefix                   // Config.TrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
@@ -101,9 +102,13 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if s == nil || s.rl == nil {
 		return RateLimitResult{Allowed: true}
 	}
-	ip := s.requestIP(r)
-	if strings.TrimSpace(ip) == "" {
-		return RateLimitResult{Allowed: true}
+	ip := strings.TrimSpace(s.requestIP(r))
+	if ip == "" {
+		// Never exempt: every request without an address shares one budget.
+		s.unknownAddressOnce.Do(func() {
+			slog.Default().Warn("authkit: a request has no client address, so every such request shares one rate-limit budget; declare what sits in front of AuthKit (HTTPConfig.TrustedProxies, CloudflareProxies, DirectPeerIP or ClientIP)")
+		})
+		return s.allowResultForKey(bucket, bucket+":ip:unknown")
 	}
 	s.undeclaredProxyTripwire(r, ip)
 	return s.allowResultForKey(bucket, bucket+":ip:"+rateLimitAddress(ip))
@@ -135,7 +140,7 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 		return
 	}
 	s.undeclaredProxyOnce.Do(func() {
-		slog.Default().Error("authkit: rate-limit key is a private peer that carries forwarded headers; an undeclared proxy is in front and every client shares one bucket — pass httpapi.WithTrustedProxies/WithCloudflareProxies",
+		slog.Default().Error("authkit: rate-limit key is a private peer that carries forwarded headers; an undeclared proxy is in front and every client shares one bucket; declare it in HTTPConfig.TrustedProxies or CloudflareProxies",
 			slog.String("peer", ip))
 	})
 }

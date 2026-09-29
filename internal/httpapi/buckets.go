@@ -23,6 +23,7 @@ const (
 	RLAuthRegisterAbandon      = "auth_register_abandon"
 	RLInviteCreate             = "auth_invite_create"
 	RLInviteRedeem             = "auth_invite_redeem"
+	RLAPIKeyMint               = "auth_api_key_mint"
 	RLPasswordLogin            = "auth_password_login"
 	RLPasswordStepUp           = "auth_password_step_up"
 	RLPasswordlessStart        = "auth_passwordless_start"
@@ -74,8 +75,9 @@ const (
 // bucket is a rate-limit budget: its default per-client limit and what its
 // requests get when the limiter's backend fails. A bucket fails closed: its
 // requests are refused, so an outage never lifts the budget in front of a
-// secret check (a password, one-time or backup code, a link, refresh or invite
-// token, or a signature over a challenge). Only a bucket that guards no secret
+// secret check or issue (a password, one-time or backup code, a link, refresh,
+// invite or OIDC state token, an API key, or a signature over a challenge) or
+// a message sent by email or SMS. Only a bucket whose routes do none of that
 // sets failOpen, and stays up through the outage.
 type bucket struct {
 	limit    ratelimit.Limit
@@ -85,14 +87,11 @@ type bucket struct {
 type lim = ratelimit.Limit
 
 var buckets = map[string]bucket{
-	// Secret checks. /register and /passwordless/start check an account
-	// invitation when one is presented.
+	// They check a secret.
 	RLPasswordLogin:         {limit: lim{Limit: 20, Window: time.Hour}},
 	RLPasswordStepUp:        {limit: lim{Limit: 20, Window: time.Hour}},
 	RLPasswordResetConfirm:  {limit: lim{Limit: 10, Window: 10 * time.Minute}},
-	RLPasswordlessStart:     {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
 	RLPasswordlessConfirm:   {limit: lim{Limit: 10, Window: 10 * time.Minute}},
-	RLAuthRegister:          {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
 	RLAuthRegisterAbandon:   {limit: lim{Limit: 10, Window: time.Hour, Cooldown: time.Minute}},
 	RLVerifyConfirm:         {limit: lim{Limit: 10, Window: 10 * time.Minute}},
 	RLAuthToken:             {limit: lim{Limit: 30, Window: time.Minute}},
@@ -106,35 +105,44 @@ var buckets = map[string]bucket{
 	RLSolanaLogin:           {limit: lim{Limit: 20, Window: 10 * time.Minute}},
 	RLSolanaLink:            {limit: lim{Limit: 12, Window: time.Hour}},
 
-	// No secret checked. A password the account routes accept inline is
-	// checked under RLPasswordStepUp.
+	// They send an email or SMS. /register and /passwordless/start also check
+	// an account invitation when one is presented.
+	RLAuthRegister:         {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLPasswordlessStart:    {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLPasswordResetRequest: {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLVerifyRequest:        {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLContactChangeRequest: {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLDeviceKeyEnrollBegin: {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RL2FAStartPhone:        {limit: lim{Limit: 3, Window: 10 * time.Minute}},
+	RL2FAStartEmail:        {limit: lim{Limit: 3, Window: 10 * time.Minute}},
+	RLInviteCreate:         {limit: lim{Limit: 20, Window: time.Hour, Cooldown: time.Minute}},
+
+	// They issue a secret. An OIDC start issues the flow's state.
+	RL2FAStartTOTP:       {limit: lim{Limit: 6, Window: time.Hour}},
+	RL2FARegenerateCodes: {limit: lim{Limit: 3, Window: time.Hour}},
+	RLAPIKeyMint:         {limit: lim{Limit: 20, Window: time.Hour}},
+	RLDelegatedTokenMint: {limit: lim{Limit: 60, Window: time.Minute}},
+	RLOIDCStart:          {limit: lim{Limit: 30, Window: 10 * time.Minute}},
+
+	// Reads, and changes that check, issue and send nothing. A challenge the
+	// caller must sign is not a secret; a password the account routes accept
+	// inline is checked under RLPasswordStepUp.
 	RLAuthRegisterAvailability:   {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
-	RLInviteCreate:               {limit: lim{Limit: 20, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
 	RLPasskeyRegister:            {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
-	RLDeviceKeyEnrollBegin:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
 	RLDeviceKeyLoginBegin:        {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
 	RLDeviceKeysManage:           {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
 	RLAuthLogout:                 {limit: lim{Limit: 60, Window: 10 * time.Minute}, failOpen: true},
 	RLAuthSessionsList:           {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
 	RLAuthSessionsRevoke:         {limit: lim{Limit: 60, Window: 10 * time.Minute}, failOpen: true},
 	RLAuthSessionsRevokeAll:      {limit: lim{Limit: 20, Window: time.Hour}, failOpen: true},
-	RLDelegatedTokenMint:         {limit: lim{Limit: 60, Window: time.Minute}, failOpen: true},
-	RLPasswordResetRequest:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
-	RLVerifyRequest:              {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
-	RLContactChangeRequest:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
 	RLUserPasswordChange:         {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLUserMe:                     {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
 	RLUserUpdateUsername:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
 	RLUserPreferredLanguage:      {limit: lim{Limit: 24, Window: time.Hour}, failOpen: true},
 	RLUserDelete:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLUserUnlinkProvider:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
-	RLOIDCStart:                  {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
 	RLSolanaChallenge:            {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
-	RL2FAStartPhone:              {limit: lim{Limit: 3, Window: 10 * time.Minute}, failOpen: true},
-	RL2FAStartTOTP:               {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
-	RL2FAStartEmail:              {limit: lim{Limit: 3, Window: 10 * time.Minute}, failOpen: true},
 	RL2FADisable:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
-	RL2FARegenerateCodes:         {limit: lim{Limit: 3, Window: time.Hour}, failOpen: true},
 	RLAdminUserSessionsList:      {limit: lim{Limit: 600, Window: time.Hour}, failOpen: true},
 	RLAdminUserSessionsRevokeAll: {limit: lim{Limit: 30, Window: time.Hour}, failOpen: true},
 }
