@@ -298,12 +298,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/v1/register/resend",
-      "group": "registration",
-      "auth": "public"
-    },
-    {
-      "method": "POST",
       "path": "/api/v1/solana/challenge",
       "group": "auth",
       "auth": "public"

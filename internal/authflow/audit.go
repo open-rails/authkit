@@ -48,6 +48,7 @@ const (
 	SessionRevokeReasonAdminSetPassword     SessionRevokeReason = "admin_set_password"
 	SessionRevokeReasonContactChange        SessionRevokeReason = "contact_change"
 	SessionRevokeReasonContactProven        SessionRevokeReason = "contact_proven"
+	SessionRevokeReasonMFAReset             SessionRevokeReason = "mfa_reset"
 	SessionRevokeReasonBanned               SessionRevokeReason = "banned"
 	SessionRevokeReasonSoftDeleted          SessionRevokeReason = "soft_deleted"
 	SessionRevokeReasonEvicted              SessionRevokeReason = "evicted"

@@ -554,8 +554,6 @@ export const ko: AuthUiMessageBundle = {
     password_too_long: "비밀번호가 너무 깁니다.",
     password_too_short: "비밀번호는 최소 8자 이상이어야 합니다.",
     passwordless_disabled: "비밀번호 없는 로그인이 비활성화되어 있습니다.",
-    pending_registration_not_found:
-      "해당 주소 또는 번호로 진행 중인 회원가입을 찾을 수 없습니다. 다시 가입해 주세요.",
     phone_already_verified: "전화번호가 이미 인증되었습니다.",
     phone_in_use: "이미 사용 중인 전화번호입니다.",
     phone_number_must_be_e164:

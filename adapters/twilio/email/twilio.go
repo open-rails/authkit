@@ -251,6 +251,14 @@ func (s *Sender) SendDeviceKeyEnrolled(ctx context.Context, email, username stri
 	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "device-key-enrolled"}})
 }
 
+func (s *Sender) SendMFAReset(ctx context.Context, email, username string) error {
+	app := s.appLabel()
+	subject := fmt.Sprintf("Two-step verification on your %s account was reset", app)
+	intro := fmt.Sprintf("An administrator removed the passkeys, second factors, backup codes and device keys of your %s account and signed it out everywhere. Set up two-step verification again when you next sign in. If you did not ask for this, contact support now.", app)
+	html := fmt.Sprintf("<p>%s</p>", escapeHTML(intro))
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "mfa-reset"}})
+}
+
 func (s *Sender) appLabel() string {
 	return twiliocommon.AppLabel(s.AppName)
 }

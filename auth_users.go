@@ -98,6 +98,16 @@ func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([
 	return a.engine.PurgeUsers(ctx, actor, ids)
 }
 
+// ResetAccountMFA recovers an account that lost its second factors, such as a
+// passkey-only account answering passkey_required. It deletes the account's
+// passkeys, 2FA factors and backup codes, revokes its device keys and
+// sessions, and notifies its address through the email sender. Roles stay:
+// when one needs MFA, or 2FA is Required, the next sign-in enrolls a factor.
+// Operator only; verify who is asking before calling it.
+func (a *Auth) ResetAccountMFA(ctx context.Context, actor iam.Actor, userID string) error {
+	return a.engine.ResetAccountMFA(ctx, actor, userID)
+}
+
 // ActiveDeviceKeys returns the account's unrevoked device public keys in
 // enrollment order. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (a *Auth) ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519.PublicKey, error) {

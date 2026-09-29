@@ -59,6 +59,8 @@ export type TwoFactorFactor = {
   method: string
   is_default?: boolean
   phone_number?: string | null
+  /** Masked address an email factor's codes go to. */
+  email?: string
 }
 
 export type TwoFactorStatus = {

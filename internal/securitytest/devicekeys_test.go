@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
+	"regexp"
 	"testing"
+	"time"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
@@ -198,5 +200,99 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		_, claims := splitToken(t, session(t, resp).AccessToken)
 		require.ElementsMatch(t, []any{"device_key", "mfa"}, claims["amr"])
+	})
+}
+
+// stepUpMethod is the second factor a step_up_required answer asks for.
+func stepUpMethod(t *testing.T, resp response) string {
+	t.Helper()
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "step_up_required", resp.errorCode())
+	var meta struct {
+		Error struct {
+			Metadata struct {
+				Method string `json:"method"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	resp.json(t, &meta)
+	return meta.Error.Metadata.Method
+}
+
+// TestSecurityDeviceKeyIndependentFactors (P1, I8): an authenticator-app code,
+// or the SMS code sent for the ceremony, makes a device key MFA-grade.
+func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys), withSMS)
+	for _, tc := range []struct {
+		method string
+		enroll func(a account) (next func() string)
+	}{
+		{"totp", func(a account) func() string {
+			secret, _ := h.enrollTOTP(h.login(a).AccessToken)
+			return func() string { return totp(t, secret, time.Now().Add(30*time.Second)) }
+		}},
+		{"sms", func(a account) func() string {
+			phone := "+1555" + uniqueDigits(7)
+			h.enrollSMS(h.login(a).AccessToken, phone)
+			return func() string { return h.mail.last(t, `^sms login to=`+regexp.QuoteMeta(phone)+` code=(\S+)`) }
+		}},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			a := h.newAccount("p1" + tc.method)
+			next := tc.enroll(a)
+			key := newDeviceKey(t)
+			require.Equal(t, tc.method, stepUpMethod(t, h.deviceEnroll(key, a.email, nil)))
+			resp := h.deviceEnroll(key, a.email, next)
+			require.Equal(t, http.StatusOK, resp.status, resp.String())
+			resp = h.deviceLogin(key)
+			require.Equal(t, http.StatusOK, resp.status, resp.String())
+			_, claims := splitToken(t, session(t, resp).AccessToken)
+			require.ElementsMatch(t, []any{"device_key", "mfa"}, claims["amr"])
+		})
+	}
+}
+
+// TestSecurityDeviceKeyRefusedBeforeBackupCode (R4): a key that can no longer
+// enroll (revoked, or bound to another account) is refused before any second
+// factor is asked for, and a backup code is spent only by an enrollment that
+// commits, so retrying a stale key burns none.
+func TestSecurityDeviceKeyRefusedBeforeBackupCode(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys))
+	ctx := context.Background()
+	owner := h.newAccount("r4owner")
+	backup := h.enrollEmail2FA(owner)
+	key := newDeviceKey(t)
+	require.Equal(t, http.StatusOK, h.deviceEnroll(key, owner.email, func() string { return backup[0] }).status)
+	_, err := h.auth.RevokeAccountSessions(ctx, iam.OperatorActor(), owner.id)
+	require.NoError(t, err)
+
+	signInWithBackup := func(a account, code string) response {
+		ch := h.passwordStep(a, "198.51.100.44")
+		return h.post("/2fa/verify", map[string]any{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "code": code, "backup_code": true}, "")
+	}
+	t.Run("revoked", func(t *testing.T) {
+		for range 2 {
+			resp := h.deviceEnroll(key, owner.email, func() string { return backup[1] })
+			require.Equal(t, http.StatusUnauthorized, resp.status, "a revoked key re-enrolled: %s", resp)
+			require.Equal(t, "invalid_code", resp.errorCode())
+		}
+		resp := signInWithBackup(owner, backup[1])
+		require.Equal(t, http.StatusOK, resp.status, "a refused enrollment spent the backup code: %s", resp)
+	})
+	live := newDeviceKey(t)
+	t.Run("control: an enrollment that commits spends the backup code", func(t *testing.T) {
+		resp := h.deviceEnroll(live, owner.email, func() string { return backup[2] })
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = signInWithBackup(owner, backup[2])
+		require.Equal(t, http.StatusUnauthorized, resp.status, "the enrollment left its backup code usable: %s", resp)
+	})
+	t.Run("bound to another account", func(t *testing.T) {
+		other := h.newAccount("r4other")
+		otherBackup := h.enrollEmail2FA(other)
+		resp := h.deviceEnroll(live, other.email, func() string { return otherBackup[0] })
+		require.Equal(t, http.StatusUnauthorized, resp.status, "another account's key enrolled: %s", resp)
+		require.Equal(t, "invalid_code", resp.errorCode())
+		resp = signInWithBackup(other, otherBackup[0])
+		require.Equal(t, http.StatusOK, resp.status, "a refused enrollment spent the backup code: %s", resp)
 	})
 }

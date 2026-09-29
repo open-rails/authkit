@@ -78,7 +78,6 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 
 		{Method: http.MethodPost, Path: "/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
 		{Method: http.MethodGet, Path: "/register/availability", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegisterAvailability, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
-		{Method: http.MethodPost, Path: "/register/resend", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLRegisterResend, Handler: http.HandlerFunc(s.handleRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegisterAbandon, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
 		// #312: one route per contact flow; the channel comes from the identifier.
@@ -223,7 +222,7 @@ func isPasswordlessPath(path string) bool {
 }
 
 func isRegistrationMutationPath(path string) bool {
-	return path == "/register" || path == "/register/abandon" || path == "/register/resend"
+	return path == "/register" || path == "/register/abandon"
 }
 
 func isTwoFactorPath(path string) bool {

@@ -46,7 +46,7 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 		}
 	}
 
-	if found, err := s.ResendRegistration(ctx, email); found || err != nil {
+	if found, err := s.resendRegistration(ctx, email); found || err != nil {
 		return err
 	}
 	return s.requirePG()
@@ -128,7 +128,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 		}
 	}
 
-	if found, err := s.ResendRegistration(ctx, phone); found || err != nil {
+	if found, err := s.resendRegistration(ctx, phone); found || err != nil {
 		return err
 	}
 	return s.requirePG()

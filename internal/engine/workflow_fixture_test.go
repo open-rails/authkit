@@ -62,6 +62,8 @@ func (s *hardeningEmailSender) SendDeviceKeyEnrolled(context.Context, string, st
 	return nil
 }
 
+func (s *hardeningEmailSender) SendMFAReset(context.Context, string, string) error { return nil }
+
 func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ string, change iam.ContactChange) error {
 	s.contactChanged = append(s.contactChanged, struct {
 		to     string

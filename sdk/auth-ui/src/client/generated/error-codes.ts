@@ -158,7 +158,6 @@ export type AuthErrorCode =
   | "password_too_long"
   | "password_too_short"
   | "passwordless_disabled"
-  | "pending_registration_not_found"
   | "permission_not_granted"
   | "phone_already_verified"
   | "phone_in_use"
@@ -374,7 +373,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "password_too_long": 400,
   "password_too_short": 400,
   "passwordless_disabled": 403,
-  "pending_registration_not_found": 404,
   "permission_not_granted": 403,
   "phone_already_verified": 409,
   "phone_in_use": 400,

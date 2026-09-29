@@ -618,6 +618,8 @@ func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ s
 	return nil
 }
 
+func (s *captureEmailSender) SendMFAReset(context.Context, string, string) error { return nil }
+
 func (s *captureEmailSender) deviceKeyNotices() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

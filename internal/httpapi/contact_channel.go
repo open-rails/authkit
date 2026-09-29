@@ -16,8 +16,8 @@ import (
 
 // contactChannel binds one contact channel — email or phone — to its
 // validator, normalizer, sender, engine calls and wire codes. Every contact
-// flow (verification, contact change, password reset, registration resend)
-// has ONE route and dispatches through contactChannelFor: an identifier with
+// flow (verification, contact change, password reset) has ONE route and
+// dispatches through contactChannelFor: an identifier with
 // "@" is an email, anything else is a phone number — the rule passwordless
 // login already applies (#312).
 type contactChannel struct {
@@ -253,44 +253,4 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	noContent(w)
-}
-
-// POST /register/resend — {identifier}: re-issue a pending registration's code.
-func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicRegistrationDisabled() {
-		registrationDisabled(w)
-		return
-	}
-	if !s.svc.RegistrationVerificationEnabled() {
-		accepted(w)
-		return
-	}
-	var req struct {
-		Identifier string `json:"identifier"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	ch, id, ok := s.requireContactChannel(w, req.Identifier)
-	if !ok {
-		return
-	}
-	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errUnavailable))
-		return
-	}
-	if s.rateLimitedByIdentifier(w, r, RLRegisterResend, id) {
-		return
-	}
-	found, err := s.svc.ResendRegistration(r.Context(), id)
-	if !found {
-		fail(w, errmodel.CodePendingRegistrationNotFound)
-		return
-	}
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	accepted(w)
 }

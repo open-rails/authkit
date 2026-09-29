@@ -263,3 +263,73 @@ func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
 		require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 	})
 }
+
+// TestSecurityResetAccountMFA (R2): under Required 2FA an account whose only
+// strong credential is a lost passkey answers passkey_required to every other
+// sign-in. The operator's ResetAccountMFA removes its passkeys, factors,
+// backup codes, device keys and sessions and tells its address; the next
+// password sign-in enrolls a factor. No other actor may reset an account.
+func TestSecurityResetAccountMFA(t *testing.T) {
+	optional := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withPasskeys), withEngine(withDeviceKeys))
+	ctx := context.Background()
+	holder, lost, admin := optional.newAccount("r2holder"), optional.newAccount("r2lost"), optional.newAccount("r2admin")
+	authn := optional.registerPasskey(optional.login(holder).AccessToken)
+	laptop := newDeviceKey(t)
+	require.Equal(t, http.StatusOK, optional.deviceEnroll(laptop, holder.email, nil).status)
+	optional.enrollEmail2FA(lost)
+	optional.grant(iam.RootGroup(), admin, "siteadmin")
+	// The deployment then requires 2FA.
+	cfg := optional.cfg.engine
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
+	runtime, err := authkit.New(ctx, cfg, optional.cfg.deps)
+	require.NoError(t, err)
+	t.Cleanup(runtime.Close)
+	h := optional.fork(runtime)
+
+	signIn := func(a account) response {
+		return h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
+	}
+	resp := signIn(holder)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "passkey_required", resp.errorCode())
+	resp = h.passkeyLogin(authn, 1)
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	passkeySession := session(t, resp)
+
+	for _, actor := range []iam.Actor{iam.UserActor(admin.id), iam.UserActor(holder.id)} {
+		require.ErrorIs(t, h.auth.ResetAccountMFA(ctx, actor, holder.id), iam.ErrInsufficientAuthority)
+	}
+	require.Equal(t, "passkey_required", signIn(holder).errorCode(), "a refused reset changed the account")
+
+	require.NoError(t, h.auth.ResetAccountMFA(ctx, iam.OperatorActor(), holder.id))
+	require.Equal(t, 1, h.mail.count(`^mfa-reset to=`+holder.email+`$`))
+	require.Equal(t, http.StatusUnauthorized, h.refresh(passkeySession.RefreshToken).status, "a session outlived the reset")
+	require.NotEqual(t, http.StatusOK, h.passkeyLogin(authn, 2).status, "the passkey outlived the reset")
+	keys, err := h.auth.ActiveDeviceKeys(ctx, holder.id)
+	require.NoError(t, err)
+	require.Empty(t, keys, "a device key outlived the reset")
+
+	resp = signIn(holder)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+	var body struct {
+		Error struct {
+			Metadata struct {
+				TokenSet tokens `json:"token_set"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	resp.json(t, &body)
+	_, resp = h.enrollTOTP(body.Error.Metadata.TokenSet.AccessToken)
+	_, claims := splitToken(t, session(t, resp).AccessToken)
+	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: the enrolled factor signs in")
+
+	t.Run("factors and backup codes go too", func(t *testing.T) {
+		require.NoError(t, h.auth.ResetAccountMFA(ctx, iam.OperatorActor(), lost.id))
+		var factors, settings int
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM profiles.mfa_factors WHERE user_id=$1::uuid), (SELECT count(*) FROM profiles.mfa_settings WHERE user_id=$1::uuid)`, lost.id).Scan(&factors, &settings))
+		require.Zero(t, factors)
+		require.Zero(t, settings)
+		require.Equal(t, "2fa_enrollment_required", signIn(lost).errorCode())
+	})
+}

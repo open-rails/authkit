@@ -535,3 +535,59 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }
+
+// TestSecurityEmailFactorFollowsOwnChange (R3): the account's own email
+// change needs MFA and proves the new mailbox, so it moves the email factor
+// there; an operator's change never does. The factor listing shows where the
+// codes go, masked.
+func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits))
+	ctx := context.Background()
+	a := h.newAccount("r3owner")
+	h.enrollEmail2FA(a)
+	token := h.login(a).AccessToken
+	pinned := func() string {
+		var email string
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, a.id).Scan(&email))
+		return email
+	}
+	listed := func() string {
+		resp := h.get("/user/2fa", token)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		var out struct {
+			Factors []struct {
+				Method string `json:"method"`
+				Email  string `json:"email"`
+			} `json:"factors"`
+		}
+		resp.json(t, &out)
+		require.Len(t, out.Factors, 1)
+		return out.Factors[0].Email
+	}
+	require.Equal(t, "r***@security.test", listed())
+
+	moved := unique("moved") + "@elsewhere.test"
+	resp := h.post("/verify/request", map[string]string{"identifier": moved}, token)
+	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+	resp = h.post("/verify/confirm", map[string]string{"identifier": moved, "code": h.verificationCode(moved)}, token)
+	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+	require.Equal(t, moved, pinned(), "the account's own verified change left its codes at the old mailbox")
+	require.Equal(t, "m***@elsewhere.test", listed())
+
+	sent := h.mail.count(`^login to=` + a.email + ` `)
+	resp = h.post("/password/login", map[string]string{"identifier": moved, "password": password}, "")
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	var ch challenge
+	resp.json(t, &ch)
+	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
+		"code": h.mail.last(t, `^login to=`+moved+` code=(\S+)`)}, "")
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	require.Equal(t, sent, h.mail.count(`^login to=`+a.email+` `), "a login code went to the old mailbox")
+
+	t.Run("control: an operator change leaves the factor where it was proven", func(t *testing.T) {
+		third, verified := unique("third")+"@security.test", true
+		_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), a.id, iam.UserUpdate{Email: &third, EmailVerified: &verified})
+		require.NoError(t, err)
+		require.Equal(t, moved, pinned())
+	})
+}

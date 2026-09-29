@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	stdlog "log"
 	"strings"
 	"time"
 
@@ -633,6 +634,64 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 	s.logRevokedSessions(ctx, userID, revoked, reason)
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: s.cfg.Token.Issuer, UserID: userID, Event: authflow.SessionEventAccountSessionsRevoked, Reason: &reason})
 	return out, nil
+}
+
+// ResetAccountMFA is the operator's recovery for an account that lost its
+// second factors (a lost passkey answers passkey_required): it deletes the
+// account's passkeys, 2FA factors and backup codes, revokes its device keys
+// and its sessions on every account issuer, and tells its address. Roles
+// stay: when one needs MFA, or 2FA is Required, the next sign-in enrolls a
+// factor. Operator only.
+func (s *Engine) ResetAccountMFA(ctx context.Context, a iam.Actor, userID string) error {
+	if err := requireActor(a); err != nil {
+		return err
+	}
+	if a.Kind() != iam.ActorOperator {
+		return iam.ErrInsufficientAuthority
+	}
+	userID, ok := canonicalUUID(userID)
+	if !ok {
+		return iam.ErrUserNotFound
+	}
+	var revoked []revokedSession
+	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
+		var err error
+		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
+			if _, err := at.tx.Exec(ctx, `UPDATE user_passkeys SET deleted_at=now() WHERE user_id=$1::uuid AND deleted_at IS NULL`, userID); err != nil {
+				return err
+			}
+			if err := q.MFADeleteAllFactors(ctx, userID); err != nil {
+				return err
+			}
+			_, err := at.tx.Exec(ctx, `DELETE FROM mfa_settings WHERE user_id=$1::uuid`, userID)
+			return err
+		})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonMFAReset))
+	s.notifyMFAReset(ctx, userID)
+	return nil
+}
+
+// notifyMFAReset is best-effort: the reset is committed, so a delivery failure
+// is logged.
+func (s *Engine) notifyMFAReset(ctx context.Context, userID string) {
+	if s.email == nil {
+		return
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil || u.Email == nil {
+		return
+	}
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+	if err := s.withSendTimeout(sendCtx, func(c context.Context) error {
+		return s.email.SendMFAReset(c, *u.Email, deref(u.Username))
+	}); err != nil {
+		stdlog.Printf("[authkit/security] MFA reset notice failed for user %s: %v", userID, err)
+	}
 }
 
 // RevokeSession revokes one refresh session of the account on this issuer,

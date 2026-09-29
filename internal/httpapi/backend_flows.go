@@ -77,7 +77,6 @@ type flowsBackend interface {
 	RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error
 	Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor authflow.TwoFactorFactor, err error)
 	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
-	ResendRegistration(ctx context.Context, identifier string) (bool, error)
 	SMSAvailable() bool
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)

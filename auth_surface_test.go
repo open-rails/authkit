@@ -18,7 +18,7 @@ func TestAuthPublicSurface(t *testing.T) {
 	takesActor := []string{
 		// Accounts, sessions and tokens.
 		"CreateUser", "UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers", "PurgeUsers",
-		"RevokeSession", "RevokeAccountSessions", "MintAccessToken",
+		"ResetAccountMFA", "RevokeSession", "RevokeAccountSessions", "MintAccessToken",
 		// Groups, roles and checks.
 		"CreateGroup", "UpdateGroup", "DeleteGroup", "PurgeGroup", "AssignGroupRoles", "UnassignGroupRoles",
 		"RemoveGroupMembers", "DefineGroupRole", "DeleteGroupRole", "Can", "EffectivePermissions",
@@ -32,7 +32,7 @@ func TestAuthPublicSurface(t *testing.T) {
 	noActor := []string{
 		// Reads: the host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ActiveDeviceKeys", "Sessions",
-		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "GroupRoles", "KnownPermission",
+		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "OwnerlessGroups", "GroupRoles", "KnownPermission",
 		"APIKeys", "ResolveAPIKey", "InviteLinks",
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",
 		// Lifecycle: host wiring at boot and health probes.

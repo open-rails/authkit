@@ -99,7 +99,6 @@ root role assignments and remote applications.
 | POST | `{api}/register` | registration | public | `auth_register` | Registration.NativeUserMode != closed |
 | POST | `{api}/register/abandon` | registration | public | `auth_register_abandon` | Registration.NativeUserMode != closed |
 | GET | `{api}/register/availability` | registration | public | `auth_register_availability` |  |
-| POST | `{api}/register/resend` | registration | public | `auth_register_resend` | Registration.NativeUserMode != closed |
 | GET | `{api}/me` | account | required | `auth_user_me` |  |
 | GET | `{api}/me/groups` | account | required |  |  |
 | GET | `{api}/me/permissions` | account | required |  |  |
@@ -346,13 +345,13 @@ conflict, and hosts refuse names with `Deps.NameAdmission`.
 
 ## Password Reset
 
-Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, passwordless start, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
+Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, email/phone verification, passwordless start, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
-`POST /verify/request` without a session answers `202` for every well-formed identifier, like `POST /password/reset/request`, and sends a code only to an account or pending registration whose address is unproven; it never reveals whether an account exists or is verified. Registration resend returns `pending_registration_not_found` for a missing pending registration. Both return validation errors for malformed identifiers.
+`POST /verify/request` without a session answers `202` for every well-formed identifier, like `POST /password/reset/request`, and sends a code only to an account or pending registration whose address is unproven; it never reveals whether an account exists or is verified; it is also how a pending registration's code is resent. It returns validation errors for malformed identifiers.
 
 ---
 
-For verification, registration resend, and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
+For verification and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
 
 ---
 
@@ -463,8 +462,12 @@ setup code and return `202`. `{method, code}` confirms it; for an email setup
 code a miss is `401 invalid_code` and, on the fifth miss or with no live code,
 `401 code_expired`. Every factor is
 proven before it is stored, and an email or SMS factor stays bound to the
-address or number it was proven for. A full session must be fresh
-(`step_up_required` otherwise; MFA-fresh once any factor exists).
+address or number it was proven for; only the account's own confirmed email
+change (`POST /verify/request` with a session, then `/verify/confirm`) moves an
+email factor to the new address. `GET /user/2fa` lists each factor with its
+phone number or masked address (`email`, as `a***@example.com`). A full
+session must be fresh (`step_up_required` otherwise; MFA-fresh once any factor
+exists).
 
 For an account with a second factor, fresh means that factor within the
 window: `POST /step-up/password`, a provider step-up and an inline password all
@@ -476,8 +479,12 @@ SMS code or a backup code, never the email factor), so a key enrolled before
 the account had a factor is refused (`2fa_required`) until re-enrolled with it.
 An account that needs MFA (an MFA-required role, or Required 2FA) and has a
 passkey but no factor signs in with the passkey; any other first factor answers
-`403 passkey_required`, never an enrollment token. A password change or reset
-revokes every device key but the one making the change.
+`403 passkey_required`, never an enrollment token; if the passkey is lost, the
+operator's `Auth.ResetAccountMFA` clears the account's second factors so its
+next sign-in enrolls one. Device-key enrollment refuses a revoked key or one
+bound to another account before asking for a second factor, and spends a
+backup code only when the key is enrolled. A password change or reset revokes
+every device key but the one making the change.
 
 The confirming session becomes 2FA-verified: its refresh session gains
 `<method>, otp, mfa` and a fresh authentication time, exactly as

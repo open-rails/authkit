@@ -107,7 +107,7 @@ export function useRegister(options: RegisterOptions = {}) {
     () =>
       run(async () => {
         if (state.step === "verify")
-          await client.resendRegistration(state.identifier)
+          await client.requestVerification({ identifier: state.identifier })
       }),
     [client, run, state]
   )

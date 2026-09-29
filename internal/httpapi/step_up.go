@@ -333,18 +333,7 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authfl
 	if err != nil {
 		return nil
 	}
-	// The email destination is fetched only when an enabled email factor needs
-	// it, so users without one incur no user lookup.
-	email := ""
-	for _, factor := range settings.Factors {
-		if factor.Enabled && strings.EqualFold(factor.Method, "email") {
-			if user, err := s.svc.User(r.Context(), iam.UserByID(userID)); err == nil {
-				email = user.Email
-			}
-			break
-		}
-	}
-	return authflow.NewStepUpTwoFactorOptions(settings, email)
+	return authflow.NewStepUpTwoFactorOptions(settings)
 }
 
 func sessionFreshnessResponse(f authflow.SessionFreshness) map[string]any {

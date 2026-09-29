@@ -87,6 +87,13 @@ Add a row and a test for every new attack class.
 | Password of a passkey-only MFA-role holder yields an enrollment token | `TestSecurityPasskeyHolderNeedsPasskey` |
 | Anonymous verification request reveals whether an address exists or is verified | `TestSecurityVerifyRequestRevealsNothing` |
 | `root:users:manage` held without MFA; staff set another account's password | `TestSecurityUserManagementNeedsMFA` |
+| Lost passkey under Required 2FA is a permanent lockout; anyone but the operator resets an account's MFA | `TestSecurityResetAccountMFA` |
+| Last human owner deletes themselves or is banned while only their own application co-owns the group; ownerless groups go unnoticed | `TestSecurityOwnApplicationIsNoReplacementOwner` |
+| The account's own verified email change leaves its email factor's codes at the old mailbox | `TestSecurityEmailFactorFollowsOwnChange` |
+| Re-enrolling a revoked or foreign device key burns backup codes | `TestSecurityDeviceKeyRefusedBeforeBackupCode` |
+| Registration resend tells a pending sign-up from an account | `TestSecurityRegistrationResendRevealsNothing` |
+| Device-key enrollment refuses a real authenticator-app or SMS second factor | `TestSecurityDeviceKeyIndependentFactors` |
+| Anonymous verification request by phone reveals whether a number exists or is verified | `TestSecurityVerifyRequestByPhoneRevealsNothing` |
 
 The cookie compatibility guard `TestCookieRegistry` (`internal/engine`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).

@@ -598,8 +598,6 @@ export const de: AuthUiMessageBundle = {
     password_too_long: "Das Passwort ist zu lang.",
     password_too_short: "Das Passwort muss mindestens 8 Zeichen lang sein.",
     passwordless_disabled: "Die passwortlose Anmeldung ist deaktiviert.",
-    pending_registration_not_found:
-      "Für diese Adresse oder Nummer wurde keine ausstehende Registrierung gefunden. Bitte registrieren Sie sich erneut.",
     phone_already_verified: "Ihre Telefonnummer ist bereits verifiziert.",
     phone_in_use: "Diese Telefonnummer wird bereits verwendet.",
     phone_number_must_be_e164:

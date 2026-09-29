@@ -49,7 +49,6 @@ const (
 	// #312: one bucket per contact flow, whichever channel the identifier names.
 	RLVerifyRequest        = "auth_verify_request"
 	RLVerifyConfirm        = "auth_verify_confirm"
-	RLRegisterResend       = "auth_register_resend"
 	RLContactChangeRequest = "auth_contact_change_request"
 
 	RLOIDCStart    = "auth_oidc_start"

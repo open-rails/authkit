@@ -103,7 +103,7 @@ function TwoFactorCard() {
     f.method === "sms"
       ? (f.phone_number ?? undefined)
       : f.method === "email"
-        ? (user?.email ?? undefined)
+        ? f.email
         : undefined
 
   const onConfirm = async () => {

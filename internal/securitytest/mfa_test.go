@@ -1,8 +1,13 @@
 package securitytest
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/binary"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +54,47 @@ func (h *host) enrollEmail2FA(a account) []string {
 	}
 	resp.json(h.t, &out)
 	return out.BackupCodes
+}
+
+// totp is the RFC 6238 code of secret at t: SHA-1, six digits, 30 seconds.
+func totp(t *testing.T, secret string, at time.Time) string {
+	t.Helper()
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	require.NoError(t, err)
+	var counter [8]byte
+	binary.BigEndian.PutUint64(counter[:], uint64(at.Unix()/30))
+	mac := hmac.New(sha1.New, key)
+	mac.Write(counter[:])
+	sum := mac.Sum(nil)
+	off := sum[len(sum)-1] & 0x0f
+	return fmt.Sprintf("%06d", (binary.BigEndian.Uint32(sum[off:off+4])&0x7fffffff)%1000000)
+}
+
+// enrollTOTP adds an authenticator-app factor with token and returns its
+// secret and the confirming response. The enrollment spends the current code;
+// the next one is totp(secret, time.Now().Add(30*time.Second)).
+func (h *host) enrollTOTP(token string) (string, response) {
+	h.t.Helper()
+	resp := h.post("/user/2fa", map[string]string{"method": "totp"}, token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var start struct {
+		Secret string `json:"secret"`
+	}
+	resp.json(h.t, &start)
+	require.NotEmpty(h.t, start.Secret)
+	resp = h.post("/user/2fa", map[string]string{"method": "totp", "code": totp(h.t, start.Secret, time.Now())}, token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	return start.Secret, resp
+}
+
+// enrollSMS adds an SMS factor for phone with token.
+func (h *host) enrollSMS(token, phone string) {
+	h.t.Helper()
+	resp := h.post("/user/2fa", map[string]string{"method": "sms", "phone": phone}, token)
+	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
+	code := h.mail.last(h.t, `^sms verification to=`+regexp.QuoteMeta(phone)+` code=(\S+)`)
+	resp = h.post("/user/2fa", map[string]string{"method": "sms", "phone": phone, "code": code}, token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 }
 
 func (h *host) passwordStep(a account, ip string) challenge {

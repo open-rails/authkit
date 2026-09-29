@@ -71,6 +71,9 @@ func (s emailSender) SendContactChanged(_ context.Context, email, _ string, c ia
 func (s emailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, n iam.DeviceKeyNotice) error {
 	return s.o.add(Message{Channel: "email", To: email, Kind: "device_key_enrolled", Detail: n.Label})
 }
+func (s emailSender) SendMFAReset(_ context.Context, email, _ string) error {
+	return s.o.add(Message{Channel: "email", To: email, Kind: "mfa_reset"})
+}
 
 type smsSender struct{ o *Outbox }
 

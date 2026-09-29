@@ -53,7 +53,7 @@ func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs 
 
 // NewStepUpTwoFactorOptions lists the second factors a step-up can use, with the
 // code destination masked. Nil when 2FA is not enabled.
-func NewStepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *StepUpTwoFactorOptions {
+func NewStepUpTwoFactorOptions(settings *TwoFactorSettings) *StepUpTwoFactorOptions {
 	if settings == nil || !settings.Enabled {
 		return nil
 	}
@@ -73,8 +73,8 @@ func NewStepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination str
 		option := StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
 		switch method {
 		case "email":
-			if emailDestination != "" {
-				option.VerificationID = contact.MaskDestination(emailDestination)
+			if factor.Email != nil {
+				option.VerificationID = contact.MaskDestination(*factor.Email)
 			}
 		case "sms":
 			if factor.PhoneNumber != nil {

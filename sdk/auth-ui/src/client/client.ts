@@ -912,12 +912,6 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         },
       }),
 
-    resendRegistration: (identifier: string) =>
-      request<void>("POST", "/register/resend", {
-        body: { identifier },
-        bearer: null,
-      }),
-
     // Always 204: a wrong password leaves the pending registration in place.
     abandonRegistration: (input: { identifier: string; password: string }) =>
       request<void>("POST", "/register/abandon", { body: input, bearer: null }),

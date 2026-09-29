@@ -269,7 +269,7 @@ describe("useRegister", () => {
           next_action: "verify_email",
           user: { username: "neo", email: "n@x.test", phone_number: null },
         }),
-      "POST /api/v1/register/resend": () => new Response(null, { status: 202 }),
+      "POST /api/v1/verify/request": () => new Response(null, { status: 202 }),
       "POST /api/v1/register/abandon": noContent,
       "POST /api/v1/verify/confirm": () => session({ sub: "u1", sid: "s1" }),
     })

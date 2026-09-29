@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	stdlog "log"
+	"slices"
 	"strings"
 	"time"
 
@@ -145,7 +146,9 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 // refresh session. An existing account with a usable second factor must also
 // present one independent of the emailed code (secondFactor: a TOTP or SMS
 // code, or a backup code) — email possession alone never enrolls a standing
-// credential on an MFA-protected account (#293, P1).
+// credential on an MFA-protected account (#293, P1). A revoked key, or one
+// bound to another account, is refused before any second factor is asked for,
+// and a backup code is spent only by the enrollment that commits (R4).
 func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
@@ -176,7 +179,14 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
-	mfaProof := false
+	owner := ""
+	if user != nil {
+		owner = user.ID
+	}
+	if err := deviceKeyEnrollable(ctx, s.pg, publicKey, owner); err != nil {
+		return authflow.DeviceKeyAuthResult{}, err
+	}
+	mfaProof, backupCode := false, ""
 	if user != nil {
 		if err := s.ensureUserAccess(ctx, user); err != nil {
 			return authflow.DeviceKeyAuthResult{}, err
@@ -186,21 +196,20 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 			return authflow.DeviceKeyAuthResult{}, err
 		}
 		if s.TwoFactorEnabled() && status.Satisfied {
-			factors, backupCodes, err := s.deviceKeySecondFactors(ctx, user.ID)
+			factors, backupHashes, err := s.deviceKeySecondFactors(ctx, user.ID)
 			if err != nil {
 				return authflow.DeviceKeyAuthResult{}, err
 			}
 			if strings.TrimSpace(secondFactor) == "" {
-				method, err := s.challengeDeviceKeySecondFactor(ctx, user, enrollmentID, factors, backupCodes)
+				method, err := s.challengeDeviceKeySecondFactor(ctx, user, enrollmentID, factors, len(backupHashes) > 0)
 				if err != nil {
 					return authflow.DeviceKeyAuthResult{}, err
 				}
 				return authflow.DeviceKeyAuthResult{}, &authflow.DeviceKeySecondFactorRequired{Method: method}
 			}
-			if !s.verifyDeviceKeySecondFactor(ctx, user.ID, enrollmentID, factors, strings.TrimSpace(secondFactor)) {
+			if backupCode, mfaProof = s.verifyDeviceKeySecondFactor(ctx, user.ID, enrollmentID, factors, backupHashes, strings.TrimSpace(secondFactor)); !mfaProof {
 				return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 			}
-			mfaProof = true
 		}
 		// The session MFA gate every login passes: a holder of an MFA-required
 		// role without a second factor, or any account when enrollment is
@@ -219,7 +228,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	}
 	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+enrollmentID)
 
-	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey, mfaProof)
+	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey, mfaProof, backupCode)
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
@@ -248,13 +257,31 @@ func deviceKeyEnrollmentMethods(mfaProof bool) []string {
 var deviceKeyEnrollmentProof = loginProof{Input: loginSessionInput{AuthMethods: []string{"email"}}}
 
 // deviceKeySecondFactors are the account's usable factors independent of the
-// emailed enrollment code, default first, and whether backup codes remain.
-func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, bool, error) {
+// emailed enrollment code, default first, and the hashes of its backup codes.
+func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, []string, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
-	return s.loginFactors(deviceKeyEnrollmentProof, settings), len(settings.BackupCodes) > 0, nil
+	return s.loginFactors(deviceKeyEnrollmentProof, settings), settings.BackupCodes, nil
+}
+
+// deviceKeyEnrollable refuses a public key that is revoked or bound to an
+// account other than owner ("" for an account the enrollment would create).
+func deviceKeyEnrollable(ctx context.Context, q db.DBTX, publicKey []byte, owner string) error {
+	var holder string
+	var revoked bool
+	err := q.QueryRow(ctx, `SELECT user_id::text, revoked_at IS NOT NULL FROM user_device_keys WHERE public_key=$1`, publicKey).Scan(&holder, &revoked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if revoked || holder != owner {
+		return errDeviceKeyInvalid
+	}
+	return nil
 }
 
 // challengeDeviceKeySecondFactor names the proof the retry carries in
@@ -275,9 +302,10 @@ func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *userR
 	return factors[0].Method, nil
 }
 
-// verifyDeviceKeySecondFactor accepts a TOTP code, the SMS code sent for this
-// enrollment, or a backup code; never the email factor's.
-func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enrollmentID string, factors []authflow.TwoFactorFactor, code string) bool {
+// verifyDeviceKeySecondFactor accepts a TOTP code or the SMS code sent for
+// this enrollment, spending it, or one of the account's backup codes, which it
+// returns unspent for enrollDeviceKey to spend; never the email factor's.
+func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enrollmentID string, factors []authflow.TwoFactorFactor, backupHashes []string, code string) (backupCode string, ok bool) {
 	for _, f := range factors {
 		var ok bool
 		var err error
@@ -288,11 +316,13 @@ func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enroll
 			ok, err = s.consumeMFAStepUpCode(ctx, userID, deviceKeyCodeScope(enrollmentID), sha256Hex(code), "sms")
 		}
 		if err == nil && ok {
-			return true
+			return "", true
 		}
 	}
-	ok, err := s.VerifyBackupCode(ctx, userID, code)
-	return err == nil && ok
+	if slices.Contains(backupHashes, sha256Hex(code)) {
+		return code, true
+	}
+	return "", false
 }
 
 // deviceKeyCodeScope binds an SMS code to one enrollment ceremony.
@@ -319,8 +349,9 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *userRecord, key
 // enrollDeviceKey inserts the key (created=true) or returns the identical key
 // already enrolled on the same account (created=false). A second-factor proof
 // binds the key to it (mfa_proven_at), including a re-enrollment of a key
-// enrolled before the account had one.
-func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte, mfaProof bool) (authflow.DeviceKey, string, bool, error) {
+// enrolled before the account had one. A backupCode proof is spent in the same
+// transaction.
+func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte, mfaProof bool, backupCode string) (authflow.DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKey{}, "", false, err
@@ -375,10 +406,23 @@ VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 	err = q.QueryRow(ctx, `SELECT id, user_id, COALESCE(label, ''), created_at, last_used_at, revoked_at
 FROM user_device_keys WHERE public_key=$1`, publicKey).
 		Scan(&existing.ID, &existingUserID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt, &revokedAt)
-	if err == nil {
-		if existingUserID != userID || revokedAt != nil {
+	found := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return authflow.DeviceKey{}, "", false, err
+	}
+	if found && (existingUserID != userID || revokedAt != nil) {
+		return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
+	}
+	if backupCode != "" {
+		spent, err := s.verifyBackupCode(ctx, s.qtx(tx), userID, backupCode)
+		if err != nil {
+			return authflow.DeviceKey{}, "", false, err
+		}
+		if !spent {
 			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
+	}
+	if found {
 		if mfaProof {
 			if _, err := q.Exec(ctx, `UPDATE user_device_keys SET mfa_proven_at=now() WHERE id=$1`, existing.ID); err != nil {
 				return authflow.DeviceKey{}, "", false, err
@@ -389,9 +433,6 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 		}
 		s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 		return existing, userID, false, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return authflow.DeviceKey{}, "", false, err
 	}
 
 	var label *string
