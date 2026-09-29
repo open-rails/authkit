@@ -49,6 +49,18 @@ type ServiceConfig struct {
 	Store Store
 }
 
+// Publication is one application document an AuthKit deployment signs with
+// its own key, stores, serves to its configured readers and stamps into the
+// delegated tokens it mints (authkit.Auth.PublishDocument).
+type Publication struct {
+	// Type is the versioned application document type (e.g. "example.catalog/v1").
+	Type string
+	// Payload is the host-compiled application payload. Opaque to AuthKit.
+	Payload json.RawMessage
+	// Audiences are the signed envelope audiences readers verify against.
+	Audiences []string
+}
+
 // Service owns the publish lifecycle of ONE immutable signed document:
 // sign -> verify -> persist -> re-read -> re-verify at construction, a
 // digest-stable re-signature when the signing key rotates (EnsureSigningKID /

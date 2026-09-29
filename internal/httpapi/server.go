@@ -41,14 +41,13 @@ func New(client Backend, verifier *verify.Verifier, hcfg Config) (*Service, erro
 	cfg := coreSvc.Settings()
 
 	s := &Service{
-		dpopRequestURL:    hcfg.DPoPRequestURL,
-		svc:               coreSvc,
-		settings:          cfg,
-		verifier:          verifier,
-		clientIP:          DefaultClientIP(),
-		clientIPExplicit:  hcfg.ClientIP != nil,
-		directPeerIP:      hcfg.DirectPeerIP,
-		documentProviders: hcfg.Documents,
+		dpopRequestURL:   hcfg.DPoPRequestURL,
+		svc:              coreSvc,
+		settings:         cfg,
+		verifier:         verifier,
+		clientIP:         DefaultClientIP(),
+		clientIPExplicit: hcfg.ClientIP != nil,
+		directPeerIP:     hcfg.DirectPeerIP,
 	}
 	s.trustedProxies, _ = parseProxyCIDRs("trusted proxy", hcfg.TrustedProxies)
 	s.cloudflareProxies, _ = parseProxyCIDRs("Cloudflare proxy", hcfg.CloudflareProxies)
@@ -121,16 +120,6 @@ func (s *Service) validate(cfg authflow.Settings) error {
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
 		return err
 	}
-	// #260: the published-document surface is never public and never dead
-	// config. Providers with no authorized readers would mount a route that
-	// 401s everyone; readers with no providers declare a surface that does
-	// not exist. Both refuse at construction.
-	if len(s.documentProviders) > 0 && len(cfg.Documents.Readers) == 0 {
-		return fmt.Errorf("authkit: HTTPConfig.Documents providers are wired but Config.Documents.Readers is empty — publication is never public; declare which remote applications may read")
-	}
-	if len(s.documentProviders) == 0 && len(cfg.Documents.Readers) > 0 {
-		return fmt.Errorf("authkit: Config.Documents.Readers is set but no document providers are wired — set HTTPConfig.Documents or drop the dead config")
-	}
 	// #277: the delegated mint route never runs without its host authorizer,
 	// and an authorizer with no route is dead wiring. Both refuse at construction.
 	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
@@ -138,17 +127,6 @@ func (s *Service) validate(cfg authflow.Settings) error {
 	}
 	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
 		return fmt.Errorf("authkit: Deps.DelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
-	}
-	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
-	for _, p := range s.documentProviders {
-		ref := p.Reference()
-		if err := ref.Validate(); err != nil {
-			return fmt.Errorf("authkit: document provider has an invalid reference %+v: %w", ref, err)
-		}
-		if seenDocumentTypes[ref.Type] {
-			return fmt.Errorf("authkit: HTTPConfig.Documents has two providers for document type %q", ref.Type)
-		}
-		seenDocumentTypes[ref.Type] = true
 	}
 	return nil
 }

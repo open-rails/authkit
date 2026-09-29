@@ -162,7 +162,7 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	survivor := iam.GroupBySlug("channel", "survivor")
 	survivorID, err := seedGroup(ctx, client, survivor.Persona(), survivor.Slug(), "")
 	require.NoError(t, err)
-	application, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "retained-app", PermissionGroupID: controller, Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteAppModeJWKS, Enabled: true})
+	application, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 	require.NoError(t, err)
 	// Arrange a historical cross-control assignment that ordinary assignment APIs
 	// already refuse. Retirement must not count this departing app as a replacement.
@@ -184,6 +184,6 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, allowed)
 	application.Enabled = false
-	_, err = client.UpsertRemoteApplication(ctx, *application)
+	_, err = client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(application.PermissionGroupID), *application)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 }

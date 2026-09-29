@@ -98,7 +98,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	}
 	app := func(gid string) *iam.RemoteApplication {
 		n++
-		a, err := svc.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: fmt.Sprintf("app%d", n), PermissionGroupID: gid, Issuer: fmt.Sprintf("https://app%d.owners.test", n), JWKSURI: "https://keys.owners.test/jwks", Mode: iam.RemoteAppModeJWKS, Enabled: true})
+		a, err := svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: fmt.Sprintf("app%d", n), Issuer: fmt.Sprintf("https://app%d.owners.test", n), JWKSURI: "https://keys.owners.test/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 		require.NoError(t, err)
 		return a
 	}
@@ -113,19 +113,19 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(bounded), g, iam.RemoteApplicationSubject(a.ID), "reader"), iam.ErrRoleAssignmentEscalation)
 		require.NoError(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)))
 		a.Enabled = false
-		_, err := svc.UpsertRemoteApplication(ctx, *a)
+		_, err := svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.ErrorIs(t, err, iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.DeleteRemoteApplication(ctx, a.Issuer), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.DeleteRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(a.PermissionGroupID), a.Slug), iam.ErrCannotRemoveLastAdminRole)
 		grantRole(t, svc, g, iam.UserSubject(human), iam.OwnerRole)
-		_, err = svc.UpsertRemoteApplication(ctx, *a)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.NoError(t, err)
 		require.ErrorIs(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)), iam.ErrCannotRemoveLastAdminRole, "disabled app is not a recovery owner")
 		a.Enabled = true
-		_, err = svc.UpsertRemoteApplication(ctx, *a)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(a.PermissionGroupID), *a)
 		require.NoError(t, err)
 		require.NoError(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)))
 		grantRole(t, svc, g, iam.UserSubject(human), iam.OwnerRole)
-		require.NoError(t, svc.DeleteRemoteApplication(ctx, a.Issuer))
+		require.NoError(t, svc.DeleteRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(a.PermissionGroupID), a.Slug))
 	})
 	t.Run("subtree_cascade_cannot_count_cross_control_owners", func(t *testing.T) {
 		human := user()

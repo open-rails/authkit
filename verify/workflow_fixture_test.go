@@ -116,7 +116,7 @@ func staticApp(t *testing.T, slug, issuer string) (iam.RemoteApplication, *jwtki
 	require.NoError(t, err)
 	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 	return iam.RemoteApplication{
-		Slug: slug, Issuer: issuer, Enabled: true, Mode: iam.RemoteAppModeStatic,
+		Slug: slug, Issuer: issuer, Enabled: true, Mode: iam.RemoteApplicationModeStatic,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: pemKey}},
 	}, signer
 }

@@ -18,17 +18,19 @@ func TestAuthPublicSurface(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{
 		"APIKeys", "ActiveDeviceKeys", "AdminGetUser", "AdminListUsers", "AdminRevokeAccountSessions", "AdminSetPassword",
-		"AssignGroupRoles", "BanUser", "Can", "CheckSMSHealth", "ClaimDPoPProof", "Close", "CreateAccountInvite",
-		"CreateGroup", "CreateInviteLink", "CreateUser", "DefineGroupRole", "DelegatedPermissionLive", "DeleteGroup",
-		"DeleteGroupRole", "EffectivePermissions", "EnsureUserRole", "GetRemoteApplication", "GetUserByEmail", "GetUserByPhone",
+		"AssignGroupRoles", "BanUser", "Can", "CheckSMSHealth", "Close", "CreateAccountInvite",
+		"CreateGroup", "CreateInviteLink", "CreateUser", "DefineGroupRole", "DeleteGroup",
+		"DeleteGroupRole", "EffectivePermissions", "EnsureUserRole", "GetUserByEmail", "GetUserByPhone",
 		"GetUserByUsername", "GetUserMetadata", "Group", "GroupRoles", "Groups", "Handler", "ImportSolanaLinks",
 		"ImportUsers", "InviteLinks", "KnownPermission", "LinkProvider", "ListGroupMembers", "ListGroups",
 		"ListSubjectGroups", "MarkEmailVerified", "MintAPIKey", "MintAccessToken", "MintDelegatedAccessToken",
 		"MintRemoteApplicationAccessToken", "MintServiceJWT", "Mount", "ApplyBootstrapManifest",
 		"OperatorRestoreUsers", "Optional", "Patterns", "PublicUsersByIDs", "PurgeGroup", "RemoveGroupMembers", "Require",
-		"RequireLive", "RequirePermission", "ResolveAPIKey", "ResolveRemoteApplicationAuthority", "RevokeAPIKey",
+		"RequireLive", "RequirePermission", "ResolveAPIKey", "RevokeAPIKey",
 		"RevokeInviteLink", "RiverJobs", "Routes", "SetEntitlements", "SoftDeleteUsers", "Start", "UnassignGroupRoles",
 		"UnbanUser", "UpdateAvatarURL", "UpdateEmail", "UpdateGroup", "UpdateUsername",
 		"UpsertPasswordHash", "UpsertRemoteApplication", "UserLivenessByIDs", "UsersByIDs", "Verifier",
+		"DeleteRemoteApplication", "NewVerifier", "PublishDocument", "RemoteApplication", "RemoteApplicationAuthority",
+		"RemoteApplications",
 	}, names)
 }

@@ -28,11 +28,10 @@ type Auth struct {
 	started     atomic.Bool
 }
 
-// Auth is what verify's permission, liveness and delegation seams consume.
+// Auth is what verify's permission and liveness seams consume.
 var (
-	_ verify.LivenessSource     = (*Auth)(nil)
-	_ verify.Authority          = (*Auth)(nil)
-	_ verify.DelegatedAuthority = (*Auth)(nil)
+	_ verify.LivenessSource = (*Auth)(nil)
+	_ verify.Authority      = (*Auth)(nil)
 )
 
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
@@ -159,6 +158,17 @@ func (a *Auth) Mount(mux *http.ServeMux) (err error) {
 // Verifier verifies requests and tokens against this deployment. It exists
 // from New on, with or without an HTTP surface.
 func (a *Auth) Verifier() *verify.Verifier { return a.verifier }
+
+// NewVerifier builds an extra verifier for the host's own resource routes,
+// such as delegated tokens for another audience. It trusts no issuer until the
+// host adds one (AddIssuer, LoadRemoteApplications) and shares this
+// deployment's API-key resolver, stored remote applications, account
+// liveness, permission checks and DPoP replay store. DPoP proofs are checked
+// against the issuer's origin plus the request path unless
+// verify.WithDPoPRequestURL says otherwise.
+func (a *Auth) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
+	return a.engine.NewVerifier(opts...)
+}
 
 // Require rejects requests without a valid credential. Ordinary
 // verification is stateless; see RequireLive.

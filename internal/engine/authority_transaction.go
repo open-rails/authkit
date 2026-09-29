@@ -239,7 +239,7 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL
  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
+ WHERE NOT $4 AND r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
 	if err != nil {
 		return err
 	}

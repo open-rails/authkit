@@ -37,16 +37,16 @@ func ValidRemoteApplicationIssuer(iss string) bool {
 // registration payload.
 var ErrInvalidRemoteApplication Error = errmodel.E(errmodel.CodeInvalidRemoteApplication)
 
-// Remote-application trust modes (#74). A remote_application is a federation
-// PRINCIPAL whose credential is a key, with exactly one trust source:
+// RemoteApplicationMode is a remote application's one trust source:
 //
-//	jwks   — keys fetched + refreshed from JWKSURI; rotation is publishing a new
-//	         kid at the same URL.
-//	static — authorized_keys-style human-managed PEM list for principals without
-//	         a JWKS endpoint; manual rotation by design.
+//	jwks   — keys fetched and refreshed from JWKSURI; rotation is publishing a
+//	         new kid at the same URL.
+//	static — a human-managed PEM list for principals without a JWKS endpoint.
+type RemoteApplicationMode string
+
 const (
-	RemoteAppModeJWKS   = "jwks"
-	RemoteAppModeStatic = "static"
+	RemoteApplicationModeJWKS   RemoteApplicationMode = "jwks"
+	RemoteApplicationModeStatic RemoteApplicationMode = "static"
 )
 
 // RemoteApplicationKey is one entry of a static-mode principal's human-managed key list
@@ -56,10 +56,9 @@ type RemoteApplicationKey struct {
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 }
 
-// RemoteApplicationAuthority is a remote_application's STORED authority: its
-// role-resolved effective permissions plus the owning permission-group INSTANCE
-// they are bound to (#248). InstanceSlug is "" for singleton personas (root).
-// Exact-instance binding only.
+// RemoteApplicationAuthority is a remote application's stored authority: its
+// effective permissions and the group they are bound to. InstanceSlug is ""
+// for root.
 type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string
@@ -69,34 +68,30 @@ type RemoteApplicationAuthority struct {
 }
 
 // RemoteApplication is a registered federation principal: an external issuer
-// authkit trusts to mint delegated/remote-application tokens. It is a plain data
-// view; persistence and lifecycle live in core.
+// AuthKit trusts to mint delegated and remote-application tokens.
 type RemoteApplication struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string // controlling permission-group id
+	ID   string
+	Slug string
+	// PermissionGroupID is the controlling group. Registration takes it from
+	// the group the application is registered in, never from this field.
+	PermissionGroupID string
 	Issuer            string // OIDC iss
 	JWKSURI           string // OIDC jwks_uri (jwks mode only)
-	// Mode is the trust source: RemoteAppModeJWKS (fetch from JWKSURI) XOR
-	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
-	Mode string
+	// Mode is the trust source; empty infers static from PublicKeys, else jwks.
+	Mode RemoteApplicationMode
 	// PublicKeys is the static-mode key list (empty in jwks mode).
 	PublicKeys []RemoteApplicationKey
 	Enabled    bool
 	// DisplayName is free-form, non-unique vanity metadata (#264). The slug is
 	// the public handle; the uuid is the internal join key.
 	DisplayName string
-	// Tier is the application's capability tier: ApplicationTierRegistered
-	// (self-registered; zero default capability — authenticate + documents
-	// only) or ApplicationTierApproved (an admin act on the host).
-	Tier string
-	// TrustRoot is what can rotate this application's keys (#264):
-	// ApplicationTrustRootManual (admin/bootstrap-managed),
-	// ApplicationTrustRootDomain (re-fetching Domain's application.json
-	// re-proves control and adopts current keys), or
-	// ApplicationTrustRootUser (the owning user's authenticated session).
-	// Never the keypair alone.
-	TrustRoot string
+	// Tier is the application's capability tier. Only the operator approves;
+	// every group or domain registration starts at ApplicationTierRegistered.
+	Tier ApplicationTier
+	// TrustRoot is what may rotate the application's keys: the operator
+	// (manual), a fresh proof of Domain (domain), or a credentials manager of
+	// its controlling group (user). Never the keypair alone.
+	TrustRoot ApplicationTrustRoot
 	// Domain is the trust-root location for domain-rooted applications (the
 	// canonical registration input; empty otherwise). Domains and slugs are
 	// SEPARATE: the domain proves identity, the slug is a claimed handle.
@@ -111,17 +106,21 @@ type RemoteApplication struct {
 	UpdatedAt      time.Time
 }
 
-// Application capability tiers (#264).
+// ApplicationTier is a remote application's capability tier.
+type ApplicationTier string
+
 const (
-	ApplicationTierRegistered = "registered"
-	ApplicationTierApproved   = "approved"
+	ApplicationTierRegistered ApplicationTier = "registered"
+	ApplicationTierApproved   ApplicationTier = "approved"
 )
 
-// Application trust roots (#264): the authority that rotates keys.
+// ApplicationTrustRoot is the authority that rotates an application's keys.
+type ApplicationTrustRoot string
+
 const (
-	ApplicationTrustRootManual = "manual"
-	ApplicationTrustRootDomain = "domain"
-	ApplicationTrustRootUser   = "user"
+	ApplicationTrustRootManual ApplicationTrustRoot = "manual"
+	ApplicationTrustRootDomain ApplicationTrustRoot = "domain"
+	ApplicationTrustRootUser   ApplicationTrustRoot = "user"
 )
 
 // ApplicationWellKnownPath is where a domain-registered application serves its
@@ -146,4 +145,21 @@ type ApplicationDocument struct {
 	PublicKeys []RemoteApplicationKey `json:"public_keys,omitempty"`
 	// DocumentEndpoint is the optional signed-document base URL.
 	DocumentEndpoint string `json:"document_endpoint,omitempty"`
+}
+
+// RemoteApplicationAccess is a remote-application access token to mint: the
+// application acting as itself. Identity is the issuer and authority is what
+// the verifying deployment stores for it.
+type RemoteApplicationAccess struct {
+	// Issuer becomes iss: the application's registered issuer. Empty means
+	// this deployment's issuer.
+	Issuer    string
+	Audiences []string
+	// TTL defaults to 15m.
+	TTL       time.Duration
+	JTI       string
+	NotBefore time.Time
+	// Permissions, when non-nil, narrows the stored authority (an empty slice
+	// narrows it to nothing); a permission outside it fails verification.
+	Permissions []string
 }

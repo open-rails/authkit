@@ -2,80 +2,105 @@ package engine
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Replacing an application's keys, issuer trust source, slug or enabled state is
-// acting as that application: whoever controls its keys holds its role. A group
-// actor therefore needs credentials:manage AND coverage of the application's
-// current role, exactly as if granting that role. Domain-proven applications
-// change their trust only through a new domain proof (ak#392).
+// Controlling an application's keys is acting as it, so every non-operator
+// change to an existing application needs CAP(<persona>:credentials:manage)
+// in its controlling group and COVER of every role it holds anywhere. Only
+// applications a group registered (trust root user) change through a group:
+// operator-registered ones rotate through the operator and domain-rooted ones
+// through a new domain proof. A group registration starts unapproved (tier
+// registered), and so does any re-key of it.
 
-// UpsertRemoteApplicationForActor registers or updates an application
-// controlled by group for actor.
-func (s *Engine) UpsertRemoteApplicationForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+// UpsertRemoteApplication registers the application app.Issuer in the group
+// ref, or updates it there. The operator may set Mode, Tier and TrustRoot
+// (new applications default to manual and approved); any other actor
+// registers at trust root user and tier registered.
+func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	if err := requireActor(actor); err != nil {
 		return nil, err
 	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	g, err := s.resolveGroup(ctx, s.groupStore(), group)
-	if err != nil {
-		return nil, err
-	}
-	gid := g.ID
-	in.PermissionGroupID = gid
-	if s.reservedIssuer(in.Issuer) || s.accountPeerIssuer(in.Issuer) {
+	operator := actor.Kind() == iam.ActorOperator
+	in.Issuer = strings.TrimSpace(in.Issuer)
+	if s.reservedIssuer(in.Issuer) || !operator && s.accountPeerIssuer(in.Issuer) {
 		return nil, iam.ErrReservedIssuer
 	}
+	if !validTier(in.Tier) || !validTrustRoot(in.TrustRoot) {
+		return nil, fmt.Errorf("%w: unknown tier or trust root", iam.ErrInvalidRemoteApplication)
+	}
 	var out *iam.RemoteApplication
-	err = s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {
-			return err
-		}
-		existing, err := db.New(st.q).RemoteApplicationByIssuer(ctx, strings.TrimSpace(in.Issuer))
-		bound := false
+	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		in.PermissionGroupID = g.ID
+		row, err := db.New(st.q).RemoteApplicationByIssuer(ctx, in.Issuer)
+		var existing *iam.RemoteApplication
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			if err := s.authorizeApplicationControl(ctx, st, actor, g, ""); err != nil {
-				return err
-			}
-			bound = true
 		case err != nil:
 			return err
-		case existing.PermissionGroupID != gid:
+		case row.PermissionGroupID != g.ID:
 			return iam.ErrRemoteApplicationIssuerConflict
 		default:
-			if err := s.authorizeApplicationControl(ctx, st, actor, g, existing.ID); err != nil {
+			existing = remoteAppFromRow(remoteAppRow(row))
+		}
+		if !operator {
+			if err := s.groupApplicationChange(ctx, st, actor, g, existing, &in); err != nil {
 				return err
-			}
-			if existing.TrustRoot == "domain" {
-				return iam.ErrInsufficientRoleAuthority
 			}
 		}
 		out, err = s.upsertRemoteApplication(ctx, st, in)
-		if err != nil || !bound {
-			return err
-		}
-		// A session-bound issuer is unproven; a later domain proof reclaims it.
-		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET trust_root=$2 WHERE id=$1::uuid`, out.ID, iam.ApplicationTrustRootUser); err != nil {
-			return err
-		}
-		out.TrustRoot = iam.ApplicationTrustRootUser
-		return nil
+		return err
 	})
 	return out, err
 }
 
-// DeleteRemoteApplicationForActor deletes the application named by slug when
-// group controls it and actor covers its role.
-func (s *Engine) DeleteRemoteApplicationForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, slug string) error {
+// groupApplicationChange authorizes a non-operator upsert and sets the trust
+// root and tier it produces; the caller's Tier and TrustRoot are ignored.
+func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, existing *iam.RemoteApplication, in *iam.RemoteApplication) error {
+	appID := ""
+	if existing != nil {
+		if existing.TrustRoot != iam.ApplicationTrustRootUser {
+			return iam.ErrInsufficientRoleAuthority
+		}
+		appID = existing.ID
+	}
+	if err := s.authorizeApplicationControl(ctx, st, actor, g, appID); err != nil {
+		return err
+	}
+	in.TrustRoot, in.Tier = iam.ApplicationTrustRootUser, iam.ApplicationTierRegistered
+	if existing != nil && !rekeys(existing, in) {
+		in.Tier = existing.Tier
+	}
+	return nil
+}
+
+// rekeys reports whether in replaces existing's trust source.
+func rekeys(existing *iam.RemoteApplication, in *iam.RemoteApplication) bool {
+	mode, err := normalizeRemoteAppTrustSource(in.JWKSURI, in.Mode, in.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: true})
+	if err != nil || mode != existing.Mode || strings.TrimSpace(in.JWKSURI) != existing.JWKSURI {
+		return true
+	}
+	a, _ := json.Marshal(in.PublicKeys)
+	b, _ := json.Marshal(existing.PublicKeys)
+	return string(a) != string(b)
+}
+
+// DeleteRemoteApplication deletes the application named by slug that group ref
+// controls. A non-operator needs the same authority as re-keying it, and never
+// deletes an operator-registered application.
+func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, slug string) error {
 	if err := requireActor(actor); err != nil {
 		return err
 	}
@@ -86,25 +111,22 @@ func (s *Engine) DeleteRemoteApplicationForActor(ctx context.Context, actor iam.
 	if slug == "" {
 		return iam.ErrInvalidRemoteApplication
 	}
-	g, err := s.resolveGroup(ctx, s.groupStore(), group)
-	if err != nil {
-		return err
-	}
-	gid := g.ID
-	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {
-			return err
-		}
+	return s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
 		q := db.New(st.q)
 		app, err := q.RemoteApplicationBySlugForUpdate(ctx, slug)
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != gid {
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {
 			return iam.ErrRemoteApplicationNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeApplicationControl(ctx, st, actor, g, app.ID); err != nil {
-			return err
+		if actor.Kind() != iam.ActorOperator {
+			if iam.ApplicationTrustRoot(app.TrustRoot) == iam.ApplicationTrustRootManual {
+				return iam.ErrInsufficientRoleAuthority
+			}
+			if err := s.authorizeApplicationControl(ctx, st, actor, g, app.ID); err != nil {
+				return err
+			}
 		}
 		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(app.ID)); err != nil {
 			return err
@@ -114,22 +136,113 @@ func (s *Engine) DeleteRemoteApplicationForActor(ctx context.Context, actor iam.
 	})
 }
 
-// authorizeApplicationControl requires CAP(<persona>:credentials:manage) in g,
-// plus COVER of the role appID currently holds there (none for a new application).
+// authorizeApplicationControl is CAP(<persona>:credentials:manage) in g plus,
+// for an existing application, COVER of every role it holds in any live
+// group: whoever controls its keys holds all of them.
 func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, appID string) error {
 	auth, err := s.actorAuthority(ctx, st, actor, g)
 	if err != nil {
 		return err
 	}
-	if err := auth.requireCap(iam.PermCredentialsManage(g.Persona)); err != nil {
+	if err := auth.requireCap(iam.PermCredentialsManage(g.Persona)); err != nil || appID == "" {
 		return err
 	}
-	if appID == "" {
-		return nil
+	type held struct {
+		group groupTarget
+		role  iam.Role
 	}
-	role, err := st.directRole(ctx, g.ID, iam.RemoteApplicationSubject(appID))
-	if err != nil || role == "" {
+	rows, err := st.q.Query(ctx, `SELECT g.id::text, g.persona, r.role FROM group_remote_application_roles r
+ JOIN permission_groups g ON g.id=r.permission_group_id
+ WHERE r.remote_application_id=$1::uuid AND g.deleted_at IS NULL ORDER BY g.id`, appID)
+	if err != nil {
 		return err
 	}
-	return s.requireRoleCover(ctx, st, auth, g, role)
+	var roles []held
+	for rows.Next() {
+		var h held
+		if err := rows.Scan(&h.group.ID, &h.group.Persona, &h.role); err != nil {
+			rows.Close()
+			return err
+		}
+		roles = append(roles, h)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, h := range roles {
+		in := auth
+		if h.group.ID != g.ID {
+			if in, err = s.actorAuthority(ctx, st, actor, h.group); err != nil {
+				return err
+			}
+		}
+		if err := s.requireRoleCover(ctx, st, in, h.group, h.role); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+			return err
+		}
+	}
+	return nil
+}
+
+func validTier(t iam.ApplicationTier) bool {
+	return t == "" || t == iam.ApplicationTierRegistered || t == iam.ApplicationTierApproved
+}
+
+func validTrustRoot(t iam.ApplicationTrustRoot) bool {
+	switch t {
+	case "", iam.ApplicationTrustRootManual, iam.ApplicationTrustRootDomain, iam.ApplicationTrustRootUser:
+		return true
+	}
+	return false
+}
+
+// RemoteApplications lists the applications group ref controls, newest first.
+func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
+	var out iam.ListPage[iam.RemoteApplication]
+	if err := s.requirePG(); err != nil {
+		return out, err
+	}
+	var after *string
+	if page.Cursor != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(page.Cursor)
+		id := string(raw)
+		if err != nil || !isUUID(id) {
+			return out, fmt.Errorf("%w: invalid cursor", errmodel.E(errmodel.CodeInvalidRequest))
+		}
+		after = &id
+	}
+	st := s.groupStore()
+	g, err := s.resolveGroup(ctx, st, ref)
+	if err != nil {
+		return out, err
+	}
+	limit := page.PageLimit()
+	rows, err := s.pg.Query(ctx,
+		`SELECT id::text, slug, permission_group_id::text, issuer, jwks_uri, mode, public_keys, enabled,
+		        display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+		 FROM remote_applications
+		 WHERE permission_group_id = $1::uuid AND ($2::uuid IS NULL OR id < $2::uuid)
+		 ORDER BY id DESC LIMIT $3`, g.ID, after, limit+1)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	out.Items = make([]iam.RemoteApplication, 0, limit)
+	for rows.Next() {
+		var row remoteAppRow
+		if err := rows.Scan(&row.ID, &row.Slug, &row.PermissionGroupID, &row.Issuer, &row.JwksUri, &row.Mode,
+			&row.PublicKeys, &row.Enabled, &row.DisplayName, &row.Tier, &row.TrustRoot, &row.Domain,
+			&row.DocumentEndpoint, &row.RootVerifiedAt, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return out, err
+		}
+		out.Items = append(out.Items, *remoteAppFromRow(row))
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		out.Next = base64.RawURLEncoding.EncodeToString([]byte(out.Items[limit-1].ID))
+	}
+	return out, nil
 }

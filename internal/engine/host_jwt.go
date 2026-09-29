@@ -12,34 +12,30 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-const (
+// serviceJWTType is the JOSE typ header of minted service JWTs.
+const serviceJWTType = "service+jwt"
 
-	// ServiceJWTType is the JOSE typ header AuthKit stamps on minted service JWTs.
-	serviceJWTType = "service+jwt"
-)
-
-// MintServiceJWT creates a short-lived signed service JWT from AuthKit's active
-// signing key. It defaults to a 15-minute lifetime and stamps
-// `token_use=service`; it does not grant host permissions by itself.
-func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWTMintOptions) (string, iam.ServiceJWTClaims, error) {
+// MintServiceJWT signs a short-lived service JWT with this deployment's key.
+// It stamps token_use=service and grants nothing AuthKit enforces.
+func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return "", iam.ServiceJWTClaims{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrMissingSigner
 	}
 	return MintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
 }
 
-// MintServiceJWT signs a service JWT with an explicit signer and issuer. Hosts
-// can use this helper when they manage the signing key outside AuthKit.
-func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWTMintOptions) (string, iam.ServiceJWTClaims, error) {
+// MintServiceJWT signs a service JWT with an explicit signer and issuer, for
+// hosts that manage the signing key outside AuthKit.
+func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	if signer == nil {
-		return "", iam.ServiceJWTClaims{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrMissingSigner
 	}
 	issuer = strings.TrimSpace(issuer)
 	subject := strings.TrimSpace(opts.Subject)
 	audiences := dedupeStrings(opts.Audiences)
 	if issuer == "" || subject == "" || len(audiences) == 0 {
-		return "", iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
+		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
 	}
 	permissions := dedupeStrings(opts.Permissions)
 	now := opts.IssuedAt.UTC()
@@ -50,11 +46,8 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 	if nbf.IsZero() {
 		nbf = now
 	}
-	lifetime := opts.Lifetime
-	if lifetime <= 0 {
-		lifetime = iam.DefaultServiceJWTLifetime
-	}
-	if lifetime > iam.DefaultServiceJWTLifetime {
+	lifetime := opts.TTL
+	if lifetime <= 0 || lifetime > iam.DefaultServiceJWTLifetime {
 		lifetime = iam.DefaultServiceJWTLifetime
 	}
 	jti := strings.TrimSpace(opts.JTI)
@@ -62,7 +55,7 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		var err error
 		jti, err = randomServiceJWTID()
 		if err != nil {
-			return "", iam.ServiceJWTClaims{}, err
+			return iam.Token{}, iam.ServiceJWTClaims{}, err
 		}
 	}
 	exp := now.Add(lifetime)
@@ -80,9 +73,9 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 	}
 	token, err := jwtkit.SignWithType(ctx, signer, claims, serviceJWTType, false)
 	if err != nil {
-		return "", iam.ServiceJWTClaims{}, err
+		return iam.Token{}, iam.ServiceJWTClaims{}, err
 	}
-	return token, iam.ServiceJWTClaims{
+	return iam.Token{Value: token, ExpiresAt: exp}, iam.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: now, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
 		TokenUse: iam.ServiceJWTTokenUse, Permissions: permissions,

@@ -137,7 +137,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(owner.ID), group, iam.CustomRole{Name: role, Permissions: []string{permission}}))
 	}
 	define("org:billing:read")
-	app, err := svc.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", PermissionGroupID: gid, Enabled: true})
+	app, err := svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", Enabled: true})
 	require.NoError(t, err)
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))

@@ -315,34 +315,29 @@ const documentsTestType = "example.entitlements/v1"
 func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) string {
 	t.Helper()
 	ctx := context.Background()
-	coreSvc := core
-	rootGID, err := coreSvc.ensureRootGroup(ctx)
-	require.NoError(t, err)
-
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
-	_, err = coreSvc.UpsertRemoteApplication(ctx, iam.RemoteApplication{
-		Slug:              slug,
-		PermissionGroupID: rootGID,
-		Issuer:            issuer,
-		Enabled:           true,
+	_, err = core.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+		Slug:    slug,
+		Issuer:  issuer,
+		Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{
 			KID:          signer.KID(),
 			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
 		}},
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = coreSvc.DeleteRemoteApplication(context.Background(), issuer) })
+	t.Cleanup(func() { _ = core.DeleteRemoteApplication(context.Background(), iam.OperatorActor(), iam.RootGroup(), slug) })
 
 	// A remote application addresses its token to THIS platform (ak#324: the
 	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
-	token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{
+	token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccess{
 		Issuer:    issuer,
 		Audiences: []string{"test-app"},
 		TTL:       time.Minute,
 	})
 	require.NoError(t, err)
-	return token
+	return token.Value
 }
 
 func getDocument(h http.Handler, method, digest, token string, header http.Header) *httptest.ResponseRecorder {
@@ -979,10 +974,6 @@ func stalePasswordUserToken(t *testing.T, srv *httpapi.Service, pool *pgxpool.Po
 type Option func(*httpapi.Config)
 
 func WithoutRateLimiter() Option { return func(c *httpapi.Config) { c.DisableRateLimiting = true } }
-
-func WithDocuments(providers ...documents.Provider) Option {
-	return func(c *httpapi.Config) { c.Documents = append(c.Documents, providers...) }
-}
 
 func configOf(opts ...Option) httpapi.Config {
 	var c httpapi.Config

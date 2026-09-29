@@ -7,7 +7,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/jwtkit"
@@ -73,11 +72,10 @@ type Config struct {
 	// clamped into the validated bounds).
 	Delegated DelegatedConfig
 
-	// Documents configures the published signed-document surface (#260):
-	// which remote-application reader slugs may fetch published documents from
-	// GET|HEAD /.well-known/authkit/documents/{digest}. Publication is never
-	// public — an empty list with a mounted documents surface refuses at
-	// construction (httpapi.New), fail-closed like the publisher itself.
+	// Documents configures the published signed-document surface (#260): the
+	// remote applications that may fetch documents (Auth.PublishDocument) from
+	// GET|HEAD /.well-known/authkit/documents/{digest}. Without readers the
+	// route is not mounted and nothing may be published.
 	Documents DocumentsConfig
 
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
@@ -145,10 +143,9 @@ type ApplicationsConfig struct {
 
 // DelegatedConfig configures the delegated-token mint route (#261/#277,
 // POST /delegated/token under the API prefix). All four knobs are DATA: the
-// mint mechanics (audience-subset clamp, TTL clamp, certificate binding,
-// document stamping, KID reconciliation) live in AuthKit; the host contributes
-// the required delegation authorizer (WithDelegatedAuthorization) and optional
-// document providers (httpapi.WithDocuments).
+// mint mechanics (audience-subset clamp, TTL clamp, sender binding, grant
+// check, document stamping, KID reconciliation) live in AuthKit; the host
+// contributes the required delegation authorizer (Deps.DelegatedAuthorization).
 type DelegatedConfig struct {
 	// AllowDPoP allows browser-key binding. The authorizer must handle requests
 	// with ConfirmationJWKThumbprintSHA256 set and DelegateCertificate nil.
@@ -447,10 +444,6 @@ type HTTPConfig struct {
 	// Languages declares the supported UI languages; the zero value is
 	// English-only.
 	Languages LanguageConfig
-	// Documents are the published-document providers (normally
-	// *documents.Service) served at iam.DocumentsPath and stamped into
-	// delegated tokens. Requires Config.Documents.Readers.
-	Documents []documents.Provider
 }
 
 // RateLimit allows at most Limit requests per Window in one bucket, with an

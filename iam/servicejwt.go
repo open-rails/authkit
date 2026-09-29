@@ -17,9 +17,21 @@ const (
 // ErrInvalidServiceJWT indicates a presented service JWT failed verification.
 var ErrInvalidServiceJWT Error = errmodel.E(errmodel.CodeInvalidServiceJWT)
 
-// ServiceJWTClaims is the canonical AuthKit claim shape for caller-minted
-// machine-to-machine JWTs. Permissions are requested capabilities; receiving
-// services must still intersect them with server-side grants.
+// ServiceJWT is a first-party machine-to-machine JWT to mint. It grants
+// nothing AuthKit enforces; the receiver authorizes its permissions.
+type ServiceJWT struct {
+	Subject     string
+	Audiences   []string
+	Permissions []string
+	// TTL defaults to, and is capped at, DefaultServiceJWTLifetime.
+	TTL       time.Duration
+	NotBefore time.Time
+	IssuedAt  time.Time
+	JTI       string
+}
+
+// ServiceJWTClaims is the claim shape of a service JWT. Permissions are
+// requested capabilities; receivers intersect them with their own grants.
 type ServiceJWTClaims struct {
 	Issuer      string
 	Subject     string
@@ -30,5 +42,4 @@ type ServiceJWTClaims struct {
 	JTI         string
 	TokenUse    string
 	Permissions []string
-	Scope       []string
 }

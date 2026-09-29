@@ -1,7 +1,6 @@
 package authkit
 
 import (
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -95,7 +94,6 @@ func (c HTTPConfig) internal() httpapi.Config {
 		DirectPeerIP:        c.DirectPeerIP,
 		ClientIP:            c.ClientIP,
 		Languages:           httpapi.LanguageConfig{Supported: append([]string(nil), c.Languages.Supported...), Default: c.Languages.Default},
-		Documents:           append([]documents.Provider(nil), c.Documents...),
 	}
 	if c.Limiter != nil {
 		out.Limiter = c.Limiter

@@ -158,7 +158,7 @@ type normalizedApplication struct {
 	DisplayName      string
 	Issuer           string
 	JWKSURI          string
-	Mode             string
+	Mode             iam.RemoteApplicationMode
 	KeysJSON         []byte
 	DocumentEndpoint string
 }
@@ -204,7 +204,7 @@ func (s *Engine) validateApplicationDocument(doc *iam.ApplicationDocument, host 
 		return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentInvalid, err)
 	}
 	var keysJSON []byte
-	if mode == iam.RemoteAppModeStatic {
+	if mode == iam.RemoteApplicationModeStatic {
 		keysJSON, err = json.Marshal(doc.PublicKeys)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentInvalid, err)
@@ -306,7 +306,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	existing, err := q.RemoteApplicationByDomainForUpdate(ctx, canonical)
 	switch {
 	case err == nil:
-		if existing.TrustRoot != iam.ApplicationTrustRootDomain {
+		if iam.ApplicationTrustRoot(existing.TrustRoot) != iam.ApplicationTrustRootDomain {
 			return nil, errmodel.ErrApplicationDomainConflict
 		}
 		if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
@@ -315,7 +315,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		row, err := q.RemoteApplicationDomainRefresh(ctx, db.RemoteApplicationDomainRefreshParams{
 			Issuer:           app.Issuer,
 			JwksUri:          app.JWKSURI,
-			Mode:             app.Mode,
+			Mode:             string(app.Mode),
 			PublicKeys:       app.KeysJSON,
 			DisplayName:      app.DisplayName,
 			DocumentEndpoint: app.DocumentEndpoint,
@@ -385,7 +385,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		PermissionGroupID: &gid,
 		Issuer:            app.Issuer,
 		JwksUri:           app.JWKSURI,
-		Mode:              app.Mode,
+		Mode:              string(app.Mode),
 		PublicKeys:        app.KeysJSON,
 		DisplayName:       app.DisplayName,
 		Domain:            canonical,

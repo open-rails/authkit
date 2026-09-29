@@ -35,17 +35,17 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{
-		Slug: "operable-owner", PermissionGroupID: gid, Issuer: "https://operable-owner.test", Enabled: true,
+	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{
+		Slug: "operable-owner", Issuer: "https://operable-owner.test", Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
 	require.NoError(t, err)
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	mint := func(perms []string) string {
 		t.Helper()
-		token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
+		token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccess{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
 		require.NoError(t, err)
-		return token
+		return token.Value
 	}
 	token := mint(nil)
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -98,7 +98,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, w.Code, w.Body.String())
 	// A cached signature/issuer never preserves disabled application authority.
 	app.Enabled = false
-	_, err = client.UpsertRemoteApplication(ctx, *app)
+	_, err = client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(app.PermissionGroupID), *app)
 	require.NoError(t, err)
 	w = serveAuthJSON(srv, http.MethodPut, base+owner+"/roles/owner", "", token)
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, w.Code, w.Body.String())
@@ -123,7 +123,7 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.NoError(t, err)
 	other, err := groupIDOf(ctx, client, second)
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "wrong-control", PermissionGroupID: gid, Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
+	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "wrong-control", Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	require.ErrorIs(t, assignRole(ctx, client, iam.OperatorActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 	// Simulate an old invalid assignment: it must not allow the real owner to

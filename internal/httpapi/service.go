@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 
@@ -32,10 +31,6 @@ type Service struct {
 	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]authprovider.Provider // validated, keyed by Name()
 	langCfg             *LanguageConfig
-	// documentProviders are the published-document services from
-	// Config.Documents (#260): served by the RouteDocuments mount and stamped +
-	// KID-reconciled by the delegated-token mint route (#261).
-	documentProviders []documents.Provider
 }
 
 // failClosedBuckets are the credential-VERIFICATION endpoints where the secret

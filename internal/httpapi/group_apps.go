@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -42,11 +43,11 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	ra, err := s.svc.UpsertRemoteApplicationForActor(r.Context(), actor, group, iam.RemoteApplication{
+	ra, err := s.svc.UpsertRemoteApplication(r.Context(), actor, group, iam.RemoteApplication{
 		Slug:       strings.TrimSpace(body.Slug),
 		Issuer:     strings.TrimSpace(body.Issuer),
 		JWKSURI:    strings.TrimSpace(body.JWKSURI),
-		Mode:       strings.TrimSpace(body.Mode),
+		Mode:       iam.RemoteApplicationMode(strings.TrimSpace(body.Mode)),
 		PublicKeys: body.PublicKeys,
 		Enabled:    enabled,
 	})
@@ -57,24 +58,37 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusCreated, remoteAppJSON(ra))
 }
 
-// groupRemoteAppList lists the remote_applications controlled by the addressed
-// group (only this group's — not every group's).
+// groupRemoteAppList lists one page of the applications the addressed group
+// controls (?cursor=&limit=).
 func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	apps, err := s.svc.ListRemoteApplicationsForGroup(r.Context(), group)
+	page, ok := remoteAppPage(w, r)
+	if !ok {
+		return
+	}
+	apps, err := s.svc.RemoteApplications(r.Context(), group, page)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	data := make([]map[string]any, 0, len(apps))
-	for i := range apps {
-		data = append(data, remoteAppJSON(&apps[i]))
+	data := make([]map[string]any, 0, len(apps.Items))
+	for i := range apps.Items {
+		data = append(data, remoteAppJSON(&apps.Items[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object":        "list",
-		"persona":       group.Persona(),
-		"instance_slug": group.Slug(),
-		"data":          data,
-	})
+	writeList(w, data, apps.Next)
+}
+
+// remoteAppPage reads the cursor and limit query parameters of the list route.
+func remoteAppPage(w http.ResponseWriter, r *http.Request) (iam.PageRequest, bool) {
+	page := iam.PageRequest{Cursor: r.URL.Query().Get("cursor")}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 {
+			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("limit"))
+			return iam.PageRequest{}, false
+		}
+		page.Limit = limit
+	}
+	return page, true
 }
 
 // groupRemoteAppDelete removes a remote_application. The :app path param is the
@@ -85,7 +99,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.DeleteRemoteApplicationForActor(r.Context(), actor, group, slug); err != nil {
+	if err := s.svc.DeleteRemoteApplication(r.Context(), actor, group, slug); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -122,11 +136,13 @@ func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, gro
 
 func remoteAppJSON(ra *iam.RemoteApplication) map[string]any {
 	return map[string]any{
-		"id":       ra.ID,
-		"slug":     ra.Slug,
-		"issuer":   ra.Issuer,
-		"jwks_uri": ra.JWKSURI,
-		"mode":     ra.Mode,
-		"enabled":  ra.Enabled,
+		"id":         ra.ID,
+		"slug":       ra.Slug,
+		"issuer":     ra.Issuer,
+		"jwks_uri":   ra.JWKSURI,
+		"mode":       ra.Mode,
+		"enabled":    ra.Enabled,
+		"tier":       ra.Tier,
+		"trust_root": ra.TrustRoot,
 	}
 }

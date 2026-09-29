@@ -141,10 +141,10 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	status, _ = post(body, session.AccessToken, testdpop.Proof(t, browserKey, "POST", cfg.Token.Issuer+"/external/api/v1/delegated/token", session.AccessToken, nil), nil)
 	require.Equal(t, 200, status)
 
-	// A receiver owns trusted URLs and its shared replay storage. Here the same
-	// engine backs the replay guard; namespaces remain bounded by key and TTL.
+	// A receiver owns trusted URLs; NewVerifier shares the engine's replay
+	// store, so one proof is spent once across every verifier.
 	var resource *httptest.Server
-	verifier := verify.NewVerifier(verify.WithDPoP(engine.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
+	verifier := engine.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 	require.NoError(t, verifier.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 	resourceMux := http.NewServeMux()
 	resourceMux.Handle("/", resourceHandler(verifier))
@@ -183,13 +183,20 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, 401, call("DPoP", minted.Token, testdpop.Proof(t, testdpop.Key(t), "GET", resource.URL+"/tasks", minted.Token, nil), "/tasks"))
 	_, err = verifier.Verify(ctx, minted.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	detached, err := engine.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{Audiences: []string{"platform"}, DelegatedSubject: user.ID, Permissions: []string{"resource:read"}})
+	detached, err := engine.MintDelegatedAccessToken(ctx, iam.UserActor(user.ID), iam.DelegatedAccess{Audiences: []string{"platform"}, Permissions: []string{"resource:read"}})
 	require.NoError(t, err)
-	require.Equal(t, 401, call("DPoP", detached, resourceProof(detached), "/tasks"))
+	require.Equal(t, 401, call("DPoP", detached.Value, resourceProof(detached.Value), "/tasks"))
 	certHash := [32]byte{1}
-	_, err = engine.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{DelegatedSubject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
+	_, err = engine.MintDelegatedAccessToken(ctx, iam.OperatorActor(), iam.DelegatedAccess{Subject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
+	secondVerifier := engine.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
+	require.NoError(t, secondVerifier.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
+	replayed := httptest.NewRequest("GET", resource.URL+"/tasks", nil)
+	replayed.Header.Set("Authorization", "DPoP "+minted.Token)
+	replayed.Header.Set("DPoP", oneProof)
+	_, err = secondVerifier.VerifyRequest(replayed)
+	require.NoError(t, err, "the first use of a proof verifies")
 	var successes atomic.Int32
 	var wg sync.WaitGroup
 	for range 12 {
@@ -200,7 +207,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	require.EqualValues(t, 1, successes.Load())
+	require.Zero(t, successes.Load(), "a proof spent at another verifier is a replay")
 
 	// Disabling DPoP protects existing native authorizers from nil certificates.
 	cfg.Delegated.AllowDPoP = false
@@ -236,7 +243,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		require.Equal(t, 500, status, string(raw))
 		require.Contains(t, string(raw), "internal_error")
 		require.Empty(t, lastChallenge)
-		v := verify.NewVerifier(verify.WithDPoP(broken.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
+		v := broken.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 		require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 		req := httptest.NewRequest("GET", resource.URL+"/tasks", nil)
 		req.Header.Set("Authorization", "DPoP "+minted.Token)
