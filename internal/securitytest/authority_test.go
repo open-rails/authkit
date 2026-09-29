@@ -32,7 +32,7 @@ func withRBAC(c *authkit.Config) {
 		Roles: []authkit.Role{
 			{Persona: iam.RootPersona, Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
 			{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersRecover, iam.PermRootResourcesRead}},
+			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersManage, iam.PermRootUsersRead}},
 			{Persona: orgPersona, Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: orgPersona, Name: "manager", Permissions: []string{"org:catalog:read"}, Includes: []iam.Role{"member-admin", "credential-admin", "role-admin"}},
 			{Persona: orgPersona, Name: "member-admin", Permissions: []string{"org:members:manage", "org:members:read"}},

@@ -878,7 +878,7 @@ func instanceCreateTestConfig() Config {
 			},
 		}},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "site-admin", Permissions: []string{"root:resources:read"}},
+			{Persona: iam.RootPersona, Name: "site-admin", Permissions: []string{iam.PermRootUsersRead}},
 			{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*"}},
 			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: "org", Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},

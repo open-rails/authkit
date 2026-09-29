@@ -4,30 +4,26 @@ package iam
 // (`channel:self:update`). It is reserved to AuthKit's built-ins.
 const SelfResource = "self"
 
-// Built-in per-persona permissions. AuthKit registers them in every persona's
-// catalog; the owner role (`<persona>:*`) covers them all, and an app may grant
-// them to other roles.
-func PermMembersManage(p Persona) Perm {
-	return Perm(string(p) + ":members:manage")
-}
+// Built-in per-persona permissions. The owner role (`<persona>:*`) covers
+// them all, and an app may grant them to other roles.
 
-func PermMembersRead(p Persona) Perm {
-	return Perm(string(p) + ":members:read")
-}
+// PermMembersRead gates listing a group's members and its role catalog.
+func PermMembersRead(p Persona) Perm { return Perm(string(p) + ":members:read") }
 
-func PermRolesManage(p Persona) Perm {
-	return Perm(string(p) + ":roles:manage")
-}
+// PermMembersManage gates adding, removing and re-roling members and invites.
+func PermMembersManage(p Persona) Perm { return Perm(string(p) + ":members:manage") }
 
-func PermRolesRead(p Persona) Perm { return Perm(string(p) + ":roles:read") }
+// PermRolesManage gates defining and deleting custom roles. Registered only
+// for personas with CustomRoles.
+func PermRolesManage(p Persona) Perm { return Perm(string(p) + ":roles:manage") }
 
-func PermCredentialsManage(p Persona) Perm {
-	return Perm(string(p) + ":credentials:manage")
-}
+// PermCredentialsRead gates listing API keys and remote applications.
+// Registered only for personas with APIKeys or RemoteApplications.
+func PermCredentialsRead(p Persona) Perm { return Perm(string(p) + ":credentials:read") }
 
-func PermCredentialsRead(p Persona) Perm {
-	return Perm(string(p) + ":credentials:read")
-}
+// PermCredentialsManage gates minting, revoking and re-roling API keys and
+// remote applications. Registered with PermCredentialsRead.
+func PermCredentialsManage(p Persona) Perm { return Perm(string(p) + ":credentials:manage") }
 
 // PermSelfRead gates reading the group's own descriptor: id, slug, display name.
 func PermSelfRead(p Persona) Perm { return Perm(string(p) + ":self:read") }
@@ -37,21 +33,3 @@ func PermSelfUpdate(p Persona) Perm { return Perm(string(p) + ":self:update") }
 
 // PermSelfDelete gates the recoverable (soft) delete of the group.
 func PermSelfDelete(p Persona) Perm { return Perm(string(p) + ":self:delete") }
-
-// BuiltinPermissions returns the permissions AuthKit registers for persona p.
-// Root has no `self` permissions (its group cannot be read, renamed or
-// deleted as a group) and adds IntrinsicRootPermissions.
-func BuiltinPermissions(p Persona) []Perm {
-	out := []Perm{
-		PermMembersRead(p), PermMembersManage(p),
-		PermRolesRead(p), PermRolesManage(p),
-		PermCredentialsRead(p), PermCredentialsManage(p),
-	}
-	if p == RootPersona {
-		for _, perm := range IntrinsicRootPermissions() {
-			out = append(out, Perm(perm))
-		}
-		return out
-	}
-	return append(out, PermSelfRead(p), PermSelfUpdate(p), PermSelfDelete(p))
-}

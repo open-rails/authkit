@@ -29,15 +29,15 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	require.Equal(t, userID, principal.Identity().Subject)
 	checker := principal.(auth.PermissionChecker)
 	scope := auth.Scope{Authority: cfg.Token.Issuer, ID: group}
-	allowed, err := checker.Can(ctx, scope, "root:resources:read")
+	allowed, err := checker.Can(ctx, scope, iam.PermRootUsersRead)
 	require.NoError(t, err)
 	require.False(t, allowed)
 	require.NoError(t, client.OperatorAssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(userID), "site-admin"))
-	allowed, err = checker.Can(ctx, scope, "root:resources:read")
+	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead)
 	require.NoError(t, err)
 	require.True(t, allowed, "runtime must wire live authority without host glue")
 	require.NoError(t, client.OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(userID), "site-admin"))
-	allowed, err = checker.Can(ctx, scope, "root:resources:read")
+	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead)
 	require.NoError(t, err)
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
 }

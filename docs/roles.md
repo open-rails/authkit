@@ -41,17 +41,18 @@ Roles: authkit.RoleConfig{
 
 ## Built-in permissions
 
-AuthKit registers these in every catalog:
+AuthKit adds these to each persona's catalog:
 
-| Permission | Gates |
-|---|---|
-| `<p>:members:read`, `<p>:members:manage` | member lists, role assignment, invite links |
-| `<p>:roles:read`, `<p>:roles:manage` | role catalog, custom roles |
-| `<p>:credentials:read`, `<p>:credentials:manage` | API keys, remote applications |
-| `<p>:self:read`, `<p>:self:update`, `<p>:self:delete` | the group's descriptor, slug and display name, soft delete (not on root) |
+| Permission | Registered | Gates |
+|---|---|---|
+| `<p>:members:read`, `<p>:members:manage` | always | member lists and the role catalog; role assignment, invite links |
+| `<p>:roles:manage` | `CustomRoles` | defining and deleting custom roles (also reads the role catalog) |
+| `<p>:credentials:read`, `<p>:credentials:manage` | `APIKeys` or `RemoteApplications` | API keys, remote applications |
+| `<p>:self:read`, `<p>:self:update`, `<p>:self:delete` | except root | the group's descriptor; slug and display name; soft delete |
 
-Root also has `root:users:{ban,recover,delete,invite}`, `root:roles:manage`,
-`root:credentials:manage` and `root:resources:read`.
+Root also has `root:users:read` (accounts and sign-ins), `root:users:ban`,
+`root:users:delete` (delete and restore), `root:users:manage` (edit an account,
+revoke its sessions) and `root:users:invite`.
 
 ## Validation at New
 

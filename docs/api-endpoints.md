@@ -137,13 +137,13 @@ remote applications, and group role assignments.
 | POST | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{api}/delegated/token` | delegated | required | `delegated_token_mint` | Delegated.Audiences |
 | POST | `{api}/applications/register` | applications | signed request (domain proof) | `application_register` | Applications.SelfRegistration |
-| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:recover` | `auth_admin_user_sessions_revoke_all` |  |
-| GET | `{api}/admin/users` | admin | `root:resources:read` | `auth_admin_user_sessions_list` |  |
+| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
+| GET | `{api}/admin/users` | admin | `root:users:read` | `auth_admin_user_sessions_list` |  |
 | DELETE | `{api}/admin/users/{user_id}` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
-| GET | `{api}/admin/users/{user_id}` | admin | `root:resources:read` |  |  |
+| GET | `{api}/admin/users/{user_id}` | admin | `root:users:read` |  |  |
 | POST | `{api}/admin/users/{user_id}/ban` | admin | `root:users:ban` | `auth_admin_user_sessions_revoke_all` |  |
-| POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` | `auth_admin_user_sessions_revoke_all` |  |
-| GET | `{api}/admin/users/{user_id}/signins` | admin | `root:resources:read` |  |  |
+| POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | `root:users:manage` | `auth_admin_user_sessions_revoke_all` |  |
+| GET | `{api}/admin/users/{user_id}/signins` | admin | `root:users:read` |  |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | `root:users:ban` | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
 | POST | `{api}/org` | permission_groups | required |  | Roles.Personas |
@@ -163,7 +163,7 @@ remote applications, and group role assignments.
 | POST | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
 | DELETE | `{api}/org/{instance_slug}/remote-applications/{app}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
 | PUT | `{api}/org/{instance_slug}/remote-applications/{app}/roles/{role}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:read` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:members:read` or `org:roles:manage` |  | Roles.Personas |
 | POST | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:manage` |  | Roles.Personas |
 | DELETE | `{api}/org/{instance_slug}/roles/{role}` | permission_groups | `org:roles:manage` |  | Roles.Personas |
 <!-- routes:end -->

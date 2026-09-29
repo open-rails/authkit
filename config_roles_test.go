@@ -19,7 +19,7 @@ func readmeRoles() RoleConfig {
 		},
 		Roles: []Role{
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*", "root:users:*", "root:resources:read"}},
+			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*", "root:users:*"}},
 		},
 	}
 }
@@ -39,21 +39,45 @@ func TestRoleConfigCompiles(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, rootOwner.RequiresMFA)
 	for perm, known := range map[iam.Perm]bool{
-		"channel:posts:edit":     true,
-		"channel:members:manage": true,
-		"channel:self:read":      true,
-		"channel:self:update":    true,
-		"channel:self:delete":    true,
-		"root:users:ban":         true,
-		"root:members:manage":    true,
-		"root:self:read":         false,
-		"root:settings:read":     false,
-		"channel:settings:read":  false,
-		"channel:posts:pin":      false,
-		"channel:*":              false,
-		"org:posts:edit":         false,
+		"channel:posts:edit":       true,
+		"channel:members:manage":   true,
+		"channel:self:read":        true,
+		"channel:self:update":      true,
+		"channel:self:delete":      true,
+		"channel:members:read":     true,
+		"channel:roles:manage":     false, // CustomRoles is off
+		"channel:roles:read":       false,
+		"channel:credentials:read": false, // APIKeys and RemoteApplications are off
+		"root:users:read":          true,
+		"root:users:ban":           true,
+		"root:users:delete":        true,
+		"root:users:manage":        true,
+		"root:users:invite":        true,
+		"root:members:read":        true,
+		"root:members:manage":      true,
+		"root:users:recover":       false,
+		"root:resources:read":      false,
+		"root:roles:manage":        false,
+		"root:credentials:manage":  false,
+		"root:self:read":           false,
+		"root:settings:read":       false,
+		"channel:settings:read":    false,
+		"channel:posts:pin":        false,
+		"channel:*":                false,
+		"org:posts:edit":           false,
 	} {
 		require.Equal(t, known, s.KnownPermission(perm), perm)
+	}
+}
+
+func TestRoleConfigCapabilityBuiltins(t *testing.T) {
+	s, err := RoleConfig{Personas: map[string]Persona{
+		"org":  {CustomRoles: true, APIKeys: true},
+		"root": {CustomRoles: true, RemoteApplications: true},
+	}}.schema()
+	require.NoError(t, err)
+	for _, perm := range []iam.Perm{"org:roles:manage", "org:credentials:read", "org:credentials:manage", "root:roles:manage", "root:credentials:manage"} {
+		require.True(t, s.KnownPermission(perm), perm)
 	}
 }
 
@@ -65,28 +89,30 @@ func TestRoleConfigRejects(t *testing.T) {
 		cfg  RoleConfig
 		want string
 	}{
-		"persona name":               {RoleConfig{Personas: map[string]Persona{"Channel": {}}}, "name must match"},
-		"two-part permission":        {RoleConfig{Personas: channel("channel:edit")}, "exactly three segments"},
-		"wildcard in catalog":        {RoleConfig{Personas: channel("channel:posts:*")}, "segment"},
-		"foreign catalog entry":      {RoleConfig{Personas: channel("org:posts:edit")}, `must start with "channel:"`},
-		"self is reserved":           {RoleConfig{Personas: channel("channel:self:archive")}, "reserved to AuthKit"},
-		"root creation":              {RoleConfig{Personas: map[string]Persona{"root": {Creation: GroupCreation{Enabled: true}}}}, "singleton"},
-		"reserved slug":              {RoleConfig{Personas: map[string]Persona{"channel": {Creation: GroupCreation{ReservedSlugs: []string{"no spaces"}}}}}, "reserved slug"},
-		"slug pattern":               {RoleConfig{Personas: map[string]Persona{"channel": {Creation: GroupCreation{SlugPattern: "("}}}}, "slug pattern"},
-		"unknown persona":            {RoleConfig{Roles: []Role{{Persona: "channel", Name: "moderator"}}}, `unknown persona "channel"`},
-		"duplicate role":             {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod"}, {Persona: "channel", Name: "mod"}}}, "declared twice"},
-		"role name":                  {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "Admin"}}}, "name must match"},
-		"unregistered permission":    {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:posts:pin"}}}}, "matches no permission"},
-		"wildcard over nothing":      {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:comments:*"}}}}, "matches no permission"},
-		"bare wildcard":              {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "all", Permissions: []string{"*"}}}}, "persona segment"},
-		"persona role holds root":    {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"root:users:ban"}}}}, "cross-persona"},
-		"persona role holds other":   {RoleConfig{Personas: map[string]Persona{"channel": {}, "org": {}}, Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"org:*"}}}}, "cross-persona"},
-		"root role undeclared":       {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*"}}}}, `unknown persona "channel"`},
-		"root has no self":           {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:self:read"}}}}, "matches no permission"},
-		"owner redefined":            {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: iam.OwnerRole, Permissions: []string{"channel:posts:edit"}}}}, "must hold exactly"},
-		"include of another persona": {RoleConfig{Personas: channel(), Roles: []Role{{Persona: iam.RootPersona, Name: "admin"}, {Persona: "channel", Name: "mod", Includes: []iam.Role{"admin"}}}}, `includes unknown role "admin"`},
-		"include cycle":              {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"b"}}, {Persona: iam.RootPersona, Name: "b", Includes: []iam.Role{"a"}}}}, "includes cycle"},
-		"self include":               {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"a"}}}}, "includes cycle"},
+		"persona name":                    {RoleConfig{Personas: map[string]Persona{"Channel": {}}}, "name must match"},
+		"two-part permission":             {RoleConfig{Personas: channel("channel:edit")}, "exactly three segments"},
+		"wildcard in catalog":             {RoleConfig{Personas: channel("channel:posts:*")}, "segment"},
+		"foreign catalog entry":           {RoleConfig{Personas: channel("org:posts:edit")}, `must start with "channel:"`},
+		"self is reserved":                {RoleConfig{Personas: channel("channel:self:archive")}, "reserved to AuthKit"},
+		"root creation":                   {RoleConfig{Personas: map[string]Persona{"root": {Creation: GroupCreation{Enabled: true}}}}, "singleton"},
+		"reserved slug":                   {RoleConfig{Personas: map[string]Persona{"channel": {Creation: GroupCreation{ReservedSlugs: []string{"no spaces"}}}}}, "reserved slug"},
+		"slug pattern":                    {RoleConfig{Personas: map[string]Persona{"channel": {Creation: GroupCreation{SlugPattern: "("}}}}, "slug pattern"},
+		"unknown persona":                 {RoleConfig{Roles: []Role{{Persona: "channel", Name: "moderator"}}}, `unknown persona "channel"`},
+		"duplicate role":                  {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod"}, {Persona: "channel", Name: "mod"}}}, "declared twice"},
+		"role name":                       {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "Admin"}}}, "name must match"},
+		"unregistered permission":         {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:posts:pin"}}}}, "matches no permission"},
+		"wildcard over nothing":           {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:comments:*"}}}}, "matches no permission"},
+		"bare wildcard":                   {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "all", Permissions: []string{"*"}}}}, "persona segment"},
+		"persona role holds root":         {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"root:users:ban"}}}}, "cross-persona"},
+		"persona role holds other":        {RoleConfig{Personas: map[string]Persona{"channel": {}, "org": {}}, Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"org:*"}}}}, "cross-persona"},
+		"root role undeclared":            {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*"}}}}, `unknown persona "channel"`},
+		"roles:manage needs custom roles": {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:roles:manage"}}}}, "matches no permission"},
+		"credentials need a capability":   {RoleConfig{Personas: channel(), Roles: []Role{{Persona: "channel", Name: "mod", Permissions: []string{"channel:credentials:*"}}}}, "matches no permission"},
+		"root has no self":                {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:self:read"}}}}, "matches no permission"},
+		"owner redefined":                 {RoleConfig{Personas: channel("channel:posts:edit"), Roles: []Role{{Persona: "channel", Name: iam.OwnerRole, Permissions: []string{"channel:posts:edit"}}}}, "must hold exactly"},
+		"include of another persona":      {RoleConfig{Personas: channel(), Roles: []Role{{Persona: iam.RootPersona, Name: "admin"}, {Persona: "channel", Name: "mod", Includes: []iam.Role{"admin"}}}}, `includes unknown role "admin"`},
+		"include cycle":                   {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"b"}}, {Persona: iam.RootPersona, Name: "b", Includes: []iam.Role{"a"}}}}, "includes cycle"},
+		"self include":                    {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"a"}}}}, "includes cycle"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := tc.cfg.schema()

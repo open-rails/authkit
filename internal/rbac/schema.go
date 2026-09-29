@@ -137,7 +137,7 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		}
 		catalog[perm] = struct{}{}
 	}
-	for _, perm := range iam.BuiltinPermissions(name) {
+	for _, perm := range builtins(name, spec) {
 		catalog[perm] = struct{}{}
 	}
 	for perm := range catalog {
@@ -166,6 +166,27 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		p.Creation.ReservedSlugs = append(p.Creation.ReservedSlugs, slug)
 	}
 	return p, nil
+}
+
+// builtins returns the permissions AuthKit registers for a persona: members
+// always, roles:manage with CustomRoles, credentials with APIKeys or
+// RemoteApplications, and self except on root, which adds its intrinsic
+// permissions instead (its group cannot be read, renamed or deleted as a group).
+func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
+	out := []iam.Perm{iam.PermMembersRead(name), iam.PermMembersManage(name)}
+	if spec.CustomRoles {
+		out = append(out, iam.PermRolesManage(name))
+	}
+	if spec.APIKeys || spec.RemoteApplications {
+		out = append(out, iam.PermCredentialsRead(name), iam.PermCredentialsManage(name))
+	}
+	if name == iam.RootPersona {
+		for _, perm := range iam.IntrinsicRootPermissions() {
+			out = append(out, iam.Perm(perm))
+		}
+		return out
+	}
+	return append(out, iam.PermSelfRead(name), iam.PermSelfUpdate(name), iam.PermSelfDelete(name))
 }
 
 func (s *Schema) compileRoles(specs []RoleSpec) error {

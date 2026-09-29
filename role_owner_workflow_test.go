@@ -28,9 +28,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(hostPool.Close)
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, CustomRoles: true}},
+		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, CustomRoles: true, RemoteApplications: true}},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "manager", Permissions: []string{"root:members:manage", "root:credentials:manage", "root:users:ban"}},
+			{Persona: iam.RootPersona, Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
 			{Persona: iam.RootPersona, Name: "reader", Permissions: []string{"root:users:ban"}},
 			{Persona: "org", Name: "reader", Permissions: []string{"org:records:read"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},

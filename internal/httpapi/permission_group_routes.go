@@ -162,8 +162,8 @@ func pathParam(r *http.Request, name string) string {
 // generatedGroupHandler returns the handler for one generated route. It:
 //  1. extracts the caller's verified claims (401 if absent);
 //  2. resolves persona + :instance_slug from the route/path;
-//  3. authorizes via svc.Can(caller, group, route.Perm)
-//     (403 on deny);
+//  3. authorizes via svc.Can(caller, group, route.Perm), or route.OrPerm
+//     when set (403 on deny);
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
 //     define/delete routes depend on custom-role support being enabled.
@@ -193,15 +193,18 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 
 		// Native authority is live. Remote self credentials additionally remain
 		// bound to their controlling group and verified permission ceiling.
-		var allowed bool
-		if remoteSelf {
-			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
-			err = nil
-			if allowed {
-				allowed, err = s.svc.Can(r.Context(), iam.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)
+		check := func(perm iam.Perm) (bool, error) {
+			if !remoteSelf {
+				return s.groupCan(r, claims.UserID, group, perm)
 			}
-		} else {
-			allowed, err = s.groupCan(r, claims.UserID, group, gr.Perm)
+			if !claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) || !claims.HasPermission(perm) {
+				return false, nil
+			}
+			return s.svc.Can(r.Context(), iam.RemoteAppSubject(claims.RemoteApplicationID), group, perm)
+		}
+		allowed, err := check(gr.Perm)
+		if err == nil && !allowed && gr.OrPerm != "" {
+			allowed, err = check(gr.OrPerm)
 		}
 		if err != nil {
 			serverErr(w, iam.CodeDatabaseError, err)

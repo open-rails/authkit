@@ -123,14 +123,14 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
 		// their verified permission ceiling.
-		{Method: http.MethodGet, Path: "/admin/users", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootResourcesRead, Bucket: RLAdminUserSessionsList, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUsersListGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootResourcesRead, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUserGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootResourcesRead, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUserSigninsGET)},
+		{Method: http.MethodGet, Path: "/admin/users", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead, Bucket: RLAdminUserSessionsList, Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUsersListGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead, Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUserGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead, Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUserSigninsGET)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersBan, s.handleAdminUsersBanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersManage, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersManage, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersRecover, s.handleAdminUserRestorePOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only

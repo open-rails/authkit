@@ -1093,14 +1093,14 @@
       "path": "/api/v1/admin/users",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "HEAD",
       "path": "/api/v1/admin/users",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "DELETE",
@@ -1114,14 +1114,14 @@
       "path": "/api/v1/admin/users/{user_id}",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "HEAD",
       "path": "/api/v1/admin/users/{user_id}",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "POST",
@@ -1135,28 +1135,28 @@
       "path": "/api/v1/admin/users/{user_id}/restore",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:users:recover"
+      "permission": "root:users:delete"
     },
     {
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/sessions/revoke",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:users:recover"
+      "permission": "root:users:manage"
     },
     {
       "method": "GET",
       "path": "/api/v1/admin/users/{user_id}/signins",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "HEAD",
       "path": "/api/v1/admin/users/{user_id}/signins",
       "group": "admin",
       "auth": "permission",
-      "permission": "root:resources:read"
+      "permission": "root:users:read"
     },
     {
       "method": "POST",
