@@ -172,6 +172,15 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 	return i, err
 }
 
+const remoteApplicationsClearRegistrar = `-- name: RemoteApplicationsClearRegistrar :exec
+UPDATE remote_applications SET registered_by = NULL, updated_at = now() WHERE registered_by = $1::uuid
+`
+
+func (q *Queries) RemoteApplicationsClearRegistrar(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, remoteApplicationsClearRegistrar, userID)
+	return err
+}
+
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
 FROM remote_applications

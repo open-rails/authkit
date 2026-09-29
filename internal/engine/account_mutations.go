@@ -238,7 +238,7 @@ type userUpdateRevocations struct{ proven, password []revokedSession }
 
 func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID string, u iam.UserUpdate) (userUpdateRevocations, error) {
 	var revoked userUpdateRevocations
-	before, err := readContactState(ctx, at.tx, userID, true)
+	before, err := contactStateForUpdate(ctx, at.tx, userID)
 	if err != nil {
 		return revoked, err
 	}
@@ -348,9 +348,9 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 // next proof (a reset to the new address) would retire that factor, handing
 // the account to whoever controls the address (H4, N10). before is the state
 // read before the change, in the same transaction.
-func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID string, before contactState) error {
-	after, err := readContactState(ctx, tx, userID, false)
-	if err != nil || before.unproven || !after.unproven {
+func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID string, before db.ContactStateRow) error {
+	after, err := contactState(ctx, tx, userID)
+	if err != nil || before.Unproven || !after.Unproven {
 		return err
 	}
 	enrolled, err := userHasEnabledMFA(ctx, tx, userID)

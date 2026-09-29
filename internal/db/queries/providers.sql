@@ -93,3 +93,6 @@ SET verified_at = now(),
       || jsonb_build_object('verification_required', false)
 WHERE user_id = $1 AND issuer = $2 AND subject = $3
 RETURNING verified_at;
+
+-- name: UserProvidersDeleteByUser :exec
+DELETE FROM user_providers WHERE user_id = sqlc.arg(user_id)::uuid;

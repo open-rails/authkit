@@ -32,3 +32,34 @@ type MfaSetting struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+type User struct {
+	ID            string
+	Email         *string
+	Username      *string
+	EmailVerified bool
+	// E.164 format phone number (e.g. +14155551234)
+	PhoneNumber *string
+	// Whether the phone number has been verified via SMS code
+	PhoneVerified bool
+	// When the user was banned
+	BannedAt *time.Time
+	// When a temporary ban expires (NULL for permanent)
+	BannedUntil *time.Time
+	// Reason for ban
+	BanReason *string
+	// User ID of admin who imposed ban
+	BannedBy  *string
+	DeletedAt *time.Time
+	// Arbitrary user metadata (internal/admin flags such as reserved)
+	Metadata  []byte
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	LastLogin *time.Time
+	// User communication/auth language, e.g. en, es, de, ko, zh
+	PreferredLanguage *string
+	// Host-supplied avatar URL/key string; blob storage is host-owned
+	AvatarURL         *string
+	LastRenamedAt     *time.Time
+	CredentialVersion int64
+}

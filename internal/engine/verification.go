@@ -9,12 +9,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
 // getUserByPhone returns a user by phone number (if any)
-func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*userRecord, error) {
+func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -22,7 +23,7 @@ func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*userRecord,
 	if err != nil {
 		return nil, err
 	}
-	return userFromByPhoneRow(r), nil
+	return &r, nil
 }
 
 // RequestEmailVerification sends a verification code to an account or pending
@@ -52,7 +53,7 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 	return s.requirePG()
 }
 
-func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *userRecord, ttl time.Duration) error {
+func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, ttl time.Duration) error {
 	if u == nil {
 		return iam.ErrUserNotFound
 	}
@@ -91,22 +92,6 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *userRecord,
 	return nil
 }
 
-// GetUserByPhone looks up a user by phone number.
-func (s *Engine) GetUserByPhone(ctx context.Context, phone string) (*userRecord, error) {
-	if s.pg == nil {
-		return nil, nil
-	}
-	r, err := s.q.UserByPhone(ctx, &phone)
-	if err != nil {
-		return nil, err
-	}
-	u := userFromByPhoneRow(r)
-	// Match the historical narrow projection of this lookup: banned_until,
-	// ban_reason, and banned_by were not selected here.
-	u.BannedUntil, u.BanReason, u.BannedBy = nil, nil, nil
-	return u, nil
-}
-
 // --- Phone Verification (for existing users with unverified phones) ---
 
 // RequestPhoneVerification is RequestEmailVerification for a phone number.
@@ -116,7 +101,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 		return err
 	}
 	if s.pg != nil {
-		u, err := s.GetUserByPhone(ctx, phone)
+		u, err := s.getUserByPhone(ctx, phone)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}

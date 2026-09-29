@@ -374,7 +374,7 @@ func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 // send2FACodeForUser sends a code for factor to the destination pinned at its
 // enrollment (never the account's current address), stored under scope: the
 // login proof, step-up session or device-key ceremony it answers.
-func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, scope string, factor authflow.TwoFactorFactor) (string, error) {
+func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope string, factor authflow.TwoFactorFactor) (string, error) {
 	userID := user.ID
 	language := ""
 	if user.PreferredLanguage != nil {

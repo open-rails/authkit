@@ -189,7 +189,7 @@ func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bo
 	return held, err
 }
 
-func (s *Engine) sendLoginFactor(ctx context.Context, user *userRecord, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
+func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
 	factors := s.loginFactors(proof, settings)
 	var selected *authflow.TwoFactorFactor
 	for i := range factors {

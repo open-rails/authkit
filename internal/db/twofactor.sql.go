@@ -204,6 +204,16 @@ func (q *Queries) MFALockUser(ctx context.Context, id string) (string, error) {
 	return id_2, err
 }
 
+const mFAResetSettings = `-- name: MFAResetSettings :exec
+UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = $1::uuid
+`
+
+// Disables 2FA and drops the backup codes.
+func (q *Queries) MFAResetSettings(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFAResetSettings, userID)
+	return err
+}
+
 const mFASetBackupCodes = `-- name: MFASetBackupCodes :exec
 UPDATE mfa_settings
 SET backup_codes = $1, updated_at = NOW()
@@ -275,4 +285,17 @@ type MFAUpsertSettingsParams struct {
 func (q *Queries) MFAUpsertSettings(ctx context.Context, arg MFAUpsertSettingsParams) error {
 	_, err := q.db.Exec(ctx, mFAUpsertSettings, arg.UserID, arg.BackupCodes)
 	return err
+}
+
+const mFAUsable = `-- name: MFAUsable :one
+SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = $1::uuid AND m.enabled
+  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = m.user_id))::boolean AS usable
+`
+
+// 2FA is enabled and has a factor.
+func (q *Queries) MFAUsable(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, mFAUsable, userID)
+	var usable bool
+	err := row.Scan(&usable)
+	return usable, err
 }

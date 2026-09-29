@@ -1,20 +1,20 @@
--- User-row queries.
+-- User-row queries. A user read selects the whole row, so every read returns
+-- db.User: the engine's one user type.
 
 -- name: UserByID :one
--- preferred_language is included in this projection (a widening; no existing
--- caller breaks) so callers that already load the user row — e.g. GET /me — read
--- the language off this row instead of issuing a separate UserPreferredLanguage
--- query (#228).
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
-FROM users WHERE id = $1;
+SELECT * FROM users WHERE id = $1;
 
 -- name: UserByEmail :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
+SELECT * FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 
 -- name: UserByPhone :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM users WHERE phone_number = $1;
+SELECT * FROM users WHERE phone_number = $1;
+
+-- name: UserByUsername :one
+SELECT * FROM users WHERE username = sqlc.arg(username)::text::public.citext;
+
+-- name: UsersByIDs :many
+SELECT * FROM users WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: UserSetPhoneVerifiedByIDAndPhone :exec
 UPDATE users
@@ -48,7 +48,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (id, email, username)
 SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
-RETURNING id, email, username, email_verified, banned_at, deleted_at;
+RETURNING *;
 
 -- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
@@ -135,3 +135,32 @@ UPDATE users SET credential_version = credential_version + 1 WHERE id = $1;
 -- Opportunistic rehash cannot overwrite a password changed after verification.
 UPDATE user_passwords SET password_hash = sqlc.arg(new_hash), hash_algo = 'argon2id'
 WHERE user_id = sqlc.arg(user_id) AND password_hash = sqlc.arg(old_hash);
+
+-- name: UserPasswordDelete :exec
+DELETE FROM user_passwords WHERE user_id = $1;
+
+-- name: UserNameForUpdate :one
+SELECT username, last_renamed_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE;
+
+-- name: UserSetUsernameSpelling :exec
+-- Same name, new display spelling: no name claim, alias or cooldown.
+UPDATE users SET username = sqlc.arg(username), updated_at = sqlc.arg(at_time)::timestamptz WHERE id = sqlc.arg(id);
+
+-- name: UserRename :exec
+UPDATE users SET username = sqlc.arg(username), last_renamed_at = sqlc.arg(at_time)::timestamptz, updated_at = sqlc.arg(at_time)::timestamptz
+WHERE id = sqlc.arg(id);
+
+-- name: ContactState :one
+-- An account is unproven when it has an address and none is verified.
+SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
+        AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)))::boolean AS unproven,
+       COALESCE(email::text, phone_number, '')::text AS identifier,
+       (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
+FROM users WHERE id = $1;
+
+-- name: ContactStateForUpdate :one
+SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
+        AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)))::boolean AS unproven,
+       COALESCE(email::text, phone_number, '')::text AS identifier,
+       (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
+FROM users WHERE id = $1 FOR UPDATE;

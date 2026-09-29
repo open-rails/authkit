@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // Account and session setup shortcuts for engine tests: the public actor
@@ -45,7 +46,7 @@ func (s *Engine) mintTestAccessToken(ctx context.Context, userID string, extra m
 
 // updateImportedUser applies an import row to an existing account, as
 // bootstrap does.
-func (s *Engine) updateImportedUser(ctx context.Context, id string, input newAccount) (*userRecord, error) {
+func (s *Engine) updateImportedUser(ctx context.Context, id string, input newAccount) (*db.User, error) {
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return nil, err

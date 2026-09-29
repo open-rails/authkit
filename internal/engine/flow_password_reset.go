@@ -95,7 +95,7 @@ func resetGateError(err error) error {
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
 func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
 	// Look up user by phone
-	u, err := s.GetUserByPhone(ctx, phone)
+	u, err := s.getUserByPhone(ctx, phone)
 	if err != nil || u == nil {
 		return nil // Don't reveal if phone exists
 	}

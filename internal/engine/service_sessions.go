@@ -272,7 +272,7 @@ func graceKeystream(predecessor string, n int) []byte {
 	return out[:n]
 }
 
-func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *userRecord, mfa authflow.MFAStatus, in loginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
+func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *db.User, mfa authflow.MFAStatus, in loginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
@@ -300,13 +300,13 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *u
 
 // lockLoginAccount serializes proof completion with credential recovery. Zero
 // expectedVersion is reserved for trusted host issuance, never an in-flight proof.
-func (s *Engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*userRecord, error) {
+func (s *Engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*db.User, error) {
 	return s.lockAuthenticationAccount(ctx, q, userID, expectedVersion, false)
 }
 
 // Only verified first-factor completion may consider a deleted account. Normal
 // session issuance and refresh retain the strict gate above.
-func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64, allowDeleted bool) (*userRecord, error) {
+func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64, allowDeleted bool) (*db.User, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -329,7 +329,7 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 	if err != nil {
 		return nil, err
 	}
-	return userFromByIDRow(row), nil
+	return &row, nil
 }
 
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.

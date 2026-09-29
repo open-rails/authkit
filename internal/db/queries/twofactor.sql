@@ -77,3 +77,12 @@ WHERE id = sqlc.arg(id)
 
 -- name: MFALockUser :one
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
+
+-- name: MFAResetSettings :exec
+-- Disables 2FA and drops the backup codes.
+UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = sqlc.arg(user_id)::uuid;
+
+-- name: MFAUsable :one
+-- 2FA is enabled and has a factor.
+SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.enabled
+  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = m.user_id))::boolean AS usable;

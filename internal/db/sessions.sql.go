@@ -253,6 +253,25 @@ func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkA
 	return result.RowsAffected(), nil
 }
 
+const sessionProvedPassword = `-- name: SessionProvedPassword :one
+SELECT ('pwd' = ANY(auth_methods))::boolean AS proved
+FROM refresh_sessions
+WHERE id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+`
+
+type SessionProvedPasswordParams struct {
+	SessionID string
+	UserID    string
+}
+
+// Whether the user's live session session_id signed in with a password.
+func (q *Queries) SessionProvedPassword(ctx context.Context, arg SessionProvedPasswordParams) (bool, error) {
+	row := q.db.QueryRow(ctx, sessionProvedPassword, arg.SessionID, arg.UserID)
+	var proved bool
+	err := row.Scan(&proved)
+	return proved, err
+}
+
 const sessionRevokeByIDForUser = `-- name: SessionRevokeByIDForUser :one
 UPDATE refresh_sessions SET revoked_at = now()
 WHERE id = $1 AND user_id = $2 AND issuer = $3 AND revoked_at IS NULL
