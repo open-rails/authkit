@@ -101,6 +101,7 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 var rootImporters = map[string]bool{
 	rootPackage + "/cmd/authkit-migrate": true,
 	rootPackage + "/examples/reddit":     true, // a host program, like any app
+	rootPackage + "/authtest":            true, // the host test kit
 	rootPackage + "/internal/testhttp":   true,
 }
 

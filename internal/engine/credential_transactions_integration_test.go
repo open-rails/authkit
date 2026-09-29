@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testoutbox"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,17 +27,17 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			require.NoError(t, err)
 			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, u.ID) })
 			require.NoError(t, srv.Backend().RequestPasswordReset(ctx, email, time.Hour, nil, nil))
-			stale := sender.passwordResetToken(t)
+			stale := sender.Last(t, testoutbox.PasswordReset, "").Token
 			switch change {
 			case "password_change":
 				require.NoError(t, srv.Backend().ChangePassword(ctx, u.ID, "", "Defender-password-12345", nil))
 			case "contact_change":
 				newEmail := uniqueEmail("audit-new-email")
 				require.NoError(t, srv.Backend().RequestEmailChange(ctx, u.ID, newEmail))
-				require.NoError(t, fixtureBackend(srv.Backend()).confirmEmailChange(ctx, u.ID, newEmail, sender.verificationCode(t), nil))
+				require.NoError(t, fixtureBackend(srv.Backend()).confirmEmailChange(ctx, u.ID, newEmail, sentCode(t, sender, testoutbox.Verification), nil))
 			case "other_reset":
 				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, email, time.Hour, nil, nil))
-				current := sender.passwordResetToken(t)
+				current := sender.Last(t, testoutbox.PasswordReset, "").Token
 				require.NotEqual(t, stale, current)
 				_, err = srv.Backend().ConfirmPasswordReset(ctx, current, "Defender-password-12345")
 				require.NoError(t, err)
@@ -64,7 +66,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				user, err := fixtureBackend(srv.Backend()).getUserByID(ctx, uid)
 				require.NoError(t, err)
 				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
-				reset := sender.passwordResetToken(t)
+				reset := sender.Last(t, testoutbox.PasswordReset, "").Token
 				_, refresh, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, uid, "atomic", nil)
 				require.NoError(t, err)
 				var before, after int64

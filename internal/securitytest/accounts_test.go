@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/stretchr/testify/require"
@@ -235,7 +236,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	a := h.newAccount("mfastep")
 	h.enrollEmail2FA(a)
 	ch := h.passwordStep(a, "198.51.100.9")
-	resp := h.secondStep(a, ch, h.mail.last(t, `^login to=`+a.email+` code=(\S+)`), "198.51.100.9")
+	resp := h.secondStep(a, ch, h.mail.Last(t, authtest.LoginCode, a.email).Code, "198.51.100.9")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	token := stale(a, session(t, resp).AccessToken)
 	for _, req := range []request{
@@ -503,7 +504,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	_, err = h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &evil})
 	require.NoError(t, err, "control: the verified phone keeps the account proven")
 	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": evil}, "").status, 300)
-	token := h.mail.last(t, `^reset to=`+evil+` .* token=(\S+)`)
+	token := h.mail.Last(t, authtest.PasswordReset, evil).Token
 	const chosen = "Attacker-chosen-passphrase-3"
 	resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": chosen}, "")
 	require.Less(t, resp.status, 300, resp.String())
@@ -511,7 +512,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	resp = h.post("/password/login", map[string]string{"identifier": evil, "password": chosen}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, "the reset alone signed in an account with a second factor: %s", resp)
 	require.Equal(t, "2fa_required", resp.errorCode())
-	require.Zero(t, h.mail.count(`^login to=`+evil+` `), "a second-factor code went to the address staff set")
+	require.Empty(t, h.mail.Messages(authtest.LoginCode, evil), "a second-factor code went to the address staff set")
 	var pinned *string
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, target.id).Scan(&pinned))
 	require.NotNil(t, pinned)
@@ -521,7 +522,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 		var ch challenge
 		resp.json(t, &ch)
 		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Error.Metadata.Challenge,
-			"code": h.mail.last(t, `^login to=`+target.email+` code=(\S+)`)}, "")
+			"code": h.mail.Last(t, authtest.LoginCode, target.email).Code}, "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }
@@ -621,15 +622,15 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 	require.Equal(t, moved, pinned(), "the account's own verified change left its codes at the old mailbox")
 	require.Equal(t, "m***@elsewhere.test", listed())
 
-	sent := h.mail.count(`^login to=` + a.email + ` `)
+	sent := len(h.mail.Messages(authtest.LoginCode, a.email))
 	resp = h.post("/password/login", map[string]string{"identifier": moved, "password": password}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	var ch challenge
 	resp.json(t, &ch)
 	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
-		"code": h.mail.last(t, `^login to=`+moved+` code=(\S+)`)}, "")
+		"code": h.mail.Last(t, authtest.LoginCode, moved).Code}, "")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	require.Equal(t, sent, h.mail.count(`^login to=`+a.email+` `), "a login code went to the old mailbox")
+	require.Equal(t, sent, len(h.mail.Messages(authtest.LoginCode, a.email)), "a login code went to the old mailbox")
 
 	t.Run("control: the system change leaves the factor where it was proven", func(t *testing.T) {
 		third, verified := unique("third")+"@security.test", true

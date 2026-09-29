@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
@@ -21,7 +22,7 @@ import (
 func (h *host) mfaSession(a account) string {
 	h.t.Helper()
 	ch := h.passwordStep(a, "198.51.100.30")
-	resp := h.secondStep(a, ch, h.mail.last(h.t, `^login to=`+a.email+` code=(\S+)`), "198.51.100.30")
+	resp := h.secondStep(a, ch, h.mail.Last(h.t, authtest.LoginCode, a.email).Code, "198.51.100.30")
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	_, claims := splitToken(h.t, session(h.t, resp).AccessToken)
 	sid, _ := claims["sid"].(string)
@@ -109,7 +110,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		resp := h.post("/step-up/2fa", map[string]any{}, reproved)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "2fa_required", resp.errorCode())
-		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.last(t, `^login to=`+victim.email+` code=(\S+)`)}, reproved)
+		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.Last(t, authtest.LoginCode, victim.email).Code}, reproved)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		fresh := session(t, resp).AccessToken
 		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
@@ -298,7 +299,7 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	passkeySession := session(t, resp)
 
 	require.NoError(t, h.auth.ResetAccountMFA(ctx, holder.id))
-	require.Equal(t, 1, h.mail.count(`^mfa-reset to=`+holder.email+`$`))
+	require.Len(t, h.mail.Messages(authtest.MFAReset, holder.email), 1)
 	require.Equal(t, http.StatusUnauthorized, h.refresh(passkeySession.RefreshToken).status, "a session outlived the reset")
 	require.NotEqual(t, http.StatusOK, h.passkeyLogin(authn, 2).status, "the passkey outlived the reset")
 	keys, err := h.auth.ActiveDeviceKeys(ctx, holder.id)

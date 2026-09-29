@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func (h *host) contactState(userID string) (emailVerified, phoneVerified, hasPas
 func (h *host) proveEmail(email, newPassword string) tokens {
 	h.t.Helper()
 	require.Less(h.t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-	token := h.mail.last(h.t, `^reset to=`+email+` .* token=(\S+)`)
+	token := h.mail.Last(h.t, authtest.PasswordReset, email).Token
 	resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": newPassword}, "")
 	require.Less(h.t, resp.status, 300, resp.String())
 	resp = h.post("/password/login", map[string]string{"identifier": email, "password": newPassword}, "")

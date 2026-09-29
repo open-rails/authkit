@@ -23,7 +23,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +42,7 @@ import (
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -599,176 +599,30 @@ func passkeyAssertion(t *testing.T, authn *passkeytest.Authenticator, opts passk
 
 var resetVerifySeq atomic.Int64
 
-type captureEmailSender struct {
-	mu            sync.Mutex
-	loginCode     string
-	inviteURL     string
-	resetToken    string
-	resetURL      string
-	verifyCode    string
-	verifyToken   string
-	verifyURL     string
-	deviceNotices []string
-}
-
-func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ iam.DeviceKeyNotice) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.deviceNotices = append(s.deviceNotices, email)
-	return nil
-}
-
-func (s *captureEmailSender) SendMFAReset(context.Context, string, string) error { return nil }
-
-func (s *captureEmailSender) deviceKeyNotices() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.deviceNotices...)
-}
-
-func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg iam.VerificationMessage) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verifyCode = msg.Code
-	s.verifyURL = msg.LinkURL
-	s.verifyToken = tokenFromURL(msg.LinkURL)
-	return nil
-}
-
-func (s *captureEmailSender) SendPasswordResetLink(_ context.Context, _, _, resetURL string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.resetURL = resetURL
-	s.resetToken = tokenFromURL(resetURL)
-	return nil
-}
-
-func (s *captureEmailSender) SendAccountRegistrationInvite(_ context.Context, _ string, link string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.inviteURL = link
-	return nil
-}
-
-func (s *captureEmailSender) lastInviteURL() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.inviteURL
-}
-
-func (s *captureEmailSender) SendLoginCode(_ context.Context, _, _ string, code string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.loginCode = code
-	return nil
-}
-
-func (s *captureEmailSender) lastLoginCode() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loginCode
-}
-
-func (s *captureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
-
-func (s *captureEmailSender) SendContactChanged(context.Context, string, string, iam.ContactChange) error {
-	return nil
-}
-
-func (s *captureEmailSender) passwordResetToken(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.resetToken)
-	return s.resetToken
-}
-
-func (s *captureEmailSender) verificationCode(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.verifyCode)
-	return s.verifyCode
-}
-
-func (s *captureEmailSender) verificationToken(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.verifyToken)
-	return s.verifyToken
-}
-
-func (s *captureEmailSender) verificationURL(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.verifyURL)
-	return s.verifyURL
-}
-
-type captureSMSSender struct {
-	mu          sync.Mutex
-	loginCode   string
-	resetToken  string
-	resetURL    string
-	verifyCode  string
-	verifyToken string
-	verifyURL   string
-}
-
-func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg iam.VerificationMessage) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verifyCode = msg.Code
-	s.verifyURL = msg.LinkURL
-	s.verifyToken = tokenFromURL(msg.LinkURL)
-	return nil
-}
-
-func (s *captureSMSSender) SendPasswordResetLink(_ context.Context, _ string, resetURL string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.resetURL = resetURL
-	s.resetToken = tokenFromURL(resetURL)
-	return nil
-}
-
-func (s *captureSMSSender) SendLoginCode(_ context.Context, _ string, code string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.loginCode = code
-	return nil
-}
-
-func (s *captureSMSSender) lastLoginCode() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loginCode
-}
-
-func (s *captureSMSSender) SendContactChanged(context.Context, string, iam.ContactChange) error {
-	return nil
-}
-
-func (s *captureSMSSender) verificationCode(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.NotEmpty(t, s.verifyCode)
-	return s.verifyCode
-}
-
-func tokenFromURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return ""
+// lastSent is o's newest kind message, or the zero Message.
+func lastSent(o *testoutbox.Outbox, kind testoutbox.Kind) testoutbox.Message {
+	msgs := o.Messages(kind, "")
+	if len(msgs) == 0 {
+		return testoutbox.Message{}
 	}
-	fragment, err := url.ParseQuery(u.Fragment)
-	if err != nil {
-		return ""
+	return msgs[len(msgs)-1]
+}
+
+// sentCode is the code of o's newest kind message; the test fails without one.
+func sentCode(t *testing.T, o *testoutbox.Outbox, kind testoutbox.Kind) string {
+	t.Helper()
+	code := lastSent(o, kind).Code
+	require.NotEmpty(t, code)
+	return code
+}
+
+// deviceKeyNotices lists the addresses told of a device-key enrollment.
+func deviceKeyNotices(o *testoutbox.Outbox) []string {
+	var to []string
+	for _, m := range o.Messages(testoutbox.DeviceKeyEnrolled, "") {
+		to = append(to, m.To)
 	}
-	return strings.TrimSpace(fragment.Get("token"))
+	return to
 }
 
 func serveJSON(srv *httpapi.Service, method, path, body string) *httptest.ResponseRecorder {
@@ -800,18 +654,17 @@ func uniqueSuffix() string {
 	return fmt.Sprintf("%d%03d", time.Now().UnixNano(), n)
 }
 
-func passwordlessTestServer(t *testing.T, autoRegister bool) (*httpapi.Service, *captureEmailSender, *captureSMSSender) {
+func passwordlessTestServer(t *testing.T, autoRegister bool) (*httpapi.Service, *testoutbox.Outbox, *testoutbox.Outbox) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	cfg := newServerTestConfig()
 	cfg.Frontend.PasswordlessPath = "/wallet/login"
 	cfg.Registration.PasswordlessLogin = true
 	cfg.Registration.PasswordlessAutoRegistration = autoRegister
-	emailSender := &captureEmailSender{}
-	smsSender := &captureSMSSender{}
-	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(emailSender), withSMSSender(smsSender)), WithoutRateLimiter())
+	email, sms := &testoutbox.Outbox{}, &testoutbox.Outbox{}
+	srv, err := newServer(newServerClient(t, cfg, pool, withEmailSender(email.Email()), withSMSSender(sms.SMS())), WithoutRateLimiter())
 	require.NoError(t, err)
-	return srv, emailSender, smsSender
+	return srv, email, sms
 }
 
 // drive runs one group route handler for the group groupID, with the

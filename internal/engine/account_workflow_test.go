@@ -3,11 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +23,7 @@ import (
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,8 +33,8 @@ type accountFlow struct {
 	t       *testing.T
 	service *httpapi.Service
 	server  *httptest.Server
-	email   *captureEmailSender
-	sms     *captureSMSSender
+	email   *testoutbox.Outbox
+	sms     *testoutbox.Outbox
 }
 type flowResponse struct {
 	status int
@@ -63,11 +60,11 @@ type flowResponse struct {
 
 func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg Config, extra ...coreOpt) *accountFlow {
 	t.Helper()
-	f := &accountFlow{t: t, email: &captureEmailSender{}, sms: &captureSMSSender{}}
+	f := &accountFlow{t: t, email: &testoutbox.Outbox{}, sms: &testoutbox.Outbox{}}
 	cfg.Frontend.BaseURL = "https://app.example"
 	cfg.Frontend.VerifyPath, cfg.Frontend.PasswordlessPath, cfg.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
-	opts := []coreOpt{withEmailSender(f.email), withSMSSender(f.sms)}
+	opts := []coreOpt{withEmailSender(f.email.Email()), withSMSSender(f.sms.SMS())}
 	opts = append(opts, extra...)
 	var err error
 	f.service, err = newTestService(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
@@ -154,17 +151,15 @@ func (f *accountFlow) deliveredLink(raw, path, channel string) string {
 }
 func (f *accountFlow) verifyCode(phone bool) string {
 	if phone {
-		return f.sms.verificationCode(f.t)
+		return sentCode(f.t, f.sms, testoutbox.Verification)
 	}
-	return f.email.verificationCode(f.t)
+	return sentCode(f.t, f.email, testoutbox.Verification)
 }
 func (f *accountFlow) verifyURL(phone bool) string {
 	if phone {
-		f.sms.mu.Lock()
-		defer f.sms.mu.Unlock()
-		return f.sms.verifyURL
+		return lastSent(f.sms, testoutbox.Verification).Link
 	}
-	return f.email.verificationURL(f.t)
+	return f.email.Last(f.t, testoutbox.Verification, "").Link
 }
 
 func TestAccountAdmissionWorkflow(t *testing.T) {
@@ -200,7 +195,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 				f.expect(403, f.post(start, body))
 				invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: uniqueEmail("invite")})
 				require.NoError(t, err)
-				require.Equal(t, invite.URL, f.email.lastInviteURL())
+				require.Equal(t, invite.URL, lastSent(f.email, testoutbox.AccountInvite).Link)
 				body["account_invite_token"] = invite.Code
 				f.expect(202, f.post(start, body))
 				if !passwordless {
@@ -281,7 +276,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 			payload["mode"] = "both"
 		}
 		f.expect(202, f.post(start, payload))
-		code := f.email.verificationCode(t)
+		code := sentCode(t, f.email, testoutbox.Verification)
 		_, err = pg.Pool.Exec(ctx, `UPDATE account_registration_invites SET revoked_at=now() WHERE id=$1::uuid`, invite.ID)
 		require.NoError(t, err)
 		confirm := "/verify/confirm"
@@ -305,7 +300,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	disabled.Registration.PasswordlessLogin = true
 	noSignup := newAccountFlow(t, pg.Pool, disabled)
 	noSignup.expect(202, noSignup.post("/passwordless/start", map[string]any{"identifier": uniqueEmail("unknown")}))
-	require.Empty(t, noSignup.email.verifyCode)
+	require.Empty(t, lastSent(noSignup.email, testoutbox.Verification).Code)
 	// Generated usernames avoid an existing account's claim.
 	username := "collision" + uniqueSuffix()
 	_, err := fixtureBackend(f.service.Backend()).createUser(ctx, uniqueEmail("collision"), username)
@@ -314,7 +309,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: collisionEmail})
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite.Code}))
-	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": f.email.verificationCode(t)}))
+	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": sentCode(t, f.email, testoutbox.Verification)}))
 	created, err := fixtureBackend(f.service.Backend()).getUserByEmail(ctx, collisionEmail)
 	require.NoError(t, err)
 	require.NotEqual(t, username, *created.Username)
@@ -323,17 +318,9 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	testProofLifecycle(f)
 }
 
+// flowTOTP is secret's code for the current step.
 func flowTOTP(t *testing.T, secret string) string {
-	t.Helper()
-	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
-	require.NoError(t, err)
-	var counter [8]byte
-	binary.BigEndian.PutUint64(counter[:], uint64(time.Now().Unix()/30))
-	mac := hmac.New(sha1.New, key)
-	_, _ = mac.Write(counter[:])
-	sum := mac.Sum(nil)
-	offset := sum[len(sum)-1] & 15
-	return fmt.Sprintf("%06d", (binary.BigEndian.Uint32(sum[offset:offset+4])&0x7fffffff)%1000000)
+	return testTOTPCode(t, secret, time.Now().Unix()/30)
 }
 
 func TestAuthenticationContinuationWorkflow(t *testing.T) {
@@ -368,7 +355,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			if passwordless {
 				path = "/login/link"
 			}
-			link := f.deliveredLink(f.email.verificationURL(t), path, "email")
+			link := f.deliveredLink(f.email.Last(t, testoutbox.Verification, "").Link, path, "email")
 			first := f.expect(403, f.post(confirm, map[string]any{"token": link}))
 			require.Equal(t, "2fa_enrollment_required", first.Error.Code)
 			assertWireGolden(t, "mfa-enrollment", json.RawMessage(first.raw))
@@ -390,7 +377,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			var second flowResponse
 			if passwordless {
 				f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
-				second = f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
+				second = f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": sentCode(t, f.email, testoutbox.Verification)}))
 			} else {
 				second = f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 			}
@@ -413,7 +400,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			f.session(done.TokenSet, method, "backup_code", "otp", "mfa")
 			f.expect(401, f.post("/2fa/verify", wrong))
 			f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
-			pending := f.expect(403, f.post("/passwordless/confirm", map[string]any{"token": f.email.verificationToken(t)}))
+			pending := f.expect(403, f.post("/passwordless/confirm", map[string]any{"token": f.email.Last(t, testoutbox.Verification, "").Token}))
 			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, pending.Error.Metadata.UserID, "Replacement-password-12345"))
 			f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": pending.Error.Metadata.UserID, "challenge": pending.Error.Metadata.Challenge, "code": enabled.BackupCodes[1], "backup_code": true}))
 		})
@@ -421,7 +408,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	f.t = t
 	phone := uniquePhone()
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": phone, "mode": "code"}))
-	phoneGrant := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": f.sms.verificationCode(t)}))
+	phoneGrant := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
 	require.Equal(t, "2fa_enrollment_required", phoneGrant.Error.Code)
 	require.NotContains(t, phoneGrant.Error.Metadata.AllowedMethods, "email", "an email-less account cannot enroll a mailbox factor")
 	restricted := phoneGrant.Error.Metadata.TokenSet.AccessToken
@@ -437,23 +424,23 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "samechannel"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
-	previousCode := f.email.verificationCode(t)
+	previousCode := sentCode(t, f.email, testoutbox.Verification)
 	f.expect(401, f.post("/password/login", map[string]any{"identifier": email, "password": "wrong"}))
-	require.Equal(t, previousCode, f.email.verificationCode(t))
+	require.Equal(t, previousCode, sentCode(t, f.email, testoutbox.Verification))
 	verify := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "verification_required", verify.Error.Code)
 	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 	backups, err := fixtureBackend(f.service.Backend()).enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email}))
-	ch := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
+	ch := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": sentCode(t, f.email, testoutbox.Verification)}))
 	require.Equal(t, "backup_code", ch.Error.Metadata.Method)
-	f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.email.verificationCode(t)}))
+	f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": sentCode(t, f.email, testoutbox.Verification)}))
 	signed := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": backups[0], "backup_code": true}))
 	f.session(signed.TokenSet, "email", "backup_code", "otp", "mfa")
 	ch = f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "email", ch.Error.Metadata.Method)
-	signed = f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.email.lastLoginCode()}))
+	signed = f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge, "code": lastSent(f.email, testoutbox.LoginCode).Code}))
 	f.session(signed.TokenSet, "pwd", "email", "otp", "mfa")
 	testPausedPasswordRecovery(f)
 	// A fresh UV passkey satisfies Required mode and an MFA-required role without
@@ -501,7 +488,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 	require.Equal(t, "2fa_required", needed.Error.Code)
-	completionBody := map[string]any{"user_id": refreshUser.ID, "challenge": needed.Error.Metadata.Challenge, "code": f.email.lastLoginCode()}
+	completionBody := map[string]any{"user_id": refreshUser.ID, "challenge": needed.Error.Metadata.Challenge, "code": lastSent(f.email, testoutbox.LoginCode).Code}
 	completed = f.completeWhileRevoking(refreshUser.ID, func() flowResponse { return f.post("/2fa/verify", completionBody) }, func(ctx context.Context) error {
 		return f.service.Backend().RevokeIssuerSessions(ctx, refreshUser.ID, nil)
 	})
@@ -586,13 +573,13 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			require.Contains(t, methods, "sms")
 			phone := uniquePhone()
 			f.expect(202, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone": phone}))
-			enrolled := f.expect(200, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone": phone, "code": f.sms.verificationCode(t)}))
+			enrolled := f.expect(200, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
 			f.session(enrolled.Tokens, "oauth", "sms", "otp", "mfa")
 			next, _ := f.providerLogin(provider, identity, "", false)
 			f.expect(403, next)
 			require.Equal(t, "2fa_required", next.Error.Code)
 			require.Equal(t, "sms", next.Error.Metadata.Method)
-			finished := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": next.Error.Metadata.UserID, "challenge": next.Error.Metadata.Challenge, "code": f.sms.lastLoginCode()}))
+			finished := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": next.Error.Metadata.UserID, "challenge": next.Error.Metadata.Challenge, "code": lastSent(f.sms, testoutbox.LoginCode).Code}))
 			f.session(finished.TokenSet, "oauth", "sms", "otp", "mfa")
 			require.Equal(t, provider.Name(), unverifiedAccessClaims(t, finished.AccessToken)["provider"])
 			// A known provider identity never creates a second account or re-enrolls.
@@ -604,7 +591,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(t.Context(), uid, "Provider-backup-password-123"))
 			next, _ = f.providerLogin(provider, identity, "", false)
 			f.expect(403, next)
-			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": f.sms.lastLoginCode()}
+			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": lastSent(f.sms, testoutbox.LoginCode).Code}
 			unlink := func(ctx context.Context) error {
 				removed, err := f.service.Backend().UnlinkProviderUnlessLast(ctx, uid, provider.Name())
 				if err != nil {
@@ -623,7 +610,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
 			stale, _ := f.providerLogin(provider, identity, "", false)
 			f.expect(403, stale)
-			code := f.sms.lastLoginCode()
+			code := lastSent(f.sms, testoutbox.LoginCode).Code
 			require.NoError(t, unlink(t.Context()))
 			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
 			f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": uid, "challenge": stale.Error.Metadata.Challenge, "code": code}))
@@ -760,7 +747,7 @@ func testProofLifecycle(f *accountFlow) {
 		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 	}
 	begin()
-	old := f.email.verificationCode(t)
+	old := sentCode(t, f.email, testoutbox.Verification)
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
@@ -774,7 +761,7 @@ func testProofLifecycle(f *accountFlow) {
 		return err == nil && n == 1
 	}, 5*time.Second, 10*time.Millisecond)
 	begin()
-	newCode := f.email.verificationCode(t)
+	newCode := sentCode(t, f.email, testoutbox.Verification)
 	require.NoError(t, lock.Commit(ctx))
 	f.expect(200, <-completed)
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": newCode}))

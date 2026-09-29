@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	held := f.expect(400, f.post("/register", map[string]any{"identifier": uniqueEmail("case-pending"), "username": lower, "password": pass}))
 	require.Equal(t, "username_in_use", held.Error.Code, "a pending signup holds every spelling of its name")
 
-	confirmed := f.expect(200, f.post("/verify/confirm", map[string]any{"identifier": owner, "code": f.email.verificationCode(t)}))
+	confirmed := f.expect(200, f.post("/verify/confirm", map[string]any{"identifier": owner, "code": sentCode(t, f.email, testoutbox.Verification)}))
 	claims, err := f.service.Verifier().Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID

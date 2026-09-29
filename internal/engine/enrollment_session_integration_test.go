@@ -5,6 +5,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,7 +66,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		f.t = t
 		_, _, enrolling, other := login("enroll-email")
 		f.expect(202, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email"}))
-		code := f.email.verificationCode(t)
+		code := sentCode(t, f.email, testoutbox.Verification)
 		wrong := f.expect(401, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": "000000x"}))
 		require.Equal(t, "invalid_code", wrong.Error.Code)
 		enabled := f.expect(200, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": code}))
@@ -78,7 +79,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		_, _, enrolling, other := login("enroll-sms")
 		phone := uniquePhone()
 		f.expect(202, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "sms", "phone_number": phone}))
-		enabled := f.expect(200, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "sms", "phone_number": phone, "code": f.sms.verificationCode(t)}))
+		enabled := f.expect(200, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "sms", "phone_number": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
 		requireVerified(enabled, enrolling, "sms")
 		requireChallenged(other, "sms")
 	})
@@ -87,10 +88,10 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		f.t = t
 		userID, email, _, _ := login("enroll-same-channel")
 		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "code"}))
-		session := f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
+		session := f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": sentCode(t, f.email, testoutbox.Verification)}))
 		f.session(session.Tokens, "email")
 		f.expect(202, f.request("POST", "/user/2fa", session.Tokens.AccessToken, map[string]any{"method": "email"}))
-		enabled := f.expect(200, f.request("POST", "/user/2fa", session.Tokens.AccessToken, map[string]any{"method": "email", "code": f.email.verificationCode(t)}))
+		enabled := f.expect(200, f.request("POST", "/user/2fa", session.Tokens.AccessToken, map[string]any{"method": "email", "code": sentCode(t, f.email, testoutbox.Verification)}))
 		require.NotEmpty(t, enabled.BackupCodes)
 		require.Empty(t, enabled.Tokens.AccessToken)
 		var amr []string
@@ -120,7 +121,7 @@ func TestForcedEmailEnrollmentIssuesVerifiedSession(t *testing.T) {
 	require.Contains(t, grant.Error.Metadata.AllowedMethods, "email")
 	restricted := grant.Error.Metadata.TokenSet.AccessToken
 	f.expect(202, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "email"}))
-	enabled := f.expect(200, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "email", "code": f.email.verificationCode(t)}))
+	enabled := f.expect(200, f.request("POST", "/user/2fa", restricted, map[string]any{"method": "email", "code": sentCode(t, f.email, testoutbox.Verification)}))
 	require.NotEmpty(t, enabled.BackupCodes)
 	f.session(enabled.Tokens, "pwd", "email", "otp", "mfa")
 	refreshed := f.expect(200, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": enabled.Tokens.RefreshToken}))

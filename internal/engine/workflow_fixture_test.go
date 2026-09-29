@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,56 +27,11 @@ func bootstrapClaimNames(t *testing.T, ctx context.Context, pg *testdb.Postgres)
 	return names
 }
 
-// hardeningEmailSender captures the verification code it is handed and every
-// contact-changed / reset-link delivery.
-type hardeningEmailSender struct {
-	code           string
-	resetLinks     int
-	contactChanged []struct {
-		to     string
-		change iam.ContactChange
-	}
-}
-
-func (s *hardeningEmailSender) SendVerification(_ context.Context, _, _ string, msg iam.VerificationMessage) error {
-	s.code = msg.Code
-	return nil
-}
-
-func (s *hardeningEmailSender) SendPasswordResetLink(context.Context, string, string, string) error {
-	s.resetLinks++
-	return nil
-}
-
-func (s *hardeningEmailSender) SendAccountRegistrationInvite(context.Context, string, string) error {
-	return nil
-}
-
-func (s *hardeningEmailSender) SendLoginCode(context.Context, string, string, string) error {
-	return nil
-}
-
-func (s *hardeningEmailSender) SendWelcome(context.Context, string, string) error { return nil }
-
-func (s *hardeningEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, iam.DeviceKeyNotice) error {
-	return nil
-}
-
-func (s *hardeningEmailSender) SendMFAReset(context.Context, string, string) error { return nil }
-
-func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ string, change iam.ContactChange) error {
-	s.contactChanged = append(s.contactChanged, struct {
-		to     string
-		change iam.ContactChange
-	}{to, change})
-	return nil
-}
-
-func newHardeningService(t *testing.T) (*Engine, *hardeningEmailSender) {
+func newHardeningService(t *testing.T) (*Engine, *testoutbox.Outbox) {
 	t.Helper()
-	sender := &hardeningEmailSender{}
+	sender := &testoutbox.Outbox{}
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, keyset{},
-		Deps{Postgres: testdb.Pool(t), Email: sender})
+		Deps{Postgres: testdb.Pool(t), Email: sender.Email()})
 	return svc, sender
 }
 
