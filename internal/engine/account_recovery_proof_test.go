@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	s := runtime

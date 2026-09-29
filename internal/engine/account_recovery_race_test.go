@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
-			runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool})
+			runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
 			t.Cleanup(runtime.Close)
 			user, err := runtime.createUser(t.Context(), name+"@example.test", name)

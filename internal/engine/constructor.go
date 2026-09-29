@@ -167,13 +167,14 @@ func normalizeConfig(cfg Config) (Config, error) {
 }
 
 // New builds the engine from mapped settings: the store, River, the
-// permission groups and the request verifier.
-func New(cfg Config, deps Deps) (*Engine, error) {
+// permission groups and the request verifier. ctx bounds the boot-time
+// database work.
+func New(ctx context.Context, cfg Config, deps Deps) (*Engine, error) {
 	e, err := newEngine(cfg, deps)
 	if err != nil {
 		return nil, err
 	}
-	return e.finish()
+	return e.finish(ctx)
 }
 
 // newWithKeys builds from a fixed keyset, skipping key resolution and the
@@ -183,21 +184,21 @@ func newWithKeys(cfg Config, keys keyset, deps Deps) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return e.finish()
+	return e.finish(context.Background())
 }
 
 // finish initializes the permission groups, reconciles credentials with the
 // role catalog, and builds the verifier; a failure closes the engine.
-func (s *Engine) finish() (_ *Engine, err error) {
+func (s *Engine) finish(ctx context.Context) (_ *Engine, err error) {
 	defer func() {
 		if err != nil {
 			s.Close()
 		}
 	}()
-	if err := s.initializeGroups(); err != nil {
+	if err := s.initializeGroups(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.reconcileRoleCatalog(context.Background()); err != nil {
+	if err := s.reconcileRoleCatalog(ctx); err != nil {
 		return nil, err
 	}
 	if s.verifier, err = s.newVerifier(); err != nil {

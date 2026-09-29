@@ -58,11 +58,11 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	s := signer()
 	build := func(providers ...authprovider.Provider) error {
-		runtime, err := authkit.New(authkit.Config{
+		runtime, err := authkit.New(context.Background(), authkit.Config{
 			Keys:     authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
 			Token:    authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
 			Identity: authkit.IdentityConfig{Providers: providers},
-			HTTP:     &authkit.HTTPConfig{DirectPeerIP: true},
+			HTTP:     authkit.HTTPConfig{DirectPeerIP: true},
 		}, authkit.Deps{Postgres: pg.Pool})
 		if runtime != nil {
 			runtime.Close()

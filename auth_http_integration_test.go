@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"crypto"
 	"encoding/json"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 func TestNewServesConfiguredCapabilities(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "capabilities")
 	require.NoError(t, err)
-	auth, err := authkit.New(authkit.Config{
+	auth, err := authkit.New(context.Background(), authkit.Config{
 		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
 		Token: authkit.TokenConfig{Issuer: "https://capabilities.test", IssuedAudiences: []string{"app"}},
 		Registration: authkit.RegistrationConfig{
@@ -31,7 +32,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Username:      iam.UsernamePolicy{MinLength: 6, MaxLength: 20},
 		Password:      authkit.PasswordPolicy{MinLength: 12, RequireDigit: true, AllowCommon: true},
 		SolanaNetwork: "devnet",
-		HTTP:          &authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
+		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
 	}, authkit.Deps{Postgres: testdb.Pool(t)})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)

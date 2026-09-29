@@ -305,7 +305,7 @@ func depsOf(opts ...coreOpt) Deps {
 // coreFromConfig is authkit.New with the pool positional and Deps composed
 // from options; without Redis it runs on the default memory store.
 func coreFromConfig(cfg Config, pool *pgxpool.Pool, opts ...coreOpt) (*Engine, error) {
-	return New(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
+	return New(context.Background(), cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }
 
 const documentsTestType = "example.entitlements/v1"
@@ -1029,7 +1029,7 @@ func newServerTestConfig() Config {
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
 func newServerClient(t *testing.T, cfg Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *Engine {
 	t.Helper()
-	c, err := New(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...))
+	c, err := New(context.Background(), cfg, depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...))
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	return c

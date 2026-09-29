@@ -52,11 +52,10 @@ func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 // initializeGroups installs the root singleton. It never assigns users roles
 // or restores revoked authority. The shared authority lock and transaction
 // keep concurrent construction atomic.
-func (s *Engine) initializeGroups() error {
+func (s *Engine) initializeGroups(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	ctx := context.Background()
 	if err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		_, err := st.ensureRootGroup(ctx)
 		return err

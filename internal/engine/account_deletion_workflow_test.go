@@ -44,7 +44,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 			return nil
 		}
 	}
-	runtime, err = New(cfg, Deps{Postgres: pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
+	runtime, err = New(context.Background(), cfg, Deps{Postgres: pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
@@ -128,7 +128,7 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
 	cfg := maintenanceConfig()
 	cfg.River.Schema = "uninitialized_jobs"
-	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
@@ -165,7 +165,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 				return nil
 			}
 		}
-		runtime, err := New(cfg, Deps{Postgres: pg.Pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
+		runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
 		require.NoError(t, err)
 		t.Cleanup(runtime.Close)
 		return runtime

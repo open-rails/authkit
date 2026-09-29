@@ -25,7 +25,7 @@ func TestMountValidatesConfiguration(t *testing.T) {
 	require.Error(t, Mount(nil, nil))
 	router := gin.New()
 	require.Error(t, Mount(router, nil))
-	require.Error(t, Mount(router, testhttp.Runtime(t, nil)), "a headless runtime has no surface")
+	require.Error(t, Mount(router, testhttp.Runtime(t, authkit.HTTPConfig{})), "a headless runtime has no surface")
 	require.Empty(t, router.Routes())
 }
 
@@ -43,7 +43,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testhttp.HTTP()
-			tc.cfg(cfg)
+			tc.cfg(&cfg)
 			auth := testhttp.Runtime(t, cfg)
 			canonical := auth.Handler()
 			router := gin.New()

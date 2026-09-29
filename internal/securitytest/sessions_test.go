@@ -156,7 +156,7 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 // host deployment does.
 func (h *host) replica() *host {
 	h.t.Helper()
-	r, err := authkit.New(h.cfg.engine, h.cfg.deps)
+	r, err := authkit.New(context.Background(), h.cfg.engine, h.cfg.deps)
 	require.NoError(h.t, err)
 	h.t.Cleanup(r.Close)
 	return h.fork(r)

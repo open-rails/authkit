@@ -16,9 +16,9 @@ import (
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, senders) are Deps.
 type Config struct {
-	// HTTP configures the HTTP surface New builds. Nil keeps the runtime
-	// headless: operations and Verifier only.
-	HTTP *HTTPConfig
+	// HTTP configures the HTTP surface New builds. The zero value keeps the
+	// runtime headless: operations and Verifier only.
+	HTTP HTTPConfig
 
 	// River configures mandatory PostgreSQL cleanup; in-memory TTL stays local.
 	River RiverConfig

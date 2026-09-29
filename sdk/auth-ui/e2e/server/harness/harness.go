@@ -54,7 +54,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	}
 	outbox := &Outbox{}
 	cfg := authkit.Config{
-		HTTP: &authkit.HTTPConfig{
+		HTTP: authkit.HTTPConfig{
 			DirectPeerIP:  true,
 			RateLimits:    limits,
 			RefreshCookie: true,
@@ -87,7 +87,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		Identity:      authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("e2e", "e2e")}},
 		SolanaNetwork: "devnet",
 	}
-	rt, err := authkit.New(cfg, authkit.Deps{
+	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
 		Postgres: pool,
 		Email:    emailSender{outbox},
 		SMS:      smsSender{outbox},

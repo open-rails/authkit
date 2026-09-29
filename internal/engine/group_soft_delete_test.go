@@ -32,7 +32,7 @@ func softDeleteRuntime(t *testing.T) (*Engine, *pgxpool.Pool) {
 	runtimePool, err := pgxpool.NewWithConfig(t.Context(), runtimeConfig)
 	require.NoError(t, err)
 	t.Cleanup(runtimePool.Close)
-	rt, err := New(cfg, Deps{Postgres: runtimePool})
+	rt, err := New(context.Background(), cfg, Deps{Postgres: runtimePool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
 	return rt, pg.Pool

@@ -15,7 +15,7 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 	entered := make(chan struct{})
 	var runtime *Engine
 	var err error
-	runtime, err = New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ iam.UserDeletion) error {
+	runtime, err = New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ iam.UserDeletion) error {
 		close(entered)
 		<-ctx.Done()
 		// A lifecycle worker may check its producer binding while shutdown is

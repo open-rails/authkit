@@ -113,8 +113,8 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	cfg.engine.HTTP = &cfg.http
-	runtime, err := authkit.New(cfg.engine, cfg.deps)
+	cfg.engine.HTTP = cfg.http
+	runtime, err := authkit.New(context.Background(), cfg.engine, cfg.deps)
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	h := &host{t: t, cfg: cfg, pool: pg.Pool, mail: mail}
