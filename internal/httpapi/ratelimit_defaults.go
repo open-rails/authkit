@@ -1,0 +1,96 @@
+package httpapi
+
+import (
+	"time"
+
+	"github.com/open-rails/authkit/internal/ratelimit"
+)
+
+// DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits.
+//
+// These limits are enforced per client IP (as determined by the Service's ClientIPFunc).
+// Hosts can override by supplying their own limiter via WithRateLimiter(...).
+func DefaultRateLimits() map[string]ratelimit.Limit {
+	return map[string]ratelimit.Limit{
+		"default": {Limit: 120, Window: time.Minute},
+
+		// Registration + login + token exchange
+		RLAuthToken:                {Limit: 30, Window: time.Minute},
+		RLAuthRegister:             {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLAuthRegisterAvailability: {Limit: 120, Window: time.Minute},
+		RLAuthRegisterAbandon:      {Limit: 10, Window: time.Hour, Cooldown: time.Minute},
+		RLInviteCreate:             {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
+		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
+		RLPasswordStepUp:           {Limit: 20, Window: time.Hour},
+		RLPasswordlessStart:        {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLPasswordlessConfirm:      {Limit: 10, Window: 10 * time.Minute},
+		RLPasskeyRegister:          {Limit: 12, Window: time.Hour},
+		RLPasskeyLogin:             {Limit: 20, Window: time.Hour},
+		RLDeviceKeyEnrollBegin:     {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLDeviceKeyEnrollFinish:    {Limit: 10, Window: 10 * time.Minute},
+		RLDeviceKeyLoginBegin:      {Limit: 30, Window: 10 * time.Minute},
+		RLDeviceKeyLoginFinish:     {Limit: 30, Window: 10 * time.Minute},
+		RLDeviceKeysManage:         {Limit: 30, Window: 10 * time.Minute},
+
+		// Logout + sessions
+		RLAuthLogout:         {Limit: 60, Window: 10 * time.Minute},
+		RLAuthSessionsList:   {Limit: 120, Window: time.Minute},
+		RLAuthSessionsRevoke: {Limit: 60, Window: 10 * time.Minute},
+		RLAuthSessionsRevokeAll: {
+			Limit:  20,
+			Window: time.Hour,
+		},
+
+		// #264 application self-registration. Registration is a boot-time
+		// self-heal consumers may retry, so the window is generous per hour
+		// but cooled down; each attempt costs the caller a domain fetch.
+		RLApplicationRegister: {Limit: 30, Window: time.Hour},
+		// Slug renames are claims — velocity-capped per user and per IP.
+		RLGroupSettings: {Limit: 12, Window: 24 * time.Hour},
+		// #263 instance creation is a claim too — same velocity class.
+		RLGroupCreate: {Limit: 12, Window: 24 * time.Hour},
+
+		// #261 delegated-token mint: authenticated, but each call is a signing
+		// operation — generous for clients refreshing short-lived tokens,
+		// bounded against a runaway loop.
+		RLDelegatedTokenMint: {Limit: 60, Window: time.Minute},
+
+		// Password reset + verification
+		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLPasswordResetConfirm: {Limit: 10, Window: 10 * time.Minute},
+		RLVerifyRequest:        {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLVerifyConfirm:        {Limit: 10, Window: 10 * time.Minute},
+		RLRegisterResend:       {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLContactChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+
+		// User changes
+		RLUserPasswordChange:    {Limit: 6, Window: time.Hour},
+		RLUserMe:                {Limit: 120, Window: time.Minute},
+		RLUserUpdateUsername:    {Limit: 12, Window: time.Hour},
+		RLUserPreferredLanguage: {Limit: 24, Window: time.Hour},
+		RLUserDelete:            {Limit: 6, Window: time.Hour},
+		RLUserUnlinkProvider:    {Limit: 12, Window: time.Hour},
+
+		// OIDC / OAuth browser flows
+		RLOIDCStart:    {Limit: 30, Window: 10 * time.Minute},
+		RLOIDCCallback: {Limit: 60, Window: 10 * time.Minute},
+
+		// Solana SIWS
+		RLSolanaChallenge: {Limit: 30, Window: 10 * time.Minute},
+		RLSolanaLogin:     {Limit: 20, Window: 10 * time.Minute},
+		RLSolanaLink:      {Limit: 12, Window: time.Hour},
+
+		// Two-factor setup + verify
+		RL2FAStartPhone:      {Limit: 3, Window: 10 * time.Minute},
+		RL2FAStartTOTP:       {Limit: 6, Window: time.Hour},
+		RL2FAStartEmail:      {Limit: 3, Window: 10 * time.Minute},
+		RL2FAEnable:          {Limit: 6, Window: time.Hour},
+		RL2FADisable:         {Limit: 6, Window: time.Hour},
+		RL2FARegenerateCodes: {Limit: 3, Window: time.Hour},
+		RL2FAVerify:          {Limit: 10, Window: 10 * time.Minute},
+
+		// Admin
+		RLAdminUserSessionsList:      {Limit: 600, Window: time.Hour},
+		RLAdminUserSessionsRevokeAll: {Limit: 30, Window: time.Hour},
+	}
+}

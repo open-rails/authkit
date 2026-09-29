@@ -2,67 +2,27 @@ package authkitfiber_test
 
 import (
 	"context"
-	"crypto"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
-	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testhttp"
 )
 
-func newMountService(t *testing.T) *authhttp.Service {
+func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Auth {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		if os.Getenv("AUTHKIT_TEST_REQUIRE_DB") == "1" {
-			t.Fatal("AUTHKIT_TEST_DATABASE_URL not set but AUTHKIT_TEST_REQUIRE_DB=1")
-		}
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
+	cfg := testhttp.HTTP()
+	for _, m := range mutate {
+		m(cfg)
 	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	signer, err := jwtkit.NewRSASigner(2048, "native-mount-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory := &testHTTPFactory{}
-	client, err := embedded.New(embedded.Config{
-		HTTP: factory,
-		Token: embedded.TokenConfig{
-			Issuer: "https://example.com", IssuedAudiences: []string{"test-app"},
-			ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour,
-		},
-		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
-			Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		}},
-		Registration: embedded.RegistrationConfig{
-			NativeUserMode: embedded.RegistrationModeOpen,
-			Verification:   embedded.RegistrationVerificationNone,
-		},
-		Identity: embedded.IdentityConfig{Providers: []authprovider.Provider{
-			authprovider.Google("google-client", "google-secret"),
-		}},
-	}, embedded.Deps{Postgres: pool})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Close)
-	svc := factory.service
-	return svc
+	return testhttp.Runtime(t, cfg)
 }
 
 func TestMountRejectsInvalidConfiguration(t *testing.T) {
@@ -71,10 +31,10 @@ func TestMountRejectsInvalidConfiguration(t *testing.T) {
 	}
 	app := fiber.New()
 	if err := authkitfiber.Mount(app, nil); err == nil {
-		t.Fatal("nil service accepted")
+		t.Fatal("nil surface accepted")
 	}
-	if err := authkitfiber.Mount(app, nil, authhttp.MountOptions{}, authhttp.MountOptions{}); err == nil {
-		t.Fatal("multiple option values accepted")
+	if err := authkitfiber.Mount(app, testhttp.Runtime(t, nil)); err == nil {
+		t.Fatal("headless runtime accepted")
 	}
 	if routes := app.GetRoutes(); len(routes) != 0 {
 		t.Fatalf("invalid mounts registered routes: %+v", routes)
@@ -102,31 +62,27 @@ func concreteTestPath(path string) string {
 }
 
 func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
-	svc := newMountService(t)
 	for _, tc := range []struct {
 		name string
-		opts authhttp.MountOptions
+		cfg  func(*authkit.HTTPConfig)
 	}{
-		{name: "default"},
-		{name: "selected groups and prefix", opts: authhttp.MountOptions{
-			APIPrefix: "/identity", Groups: []authhttp.RouteGroup{authhttp.RouteAccount, authhttp.RouteAuth},
-			ExcludeRoutes: []authhttp.RouteRef{{Method: http.MethodGet, Path: "/me"}},
+		{name: "default", cfg: func(*authkit.HTTPConfig) {}},
+		{name: "selected groups and prefix", cfg: func(c *authkit.HTTPConfig) {
+			c.APIPrefix, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAccount, iam.RouteAuth}, []string{"GET /identity/me"}
 		}},
-		{name: "root prefix", opts: authhttp.MountOptions{APIPrefix: "/"}},
+		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPrefix = "/" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			canonical, err := authhttp.NewMount(svc, tc.opts)
-			if err != nil {
-				t.Fatal(err)
-			}
+			auth := newMountAuth(t, tc.cfg)
+			canonical := auth.Handler()
 			app := fiber.New()
 			app.Get("/host-before", func(c fiber.Ctx) error { return c.SendString("before") })
-			if err := authkitfiber.Mount(app, svc, tc.opts); err != nil {
+			if err := authkitfiber.Mount(app, auth); err != nil {
 				t.Fatal(err)
 			}
 			app.Get("/host-after", func(c fiber.Ctx) error { return c.SendString("after") })
 			wantRoutes := make(map[string]string)
-			for _, route := range canonical.Routes() {
+			for _, route := range auth.Routes() {
 				key := route.Method + " " + nativeTestPath(route.Path)
 				wantRoutes[key] = authkitfiber.RouteNamePrefix + key
 			}
@@ -143,7 +99,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 			if !reflect.DeepEqual(gotRoutes, wantRoutes) {
 				t.Fatalf("native routes differ from canonical catalog\ngot: %v\nwant: %v", gotRoutes, wantRoutes)
 			}
-			for _, route := range canonical.Routes() {
+			for _, route := range auth.Routes() {
 				path := concreteTestPath(route.Path)
 				r := httptest.NewRequest(route.Method, path, strings.NewReader("{}"))
 				r.Header.Set("Content-Type", "application/json")
@@ -173,7 +129,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 			if status, _, _ := request(t, app, http.MethodGet, "/not-an-authkit-route", ""); status != http.StatusNotFound {
 				t.Errorf("unmatched route: %d", status)
 			}
-			if status, _, _ := request(t, app, http.MethodPost, authhttp.JWKSPath, ""); status != http.StatusMethodNotAllowed {
+			if status, _, _ := request(t, app, http.MethodPost, iam.JWKSPath, ""); status != http.StatusMethodNotAllowed {
 				t.Errorf("method mismatch: %d", status)
 			}
 		})
@@ -181,16 +137,10 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 }
 
 func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
-	svc := newMountService(t)
-	app := fiber.New()
-	app.Use(func(c fiber.Ctx) error {
-		c.SetContext(context.WithValue(c.Context(), hostContextKey{}, "host"))
-		return c.Next()
-	})
-	opts := authhttp.MountOptions{
-		APIPrefix: "/identity", RefreshCookie: true,
-		Wrap: func(spec authhttp.RouteSpec, handler http.Handler) http.Handler {
-			if spec.Path != "/user/providers/{provider}" {
+	auth := newMountAuth(t, func(c *authkit.HTTPConfig) {
+		c.APIPrefix, c.RefreshCookie = "/identity", true
+		c.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
+			if route.Path != "/identity/user/providers/{provider}" {
 				return handler
 			}
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -198,9 +148,14 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 				w.Header().Add("Set-Cookie", "two=2")
 				io.WriteString(w, r.PathValue("provider")+":"+r.Context().Value(hostContextKey{}).(string))
 			})
-		},
-	}
-	if err := authkitfiber.Mount(app, svc, opts); err != nil {
+		}
+	})
+	app := fiber.New()
+	app.Use(func(c fiber.Ctx) error {
+		c.SetContext(context.WithValue(c.Context(), hostContextKey{}, "host"))
+		return c.Next()
+	})
+	if err := authkitfiber.Mount(app, auth); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -240,24 +195,23 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 }
 
 func TestMountRejectsUnsupportedPathsBeforeRegistration(t *testing.T) {
-	svc := newMountService(t)
-	for _, prefix := range []string{"/auth:prefix", "/auth+prefix", "/auth/{rest...}"} {
+	for _, path := range []string{"/auth:prefix/me", "/auth+prefix/me", "/auth/{rest...}"} {
 		app := fiber.New()
-		if err := authkitfiber.Mount(app, svc, authhttp.MountOptions{APIPrefix: prefix}); err == nil {
-			t.Fatalf("unsupported prefix %q accepted", prefix)
+		if err := authkitfiber.Mount(app, surface{http.NotFoundHandler(), []string{"GET /fine", "GET " + path}}); err == nil {
+			t.Fatalf("unsupported path %q accepted", path)
 		}
 		if routes := app.GetRoutes(); len(routes) != 0 {
-			t.Fatalf("unsupported prefix %q left partial routes: %+v", prefix, routes)
+			t.Fatalf("unsupported path %q left partial routes: %+v", path, routes)
 		}
 	}
 }
 
 func TestMountRejectsRouteCollisionsBeforeRegistration(t *testing.T) {
-	svc := newMountService(t)
+	auth := newMountAuth(t)
 	app := fiber.New()
 	app.Get("/api/v1/me", func(c fiber.Ctx) error { return c.SendString("host profile") }).Name("host.me")
 	before := app.GetRoutes()
-	if err := authkitfiber.Mount(app, svc); err == nil || !strings.Contains(err.Error(), "ExcludeRoutes") {
+	if err := authkitfiber.Mount(app, auth); err == nil || !strings.Contains(err.Error(), "HTTPConfig.Exclude") {
 		t.Fatalf("collision error = %v", err)
 	}
 	after := app.GetRoutes()
@@ -269,9 +223,7 @@ func TestMountRejectsRouteCollisionsBeforeRegistration(t *testing.T) {
 			t.Fatalf("collision renamed a host route: %+v", route)
 		}
 	}
-	if err := authkitfiber.Mount(app, svc, authhttp.MountOptions{
-		ExcludeRoutes: []authhttp.RouteRef{{Method: http.MethodGet, Path: "/me"}},
-	}); err != nil {
+	if err := authkitfiber.Mount(app, newMountAuth(t, func(c *authkit.HTTPConfig) { c.Exclude = []string{"GET /api/v1/me"} })); err != nil {
 		t.Fatal(err)
 	}
 	status, _, body := request(t, app, http.MethodGet, "/api/v1/me", "")
@@ -281,7 +233,7 @@ func TestMountRejectsRouteCollisionsBeforeRegistration(t *testing.T) {
 }
 
 func TestMountCollisionChecksHonorFiberPathConfiguration(t *testing.T) {
-	svc := newMountService(t)
+	auth := newMountAuth(t)
 	for _, tc := range []struct {
 		name, path string
 		config     fiber.Config
@@ -299,9 +251,9 @@ func TestMountCollisionChecksHonorFiberPathConfiguration(t *testing.T) {
 			app := fiber.New(tc.config)
 			app.Get(tc.path, func(c fiber.Ctx) error { return c.SendString("host profile") }).Name("host.me")
 			before := app.GetRoutes()
-			err := authkitfiber.Mount(app, svc)
+			err := authkitfiber.Mount(app, auth)
 			if tc.collision {
-				if err == nil || !strings.Contains(err.Error(), "ExcludeRoutes") {
+				if err == nil || !strings.Contains(err.Error(), "HTTPConfig.Exclude") {
 					t.Fatalf("collision error = %v", err)
 				}
 				if after := app.GetRoutes(); len(after) != len(before) {
@@ -324,7 +276,7 @@ func TestMountCollisionChecksHonorFiberPathConfiguration(t *testing.T) {
 }
 
 func TestMountRejectsDisabledMethodsBeforeRegistration(t *testing.T) {
-	svc := newMountService(t)
+	auth := newMountAuth(t)
 	for _, disabled := range []string{http.MethodHead, http.MethodPatch} {
 		t.Run(disabled, func(t *testing.T) {
 			var methods []string
@@ -336,7 +288,7 @@ func TestMountRejectsDisabledMethodsBeforeRegistration(t *testing.T) {
 			app := fiber.New(fiber.Config{RequestMethods: methods})
 			app.Add([]string{http.MethodGet}, "/host", func(c fiber.Ctx) error { return c.SendString("host") }).Name("host")
 			before := app.GetRoutes()
-			if err := authkitfiber.Mount(app, svc); err == nil || !strings.Contains(err.Error(), disabled) {
+			if err := authkitfiber.Mount(app, auth); err == nil || !strings.Contains(err.Error(), disabled) {
 				t.Fatalf("disabled method error = %v", err)
 			}
 			after := app.GetRoutes()
@@ -350,19 +302,4 @@ func TestMountRejectsDisabledMethodsBeforeRegistration(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The low-level Mount tests deliberately exercise a Service. Acquire it only
-// while Runtime invokes the trusted HTTP constructor, not through an accessor.
-type testHTTPFactory struct{ service *authhttp.Service }
-type testHTTPSurface struct{ *authhttp.Service }
-
-func (*testHTTPSurface) Routes() []embedded.HTTPRoute { return nil }
-func (f *testHTTPFactory) BuildHTTP(backend embedded.HTTPBackend) (embedded.HTTPSurface, error) {
-	service, err := authhttp.New(backend, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
-	if err != nil {
-		return nil, err
-	}
-	f.service = service
-	return &testHTTPSurface{Service: service}, nil
 }

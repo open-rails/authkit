@@ -9,17 +9,18 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
-	"github.com/open-rails/authkit/authhttp"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRuntimeRoutesNativeAnchorsAndOriginalRequest(t *testing.T) {
-	runtime := testhttp.Runtime(t)
+func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 	const path = "/identity/password/login?proof=original%2Fbytes"
 	const body = "{ \"identifier\" : \"unknown@example.test\", \"password\":\"wrong\" }\n"
 	var seenURI, seenBody string
-	cfg := authhttp.Config{DirectPeerIP: true, Mount: authhttp.MountOptions{APIPrefix: "/identity", Wrap: func(_ authhttp.RouteSpec, next http.Handler) http.Handler {
+	cfg := testhttp.HTTP()
+	cfg.APIPrefix = "/identity"
+	cfg.Wrap = func(_ iam.Route, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
 				seenURI = r.RequestURI
@@ -30,15 +31,12 @@ func TestRuntimeRoutesNativeAnchorsAndOriginalRequest(t *testing.T) {
 			}
 			next.ServeHTTP(w, r)
 		})
-	}}}
-	require.NoError(t, runtime.ConfigureHTTP(cfg))
-	bundle, err := authkitfiber.Routes(runtime)
-	require.NoError(t, err)
+	}
+	auth := testhttp.Runtime(t, cfg)
 	app := fiber.New()
-	require.NoError(t, bundle.Mount(app))
+	require.NoError(t, authkitfiber.Mount(app, auth))
 	app.Use(func(c fiber.Ctx) error { return c.SendStatus(418) })
-	routes, err := runtime.HTTPRoutes()
-	require.NoError(t, err)
+	routes := auth.Routes()
 	actual := 0
 	for _, route := range app.GetRoutes(true) {
 		if strings.HasPrefix(route.Name, authkitfiber.RouteNamePrefix) {

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -83,7 +83,7 @@ func (f *peerFixture) call(token string) (int, string) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	f.handler.ServeHTTP(rec, req)
-	var env authkit.ErrorEnvelope
+	var env iam.ErrorEnvelope
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
 	return rec.Code, env.Error.Code
 }
@@ -159,7 +159,7 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 		require.Eventually(t, func() bool { return f.status().Keys == 0 }, 5*time.Second, 10*time.Millisecond, name)
 		code, errCode := f.call(f.token(b, f.issuer, nil))
 		require.Equal(t, http.StatusServiceUnavailable, code, name)
-		require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode, name)
+		require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode, name)
 	}
 }
 
@@ -193,13 +193,13 @@ func TestPeerJWKSUnavailableChecksClaimsFirst(t *testing.T) {
 	f.serveStatus(http.StatusServiceUnavailable, "")
 	code, errCode := f.call(f.token(a, f.issuer, jwt.MapClaims{"exp": time.Now().Add(-time.Hour).Unix()}))
 	require.Equal(t, http.StatusUnauthorized, code)
-	require.Equal(t, string(authkit.CodeAccessTokenExpired), errCode)
+	require.Equal(t, string(iam.CodeAccessTokenExpired), errCode)
 	code, errCode = f.call(f.token(a, f.issuer, jwt.MapClaims{"aud": "someone-else"}))
 	require.Equal(t, http.StatusUnauthorized, code)
-	require.Equal(t, string(authkit.CodeBadAudience), errCode)
+	require.Equal(t, string(iam.CodeBadAudience), errCode)
 	code, errCode = f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
 }
 
 // A slower, older fetch can never overwrite the keys a newer fetch installed.
@@ -253,7 +253,7 @@ func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, err := f.v.Verify(ctx, f.token(a, f.issuer, nil))
-		require.ErrorIs(t, err, authkit.E(authkit.CodeIssuerKeysUnavailable))
+		require.ErrorIs(t, err, iam.E(iam.CodeIssuerKeysUnavailable))
 		<-served
 		time.Sleep(100 * time.Millisecond) // let the refresh publish before touching the verifier again
 		code, _ = f.call(f.token(a, f.issuer, nil))
@@ -310,5 +310,5 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	require.Eventually(t, func() bool { return f.status().Keys == 0 }, 5*time.Second, 10*time.Millisecond)
 	code, errCode := f.call(f.token(b, f.issuer, nil))
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
 }

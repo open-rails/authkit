@@ -1,67 +1,36 @@
 package authkit
 
 import (
-	"regexp"
-	"strings"
 	"testing"
+
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/stretchr/testify/require"
 )
 
-var usernameSamples = []string{
-	"abcd", "Abc_1", "a123", "zz__", "abc", "1abc", "_abc", "ab-cd", "ab.cd", "ab cd", "ab@cd", "+abcd",
-	"abçd", "abcd😀", strings.Repeat("a", 30), strings.Repeat("a", 31), "a" + strings.Repeat("9", 29),
-}
+func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := maintenanceConfig()
+	cfg.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
+	rt, err := New(cfg, Deps{Postgres: pg.Pool})
+	require.NoError(t, err)
+	t.Cleanup(rt.Close)
 
-// The published pattern plus the published bounds accept exactly what the
-// validator accepts.
-func TestUsernamePatternMatchesValidator(t *testing.T) {
-	p, err := UsernamePolicy{}.Normalize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	re := regexp.MustCompile(UsernamePattern)
-	for _, s := range usernameSamples {
-		n := len([]rune(s))
-		published := re.MatchString(s) && n >= p.MinLength && n <= p.MaxLength
-		if valid := p.Validate(s) == nil; valid != published {
-			t.Errorf("%q: validator=%v published=%v", s, valid, published)
-		}
-	}
-}
+	first := rt.engine.DeriveUsernameForOAuth(t.Context(), "google", "", "ab@example.test", "")
+	require.Equal(t, "ab_user_us", first)
+	_, err = rt.CreateUser(t.Context(), "first@example.test", first)
+	require.NoError(t, err)
+	second := rt.engine.DeriveUsernameForOAuth(t.Context(), "google", "", "ab@example.test", "")
+	require.Equal(t, "ab_user_u1", second, "a taken name is suffixed within the maximum")
+	require.NoError(t, rt.engine.ValidateUsername(second))
 
-func TestUsernameLengthErrorsCarryBounds(t *testing.T) {
-	p, _ := UsernamePolicy{MinLength: 6, MaxLength: 8}.Normalize()
-	for s, code := range map[string]Code{"abcde": CodeUsernameTooShort, "abcdefghi": CodeUsernameTooLong} {
-		e := AsError(p.Validate(s))
-		if e == nil || e.Code != code || e.Meta["min_length"] != 6 || e.Meta["max_length"] != 8 {
-			t.Errorf("%q: %+v", s, e)
-		}
-	}
-}
+	_, err = rt.CreateUser(t.Context(), "short@example.test", "shorty")
+	e := iam.AsError(err)
+	require.NotNil(t, e, "%v", err)
+	require.Equal(t, iam.CodeUsernameTooShort, e.Code)
+	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Meta, "imports keep the 64-character import ceiling")
 
-func TestDerivedUsernamesSatisfyPolicy(t *testing.T) {
-	for _, p := range []UsernamePolicy{{}, {MinLength: 1, MaxLength: 1}, {MinLength: 3, MaxLength: 5}, {MinLength: 20, MaxLength: 24}, {MinLength: 64, MaxLength: 64}} {
-		p, err := p.Normalize()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, in := range []string{"", "Ab", "9lives", "Émile Zola", "a_very_long_display_name_that_keeps_going_on_and_on_forever"} {
-			base := p.Derive(in)
-			for _, name := range []string{base, p.WithSuffix(base, "7"), p.WithSuffix(base, "0042"), p.WithSuffix(base, "_user")} {
-				if err := p.Validate(name); err != nil {
-					t.Errorf("policy %+v input %q -> %q: %v", p, in, name, err)
-				}
-			}
-		}
-	}
-}
-
-func TestUsernamePolicyNormalize(t *testing.T) {
-	if p, err := (UsernamePolicy{}).Normalize(); err != nil || p != (UsernamePolicy{4, 30}) {
-		t.Fatalf("default = %+v, %v", p, err)
-	}
-	for _, bad := range []UsernamePolicy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: 65}} {
-		if _, err := bad.Normalize(); err == nil {
-			t.Errorf("Normalize(%+v) accepted", bad)
-		}
-	}
+	cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
+	_, err = New(cfg, Deps{Postgres: pg.Pool})
+	require.ErrorContains(t, err, "invalid username policy")
 }

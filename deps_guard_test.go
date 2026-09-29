@@ -6,19 +6,28 @@ import (
 	"testing"
 )
 
+// The verification surface and the framework adapters must stay DB-less:
+// hosts that only verify tokens must not link pgx, River or the engine (#291).
+var dblessPackages = []string{"./iam", "./documents", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
+
+const enginePackage = "github.com/open-rails/authkit"
+
 var forbiddenDepPrefixes = []string{
 	"github.com/jackc/pgx",
 	"github.com/riverqueue/",
 	"github.com/open-rails/authkit/internal/",
 }
 
-// sharedStdlibLeaves are engine-free internal packages the verify surface may
-// share with the engine (ak#316: one outbound/SSRF policy; ak#290: one error
-// model). Each is pinned to the standard library by TestSharedLeavesAreStdlibOnly.
-var sharedStdlibLeaves = map[string]bool{
+// sharedInternal are engine-free internal packages the verification surface
+// may share with the engine: one outbound/SSRF policy (ak#316) and one DPoP
+// proof verifier.
+var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard": true,
-	"github.com/open-rails/authkit/internal/errmodel": true,
+	"github.com/open-rails/authkit/internal/dpop":     true,
 }
+
+// stdlibOnly packages depend on nothing outside the standard library.
+var stdlibOnly = []string{"./iam", "./internal/netguard"}
 
 func listDeps(t *testing.T, pkg string) []string {
 	t.Helper()
@@ -29,21 +38,27 @@ func listDeps(t *testing.T, pkg string) []string {
 	return strings.Split(strings.TrimSpace(string(out)), "\n")
 }
 
-func TestSharedLeavesAreStdlibOnly(t *testing.T) {
-	for leaf := range sharedStdlibLeaves {
-		for _, dep := range listDeps(t, leaf) {
-			if first, _, _ := strings.Cut(dep, "/"); dep != leaf && strings.Contains(first, ".") {
-				t.Fatalf("%s must depend only on the standard library, imports %s", leaf, dep)
+func TestStdlibOnlyPackages(t *testing.T) {
+	for _, pkg := range stdlibOnly {
+		deps := listDeps(t, pkg)
+		self := deps[len(deps)-1]
+		for _, dep := range deps {
+			if first, _, _ := strings.Cut(dep, "/"); dep != self && strings.Contains(first, ".") {
+				t.Fatalf("%s must depend only on the standard library, imports %s", pkg, dep)
 			}
 		}
 	}
 }
 
-func TestRootAndVerifyArePgxFree(t *testing.T) {
+func TestVerificationSurfaceIsDBLess(t *testing.T) {
 	var violations []string
-	for _, pkg := range []string{".", "./verify"} {
+	for _, pkg := range dblessPackages {
 		for _, dep := range listDeps(t, pkg) {
-			if sharedStdlibLeaves[dep] {
+			if dep == enginePackage {
+				violations = append(violations, pkg+" -> "+dep)
+				continue
+			}
+			if sharedInternal[dep] {
 				continue
 			}
 			for _, prefix := range forbiddenDepPrefixes {
@@ -54,7 +69,7 @@ func TestRootAndVerifyArePgxFree(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("root and verify must stay pgx-free (#291) — move the dependency into the engine:\n  %s",
+		t.Fatalf("the verification surface must stay DB-less (#291) — move the dependency into the engine:\n  %s",
 			strings.Join(violations, "\n  "))
 	}
 }

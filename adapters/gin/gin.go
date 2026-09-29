@@ -7,29 +7,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
-
-// Fallback adapts a neutral handler (authhttp.MountHandler) for use as a gin
-// NoRoute fallback. gin pre-sets 404 on the response before running NoRoute
-// handlers, which silently overrides any handler that relies on the implicit
-// 200-on-first-write; this clears the pending status so the mounted handler's
-// own status wins (its 404s still 404).
-//
-//	router.NoRoute(authkitgin.Fallback(mount))
-//
-// For explicit wildcard mounts (r.Any("/oidc/*path", …)) plain gin.WrapH is
-// fine — gin only pre-sets 404 on the NoRoute path.
-//
-// Deprecated: use Mount to register ordinary routes visible to router.Routes().
-// Fallback remains available for hosts adapting a custom HTTP handler.
-func Fallback(h http.Handler) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.WriteHeader(http.StatusOK)
-		h.ServeHTTP(c.Writer, c.Request)
-	}
-}
 
 // Required is the gin-native form of verify.Required (#209): validates the
 // Bearer token and stores claims in the request context, aborting with the
@@ -88,32 +69,29 @@ func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	}
 }
 
-func Principal(c *gin.Context) (authkit.Principal, bool) {
+// Identity returns the verified caller's provider-neutral identity (user,
+// device key, API key, remote application or delegated principal).
+func Identity(c *gin.Context) (auth.Identity, bool) {
 	if c == nil || c.Request == nil {
-		return authkit.Principal{}, false
+		return auth.Identity{}, false
 	}
 	cl, ok := verify.ClaimsFromContext(c.Request.Context())
 	if !ok {
-		return authkit.Principal{}, false
+		return auth.Identity{}, false
 	}
-	p := cl.Principal()
-	return p, p.Kind != ""
+	return cl.Identity()
 }
-
-// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
-// optional fields and the token-time versus live-profile freshness contract.
-type UserClaimsData = verify.UserClaimsData
 
 // UserClaims reads a verified local user without performing a database lookup.
 // Profile availability depends on Required/Optional versus RequiredLive.
-func UserClaims(c *gin.Context) (UserClaimsData, bool) {
+func UserClaims(c *gin.Context) (verify.UserClaimsData, bool) {
 	if c == nil || c.Request == nil {
-		return UserClaimsData{}, false
+		return verify.UserClaimsData{}, false
 	}
 	return verify.UserClaimsFromContext(c.Request.Context())
 }
 
-func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
+func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var mw func(http.Handler) http.Handler
 		if resolve == nil {

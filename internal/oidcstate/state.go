@@ -1,0 +1,43 @@
+// Package oidcstate holds the browser-flow state shared by the HTTP layer and the
+// engine: the pending-login record and PKCE generation. Providers themselves live in authprovider.
+package oidcstate
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"time"
+)
+
+// GeneratePKCE returns a verifier and S256 challenge suitable for the auth request.
+func GeneratePKCE() (verifier string, challenge string, err error) {
+	v := make([]byte, 32)
+	if _, err = rand.Read(v); err != nil {
+		return "", "", err
+	}
+	verifier = base64.RawURLEncoding.EncodeToString(v)
+	sum := sha256.Sum256([]byte(verifier))
+	challenge = base64.RawURLEncoding.EncodeToString(sum[:])
+	return verifier, challenge, nil
+}
+
+// StateData is what we persist for a pending OIDC login.
+type StateData struct {
+	Provider            string
+	Verifier            string
+	Nonce               string
+	RedirectURI         string
+	LinkUserID          string
+	LinkSessionID       string
+	LinkAuthenticatedAt time.Time
+	ReturnTo            string
+	AccountInviteToken  string
+	// StepUp* fields identify a step-up authentication flow for an existing
+	// session. Login/link flows leave these empty.
+	StepUpUserID    string
+	StepUpSessionID string
+	StepUpReturnTo  string
+	StepUpStartedAt time.Time
+	UI              string // "popup" to trigger popup HTML callback; else redirect
+	PopupNonce      string // echoed in popup postMessage for opener validation
+}

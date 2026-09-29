@@ -8,18 +8,10 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
-
-// Fallback adapts authhttp.MountHandler to Fiber. Register it last with
-// app.Use so host routes win and all AuthKit paths retain their full prefix.
-//
-// Deprecated: use Mount to register AuthKit as ordinary, inspectable Fiber
-// routes. Fallback remains available for hosts adapting a custom HTTP handler.
-func Fallback(h http.Handler) fiber.Handler {
-	return httpHandler(h)
-}
 
 func httpHandler(h http.Handler) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -110,33 +102,29 @@ func Claims(c fiber.Ctx) (verify.Claims, bool) {
 	return verify.ClaimsFromContext(c.Context())
 }
 
-// Principal returns the typed user, API-key, or application principal.
-func Principal(c fiber.Ctx) (authkit.Principal, bool) {
+// Identity returns the verified caller's provider-neutral identity (user,
+// device key, API key, remote application or delegated principal).
+func Identity(c fiber.Ctx) (auth.Identity, bool) {
 	cl, ok := Claims(c)
 	if !ok {
-		return authkit.Principal{}, false
+		return auth.Identity{}, false
 	}
-	p := cl.Principal()
-	return p, p.Kind != ""
+	return cl.Identity()
 }
-
-// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
-// optional fields and the token-time versus live-profile freshness contract.
-type UserClaimsData = verify.UserClaimsData
 
 // UserClaims returns only a verified local user, never a machine principal or
 // an external issuer's subject. It performs no database lookup; profile
 // availability depends on Required/Optional versus RequiredLive.
-func UserClaims(c fiber.Ctx) (UserClaimsData, bool) {
+func UserClaims(c fiber.Ctx) (verify.UserClaimsData, bool) {
 	if c == nil {
-		return UserClaimsData{}, false
+		return verify.UserClaimsData{}, false
 	}
 	return verify.UserClaimsFromContext(c.Context())
 }
 
 // RequirePermission checks the canonical permission policy using a
 // Fiber-native scope resolver. Mount after Required or RequiredLive.
-func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
+func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var resolver func(*http.Request) verify.PermissionScope
 		if resolve != nil {

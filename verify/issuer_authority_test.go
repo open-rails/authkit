@@ -13,46 +13,48 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/helpers/auth"
+
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
 type authoritySource struct {
-	app                  *authkit.RemoteApplication
-	authority            authkit.RemoteApplicationAuthority
+	app                  *iam.RemoteApplication
+	authority            iam.RemoteApplicationAuthority
 	getErr, authorityErr error
 	deletedAt            *time.Time
 }
 
-func (s *authoritySource) CanOnGroup(context.Context, authkit.Subject, string, authkit.Perm) (bool, error) {
+func (s *authoritySource) CanOnGroup(context.Context, iam.Subject, string, iam.Perm) (bool, error) {
 	return false, nil
 }
-func (s *authoritySource) GroupInstanceByID(_ context.Context, id string) (authkit.GroupInstance, error) {
-	return authkit.GroupInstance{ID: id, DeletedAt: s.deletedAt}, nil
+func (s *authoritySource) GroupInstanceByID(_ context.Context, id string) (iam.GroupInstance, error) {
+	return iam.GroupInstance{ID: id, DeletedAt: s.deletedAt}, nil
 }
 
-func (s *authoritySource) ListEnabledRemoteApplications(context.Context) ([]authkit.RemoteApplication, error) {
+func (s *authoritySource) ListEnabledRemoteApplications(context.Context) ([]iam.RemoteApplication, error) {
 	if s.app == nil {
 		return nil, nil
 	}
-	return []authkit.RemoteApplication{*s.app}, nil
+	return []iam.RemoteApplication{*s.app}, nil
 }
-func (s *authoritySource) GetRemoteApplication(context.Context, string) (*authkit.RemoteApplication, error) {
+func (s *authoritySource) GetRemoteApplication(context.Context, string) (*iam.RemoteApplication, error) {
 	return s.app, s.getErr
 }
-func (s *authoritySource) ResolveRemoteApplicationAuthority(context.Context, string) (authkit.RemoteApplicationAuthority, error) {
+func (s *authoritySource) ResolveRemoteApplicationAuthority(context.Context, string) (iam.RemoteApplicationAuthority, error) {
 	return s.authority, s.authorityErr
 }
-func (s *authoritySource) ResolveAPIKeyDetailed(context.Context, string, string) (authkit.ResolvedAPIKey, error) {
-	return authkit.ResolvedAPIKey{}, errors.New("unused")
+func (s *authoritySource) ResolveAPIKeyDetailed(context.Context, string, string) (iam.ResolvedAPIKey, error) {
+	return iam.ResolvedAPIKey{}, errors.New("unused")
 }
 
 func storedVerifier(t *testing.T) (*Verifier, *authoritySource, *jwtkit.RSASigner) {
 	t.Helper()
 	app, signer := staticApp(t, "app", "https://application.example")
 	app.ID = "application-id"
-	src := &authoritySource{app: &app, authority: authkit.RemoteApplicationAuthority{
+	src := &authoritySource{app: &app, authority: iam.RemoteApplicationAuthority{
 		Permissions: []string{"repo:read"}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo", InstanceSlug: "alpha",
 	}}
 	v := NewVerifier().WithService(src).WithPermissionChecker(src, "https://local.example")
@@ -76,7 +78,7 @@ func TestStoredIssuerRevocationAcrossVerificationEntrypoints(t *testing.T) {
 					if bound {
 						mc["cnf"] = map[string]any{"x5t#S256": base64.RawURLEncoding.EncodeToString(sum[:])}
 					}
-					token, err := signer.SignWithHeaders(ctx, mc, map[string]any{"typ": DelegatedAccessTokenType})
+					token, err := signer.SignWithHeaders(ctx, mc, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 					require.NoError(t, err)
 					req := httptest.NewRequest(http.MethodGet, "https://resource.example/read", nil)
 					req.Header.Set("Authorization", "Bearer "+token)
@@ -84,7 +86,7 @@ func TestStoredIssuerRevocationAcrossVerificationEntrypoints(t *testing.T) {
 						req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}}
 					}
 					serviceToken, err := signer.SignWithHeaders(ctx, map[string]any{
-						"iss": src.app.Issuer, "aud": "resource", "sub": "service-actor", "token_use": authkit.ServiceJWTTokenUse,
+						"iss": src.app.Issuer, "aud": "resource", "sub": "service-actor", "token_use": iam.ServiceJWTTokenUse,
 						"iat": time.Now().Unix(), "nbf": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "jti": "service-token",
 					}, map[string]any{"typ": "service+jwt"})
 					require.NoError(t, err)
@@ -134,12 +136,12 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 	v, src, signer := storedVerifier(t)
 	token, err := signer.SignWithHeaders(ctx, map[string]any{
 		"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "permissions": []string{"repo:read"}, "exp": time.Now().Add(time.Minute).Unix(),
-	}, map[string]any{"typ": DelegatedAccessTokenType})
+	}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
 	cl, principal, err := v.VerifyDelegatedAccess(ctx, token)
 	require.NoError(t, err)
 	require.NotNil(t, principal.PermissionGroup)
-	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: authkit.Persona(cl.PermissionGroupPersona), Instance: cl.PermissionGroupInstance}, principal.PermissionGroup)
+	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: iam.Persona(cl.PermissionGroupPersona), Instance: cl.PermissionGroupInstance}, principal.PermissionGroup)
 	for name, scope := range map[string]PermissionScope{
 		"own":              {GroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo"},
 		"different UUID":   {GroupID: "group-beta", AuthorityIssuer: "https://local.example", Persona: "repo"},
@@ -150,7 +152,7 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, name == "own", allowed, name)
 	}
-	src.authority = authkit.RemoteApplicationAuthority{Permissions: []string{"repo:read"}}
+	src.authority = iam.RemoteApplicationAuthority{Permissions: []string{"repo:read"}}
 	cl, err = v.Verify(ctx, token)
 	require.NoError(t, err)
 	require.True(t, cl.BoundToPermissionGroup(), "missing binding must not become platform-wide delegation")
@@ -173,7 +175,9 @@ func TestExternalIdentityNeverBecomesLocalUser(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, cl.UserID)
 		require.False(t, cl.IsUser())
-		require.Equal(t, authkit.Principal{Kind: authkit.PrincipalKindUser, Issuer: issuer, Subject: "same-user-id"}, cl.Principal())
+		identity, ok := cl.Identity()
+		require.True(t, ok)
+		require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: issuer, Subject: "same-user-id"}, identity)
 		allowed, err := Allow(ctx, nil, cl, "repo:read", PermissionScope{GroupID: "local-group"})
 		require.NoError(t, err)
 		require.False(t, allowed)
@@ -184,7 +188,7 @@ func TestPermissionCatalogRunsOnEveryTypedDelegation(t *testing.T) {
 	ctx := context.Background()
 	v, signer := confirmationVerifier(t)
 	v.permValidator = func([]string) error { return errors.New("unknown catalog permission") }
-	token := signTyped(t, signer, DelegatedAccessTokenType, delegatedClaims(map[string]any{"permissions": []string{"unknown"}}))
+	token := signTyped(t, signer, jwtkit.DelegatedAccessTokenType, delegatedClaims(map[string]any{"permissions": []string{"unknown"}}))
 	_, err := v.Verify(ctx, token)
 	require.Error(t, err)
 	_, _, err = v.VerifyDelegatedAccess(ctx, token)
@@ -206,27 +210,27 @@ func TestStoredApplicationTrustModeChangesReplaceKeys(t *testing.T) {
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { jwtkit.ServeJWKS(w, r, jwks) }))
 	defer endpoint.Close()
 	mint := func(signer *jwtkit.RSASigner) string {
-		token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": RemoteApplicationAccessTokenType})
+		token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": jwtkit.RemoteApplicationAccessTokenType})
 		require.NoError(t, err)
 		return token
 	}
 	old, fresh := mint(first), mint(second)
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err)
-	src.app.Mode = authkit.RemoteAppModeJWKS
+	src.app.Mode = iam.RemoteAppModeJWKS
 	src.app.JWKSURI = endpoint.URL
 	_, err = v.Verify(ctx, fresh)
 	require.NoError(t, err)
 	_, err = v.Verify(ctx, old)
 	require.Error(t, err)
-	src.app.Mode = authkit.RemoteAppModeStatic
+	src.app.Mode = iam.RemoteAppModeStatic
 	src.app.JWKSURI = ""
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err)
 	_, err = v.Verify(ctx, fresh)
 	require.Error(t, err, "JWKS cache must not override live static keys")
 	jwks = jwtkit.JWKS{Keys: []jwtkit.JWK{jwtkit.PublicToJWK(first.PublicKey(), first.KID(), first.Algorithm())}}
-	src.app.Mode = authkit.RemoteAppModeJWKS
+	src.app.Mode = iam.RemoteAppModeJWKS
 	src.app.JWKSURI = endpoint.URL
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err, "re-enabled JWKS must fetch its current keys")
@@ -239,7 +243,7 @@ func TestStoredDelegationCannotOmitAuthorityBackend(t *testing.T) {
 	_, src, signer := storedVerifier(t)
 	v := NewVerifier()
 	require.NoError(t, v.LoadRemoteApplications(ctx, src, []string{"resource"}))
-	token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": DelegatedAccessTokenType})
+	token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
 	_, _, err = v.VerifyDelegatedAccess(ctx, token)
 	require.Error(t, err, "even empty stored delegation requires live authority resolution")

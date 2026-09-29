@@ -9,42 +9,49 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/open-rails/authkit/authhttp"
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeSurface []string
+
+func (fakeSurface) Handler() http.Handler { return http.NotFoundHandler() }
+func (s fakeSurface) Patterns() []string  { return s }
 
 func TestMountValidatesConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	require.Error(t, Mount(nil, nil))
 	router := gin.New()
 	require.Error(t, Mount(router, nil))
-	require.Error(t, Mount(router, nil, authhttp.MountOptions{}, authhttp.MountOptions{}))
+	require.Error(t, Mount(router, testhttp.Runtime(t, nil)), "a headless runtime has no surface")
 	require.Empty(t, router.Routes())
 }
 
 func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
 	for _, tc := range []struct {
 		name string
-		opts authhttp.MountOptions
+		cfg  func(*authkit.HTTPConfig)
 	}{
-		{name: "default"},
-		{name: "selected groups and prefix", opts: authhttp.MountOptions{
-			APIPrefix: "/identity", Groups: []authhttp.RouteGroup{authhttp.RouteAuth, authhttp.RouteAccount},
-			ExcludeRoutes: []authhttp.RouteRef{{Method: http.MethodGet, Path: "/me"}},
+		{name: "default", cfg: func(*authkit.HTTPConfig) {}},
+		{name: "selected groups and prefix", cfg: func(c *authkit.HTTPConfig) {
+			c.APIPrefix, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAuth, iam.RouteAccount}, []string{"GET /identity/me"}
 		}},
-		{name: "root prefix", opts: authhttp.MountOptions{APIPrefix: "/"}},
+		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPrefix = "/" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			canonical, err := authhttp.NewMount(svc, tc.opts)
-			require.NoError(t, err)
+			cfg := testhttp.HTTP()
+			tc.cfg(cfg)
+			auth := testhttp.Runtime(t, cfg)
+			canonical := auth.Handler()
 			router := gin.New()
 			router.GET("/host-before", func(c *gin.Context) { c.String(http.StatusOK, "before") })
-			require.NoError(t, Mount(router, svc, tc.opts))
+			require.NoError(t, Mount(router, auth))
 			router.GET("/host-after", func(c *gin.Context) { c.String(http.StatusOK, "after") })
 			wantRoutes := map[string]bool{"GET /host-before": true, "GET /host-after": true}
-			for _, route := range canonical.Routes() {
+			for _, route := range auth.Routes() {
 				wantRoutes[route.Method+" "+ginPathSyntax(route.Path)] = true
 			}
 			gotRoutes := make(map[string]bool)
@@ -54,7 +61,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 				gotRoutes[key] = true
 			}
 			require.Equal(t, wantRoutes, gotRoutes, "native route registry differs from canonical catalog")
-			for _, route := range canonical.Routes() {
+			for _, route := range auth.Routes() {
 				requestPath := fillParams(route.Path)
 				probe := func(handler http.Handler) *httptest.ResponseRecorder {
 					r := httptest.NewRequest(route.Method, requestPath, strings.NewReader("{}"))
@@ -80,7 +87,19 @@ type mountContextKey struct{}
 
 func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
+	cfg := testhttp.HTTP()
+	cfg.APIPrefix, cfg.RefreshCookie = "/identity", true
+	cfg.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
+		if route.Path != "/identity/user/providers/{provider}" {
+			return handler
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Set-Cookie", "one=1")
+			w.Header().Add("Set-Cookie", "two=2")
+			io.WriteString(w, r.PathValue("provider")+":"+r.Context().Value(mountContextKey{}).(string))
+		})
+	}
+	auth := testhttp.Runtime(t, cfg)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		if c.GetHeader("X-Host-Deny") == "yes" {
@@ -90,19 +109,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), mountContextKey{}, "host"))
 		c.Next()
 	})
-	require.NoError(t, Mount(router, svc, authhttp.MountOptions{
-		APIPrefix: "/identity", RefreshCookie: true,
-		Wrap: func(spec authhttp.RouteSpec, handler http.Handler) http.Handler {
-			if spec.Path != "/user/providers/{provider}" {
-				return handler
-			}
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Add("Set-Cookie", "one=1")
-				w.Header().Add("Set-Cookie", "two=2")
-				io.WriteString(w, r.PathValue("provider")+":"+r.Context().Value(mountContextKey{}).(string))
-			})
-		},
-	}))
+	require.NoError(t, Mount(router, auth))
 	for _, tc := range []struct {
 		name, contentType, origin, deny string
 		status                          int
@@ -130,10 +137,10 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 
 func TestMountLeavesUnmatchedRequestsToGin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
+	auth := testhttp.Runtime(t, testhttp.HTTP())
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
-	require.NoError(t, Mount(router, svc))
+	require.NoError(t, Mount(router, auth))
 	router.NoRoute(func(c *gin.Context) { c.String(http.StatusNotFound, "host not found") })
 	router.NoMethod(func(c *gin.Context) { c.String(http.StatusMethodNotAllowed, "host method") })
 	for _, tc := range []struct {
@@ -142,7 +149,7 @@ func TestMountLeavesUnmatchedRequestsToGin(t *testing.T) {
 		body         string
 	}{
 		{http.MethodGet, "/unknown", http.StatusNotFound, "host not found"},
-		{http.MethodPost, authhttp.JWKSPath, http.StatusMethodNotAllowed, "host method"},
+		{http.MethodPost, iam.JWKSPath, http.StatusMethodNotAllowed, "host method"},
 	} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
@@ -153,14 +160,14 @@ func TestMountLeavesUnmatchedRequestsToGin(t *testing.T) {
 
 func TestMountRejectsGinConflictsBeforeRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
+	auth := testhttp.Runtime(t, testhttp.HTTP())
 	for _, path := range []string{"/api/v1/me", "/api/v1/admin/users/:name", "/api/v1/*rest"} {
 		t.Run(path, func(t *testing.T) {
 			router := gin.New()
 			router.GET(path, func(c *gin.Context) { c.String(http.StatusOK, "host") })
 			before := router.Routes()
-			err := Mount(router, svc)
-			require.ErrorContains(t, err, "ExcludeRoutes")
+			err := Mount(router, auth)
+			require.ErrorContains(t, err, "HTTPConfig.Exclude")
 			after := router.Routes()
 			require.Len(t, after, len(before), "conflict partially registered AuthKit")
 			require.Equal(t, before[0].Path, after[0].Path)
@@ -173,9 +180,9 @@ func TestMountRejectsGinConflictsBeforeRegistration(t *testing.T) {
 	}
 	router := gin.New()
 	router.GET("/api/v1/me", func(c *gin.Context) { c.String(http.StatusOK, "host profile") })
-	require.NoError(t, Mount(router, svc, authhttp.MountOptions{
-		ExcludeRoutes: []authhttp.RouteRef{{Method: http.MethodGet, Path: "/me"}},
-	}))
+	cfg := testhttp.HTTP()
+	cfg.Exclude = []string{"GET /api/v1/me"}
+	require.NoError(t, Mount(router, testhttp.Runtime(t, cfg)))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
 	require.Equal(t, "host profile", w.Body.String())
@@ -183,17 +190,17 @@ func TestMountRejectsGinConflictsBeforeRegistration(t *testing.T) {
 
 func TestMountRejectsUnsupportedPathsBeforeRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
-	for _, prefix := range []string{"/auth:prefix", "/auth/{rest...}", "/auth//nested", "/auth/../nested"} {
+	for _, path := range []string{"/auth:prefix/me", "/auth/{rest...}", "/auth//nested", "/auth/../nested"} {
 		router := gin.New()
-		require.Error(t, Mount(router, svc, authhttp.MountOptions{APIPrefix: prefix}), prefix)
-		require.Empty(t, router.Routes(), "unsupported prefix left partial routes")
+		require.Error(t, Mount(router, fakeSurface{"GET /fine", "GET " + path}), path)
+		require.Error(t, Mount(router, fakeSurface{"/no-method"}))
+		require.Empty(t, router.Routes(), "unsupported pattern left partial routes")
 	}
 }
 
 func TestMountRejectsGinMiddlewareLimitBeforeRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := newTestService(t)
+	auth := testhttp.Runtime(t, testhttp.HTTP())
 	router := gin.New()
 	// Gin accepts 62 middleware handlers but rejects the 63rd terminal
 	// handler. The scratch engine must include the host's middleware chain.
@@ -202,7 +209,7 @@ func TestMountRejectsGinMiddlewareLimitBeforeRegistration(t *testing.T) {
 		middleware[i] = func(c *gin.Context) { c.Next() }
 	}
 	router.Use(middleware...)
-	require.ErrorContains(t, Mount(router, svc), "too many handlers")
+	require.ErrorContains(t, Mount(router, auth), "too many handlers")
 	require.Empty(t, router.Routes())
 }
 
@@ -225,4 +232,26 @@ func TestGinRoutePath(t *testing.T) {
 		_, err := ginRoutePath(path)
 		require.Error(t, err, path)
 	}
+}
+
+func ginPathSyntax(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			parts[i] = ":" + strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// fillParams substitutes {param} segments with a concrete sample value so a
+// route path becomes a requestable URL.
+func fillParams(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			parts[i] = "google" // valid for {provider}; arbitrary for the rest
+		}
+	}
+	return strings.Join(parts, "/")
 }

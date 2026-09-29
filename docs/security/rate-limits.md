@@ -2,7 +2,7 @@
 
 ## Who is limited
 
-Every route has a per-client-address bucket (`DefaultRateLimits`), keyed by the
+Every route has a per-client-address bucket (`authkit.DefaultRateLimits`), keyed by the
 client IP. IPv6 clients are keyed by their /64, since one subscriber usually
 holds a whole /64.
 
@@ -23,8 +23,8 @@ holds a whole /64.
 ## Where the state lives
 
 Codes, attempt counters and OIDC/SIWS login state live in Postgres and are
-shared by every replica. Rate limits live in memory by default: each process
-counts separately, so N replicas allow N times every limit, including password
-guesses, and AuthKit logs a warning at startup. Set `authhttp.Config.Redis`
-(Redis or Garnet, keys under `RedisKeyPrefix`) to share budgets across
-replicas, or supply a custom `Limiter`.
+shared by every replica. Rate-limit budgets are in-memory by default: each
+process counts separately, so N replicas allow N times every limit, including
+password guesses, and construction logs a warning. Set `HTTPConfig.Redis`
+(Redis or Garnet, keys under `RedisKeyPrefix`) when running more than one
+replica. A custom `HTTPConfig.Limiter` replaces the limiter entirely.

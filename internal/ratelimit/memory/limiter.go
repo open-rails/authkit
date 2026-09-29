@@ -1,0 +1,247 @@
+// Package memorylimiter is the in-memory sliding-window rate limiter over
+// ratelimit.Limit buckets.
+package memorylimiter
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"sync"
+	"time"
+
+	"github.com/open-rails/authkit/internal/ratelimit"
+)
+
+type bucketState struct {
+	// timestamps holds request times in Unix ms, newest last.
+	timestamps []int64
+	// windowMs is the retention window (in ms) for this bucket, recorded on the
+	// most recent access. It lets a background sweep evict the bucket once all
+	// of its timestamps have aged out, without re-deriving the limit from the
+	// composite map key.
+	windowMs int64
+}
+
+// DefaultMaxBuckets caps distinct (key, bucket) states held in memory (#305).
+const DefaultMaxBuckets = 100_000
+
+// Limiter is an in-memory sliding-window rate limiter.
+// It is intended as a single-node fallback when Redis is unavailable.
+type Limiter struct {
+	mu         sync.Mutex
+	limits     map[string]ratelimit.Limit
+	buckets    map[string]*bucketState
+	maxBuckets int
+	now        func() time.Time
+}
+
+type Option func(*Limiter)
+
+// WithMaxBuckets caps the number of live bucket states. Once full (after an
+// inline sweep of aged-out buckets) a request for a NEW key is denied: under a
+// key-flood the limiter fails closed rather than growing without bound.
+func WithMaxBuckets(n int) Option { return func(l *Limiter) { l.maxBuckets = n } }
+
+// WithClock replaces the window clock (tests advance it instead of sleeping).
+func WithClock(now func() time.Time) Option { return func(l *Limiter) { l.now = now } }
+
+// New constructs a new in-memory limiter with the provided per-bucket limits.
+func New(limits map[string]ratelimit.Limit, opts ...Option) (*Limiter, error) {
+	if err := ratelimit.ValidateLimits(limits); err != nil {
+		return nil, err
+	}
+	l := &Limiter{
+		limits:     maps.Clone(limits),
+		buckets:    make(map[string]*bucketState),
+		maxBuckets: DefaultMaxBuckets,
+		now:        time.Now,
+	}
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("ratelimit: nil option")
+		}
+		opt(l)
+	}
+	if l.maxBuckets <= 0 || l.now == nil {
+		return nil, fmt.Errorf("ratelimit: positive max buckets and non-nil clock required")
+	}
+	return l, nil
+}
+
+// AllowNamed matches the auth adapter's RateLimiter interface.
+// It uses a simple sliding window over the configured duration, pruning
+// expired entries for the touched bucket on each call.
+//
+// Note that per-call pruning only ever touches buckets that are still being
+// hit; buckets for keys that go idle (e.g. a one-off request from an IP that
+// never returns) are never revisited and would otherwise live forever. Hosts
+// exposing this limiter on attacker-influenced keys (per-IP, per-identifier)
+// should run StartCleanup so idle buckets are reclaimed. See Cleanup.
+func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
+	result, err := l.AllowNamedResult(bucket, key)
+	return result.Allowed, err
+}
+
+func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error) {
+	if l == nil {
+		return ratelimit.Result{Allowed: true}, nil
+	}
+	if bucket == "" || key == "" {
+		return ratelimit.Result{}, fmt.Errorf("bucket and key required")
+	}
+
+	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
+	nowMs := l.now().UnixNano() / 1e6
+	windowStart := nowMs - lim.Window.Milliseconds()
+	limitKey := fmt.Sprintf("%s:%s", key, bucket)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b, ok := l.buckets[limitKey]
+	if !ok {
+		if len(l.buckets) >= l.maxBuckets && l.cleanupLocked(nowMs) >= l.maxBuckets {
+			return ratelimit.Result{
+				Allowed: false, RetryAfter: lim.Window, Reason: ratelimit.ReasonLimitExceeded,
+				Limit: lim.Limit, Window: lim.Window, Cooldown: lim.Cooldown,
+			}, nil
+		}
+		b = &bucketState{}
+		l.buckets[limitKey] = b
+	}
+	b.windowMs = lim.Window.Milliseconds()
+
+	// Prune timestamps outside the window.
+	ts := b.timestamps
+	pruneIdx := 0
+	for pruneIdx < len(ts) && ts[pruneIdx] <= windowStart {
+		pruneIdx++
+	}
+	if pruneIdx > 0 {
+		ts = ts[pruneIdx:]
+	}
+
+	var retryAfter time.Duration
+	var retryReason string
+	if lim.Cooldown > 0 && len(ts) > 0 {
+		nextAllowedMs := ts[len(ts)-1] + lim.Cooldown.Milliseconds()
+		if nowMs < nextAllowedMs {
+			retryAfter = time.Duration(nextAllowedMs-nowMs) * time.Millisecond
+			retryReason = ratelimit.ReasonCooldown
+		}
+	}
+
+	if len(ts) >= lim.Limit {
+		windowRetryAfter := time.Duration(ts[0]+lim.Window.Milliseconds()-nowMs) * time.Millisecond
+		if windowRetryAfter < 0 {
+			windowRetryAfter = 0
+		}
+		if windowRetryAfter > retryAfter {
+			retryAfter = windowRetryAfter
+			retryReason = ratelimit.ReasonLimitExceeded
+		}
+	}
+
+	if retryAfter > 0 {
+		// Deny without recording this attempt.
+		b.timestamps = ts
+		return ratelimit.Result{
+			Allowed:    false,
+			RetryAfter: retryAfter,
+			Reason:     retryReason,
+			Limit:      lim.Limit,
+			Remaining:  ratelimit.Remaining(lim.Limit, int64(len(ts))),
+			Window:     lim.Window,
+			Cooldown:   lim.Cooldown,
+		}, nil
+	}
+
+	// Record this request and allow. (ts is non-empty here, so there is no
+	// empty-bucket case to drop on this path; idle buckets are reclaimed by
+	// Cleanup instead.)
+	ts = append(ts, nowMs)
+	b.timestamps = ts
+
+	return ratelimit.Result{
+		Allowed:   true,
+		Limit:     lim.Limit,
+		Remaining: ratelimit.Remaining(lim.Limit, int64(len(ts))),
+		Window:    lim.Window,
+		Cooldown:  lim.Cooldown,
+	}, nil
+}
+
+// Cleanup prunes expired timestamps from every bucket and deletes buckets that
+// have no live timestamps left, then returns the number of buckets still
+// retained. It is safe to call concurrently with AllowNamed* and is the
+// mechanism that bounds memory when the limiter is keyed on a high-cardinality,
+// attacker-influenced dimension (per-IP, per-identifier): without it, every
+// distinct key leaves behind a bucket that is never revisited.
+// Len reports the number of live bucket states.
+func (l *Limiter) Len() int {
+	if l == nil {
+		return 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.buckets)
+}
+
+func (l *Limiter) Cleanup() int {
+	if l == nil {
+		return 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cleanupLocked(l.now().UnixNano() / 1e6)
+}
+
+func (l *Limiter) cleanupLocked(nowMs int64) int {
+	for k, b := range l.buckets {
+		if b == nil {
+			delete(l.buckets, k)
+			continue
+		}
+		windowStart := nowMs - b.windowMs
+		ts := b.timestamps
+		pruneIdx := 0
+		for pruneIdx < len(ts) && ts[pruneIdx] <= windowStart {
+			pruneIdx++
+		}
+		if pruneIdx > 0 {
+			ts = ts[pruneIdx:]
+		}
+		if len(ts) == 0 {
+			delete(l.buckets, k)
+			continue
+		}
+		// Re-slice into a fresh backing array so a long-lived bucket that has
+		// mostly aged out doesn't retain the original (larger) array.
+		trimmed := make([]int64, len(ts))
+		copy(trimmed, ts)
+		b.timestamps = trimmed
+	}
+	return len(l.buckets)
+}
+
+// StartCleanup runs Cleanup on the given interval until ctx is cancelled. It
+// returns immediately, spawning a single background goroutine; cancel ctx to
+// stop it. A non-positive interval is treated as a no-op (returns without
+// starting a goroutine) so misconfiguration can't spin a hot loop.
+func (l *Limiter) StartCleanup(ctx context.Context, interval time.Duration) {
+	if l == nil || interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				l.Cleanup()
+			}
+		}
+	}()
+}

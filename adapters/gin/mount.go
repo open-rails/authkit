@@ -4,71 +4,82 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
+	"net/http"
 	"path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 )
 
-// Mount registers AuthKit's configured routes directly on router. Each route,
-// including HEAD, appears in router.Routes(). Call Mount during application
-// setup, before serving requests.
-//
-// The optional MountOptions selects route groups, exclusions, the API prefix,
-// wrappers, and refresh-cookie policy. JWKS, documents, and browser OIDC keep
-// their standard root paths. Handlers use AuthKit's canonical HTTP pipeline,
-// preserving authentication, JSON guards, cookies, and request context. Host
-// middleware applies normally; unmatched paths and methods use Gin's routing.
-//
-// Conflicting routes and unsupported patterns return an error before any route
-// is registered. Use MountOptions.ExcludeRoutes for host-owned replacements.
-func Mount(router *gin.Engine, svc *authhttp.Service, options ...authhttp.MountOptions) error {
+// Surface is AuthKit's HTTP surface; *authkit.Auth implements it.
+type Surface interface {
+	Handler() http.Handler
+	Patterns() []string
+}
+
+type route struct{ method, path string }
+
+// Mount registers every AuthKit route natively on router, so each appears in
+// router.Routes() (GET routes also as HEAD). Call it during setup, before
+// serving requests. Every route is served by the surface's one handler, which
+// keeps AuthKit's authentication, JSON guards, cookies and request context.
+// Conflicting routes and unsupported patterns return an error before any
+// route is registered; exclude host replacements with HTTPConfig.Exclude.
+func Mount(router *gin.Engine, s Surface) error {
 	if router == nil {
 		return errors.New("authkitgin: Mount requires a Gin engine")
 	}
-	if len(options) > 1 {
-		return errors.New("authkitgin: Mount accepts at most one MountOptions")
+	if s == nil || s.Handler() == nil {
+		return errors.New("authkitgin: Mount requires a configured AuthKit HTTP surface")
 	}
-	var opts authhttp.MountOptions
-	if len(options) == 1 {
-		opts = options[0]
+	var routes []route
+	for _, pattern := range s.Patterns() {
+		method, p, ok := strings.Cut(pattern, " ")
+		if !ok {
+			return fmt.Errorf("authkitgin: unsupported HTTP route pattern %q", pattern)
+		}
+		converted, err := ginRoutePath(p)
+		if err != nil {
+			return err
+		}
+		routes = append(routes, route{method, converted})
+		if method == http.MethodGet {
+			routes = append(routes, route{http.MethodHead, converted})
+		}
 	}
-	mount, err := authhttp.NewMount(svc, opts)
-	if err != nil {
+	if err := validateMountRoutes(router, routes); err != nil {
 		return err
 	}
-	routes := make([]embedded.HTTPRoute, 0, len(mount.Routes()))
-	for _, r := range mount.Routes() {
-		routes = append(routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+	h := gin.WrapH(s.Handler())
+	for _, r := range routes {
+		router.Handle(r.method, r.path, h)
 	}
-	return mountHTTPRoutes(router, routes)
+	return nil
 }
 
 // Gin rejects incompatible wildcard branches by panicking. Replay the proposed
 // tree on a scratch engine so configuration errors cannot partially mount the
 // real application. Reuse Gin's own rules rather than maintaining a matcher.
-func validateMountRoutes(router *gin.Engine, routes []embedded.HTTPRoute) (err error) {
+func validateMountRoutes(router *gin.Engine, routes []route) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("authkitgin: incompatible route configuration: %v; use MountOptions.ExcludeRoutes for host replacements", recovered)
+			err = fmt.Errorf("authkitgin: incompatible route configuration: %v; exclude host replacements with HTTPConfig.Exclude", recovered)
 		}
 	}()
 	probe := gin.New()
 	probe.Use(router.Handlers...)
 	placeholder := func(*gin.Context) {}
-	for _, route := range router.Routes() {
-		probe.Handle(route.Method, route.Path, placeholder)
+	for _, r := range router.Routes() {
+		probe.Handle(r.Method, r.Path, placeholder)
 	}
-	for _, route := range routes {
-		probe.Handle(route.Method, route.Path, placeholder)
+	for _, r := range routes {
+		probe.Handle(r.method, r.path, placeholder)
 	}
 	return nil
 }
 
-// AuthKit currently uses complete named segments. Reject broader ServeMux
-// patterns and Gin metacharacters rather than changing their meaning.
+// AuthKit uses complete named segments. Reject broader ServeMux patterns and
+// Gin metacharacters rather than changing their meaning.
 func ginRoutePath(routePath string) (string, error) {
 	unsupported := func() (string, error) {
 		return "", fmt.Errorf("authkitgin: unsupported HTTP route pattern %q", routePath)
@@ -89,26 +100,4 @@ func ginRoutePath(routePath string) (string, error) {
 		}
 	}
 	return strings.Join(parts, "/"), nil
-}
-
-func mountHTTPRoutes(router *gin.Engine, routes []embedded.HTTPRoute) error {
-	if router == nil {
-		return errors.New("authkitgin: Mount requires a Gin engine")
-	}
-	routes = append([]embedded.HTTPRoute(nil), routes...)
-
-	for i := range routes {
-		converted, err := ginRoutePath(routes[i].Path)
-		if err != nil {
-			return err
-		}
-		routes[i].Path = converted
-	}
-	if err := validateMountRoutes(router, routes); err != nil {
-		return err
-	}
-	for _, route := range routes {
-		router.Handle(route.Method, route.Path, gin.WrapH(route.Handler))
-	}
-	return nil
 }

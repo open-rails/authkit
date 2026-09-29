@@ -5,17 +5,18 @@ Databases built by the v0.106.2–v0.124.0 baselines are converted in place (see
 [Retired baselines](#retired-baselines)); older histories are unsupported and
 must be rebuilt from approved source data. Migration never drops an existing
 application's tables.
-The migration source is private to AuthKit. Hosts call
-`embedded.ApplyMigrations`, which uses the canonical `authkit` ledger
-namespace and creates the configured target schema.
+The migration source is private to AuthKit. Hosts call `authkit.Migrate`,
+which uses the canonical `authkit` ledger namespace and creates the configured
+target schema.
 
-`embedded.ApplyMigrations(ctx, pool, schema)` returns only an error. Migration
+`authkit.Migrate(ctx, pool, authkit.MigrateOptions{Schema: schema})` returns
+only an error. Migration
 readiness is established by a successful apply; there is no operational need to
 attribute individual migration rows to one replica when several replicas start
 concurrently.
 
 For separate migration and application credentials, pass
-`embedded.MigrationOptions{RuntimePool: applicationPool}`. The initializer
+`authkit.MigrateOptions{RuntimePool: applicationPool}`. The initializer
 resolves the connected application's database user and grants its runtime
 permissions directly, without creating roles or memberships. The two pools
 must target the same database. A missing runtime pool retains migration-only
@@ -27,13 +28,13 @@ migration begins. With host-owned River, its grants remain host-owned too.
 `0001_schema.up.sql` installs the fresh baseline, including recoverable account
 deletion and delivery receipts. `0002_group_soft_deletion.up.sql` adds retained
 inactive group state without rewriting that published baseline or existing rows.
-Call `embedded.ApplyMigrations` to initialize a fresh database or apply numbered
+Call `authkit.Migrate` to initialize a fresh database or apply numbered
 follow-up migrations to that exact baseline. River owns its independent
 migration chain. Published tags remain immutable.
 
 ## Retired baselines
 
-`embedded.ApplyMigrations` converts a database built by a retired baseline
+`authkit.Migrate` converts a database built by a retired baseline
 before applying anything else (migratekit verified conversions,
 `internal/migrations/retired`):
 

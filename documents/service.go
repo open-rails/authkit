@@ -412,3 +412,20 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// Provider publishes one document type: the HTTP layer serves its persisted
+// documents and stamps its current reference into delegated tokens. *Service
+// implements it.
+type Provider interface {
+	// Reference is the process snapshot reference stamped into minted tokens.
+	Reference() Reference
+	// Lookup serves any persisted digest for the publication route.
+	Lookup(ctx context.Context, digest string) (SignedDocument, error)
+	// CurrentDigest re-validates (and repairs) the persisted snapshot artifact.
+	CurrentDigest(ctx context.Context) (string, error)
+	// EnsureSigningKID re-signs the artifact when it is not signed by the key
+	// that just minted a token referencing it.
+	EnsureSigningKID(ctx context.Context, tokenKID string) error
+}
+
+var _ Provider = (*Service)(nil)

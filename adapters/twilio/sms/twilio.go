@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/adapters/twilio/internal/twiliocommon"
-	"github.com/open-rails/authkit/embedded"
 )
 
 const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
 
 // VerificationBuilder renders a verification SMS body.
-type VerificationBuilder func(ctx context.Context, phone string, msg embedded.VerificationMessage) string
+type VerificationBuilder func(ctx context.Context, phone string, msg authkit.VerificationMessage) string
 
 // PasswordResetBuilder renders a password reset SMS body.
 type PasswordResetBuilder func(ctx context.Context, phone, resetURL string) string
@@ -93,7 +93,7 @@ func (s *Sender) httpClient() *http.Client {
 	return twiliocommon.DefaultHTTPClient(s.Client)
 }
 
-func (s *Sender) SendVerification(ctx context.Context, phone string, msg embedded.VerificationMessage) error {
+func (s *Sender) SendVerification(ctx context.Context, phone string, msg authkit.VerificationMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (s *Sender) SendLoginCode(ctx context.Context, phone, code string) error {
 	return s.sendMessage(ctx, phone, body)
 }
 
-func (s *Sender) SendContactChanged(ctx context.Context, phone string, change embedded.ContactChange) error {
+func (s *Sender) SendContactChanged(ctx context.Context, phone string, change authkit.ContactChange) error {
 	body := fmt.Sprintf("%s: the %s on your account was changed to %s. If this was not you, secure your account now.", s.appLabel(), change.Field, change.NewValue)
 	return s.sendMessage(ctx, phone, body)
 }
@@ -134,7 +134,7 @@ func contextLanguage(ctx context.Context) string {
 	return twiliocommon.ContextLanguage(ctx)
 }
 
-func defaultVerificationBody(ctx context.Context, app string, msg embedded.VerificationMessage) string {
+func defaultVerificationBody(ctx context.Context, app string, msg authkit.VerificationMessage) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(msg.Code) != "" {
 		action := "verification"

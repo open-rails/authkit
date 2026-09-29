@@ -35,7 +35,7 @@ Two pieces make rotation reboot-free:
    every `DefaultKeyReloadInterval` (10s, overridable via `jwtkit.NewFileKeySource`)
    and atomically swaps in the new keystore on change. A malformed/unreadable
    file is rejected and the last-good keystore is kept (a bad render never
-   bricks signing). `*embedded.Client` reads `ActiveSigner()`/
+   bricks signing). The AuthKit engine reads `ActiveSigner()`/
    `PublicKeys()` from this source on every mint/JWKS call — never a snapshot
    taken once at construction (#238) — so the issuer's own
    `/.well-known/jwks.json` and new mints reflect a rotation within ~10s, no

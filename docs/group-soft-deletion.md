@@ -27,7 +27,7 @@ and diagnosis. Name lookup, membership discovery and ordinary HTTP authorization
 exclude retired groups. `verify.Allow` and the neutral principal's scoped machine
 `Can` require the checker's existing `GroupInstanceByID` capability; absence or
 lookup failure fails closed. This reads group liveness without resolving the
-credential or consuming sender proof again. Runtime composition wires the same
+credential or consuming sender proof again. `authkit.New` wires the same
 engine automatically; manually constructed scoped verifiers must supply it with
 `WithPermissionChecker`. Captured permission ceilings still cannot expand.
 

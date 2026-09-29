@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // ContextLanguage resolves the request's language to a supported sender locale,
 // falling back to "en" (only "es" is otherwise supported today).
 func ContextLanguage(ctx context.Context) string {
-	language, ok := authkit.LanguageFromContext(ctx)
+	language, ok := iam.LanguageFromContext(ctx)
 	if !ok {
 		return "en"
 	}

@@ -17,8 +17,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -108,16 +108,16 @@ func verifyOptions(issuer string, document documents.SignedDocument) documents.V
 	}
 }
 
-func staticApp(t *testing.T, slug, issuer string) (authkit.RemoteApplication, *jwtkit.RSASigner) {
+func staticApp(t *testing.T, slug, issuer string) (iam.RemoteApplication, *jwtkit.RSASigner) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(signer.PublicKey())
 	require.NoError(t, err)
 	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-	return authkit.RemoteApplication{
-		Slug: slug, Issuer: issuer, Enabled: true, Mode: authkit.RemoteAppModeStatic,
-		PublicKeys: []authkit.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: pemKey}},
+	return iam.RemoteApplication{
+		Slug: slug, Issuer: issuer, Enabled: true, Mode: iam.RemoteAppModeStatic,
+		PublicKeys: []iam.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: pemKey}},
 	}, signer
 }
 
@@ -140,7 +140,7 @@ func mintStatelessAccess(t *testing.T, signer jwtkit.Signer, iss, aud, sub strin
 		"sub": sub,
 		"iat": now.Add(-time.Minute).Unix(),
 		"exp": now.Add(time.Hour).Unix(),
-	}, map[string]any{"typ": AccessTokenType})
+	}, map[string]any{"typ": jwtkit.AccessTokenType})
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}

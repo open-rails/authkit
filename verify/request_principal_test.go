@@ -12,8 +12,9 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdpop"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
@@ -29,16 +30,16 @@ type principalAuthority struct {
 	err     error
 }
 
-func (s *principalAuthority) CanOnGroup(_ context.Context, subject authkit.Subject, group string, permission authkit.Perm) (bool, error) {
+func (s *principalAuthority) CanOnGroup(_ context.Context, subject iam.Subject, group string, permission iam.Perm) (bool, error) {
 	s.calls++
-	return s.allowed && subject == authkit.UserSubject("native-user") && group == "group-1" && permission == "repo:read", s.err
+	return s.allowed && subject == iam.UserSubject("native-user") && group == "group-1" && permission == "repo:read", s.err
 }
 
 type principalLiveness struct{ calls int }
 
-func (s *principalLiveness) UserLivenessByIDs(context.Context, []string) (map[string]authkit.UserLiveness, error) {
+func (s *principalLiveness) UserLivenessByIDs(context.Context, []string) (map[string]iam.UserLiveness, error) {
 	s.calls++
-	return map[string]authkit.UserLiveness{"native-user": {Allowed: false}}, nil
+	return map[string]iam.UserLiveness{"native-user": {Allowed: false}}, nil
 }
 
 func principalRequest(token string) *http.Request {
@@ -94,23 +95,23 @@ func TestRequestPrincipalNativeAuthorityAndExplicitLiveness(t *testing.T) {
 
 type principalAPIKeySource struct {
 	authoritySource
-	resolved authkit.ResolvedAPIKey
+	resolved iam.ResolvedAPIKey
 	err      error
 	calls    int
 }
 
-func (s *principalAPIKeySource) ResolveAPIKeyDetailed(_ context.Context, key, secret string) (authkit.ResolvedAPIKey, error) {
+func (s *principalAPIKeySource) ResolveAPIKeyDetailed(_ context.Context, key, secret string) (iam.ResolvedAPIKey, error) {
 	s.calls++
 	if key != "presented" || secret != "secret" {
-		return authkit.ResolvedAPIKey{}, authkit.ErrInvalidAccessToken
+		return iam.ResolvedAPIKey{}, iam.ErrInvalidAccessToken
 	}
 	return s.resolved, s.err
 }
 
 func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
-	source := &principalAPIKeySource{resolved: authkit.ResolvedAPIKey{APIKeyID: "immutable-key-id", PermissionGroupID: "group-1", AuthorityIssuer: confirmationIssuer, Persona: "repo", Permissions: []string{"repo:read"}}}
+	source := &principalAPIKeySource{resolved: iam.ResolvedAPIKey{APIKeyID: "immutable-key-id", PermissionGroupID: "group-1", AuthorityIssuer: confirmationIssuer, Persona: "repo", Permissions: []string{"repo:read"}}}
 	v := NewVerifier().WithService(source).WithPermissionChecker(source, confirmationIssuer)
-	r := principalRequest(authkit.FormatAPIKey("", "presented", "secret"))
+	r := principalRequest(iam.FormatAPIKey("", "presented", "secret"))
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
 	require.Equal(t, auth.Identity{Kind: auth.KindAPIKey, Issuer: confirmationIssuer, Subject: "immutable-key-id"}, p.Identity())
@@ -141,7 +142,7 @@ func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, allowed, "same captured credential observes group retirement")
 	require.Equal(t, 1, source.calls, "group liveness never repeats credential verification")
-	for _, failure := range []struct{ source, neutral error }{{authkit.ErrAccessTokenExpired, auth.ErrExpired}, {authkit.ErrAccessTokenRevoked, auth.ErrRevoked}} {
+	for _, failure := range []struct{ source, neutral error }{{iam.ErrAccessTokenExpired, auth.ErrExpired}, {iam.ErrAccessTokenRevoked, auth.ErrRevoked}} {
 		source.err = failure.source
 		_, err := v.AuthenticateRequest(r.Context(), r)
 		require.ErrorIs(t, err, failure.neutral)
@@ -156,7 +157,7 @@ func TestRequestPrincipalDPoPVerifiedOnceAndScoped(t *testing.T) {
 	require.NoError(t, err)
 	thumbprint := sha256.Sum256(fmt.Appendf(nil, `{"crv":"P-256","kty":"EC","x":"%s","y":"%s"}`, base64.RawURLEncoding.EncodeToString(public[1:33]), base64.RawURLEncoding.EncodeToString(public[33:])))
 	claims := jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "delegated_sub": "external-user", "permissions": []string{"repo:read"}, "exp": time.Now().Add(time.Minute).Unix(), "cnf": map[string]any{"jkt": base64.RawURLEncoding.EncodeToString(thumbprint[:])}}
-	token := signTyped(t, signer, DelegatedAccessTokenType, claims)
+	token := signTyped(t, signer, jwtkit.DelegatedAccessTokenType, claims)
 	proofCalls := 0
 	seen := map[string]bool{}
 	WithDPoP(func(_ context.Context, key string, _ time.Duration) (bool, error) {
@@ -211,7 +212,7 @@ func TestRequestPrincipalDPoPVerifiedOnceAndScoped(t *testing.T) {
 
 func TestRequestPrincipalRemoteApplicationUsesImmutableIdentity(t *testing.T) {
 	v, source, signer := storedVerifier(t)
-	token := signTyped(t, signer, RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()})
+	token := signTyped(t, signer, jwtkit.RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()})
 	r := principalRequest(token)
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
@@ -229,9 +230,9 @@ func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 		kind   auth.Kind
 		claims jwt.MapClaims
 	}{
-		{"external user", false, AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}},
-		{"device key", true, AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}},
-		{"unbound delegation", false, DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}},
+		{"external user", false, jwtkit.AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}},
+		{"device key", true, jwtkit.AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}},
+		{"unbound delegation", false, jwtkit.DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, signer := confirmationVerifier(t)

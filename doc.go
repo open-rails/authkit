@@ -1,26 +1,15 @@
-// Package authkit defines the public contracts shared by AuthKit hosts, the
-// embedded engine, HTTP transports, and verification code.
+// Package authkit embeds AuthKit in a Go host: accounts, sessions, MFA,
+// passkeys, permission groups, API keys and remote applications on the
+// host's PostgreSQL.
 //
-// The root package owns Client, domain and wire types, typed identifiers,
-// policy vocabulary, and the error catalog. It also owns the small shared
-// operations on those contracts: credential parsing, permission matching,
-// naming-policy evaluation and response encoding.
-// Importing it does not construct an engine or connect to a database.
+// Run Migrate, then New with a Config and Deps. New returns *Auth, the one
+// host type: its methods are the host operations, Verifier and
+// Require/Optional/RequireLive verify requests, and with Config.HTTP set,
+// Handler serves AuthKit's HTTP surface (Mount, Patterns and Routes place it
+// on a router). If the entitlements provider needs the Auth first, pass it to
+// SetEntitlements, then call Start.
 //
-// Construct the engine with embedded.New. Call embedded.ApplyMigrations before
-// construction so AuthKit owns its schema and migration runner. Mount
-// authentication routes through authhttp or a framework adapter, and use
-// verify for credential verification and request authorization. Database
-// access, token issuance, and authentication workflows are implemented by
-// embedded, not this package.
-//
-// Client describes host operations implemented by embedded.Runtime. A host can
-// define a smaller interface for the operations it needs; Client membership
-// does not define the full supported API. Documented concrete operations are
-// also covered by the repository's SEMVER.md contract.
-//
-// The root package remains independent of PostgreSQL drivers and framework
-// adapters. Document aliases and the internal error model share their canonical
-// definitions without importing the engine. The dependency guard tests preserve
-// this boundary for both authkit and verify.
+// Shared identity and access types live in package iam; package verify
+// verifies tokens without a database, and the adapters mount AuthKit on Gin
+// or Fiber. docs/stability.md states what is stable.
 package authkit

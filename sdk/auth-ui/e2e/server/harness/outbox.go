@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 // Message is one captured email/SMS delivery.
@@ -50,7 +50,7 @@ func (o *Outbox) List(to string) []Message {
 
 type emailSender struct{ o *Outbox }
 
-func (s emailSender) SendVerification(_ context.Context, email, _ string, msg embedded.VerificationMessage) error {
+func (s emailSender) SendVerification(_ context.Context, email, _ string, msg authkit.VerificationMessage) error {
 	return s.o.add(Message{Channel: "email", To: email, Kind: "verification", Purpose: msg.Purpose, Code: msg.Code, Link: msg.LinkURL})
 }
 func (s emailSender) SendPasswordResetLink(_ context.Context, email, _, url string) error {
@@ -65,16 +65,16 @@ func (s emailSender) SendLoginCode(_ context.Context, email, _, code string) err
 func (s emailSender) SendWelcome(_ context.Context, email, _ string) error {
 	return s.o.add(Message{Channel: "email", To: email, Kind: "welcome"})
 }
-func (s emailSender) SendContactChanged(_ context.Context, email, _ string, c embedded.ContactChange) error {
+func (s emailSender) SendContactChanged(_ context.Context, email, _ string, c authkit.ContactChange) error {
 	return s.o.add(Message{Channel: "email", To: email, Kind: "contact_changed", Detail: c.Field + ":" + c.NewValue})
 }
-func (s emailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, n embedded.DeviceKeyNotice) error {
+func (s emailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, n authkit.DeviceKeyNotice) error {
 	return s.o.add(Message{Channel: "email", To: email, Kind: "device_key_enrolled", Detail: n.Label})
 }
 
 type smsSender struct{ o *Outbox }
 
-func (s smsSender) SendVerification(_ context.Context, phone string, msg embedded.VerificationMessage) error {
+func (s smsSender) SendVerification(_ context.Context, phone string, msg authkit.VerificationMessage) error {
 	return s.o.add(Message{Channel: "sms", To: phone, Kind: "verification", Purpose: msg.Purpose, Code: msg.Code, Link: msg.LinkURL})
 }
 func (s smsSender) SendPasswordResetLink(_ context.Context, phone, url string) error {
@@ -83,6 +83,6 @@ func (s smsSender) SendPasswordResetLink(_ context.Context, phone, url string) e
 func (s smsSender) SendLoginCode(_ context.Context, phone, code string) error {
 	return s.o.add(Message{Channel: "sms", To: phone, Kind: "login_code", Code: code})
 }
-func (s smsSender) SendContactChanged(_ context.Context, phone string, c embedded.ContactChange) error {
+func (s smsSender) SendContactChanged(_ context.Context, phone string, c authkit.ContactChange) error {
 	return s.o.add(Message{Channel: "sms", To: phone, Kind: "contact_changed", Detail: c.Field + ":" + c.NewValue})
 }

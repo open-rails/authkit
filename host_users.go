@@ -1,0 +1,646 @@
+package authkit
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
+)
+
+// User directory and lifecycle: lookups, access/ban checks, create, import,
+// update (email/username), ban/unban, soft/host delete.
+
+func userFromByIDRow(r db.UserByIDRow) *iam.User {
+	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
+}
+
+func userFromByEmailRow(r db.UserByEmailRow) *iam.User {
+	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByPhoneRow(r db.UserByPhoneRow) *iam.User {
+	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func (s *engine) getUserByEmail(ctx context.Context, email string) (*iam.User, error) {
+	if s.pg == nil {
+		return nil, nil
+	}
+	r, err := s.q.UserByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByEmailRow(r), nil
+}
+
+// GetUserByEmail looks up a user by email.
+func (s *engine) GetUserByEmail(ctx context.Context, email string) (*iam.User, error) {
+	return s.getUserByEmail(ctx, email)
+}
+
+func (s *engine) getUserByUsername(ctx context.Context, username string) (*iam.User, error) {
+	if s.pg == nil {
+		return nil, nil
+	}
+	resolution, err := s.ResolveUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	return s.getUserByID(ctx, resolution.ID)
+}
+
+// GetUserByUsername looks up a user by username.
+func (s *engine) GetUserByUsername(ctx context.Context, username string) (*iam.User, error) {
+	return s.getUserByUsername(ctx, username)
+}
+
+func (s *engine) getUserByID(ctx context.Context, id string) (*iam.User, error) {
+	if s.pg == nil {
+		return nil, nil
+	}
+	r, err := s.q.UserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByIDRow(r), nil
+}
+
+// livenessAllowed is THE account-liveness policy, in one place: a loaded user
+// row passes only when it is not soft-deleted, not reserved, and not banned.
+// Both gates evaluate it — ensureUserAccess for the single-user login/refresh
+// path (which resolves `reserved` with its own query) and UserLivenessByIDs for
+// the batch per-request path (#267, which resolves it in the same query) — so
+// the two can never disagree about who is live. autoUnbanIfExpired must already
+// have run on u, since an expired temporary ban is allowed.
+func livenessAllowed(u *iam.User, reserved bool) bool {
+	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
+}
+
+func (s *engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
+	if u == nil {
+		return jwt.ErrTokenInvalidClaims
+	}
+	if u.DeletedAt != nil {
+		return iam.ErrUserBanned
+	}
+	reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID))
+	if err != nil {
+		return err
+	}
+	if reserved {
+		return iam.ErrUserBanned
+	}
+	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
+		return err
+	}
+	if !livenessAllowed(u, reserved) {
+		return iam.ErrUserBanned
+	}
+	return nil
+}
+
+func (s *engine) ensureUserAccessByID(ctx context.Context, userID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return jwt.ErrTokenInvalidClaims
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return errOrUnauthorized(err)
+	}
+	return s.ensureUserAccess(ctx, u)
+}
+
+func (s *engine) autoUnbanIfExpired(ctx context.Context, u *iam.User) error {
+	if u == nil || u.BannedUntil == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	if !u.BannedUntil.After(now) {
+		if err := s.clearUserBan(ctx, u.ID); err != nil {
+			return err
+		}
+		u.BannedAt = nil
+		u.BannedUntil = nil
+		u.BanReason = nil
+		u.BannedBy = nil
+	}
+	return nil
+}
+
+func isUserBanned(u *iam.User) bool {
+	if u == nil {
+		return false
+	}
+	return u.BannedAt != nil || u.BannedUntil != nil || u.BanReason != nil || u.BannedBy != nil
+}
+
+// mapUserUniqueViolation turns a users-table unique violation into the typed
+// conflict the identifier's flows already speak (#326): the race loser of a
+// check-then-insert gets username_in_use / email_in_use / phone_in_use, never
+// a raw 23505.
+func mapUserUniqueViolation(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case isUniqueViolation(err, "users_username_key"), isUniqueViolation(err, "name_claims_pkey"):
+		return iam.ErrUsernameInUse
+	case isUniqueViolation(err, "users_email_uidx"):
+		return iam.ErrEmailInUse
+	case isUniqueViolation(err, "users_phone_number_key"):
+		return iam.ErrPhoneInUse
+	}
+	return err
+}
+
+func (s *engine) createUser(ctx context.Context, email, username string) (*iam.User, error) {
+	if s.pg == nil {
+		return nil, nil
+	}
+	username = strings.TrimSpace(username)
+	if err := s.cfg.Username.ValidateImport(username); err != nil {
+		return nil, err
+	}
+	userID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
+		return nil, err
+	}
+	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
+	if err != nil {
+		return nil, mapUserUniqueViolation(err)
+	}
+	u := iam.User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
+	return &u, nil
+}
+
+// CreateUser inserts a new user with the given email and username.
+func (s *engine) CreateUser(ctx context.Context, email, username string) (*iam.User, error) {
+	return s.createUser(ctx, email, username)
+}
+
+func (s *engine) normalizeImportUserInput(input iam.ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
+		if err := contact.ValidateEmail(trimmed); err != nil {
+			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+		}
+		v := contact.NormalizeEmail(trimmed)
+		email = &v
+	}
+	if trimmed := strings.TrimSpace(input.PhoneNumber); trimmed != "" {
+		if err := contact.ValidatePhone(trimmed); err != nil {
+			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+		}
+		v := contact.NormalizePhone(trimmed)
+		phone = &v
+	}
+	username = strings.TrimSpace(input.Username)
+	if err := s.cfg.Username.ValidateImport(username); err != nil {
+		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+	}
+	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
+		v := strings.TrimSpace(*input.BannedBy)
+		bannedBy = &v
+	}
+	rawMetadata := input.Metadata
+	if rawMetadata == nil {
+		rawMetadata = map[string]any{}
+	}
+	metadataJSON, err := json.Marshal(rawMetadata)
+	if err != nil {
+		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+	}
+	now := time.Now().UTC()
+	createdAt = now
+	if input.CreatedAt != nil {
+		createdAt = input.CreatedAt.UTC()
+	}
+	updatedAt = now
+	if input.UpdatedAt != nil {
+		updatedAt = input.UpdatedAt.UTC()
+	}
+	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
+}
+
+func (s *engine) ImportUser(ctx context.Context, input iam.ImportUserInput) (*iam.User, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	return s.importUser(ctx, s.q, input)
+}
+
+func (s *engine) importUser(ctx context.Context, q *db.Queries, input iam.ImportUserInput) (*iam.User, error) {
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
+	if err != nil {
+		return nil, err
+	}
+	userID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
+	err = q.UserImportInsert(ctx, db.UserImportInsertParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		AtTime:        s.namingNow(),
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	row, err := q.UserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByIDRow(row), nil
+}
+
+func (s *engine) UpdateImportedUser(ctx context.Context, userID string, input iam.ImportUserInput) (*iam.User, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, iam.ErrUserNotFound
+	}
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.lockAuthority(ctx, tx); err != nil {
+		return nil, err
+	}
+	user, err := s.updateImportedUserTx(ctx, tx, userID, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (s *engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input iam.ImportUserInput) (*iam.User, error) {
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
+	if err != nil {
+		return nil, err
+	}
+	banned := input.BannedAt != nil || input.BannedUntil != nil || input.BanReason != nil || bannedBy != nil
+	if input.BannedUntil != nil && !input.BannedUntil.After(time.Now()) {
+		banned = false
+	}
+	reserved := metadataMarksReserved([]byte(metadata))
+	if banned || reserved {
+		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(tx), iam.UserSubject(userID)); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
+		return nil, err
+	}
+	updatedID, err := s.qtx(tx).UserImportUpdate(ctx, db.UserImportUpdateParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, iam.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.qtx(tx).UserByID(ctx, updatedID)
+	if err != nil {
+		return nil, err
+	}
+	return userFromByIDRow(row), nil
+}
+
+func (s *engine) setEmailVerified(ctx context.Context, id string, v bool) error {
+	if s.pg == nil {
+		return nil
+	}
+	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
+}
+
+// MarkEmailVerified records that the user's email address is verified.
+func (s *engine) MarkEmailVerified(ctx context.Context, id string) error {
+	return s.setEmailVerified(ctx, id, true)
+}
+
+// ClearEmailVerified marks the user's email address unverified again.
+func (s *engine) ClearEmailVerified(ctx context.Context, id string) error {
+	return s.setEmailVerified(ctx, id, false)
+}
+
+func (s *engine) clearUserBan(ctx context.Context, userID string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("invalid_user")
+	}
+	return s.q.UserClearBan(ctx, userID)
+}
+
+// BanUser disables a user account and stores ban metadata. bannedBy is the
+// acting user and must hold every root grant the target holds (#286), so a
+// bounded operator can never lock out a more privileged account. The ban,
+// session revoke and device-key revoke commit together.
+func (s *engine) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("invalid_user")
+	}
+	now := time.Now().UTC()
+	if until != nil && !until.UTC().After(now) {
+		return iam.ErrInvalidUntil
+	}
+	var reasonPtr *string
+	if reason != nil {
+		trimmed := strings.TrimSpace(*reason)
+		if trimmed != "" {
+			reasonPtr = &trimmed
+		}
+	}
+	bannedBy = strings.TrimSpace(bannedBy)
+	var untilPtr *time.Time
+	if until != nil {
+		t := until.UTC()
+		untilPtr = &t
+	}
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(tx)
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if err := s.authorizeAccountAuthorityOn(ctx, st, bannedBy, userID); err != nil {
+		return err
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
+		return err
+	}
+	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
+		return err
+	}
+	revoked, err := s.revokeCredentialsTx(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonBanned))
+	return nil
+}
+
+// UnbanUser clears ban metadata and re-enables the account.
+func (s *engine) UnbanUser(ctx context.Context, userID string) error {
+	return s.clearUserBan(ctx, userID)
+}
+
+// SoftDeleteUser marks the user deleted without dropping rows. Sessions and
+// device keys are revoked in the same transaction.
+func (s *engine) SoftDeleteUser(ctx context.Context, id string) error {
+	return s.softDeleteUser(ctx, "", id)
+}
+
+func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) error {
+	if s.pg == nil {
+		return nil
+	}
+	client, err := s.deletionRiver()
+	if err != nil {
+		return err
+	}
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	st := s.groupStoreFor(tx)
+	if err := s.lockAuthority(ctx, st.q); err != nil {
+		return err
+	}
+	if actorUserID != "" {
+		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, id); err != nil {
+			return err
+		}
+	}
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(id)); err != nil {
+		return err
+	}
+	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if user.DeletedAt != nil {
+		return nil // A repeat request must not extend the recovery window.
+	}
+	revoked, err := s.revokeCredentialsTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	// The invalidate_recovery_grants trigger advances credential_version when
+	// deleted_at changes, invalidating every pre-deletion proof atomically.
+	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
+		return err
+	}
+	if err := s.createAccountDeletion(ctx, tx, client, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))
+	return nil
+}
+
+// revokeCredentialsTx revokes every refresh session (all account issuers) and
+// device key of userID inside tx, returning sessions for post-commit audit.
+func (s *engine) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]revokedSession, error) {
+	revoked, err := revokeSessionsTx(ctx, s.qtx(tx), userID, s.accountIssuers(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.revokeAllDeviceKeys(ctx, tx, userID); err != nil {
+		return nil, err
+	}
+	return revoked, nil
+}
+
+// RenameAuthority is internal: ordinary account changes obey the site policy;
+// trusted import updates can bypass only the enabled/cooldown checks.
+type renameAuthority uint8
+
+const (
+	normalRename renameAuthority = iota
+	importRename
+)
+
+// UpdateUsername applies the deployment policy to an account rename.
+func (s *engine) UpdateUsername(ctx context.Context, id, username string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	username = strings.TrimSpace(username)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.renameUsernameTx(ctx, tx, id, username, normalRename); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+func (s *engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
+	q := tx
+	var old *string
+	var last *time.Time
+	if err := q.QueryRow(ctx, `SELECT username::text,last_renamed_at FROM users WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id).Scan(&old, &last); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return iam.ErrUserNotFound
+		}
+		return err
+	}
+	oldName := ""
+	if old != nil {
+		oldName = *old
+	}
+	if strings.EqualFold(oldName, username) {
+		if oldName == username || authority != normalRename {
+			return nil
+		}
+		// Same identity, new display spelling: no name claim, alias or cooldown.
+		_, err := q.Exec(ctx, `UPDATE users SET username=$2,updated_at=$3 WHERE id=$1::uuid`, id, username, s.namingNow())
+		return err
+	}
+	if authority == normalRename {
+		if err := s.ValidateUsername(username); err != nil {
+			return err
+		}
+	}
+	now := s.namingNow()
+	policy := s.NamingPolicy()
+	if authority == normalRename {
+		if err := policy.CheckRename(last, now); err != nil {
+			return err
+		}
+	}
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
+		return err
+	}
+	if err := renameNameClaim(ctx, q, "user", "", id, oldName, username, now, policy); err != nil {
+		return err
+	}
+	if _, err := q.Exec(ctx, `UPDATE users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *engine) updateEmail(ctx context.Context, id, email string) error {
+	if s.pg == nil {
+		return nil
+	}
+	if err := contact.ValidateEmail(email); err != nil {
+		return err
+	}
+	trimmed := contact.NormalizeEmail(email)
+	u, err := s.getUserByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if u == nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
+		return nil
+	}
+
+	if err := s.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: id, Email: trimmed}); err != nil {
+		return mapUserUniqueViolation(err)
+	}
+
+	return s.RequestEmailVerification(ctx, trimmed, 0)
+}
+
+// UpdateEmail updates a user's email and re-triggers email verification.
+func (s *engine) UpdateEmail(ctx context.Context, id, email string) error {
+	return s.updateEmail(ctx, id, email)
+}
+
+// maxAvatarURLLen caps the stored avatar URL/key string (#262) — a sanity
+// bound, not format validation: hosts may store URLs or opaque object keys.
+const maxAvatarURLLen = 2048
+
+// UpdateAvatarURL sets (nil clears) a user's avatar URL/key string (#262).
+// Blob storage and content validation are host-owned; authkit stores the
+// string verbatim (trimmed) and serves it on GET /me.
+func (s *engine) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
+	if s.pg == nil {
+		return nil
+	}
+	if avatarURL != nil {
+		trimmed := strings.TrimSpace(*avatarURL)
+		if trimmed == "" {
+			avatarURL = nil
+		} else {
+			if len(trimmed) > maxAvatarURLLen || strings.ContainsAny(trimmed, "\n\r") {
+				return iam.ErrAvatarURLInvalid
+			}
+			avatarURL = &trimmed
+		}
+	}
+	n, err := s.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: id, AvatarUrl: avatarURL})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return iam.ErrUserNotFound
+	}
+	return nil
+}

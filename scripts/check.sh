@@ -26,7 +26,7 @@ go run ./cmd/authkit-migrate \
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
-  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}
+  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/testdata/node_modules/@playwright/test}
   go test -race -count=1 -p 1 -tags browser -json ./... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 - <<'PY'
@@ -39,7 +39,7 @@ bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
 if bad:
     raise SystemExit(f'Unqualified workflows: {bad}')
 required = {
-    'securitytest': ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport',
+    'internal/securitytest': ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport',
                      'TestSecurityRefreshTokenTheft', 'TestSecurityRefreshGraceDoesNotFork',
                      'TestSecuritySessionRevocationEvents', 'TestSecurityPasswordChangeEndsOtherSessions',
                      'TestSecurityRevokedSessionCannotChangeCredentials', 'TestSecurityDelegationOutlivingRevocation',
@@ -58,13 +58,7 @@ required = {
                      'TestSecurityProviderPKCE', 'TestSecurityFormPostCallbackIsBounded',
                      'TestSecurityOutboundAddressGuard', 'TestSecurityPurgedUsernameStaysReserved',
                      'TestSecurityRefreshCookieUpgrade'),
-    'authhttp': ('TestCookieRegistry', 'TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
-                 'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
-                 'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
-                 'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
-                 'TestAccountRecoveryPasswordConfirmationBoundary',
-                 'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
-    'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
+    '': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
                  'TestAccountDeletionRollsBackWhenRiverInsertFails',
@@ -73,11 +67,17 @@ required = {
                  'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
                  'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer',
                  'TestAccountCallbackCanObserveBindingDuringManagedShutdown',
-                 'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge'),
+                 'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge',
+                 'TestCookieRegistry', 'TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
+                 'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
+                 'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
+                 'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
+                 'TestAccountRecoveryPasswordConfirmationBoundary',
+                 'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests
-           if (f'github.com/open-rails/authkit/{pkg}', name) not in passed]
+           if (f'github.com/open-rails/authkit/{pkg}'.rstrip('/'), name) not in passed]
 if missing:
     raise SystemExit(f'Missing workflow passes: {missing}')
 print(f'Workflows qualified: {sum(bool(test) for _, test in passed)} test/subtest passes, zero skips')

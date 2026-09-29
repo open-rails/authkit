@@ -1,7 +1,7 @@
 # Security tests
 
-`securitytest/` attacks AuthKit as a host embeds it: `embedded.New` with the
-`authhttp` surface under `/auth/v1`, a scratch PostgreSQL database and a real
+`internal/securitytest/` attacks AuthKit as a host embeds it: `authkit.New`
+with its HTTP surface under `/auth/v1`, a scratch PostgreSQL database and a real
 Redis for shared rate limits. Every test runs in the `workflows` CI job;
 `scripts/check.sh` fails the job if any listed test is skipped or missing.
 Add a row and a test for every new attack class.
@@ -47,7 +47,7 @@ Add a row and a test for every new attack class.
 | Registration marks an address verified without proof | `TestSecurityRegistrationNeverSelfVerifies` |
 | Untrusted provider's `email_verified` stores or matches an address | `TestSecurityProviderEmailTrust` |
 
-The cookie compatibility guard `TestCookieRegistry` (authhttp) pins the cookies
+The cookie compatibility guard `TestCookieRegistry` (package `authkit`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).
 
 Covered by the workflow suites (see [testing](testing.md)): OIDC state

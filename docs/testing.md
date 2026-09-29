@@ -7,8 +7,8 @@ To use existing disposable services, set that variable and
 Install the browser dependency once with:
 
 ```sh
-pnpm --dir authhttp/testdata install --frozen-lockfile
-pnpm --dir authhttp/testdata exec playwright install chromium
+pnpm --dir testdata install --frozen-lockfile
+pnpm --dir testdata exec playwright install chromium
 ```
 
 `workflows` and `contracts` select either half of the command. CI has one
@@ -29,7 +29,7 @@ are released through Git tags; this change adds no publishing machinery.
 | Delegation | Host-authorized DPoP and certificate-bound grants, audience/key policy, exact sender and request binding, signed documents, key rotation, issuer withdrawal and proof replay. |
 | Persistence and recovery | Fresh/custom schema migration, host bootstrap, 30-day recovery and cross-application River callbacks, backend failure without partial enrollment, configured memory/Redis limits and fail-closed limiter outage. |
 
-The main account journeys share the public `MountHandler`, real PostgreSQL and
+The main account journeys share the one mounted handler, real PostgreSQL and
 real configured memory/Redis limiters. Their high per-IP allowance permits a
 long legitimate lifecycle; `TestWorkflowRateLimits` separately proves a small
 limit with wrong passwords, a correct password after exhaustion, forged
@@ -38,7 +38,7 @@ hold database locks or deny a backend command to make the race deterministic.
 Fake identity providers are configured before mounting, as a host configures
 its providers; there is no test-only per-request route reconstruction.
 
-The `securitytest` package attacks the embedded HTTP surface directly; [security tests](security-tests.md) maps each threat to its test.
+The `internal/securitytest` package attacks the HTTP surface as a host mounts it; [security tests](security-tests.md) maps each threat to its test.
 
 Small focused tests remain for password-hash input bounds, JWT key/algorithm
 policy, DPoP and SIWS signatures, SSRF/network restrictions, document

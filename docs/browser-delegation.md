@@ -11,7 +11,7 @@ There is no new route, database table or migration.
 
 ## Issuance
 
-Enable `embedded.Config.Delegated.AllowDPoP` only after the host's
+Enable `authkit.Config.Delegated.AllowDPoP` only after the host's
 `DelegatedAuthorization` callback handles `ConfirmationJWKThumbprintSHA256`
 and a nil `DelegateCertificate`. DPoP is off by default so existing native
 authorizers cannot unexpectedly receive a request without a certificate.
@@ -26,7 +26,7 @@ grant becomes signed authority; audience, TTL and document rules still apply.
 Delegated permissions are scope-free, so a grant may carry a permission in an
 AuthKit persona namespace (`root:…`, `org:…`) only when the user holds it at the
 root group; otherwise the mint answers `403 delegation_refused`. A checker
-built on this runtime (`Runtime.Client()` or the engine) re-checks those
+built on this deployment (its `*authkit.Auth`) re-checks those
 permissions on use, so the token loses them when the user does. Permissions in
 the host's own vocabulary remain the authorizer's decision.
 
@@ -81,9 +81,9 @@ exclusive; neither silently downgrades to bearer authentication.
 Configure the receiving verifier with `verify.WithDPoP(replay, requestURL)`.
 `requestURL` returns the trusted public URL of this request, including any
 proxy-stripped path prefix. It must not trust caller-controlled `Host` or
-forwarding headers. `replay` implements `dpop.ReplayGuard`: one atomic claim per
+forwarding headers. `replay` is one atomic claim per
 fixed-size key with the supplied TTL, shared across all receiving replicas.
-An embedding host can use `embedded.Runtime.ClaimDPoPProof`, which claims in
+An embedding host can pass `(*authkit.Auth).ClaimDPoPProof`, which claims in
 AuthKit's Postgres ephemeral store. A receiver with its own storage can supply the
 minimal callback without importing AuthKit's PostgreSQL engine. Live replay
 claims must not be evicted to admit more claims; capacity errors fail closed.
@@ -96,7 +96,7 @@ same application; middleware must pass its verified result to the handler.
 
 The issuer defaults to its configured token issuer's origin plus the received
 escaped request path. If ingress strips a public prefix, supply
-`authhttp.Config.DPoPRequestURL` with the public path. It ignores untrusted
+`authkit.HTTPConfig.DPoPRequestURL` with the public path. It ignores untrusted
 forwarding headers. This configuration affects proof matching, not routing.
 
 CORS policy remains host-owned. Allow the approved browser origin and the

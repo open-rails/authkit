@@ -22,10 +22,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/helpers/auth"
+
 	"github.com/gofiber/fiber/v3"
-	authkit "github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -149,8 +151,8 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 				if !ok {
 					t.Error("verified claims missing")
 				}
-				p, ok := authkitfiber.Principal(c)
-				if !ok || p.Kind != authkit.PrincipalKindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
+				p, ok := authkitfiber.Identity(c)
+				if !ok || p.Kind != auth.KindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
 					t.Errorf("principal = %+v, present = %v", p, ok)
 				}
 				user, ok := authkitfiber.UserClaims(c)
@@ -163,7 +165,7 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 					}
 					return c.SendStatus(http.StatusNoContent)
 				}
-				want := authkitfiber.UserClaimsData{
+				want := verify.UserClaimsData{
 					UserID: "user-1", Email: "user@example.com", EmailVerified: true,
 					Username: "writer", SessionID: "session-1", Entitlements: []string{"blog"},
 					AMR: []string{"pwd"}, ACR: "urn:example:loa:1", AuthTime: authTime, MFAEnrolled: true,
@@ -201,8 +203,9 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			if _, ok := authkitfiber.UserClaims(c); ok {
 				t.Error("machine/delegated principal exposed as a local user")
 			}
-			if p, ok := authkitfiber.Principal(c); !ok || p != cl.Principal() {
-				t.Errorf("principal = %+v, present = %v", p, ok)
+			want, wantOK := cl.Identity()
+			if p, ok := authkitfiber.Identity(c); ok != wantOK || p != want {
+				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
 			return c.SendStatus(http.StatusNoContent)
 		})
@@ -217,7 +220,7 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 	if _, ok := authkitfiber.UserClaims(nil); ok {
 		t.Error("nil context has user")
 	}
-	if _, ok := authkitfiber.Principal(nil); ok {
+	if _, ok := authkitfiber.Identity(nil); ok {
 		t.Error("nil context has principal")
 	}
 }
@@ -438,9 +441,9 @@ func TestUseAbortAndFiberErrors(t *testing.T) {
 	})
 }
 
-type permissionChecker func(context.Context, authkit.Subject, string, authkit.Perm) (bool, error)
+type permissionChecker func(context.Context, iam.Subject, string, iam.Perm) (bool, error)
 
-func (f permissionChecker) CanOnGroup(ctx context.Context, subject authkit.Subject, group string, perm authkit.Perm) (bool, error) {
+func (f permissionChecker) CanOnGroup(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
 	return f(ctx, subject, group, perm)
 }
 
@@ -449,9 +452,9 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	scope := verify.PermissionScope{GroupID: "group-uuid", AuthorityIssuer: issuer.URL(), Persona: "blog", Instance: "writers"}
 	for _, allow := range []bool{true, false} {
 		calls := 0
-		checker := permissionChecker(func(ctx context.Context, subject authkit.Subject, group string, perm authkit.Perm) (bool, error) {
+		checker := permissionChecker(func(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
 			calls++
-			if subject != authkit.UserSubject("user-1") || group != scope.GroupID || perm != "blog:posts:write" {
+			if subject != iam.UserSubject("user-1") || group != scope.GroupID || perm != "blog:posts:write" {
 				t.Errorf("permission input = %v %q %q", subject, group, perm)
 			}
 			return allow, nil
@@ -483,9 +486,9 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	}
 }
 
-type livenessSource func(context.Context, []string) (map[string]authkit.UserLiveness, error)
+type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)
 
-func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 	return f(ctx, ids)
 }
 
@@ -498,19 +501,19 @@ func TestRequiredLive(t *testing.T) {
 	}
 	cases := []struct {
 		name   string
-		live   map[string]authkit.UserLiveness
+		live   map[string]iam.UserLiveness
 		err    error
 		status int
 	}{
-		{"allowed", map[string]authkit.UserLiveness{"user-1": {Allowed: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
-		{"disabled", map[string]authkit.UserLiveness{"user-1": {Allowed: false}}, nil, http.StatusUnauthorized},
+		{"allowed", map[string]iam.UserLiveness{"user-1": {Allowed: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
+		{"disabled", map[string]iam.UserLiveness{"user-1": {Allowed: false}}, nil, http.StatusUnauthorized},
 		{"missing", nil, nil, http.StatusUnauthorized},
 		{"unavailable", nil, errors.New("directory unavailable"), http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 				calls++
 				if !reflect.DeepEqual(ids, []string{"user-1"}) {
 					t.Errorf("liveness IDs = %v", ids)
@@ -542,7 +545,7 @@ func TestRequiredLive(t *testing.T) {
 	}
 }
 
-func TestFallbackPreservesHTTPRouting(t *testing.T) {
+func TestMountPreservesHTTPResponses(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Del("X-Remove")
@@ -558,7 +561,9 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 		return c.Next()
 	})
 	app.Get("/health", func(c fiber.Ctx) error { return c.SendString("healthy") })
-	app.Use(authkitfiber.Fallback(mux))
+	if err := authkitfiber.Mount(app, surface{mux, []string{"POST /api/items/{id}"}}); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		method, path string
 		status       int
@@ -567,7 +572,7 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 		{http.MethodGet, "/health", http.StatusOK, "healthy"},
 		{http.MethodPost, "/api/items/123?q=value", http.StatusCreated, "123:value"},
 		{http.MethodGet, "/api/items/123", http.StatusMethodNotAllowed, "Method Not Allowed"},
-		{http.MethodGet, "/missing", http.StatusNotFound, "404 page not found"},
+		{http.MethodGet, "/missing", http.StatusNotFound, "Not Found"},
 	} {
 		status, headers, body := request(t, app, tc.method, tc.path, "")
 		if status != tc.status || !strings.Contains(body, tc.body) {
@@ -587,7 +592,7 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 	}
 }
 
-func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
+func TestMountDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
 		app := fiber.New()
 		app.Use(func(c fiber.Ctx) error {
@@ -596,10 +601,12 @@ func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 			}
 			return c.Next()
 		})
-		app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := authkitfiber.Mount(app, surface{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/destination", http.StatusFound)
-		})))
-		status, headers, body := request(t, app, http.MethodGet, "/", "")
+		}), []string{"GET /x"}}); err != nil {
+			t.Fatal(err)
+		}
+		status, headers, body := request(t, app, http.MethodGet, "/x", "")
 		if status != http.StatusFound || headers.Get("Location") != "/destination" {
 			t.Fatalf("redirect = %d %v %q", status, headers, body)
 		}
@@ -613,7 +620,7 @@ func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 	}
 }
 
-func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
+func TestMountContentTypeAfterExplicitStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string
 		setHeader  func(http.Header)
@@ -624,7 +631,7 @@ func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
-			app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := authkitfiber.Mount(app, surface{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tc.setHeader != nil {
 					tc.setHeader(w.Header())
 				}
@@ -632,8 +639,10 @@ func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
 				w.Write(nil)
 				io.WriteString(w, "<html>first body</html>")
 				io.WriteString(w, "plain suffix")
-			})))
-			status, headers, body := request(t, app, http.MethodGet, "/", "")
+			}), []string{"GET /x"}}); err != nil {
+				t.Fatal(err)
+			}
+			status, headers, body := request(t, app, http.MethodGet, "/x", "")
 			if status != http.StatusCreated || headers.Get("Content-Type") != tc.want || body != "<html>first body</html>plain suffix" {
 				t.Fatalf("response = %d %v %q; want content type %q", status, headers, body, tc.want)
 			}
@@ -667,9 +676,9 @@ func TestOptionalLive(t *testing.T) {
 	issuer := newIssuer(t)
 	calls := 0
 	allowed := true
-	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 		calls++
-		return map[string]authkit.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
+		return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
 	}))
 	middleware, err := authkitfiber.OptionalLive(verifier)
 	if err != nil {
@@ -703,3 +712,12 @@ func TestOptionalLive(t *testing.T) {
 		t.Fatalf("banned: status=%d calls=%d", status, calls)
 	}
 }
+
+// surface mounts a plain handler under fixed patterns.
+type surface struct {
+	handler  http.Handler
+	patterns []string
+}
+
+func (s surface) Handler() http.Handler { return s.handler }
+func (s surface) Patterns() []string    { return s.patterns }

@@ -1,0 +1,180 @@
+package authkit
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/verify"
+)
+
+// MintDelegatedAccessToken signs a canonical delegated access token using the
+// the engine's internal signer. The host passes claims/params only and NEVER
+// touches the private key. When p.Issuer is empty it defaults to the engine's
+// configured Issuer. See the package-level MintDelegatedAccessToken for the
+// claim contract.
+func (s *engine) MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAccessParams) (string, error) {
+	signer := s.keys.ActiveSigner()
+	if signer == nil {
+		return "", iam.ErrMissingSigner
+	}
+	if strings.TrimSpace(p.Issuer) == "" {
+		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
+	}
+	return mintDelegatedAccessToken(ctx, signer, p)
+}
+
+// CheckDelegatedGrant refuses a delegated grant carrying AuthKit authority the
+// user does not hold now. Delegated permissions are scope-free, so one in an
+// AuthKit persona's namespace must be held at the root group; permissions in
+// the host's own vocabulary remain the DelegationAuthorizer's decision.
+func (s *engine) CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
+	for _, perm := range permissions {
+		held, err := s.delegatedPermissionHeld(ctx, userID, iam.Perm(strings.TrimSpace(perm)))
+		if err != nil {
+			return err
+		}
+		if !held {
+			return iam.ErrDelegationRefused
+		}
+	}
+	return nil
+}
+
+// DelegatedPermissionLive re-checks, on use, a delegated token this deployment
+// minted: its delegated subject must still hold any AuthKit permission it
+// carries. Tokens from other issuers keep their issuer-trust contract.
+func (s *engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm iam.Perm) (bool, error) {
+	if !cl.IsDelegatedAccessToken() || strings.TrimSpace(cl.Issuer) != strings.TrimSpace(s.cfg.Token.Issuer) {
+		return true, nil
+	}
+	return s.delegatedPermissionHeld(ctx, cl.DelegatedSubject, perm)
+}
+
+func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, perm iam.Perm) (bool, error) {
+	namespace, _, _ := strings.Cut(string(perm), ":")
+	if _, ok := s.groupSchemaOrDefault().Persona(iam.Persona(namespace)); !ok && namespace != "*" {
+		return true, nil
+	}
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+	return s.Can(ctx, iam.UserSubject(userID), iam.RootGroup(), perm)
+}
+
+// mintDelegatedAccessToken signs a canonical delegated access token with an
+// explicit signer. It stamps the `typ=delegated-access+jwt` JOSE header, writes
+// the canonical `delegated_sub`/`permissions`/`attributes` claims, and NEVER
+// sets `sub` — the sub-XOR-delegated_sub invariant is enforced by construction.
+// Receiving services authorize by issuer/resource-account trust plus
+// `permissions`. A top-level `roles` claim is never minted; delegated-subject
+// role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
+func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.DelegatedAccessParams) (string, error) {
+	if signer == nil {
+		return "", errors.New("signer required")
+	}
+	if strings.TrimSpace(p.Issuer) == "" {
+		return "", errors.New("issuer required")
+	}
+	if strings.TrimSpace(p.DelegatedSubject) == "" {
+		return "", errors.New("delegated_sub required")
+	}
+	references, err := documents.NormalizeReferences(p.Documents)
+	if err != nil {
+		return "", err
+	}
+	if _, shadowsTopLevel := p.Attributes["documents"]; shadowsTopLevel {
+		return "", fmt.Errorf("%w: attributes.documents is reserved", documents.ErrReservedAttribute)
+	}
+
+	ttl := p.TTL
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	now := time.Now()
+
+	claims := jwt.MapClaims{
+		"iss":           strings.TrimSpace(p.Issuer),
+		"iat":           now.Unix(),
+		"exp":           now.Add(ttl).Unix(),
+		"delegated_sub": strings.TrimSpace(p.DelegatedSubject),
+	}
+	if len(p.Audiences) > 0 {
+		claims["aud"] = p.Audiences
+	}
+	if len(p.Permissions) > 0 {
+		// Copy + drop empties so callers can't smuggle blank permission strings.
+		perms := make([]string, 0, len(p.Permissions))
+		for _, perm := range p.Permissions {
+			if s := strings.TrimSpace(perm); s != "" {
+				perms = append(perms, s)
+			}
+		}
+		if len(perms) > 0 {
+			claims["permissions"] = perms
+		}
+	}
+	if len(references) > 0 {
+		claims["documents"] = references
+	}
+	// Merge the typed Roles convenience into attributes.roles (typed field wins
+	// over any Attributes["roles"] the caller also set). Drop blanks so callers
+	// can't smuggle empty role strings.
+	attributes := p.Attributes
+	if len(p.Roles) > 0 {
+		roles := make([]string, 0, len(p.Roles))
+		for _, r := range p.Roles {
+			if s := strings.TrimSpace(r); s != "" {
+				roles = append(roles, s)
+			}
+		}
+		if len(roles) > 0 {
+			if attributes == nil {
+				attributes = make(map[string]any, 1)
+			} else {
+				// Copy so we don't mutate the caller's map.
+				cp := make(map[string]any, len(attributes)+1)
+				for k, vv := range attributes {
+					cp[k] = vv
+				}
+				attributes = cp
+			}
+			attributes["roles"] = roles
+		}
+	}
+	if len(attributes) > 0 {
+		claims["attributes"] = attributes
+	}
+	// `jti` is ALWAYS present: a receiver can only gate a revocation deny-list
+	// on the claim if every delegated token authkit signs carries one. An
+	// explicit p.JTI wins; otherwise mint a fresh uuidv7.
+	jti := strings.TrimSpace(p.JTI)
+	if jti == "" {
+		if jti, err = newUUIDV7String(); err != nil {
+			return "", fmt.Errorf("delegated jti: %w", err)
+		}
+	}
+	claims["jti"] = jti
+	if !p.NotBefore.IsZero() {
+		claims["nbf"] = p.NotBefore.Unix()
+	}
+	if p.ConfirmationCertificateSHA256 != nil && p.ConfirmationJWKThumbprintSHA256 != nil {
+		return "", errors.New("delegated token must have only one sender binding")
+	}
+	if p.ConfirmationJWKThumbprintSHA256 != nil {
+		claims[jwtkit.ConfirmationClaim] = map[string]any{jwtkit.JWKThumbprintMember: jwtkit.CertificateThumbprint(*p.ConfirmationJWKThumbprintSHA256)}
+	}
+	if p.ConfirmationCertificateSHA256 != nil {
+		claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(*p.ConfirmationCertificateSHA256)
+	}
+	// Invariant: a delegated access token must never carry `sub`.
+	delete(claims, "sub")
+
+	return jwtkit.SignWithType(ctx, signer, claims, jwtkit.DelegatedAccessTokenType, true)
+}

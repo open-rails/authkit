@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -132,42 +134,53 @@ const APIKeyPrincipalType = "api-key"
 const RemoteApplicationTokenType = "remote_application"
 
 // PrincipalKind reports the broad credential class represented by these claims.
-func (c Claims) PrincipalKind() authkit.PrincipalKind {
+func (c Claims) PrincipalKind() iam.PrincipalKind {
 	switch {
 	case c.isAPIKey():
-		return authkit.PrincipalKindAPIKey
+		return iam.PrincipalKindAPIKey
 	case c.isRemoteApplication():
-		return authkit.PrincipalKindRemoteApplication
+		return iam.PrincipalKindRemoteApplication
 	case c.isDelegated():
-		return authkit.PrincipalKindDelegated
+		return iam.PrincipalKindDelegated
 	case strings.TrimSpace(c.UserID) != "" || strings.TrimSpace(c.Subject) != "":
-		return authkit.PrincipalKindUser
+		return iam.PrincipalKindUser
 	default:
 		return ""
 	}
 }
 
-// Principal returns the small generic-auth shape for host adapters.
-func (c Claims) Principal() authkit.Principal {
-	subject := strings.TrimSpace(c.UserID)
-	if subject == "" {
-		subject = strings.TrimSpace(c.Subject)
-	}
-	if c.isDelegated() {
-		subject = strings.TrimSpace(c.DelegatedSubject)
-	}
-	if c.isAPIKey() || c.isRemoteApplication() {
-		subject = strings.TrimSpace(c.RemoteApplicationSlug)
-		if subject == "" {
-			subject = strings.TrimSpace(c.RemoteApplicationID)
+// Identity is the provider-neutral identity of verified claims: the one
+// principal shape AuthenticateRequest and the framework adapters return. ok is
+// false when the claims name no subject under an issuer.
+func (c Claims) Identity() (auth.Identity, bool) {
+	i := auth.Identity{Issuer: c.Issuer, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username, SessionID: c.SessionID}
+	switch c.PrincipalKind() {
+	case iam.PrincipalKindUser:
+		i.Kind, i.Subject = auth.KindUser, c.UserID
+		if i.Subject == "" {
+			i.Subject = c.Subject
 		}
+		if c.DeviceKeyID != "" {
+			i.Kind, i.Subject = auth.KindDeviceKey, c.DeviceKeyID
+		}
+	case iam.PrincipalKindAPIKey:
+		i.Kind, i.Subject, i.Issuer = auth.KindAPIKey, c.APIKeyID, c.PermissionGroupAuthorityIssuer
+	case iam.PrincipalKindRemoteApplication:
+		i.Kind, i.Subject = auth.KindRemoteApplication, c.RemoteApplicationID
+	case iam.PrincipalKindDelegated:
+		i.Kind, i.Subject = auth.KindDelegated, c.DelegatedSubject
+	default:
+		return auth.Identity{}, false
 	}
-	return authkit.Principal{Kind: c.PrincipalKind(), Issuer: strings.TrimSpace(c.Issuer), Subject: subject}
+	if strings.TrimSpace(i.Subject) == "" || strings.TrimSpace(i.Issuer) == "" {
+		return auth.Identity{}, false
+	}
+	return i, true
 }
 
 // IsUser reports whether these claims represent a native human user.
 func (c Claims) IsUser() bool {
-	return c.PrincipalKind() == authkit.PrincipalKindUser && c.UserID != ""
+	return c.PrincipalKind() == iam.PrincipalKindUser && c.UserID != ""
 }
 
 func (c Claims) isAPIKey() bool {
@@ -224,7 +237,7 @@ func (c Claims) isDelegated() bool {
 // access token. The canonical signal is the `typ=delegated-access+jwt` JOSE
 // header plus a delegated subject and no local user subject.
 func (c Claims) IsDelegatedAccessToken() bool {
-	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) &&
+	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), jwtkit.DelegatedAccessTokenType) &&
 		strings.TrimSpace(c.UserID) == "" &&
 		c.isDelegated()
 }
@@ -236,7 +249,7 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	}
 	var scope *PermissionScope
 	if c.BoundToPermissionGroup() {
-		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: authkit.Persona(c.PermissionGroupPersona), Instance: c.PermissionGroupInstance}
+		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: iam.Persona(c.PermissionGroupPersona), Instance: c.PermissionGroupInstance}
 	}
 	return DelegatedPrincipal{
 		PermissionGroup:                 scope,
@@ -312,14 +325,14 @@ func (c Claims) PermissionGroupAllows(scope PermissionScope) bool {
 	}
 	return c.PermissionGroupID != "" && scope.GroupID != "" && c.PermissionGroupID == scope.GroupID &&
 		c.PermissionGroupAuthorityIssuer != "" && c.PermissionGroupAuthorityIssuer == scope.AuthorityIssuer &&
-		c.PermissionGroupPersona != "" && authkit.Persona(c.PermissionGroupPersona) == scope.Persona
+		c.PermissionGroupPersona != "" && iam.Persona(c.PermissionGroupPersona) == scope.Persona
 }
 
 // HasPermission reports whether the claims carry a permission token covering
 // the requested concrete permission.
-func (c Claims) HasPermission(perm authkit.Perm) bool {
+func (c Claims) HasPermission(perm iam.Perm) bool {
 	for _, p := range c.Permissions {
-		if perm.Matches(authkit.Perm(p)) {
+		if perm.Matches(iam.Perm(p)) {
 			return true
 		}
 	}
@@ -380,5 +393,5 @@ func GetClaims(ctx context.Context) (Claims, error) {
 	if cl, ok := ClaimsFromContext(ctx); ok {
 		return cl, nil
 	}
-	return Claims{}, authkit.E(authkit.CodeUnauthenticated)
+	return Claims{}, iam.E(iam.CodeUnauthenticated)
 }

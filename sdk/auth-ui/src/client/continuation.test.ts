@@ -8,7 +8,7 @@ import { safeReturnTo } from "./returnTo.ts"
 const err = (status: number, code: string, metadata: Record<string, unknown>) =>
   new AuthKitError(status, { type: "", code, message: code, metadata })
 
-// Shapes from authkit authhttp/testdata/wire/mfa-*.json.
+// Shapes from authkit testdata/wire/mfa-*.json.
 it("reads the wire 2fa_required and enrollment envelopes", () => {
   expect(
     readContinuation(
