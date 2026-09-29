@@ -143,7 +143,8 @@ func TestServiceOwnsBackgroundWorkers(t *testing.T) {
 }
 
 func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
-	client := newServerClient(t, newServerTestConfig(), testdb.Pool(t))
+	pool := testdb.Pool(t)
+	client := newServerClient(t, newServerTestConfig(), pool)
 	workerLabel := "authhttp-service"
 	hasWorkers := func() bool {
 		var profile bytes.Buffer
@@ -164,7 +165,7 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 	// workers the caller cannot close.
 	noAuthorizer := newServerTestConfig()
 	noAuthorizer.Delegated = DelegatedConfig{Audiences: []string{"resource.example"}}
-	svc, err := construct(newServerClient(t, noAuthorizer, testdb.Pool(t)), httpapi.Config{DirectPeerIP: true})
+	svc, err := construct(newServerClient(t, noAuthorizer, pool), httpapi.Config{DirectPeerIP: true})
 	require.ErrorContains(t, err, "Deps.DelegatedAuthorization")
 	require.Nil(t, svc)
 	require.False(t, hasWorkers(), "failed construction leaked background workers")
