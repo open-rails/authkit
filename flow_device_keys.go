@@ -126,7 +126,7 @@ func (s *engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyEnrollment+result.ID, record, deviceKeyChallengeTTL); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
 	}
-	message := VerificationMessage{Code: code, Purpose: "device_key_enrollment"}
+	message := iam.VerificationMessage{Code: code, Purpose: "device_key_enrollment"}
 	if err := message.Validate(); err != nil {
 		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+result.ID)
 		return authflow.DeviceKeyChallenge{}, err
@@ -240,7 +240,7 @@ func (s *engine) notifyDeviceKeyEnrolled(ctx context.Context, u *iam.User, key a
 	}
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
 	if err := s.withSendTimeout(sendCtx, func(c context.Context) error {
-		return s.email.SendDeviceKeyEnrolled(c, *u.Email, username, DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt})
+		return s.email.SendDeviceKeyEnrolled(c, *u.Email, username, iam.DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt})
 	}); err != nil {
 		stdlog.Printf("[authkit/security] device-key enrollment notice failed for user %s: %v", u.ID, err)
 	}

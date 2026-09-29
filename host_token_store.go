@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
@@ -35,7 +36,7 @@ func (s *engine) UpsertPasswordHash(ctx context.Context, userID, hash, algo stri
 }
 
 func validatePasswordHashForStorage(hash, algo string) error {
-	if algo == HashAlgoLegacyResetRequired {
+	if algo == iam.HashAlgoLegacyResetRequired {
 		return nil
 	}
 	return password.ValidateHash(hash, algo)

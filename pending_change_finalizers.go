@@ -40,7 +40,7 @@ func (s *engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 			username = *u.Username
 		}
 		s.notifyContactChanged(ctx, rec.UserID, func(c context.Context) error {
-			return s.email.SendContactChanged(c, old, username, ContactChange{Field: "email", NewValue: rec.Target})
+			return s.email.SendContactChanged(c, old, username, iam.ContactChange{Field: "email", NewValue: rec.Target})
 		})
 	}
 	return rec.UserID, nil
@@ -70,7 +70,7 @@ func (s *engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 	if u.PhoneNumber != nil && s.sms != nil {
 		old := *u.PhoneNumber
 		s.notifyContactChanged(ctx, rec.UserID, func(c context.Context) error {
-			return s.sms.SendContactChanged(c, old, ContactChange{Field: "phone", NewValue: rec.Target})
+			return s.sms.SendContactChanged(c, old, iam.ContactChange{Field: "phone", NewValue: rec.Target})
 		})
 	}
 	return rec.UserID, nil

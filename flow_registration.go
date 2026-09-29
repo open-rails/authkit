@@ -46,7 +46,7 @@ func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 		return "", err
 	}
 
-	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
 	if err := msg.Validate(); err == nil {
 		if s.email != nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
@@ -120,7 +120,7 @@ func (s *engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 		return "", err
 	}
 
-	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
 	if err := msg.Validate(); err == nil {
 		if s.sms != nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {

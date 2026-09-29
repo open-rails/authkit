@@ -34,11 +34,11 @@ type hardeningEmailSender struct {
 	resetLinks     int
 	contactChanged []struct {
 		to     string
-		change ContactChange
+		change iam.ContactChange
 	}
 }
 
-func (s *hardeningEmailSender) SendVerification(_ context.Context, _, _ string, msg VerificationMessage) error {
+func (s *hardeningEmailSender) SendVerification(_ context.Context, _, _ string, msg iam.VerificationMessage) error {
 	s.code = msg.Code
 	return nil
 }
@@ -58,14 +58,14 @@ func (s *hardeningEmailSender) SendLoginCode(context.Context, string, string, st
 
 func (s *hardeningEmailSender) SendWelcome(context.Context, string, string) error { return nil }
 
-func (s *hardeningEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, DeviceKeyNotice) error {
+func (s *hardeningEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, iam.DeviceKeyNotice) error {
 	return nil
 }
 
-func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ string, change ContactChange) error {
+func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ string, change iam.ContactChange) error {
 	s.contactChanged = append(s.contactChanged, struct {
 		to     string
-		change ContactChange
+		change iam.ContactChange
 	}{to, change})
 	return nil
 }

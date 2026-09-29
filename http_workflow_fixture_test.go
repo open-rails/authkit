@@ -617,7 +617,7 @@ type captureEmailSender struct {
 	deviceNotices []string
 }
 
-func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ DeviceKeyNotice) error {
+func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ iam.DeviceKeyNotice) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deviceNotices = append(s.deviceNotices, email)
@@ -630,7 +630,7 @@ func (s *captureEmailSender) deviceKeyNotices() []string {
 	return append([]string(nil), s.deviceNotices...)
 }
 
-func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg VerificationMessage) error {
+func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg iam.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
@@ -675,7 +675,7 @@ func (s *captureEmailSender) lastLoginCode() string {
 
 func (s *captureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
 
-func (s *captureEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
+func (s *captureEmailSender) SendContactChanged(context.Context, string, string, iam.ContactChange) error {
 	return nil
 }
 
@@ -721,7 +721,7 @@ type captureSMSSender struct {
 	verifyURL   string
 }
 
-func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg VerificationMessage) error {
+func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg iam.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
@@ -751,7 +751,7 @@ func (s *captureSMSSender) lastLoginCode() string {
 	return s.loginCode
 }
 
-func (s *captureSMSSender) SendContactChanged(context.Context, string, ContactChange) error {
+func (s *captureSMSSender) SendContactChanged(context.Context, string, iam.ContactChange) error {
 	return nil
 }
 

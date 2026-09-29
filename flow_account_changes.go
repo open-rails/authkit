@@ -116,7 +116,7 @@ func (s *engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	if err != nil {
 		return err
 	}
-	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
 	// Optionally: notify old phone (not implemented).
 	return s.sendContactChangeVerification(ctx, userID, s.sms != nil,
 		func(c context.Context) error { return s.sms.SendVerification(c, trimmed, msg) },
@@ -175,7 +175,7 @@ func (s *engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	if u.Username != nil {
 		username = *u.Username
 	}
-	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
 	if err := s.sendContactChangeVerification(ctx, userID, s.email != nil,
 		func(c context.Context) error { return s.email.SendVerification(c, trimmed, username, msg) },
 		emailDeliveryError,

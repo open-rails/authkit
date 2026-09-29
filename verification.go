@@ -74,7 +74,7 @@ func (s *engine) sendEmailVerificationToUser(ctx context.Context, u *iam.User, t
 	if u.Username != nil {
 		username = *u.Username
 	}
-	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_verify"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_verify"}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}
@@ -157,7 +157,7 @@ func (s *engine) SendPhoneVerificationToUser(ctx context.Context, phone, userID 
 		return err
 	}
 
-	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_verify"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_verify"}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}

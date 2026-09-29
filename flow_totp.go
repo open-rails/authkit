@@ -249,7 +249,7 @@ func (s *engine) SendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	}
 
 	if s.sms != nil {
-		msg := VerificationMessage{Code: code, Purpose: "2fa_setup"}
+		msg := iam.VerificationMessage{Code: code, Purpose: "2fa_setup"}
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
@@ -313,7 +313,7 @@ func (s *engine) sendEmail2FASetupCode(ctx context.Context, userID string) error
 	if user.Username != nil {
 		username = *user.Username
 	}
-	msg := VerificationMessage{Code: code, Purpose: "2fa_setup"}
+	msg := iam.VerificationMessage{Code: code, Purpose: "2fa_setup"}
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 	return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 		return s.email.SendVerification(sendCtx, email, username, msg)

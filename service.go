@@ -58,12 +58,6 @@ type EntitlementFilterProvider interface {
 	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
 }
 
-// HashAlgoLegacyResetRequired marks user_passwords rows migrated from
-// legacy systems whose stored hashes can never verify (DES crypt, md5-crypt,
-// corrupted values). The raw legacy hash is preserved in password_hash for
-// forensics only; the sole way forward for these accounts is a password reset.
-const HashAlgoLegacyResetRequired = "legacy-reset-required"
-
 // (storage layer collapsed into direct Postgres helpers)
 
 // engine owns local business logic and resources behind Auth.

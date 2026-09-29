@@ -357,7 +357,7 @@ func (s *engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 }
 
 func (s *engine) sendPasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, code, linkURL string) error {
-	msg := VerificationMessage{Code: code, LinkURL: linkURL, Purpose: "passwordless_login"}
+	msg := iam.VerificationMessage{Code: code, LinkURL: linkURL, Purpose: "passwordless_login"}
 	if err := msg.Validate(); err != nil {
 		return err
 	}

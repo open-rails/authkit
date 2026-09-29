@@ -4,70 +4,33 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
 )
 
-// VerificationMessage is the payload AuthKit hands a sender: a code, a link, or
-// both. Purpose lets senders vary copy without adding new methods.
-type VerificationMessage struct {
-	// Fixed-length numeric code for manual entry (optional).
-	Code string
-	// AuthKit-built scanner-safe verification link (optional).
-	LinkURL string
-	// Purpose lets senders vary copy without adding new sender methods.
-	Purpose string
-}
-
-func (m VerificationMessage) Validate() error {
-	if strings.TrimSpace(m.Code) == "" && strings.TrimSpace(m.LinkURL) == "" {
-		return fmt.Errorf("verification message must contain at least one of code or link URL")
-	}
-	return nil
-}
-
-// ContactChange is delivered to the PREVIOUS address after a recovery
-// identifier (email or phone) was replaced, so a hijacked change is visible to
-// the account's real owner.
-type ContactChange struct {
-	// Field is "email" or "phone".
-	Field string
-	// NewValue is the replacement address as stored.
-	NewValue string
-}
-
-// DeviceKeyNotice describes a native-client device key just enrolled on an
-// EXISTING account (#293), so a key added through a compromised mailbox is
-// visible to the account's real owner.
-type DeviceKeyNotice struct {
-	Label     string
-	CreatedAt time.Time
-}
-
 // EmailSender sends verification/login/reset/notice emails.
 type EmailSender interface {
-	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
+	SendVerification(ctx context.Context, email, username string, msg iam.VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
 	SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error
 	SendLoginCode(ctx context.Context, email, username, code string) error
 	SendWelcome(ctx context.Context, email, username string) error
 	// SendContactChanged goes to the address that was just REPLACED.
-	SendContactChanged(ctx context.Context, email, username string, change ContactChange) error
+	SendContactChanged(ctx context.Context, email, username string, change iam.ContactChange) error
 	// SendDeviceKeyEnrolled tells the account's address that a new device key
 	// can now sign in as it.
-	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice DeviceKeyNotice) error
+	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice iam.DeviceKeyNotice) error
 }
 
 // SMSSender sends verification/login/reset/notice SMS messages.
 type SMSSender interface {
-	SendVerification(ctx context.Context, phone string, msg VerificationMessage) error
+	SendVerification(ctx context.Context, phone string, msg iam.VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, phone, resetURL string) error
 	SendLoginCode(ctx context.Context, phone, code string) error
 	// SendContactChanged goes to the number that was just REPLACED.
-	SendContactChanged(ctx context.Context, phone string, change ContactChange) error
+	SendContactChanged(ctx context.Context, phone string, change iam.ContactChange) error
 }
 
 // SMSHealthChecker is an optional capability for SMS senders that can verify,

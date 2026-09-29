@@ -47,7 +47,7 @@ func errOrUnauthorized(err error) error {
 
 // CheckUserPassword is the error-returning form of VerifyUserPassword: nil on
 // success, ErrPasswordResetRequired when the stored hash is flagged
-// HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
+// iam.HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
 // and a generic unauthorized error otherwise. Callers that need to route
 // reset-required users (step-up, change-password) should use this form.
 func (s *engine) CheckUserPassword(ctx context.Context, userID, pass string) error {

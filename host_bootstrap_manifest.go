@@ -319,7 +319,7 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 	}
 	// enforce-as-desired-state is incompatible with reset_required (#89): a
 	// reset sentinel re-applied every reconcile would force a reset on every run.
-	if p.Enforce && (p.ResetRequired || strings.TrimSpace(p.HashAlgo) == HashAlgoLegacyResetRequired) {
+	if p.Enforce && (p.ResetRequired || strings.TrimSpace(p.HashAlgo) == iam.HashAlgoLegacyResetRequired) {
 		return iam.ErrInvalidBootstrapManifest
 	}
 	return nil
@@ -401,7 +401,7 @@ func prepareBootstrapPassword(p iam.BootstrapUserPassword) (out db.UserPasswordU
 		out.PasswordHash, err = password.HashArgon2id(plaintext)
 		out.HashAlgo = "argon2id"
 	} else if p.ResetRequired {
-		out.PasswordHash, out.HashAlgo = "reset-required", HashAlgoLegacyResetRequired
+		out.PasswordHash, out.HashAlgo = "reset-required", iam.HashAlgoLegacyResetRequired
 	} else {
 		out.PasswordHash, out.HashAlgo = strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)
 	}

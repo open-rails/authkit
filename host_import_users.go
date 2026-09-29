@@ -40,7 +40,7 @@ type preparedImportRow struct {
 //
 // Each input may carry an optional pre-hashed PasswordHash; for inserted rows it
 // is validated before insertion; unsupported work factors require an explicit
-// HashAlgoLegacyResetRequired marker.
+// iam.HashAlgoLegacyResetRequired marker.
 func (s *engine) ImportUsers(ctx context.Context, inputs []iam.ImportUserInput) (iam.ImportUsersResult, error) {
 	res := iam.ImportUsersResult{Results: make([]iam.ImportUserResult, len(inputs))}
 	if len(inputs) == 0 {
