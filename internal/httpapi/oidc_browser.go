@@ -109,9 +109,6 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		reject(errmodel.E(errmodel.CodeUnknownProvider))
 		return
 	}
-	if s.rateLimited(w, r, RLOIDCStart) {
-		return
-	}
 	var login loginStart
 	if start.login != nil {
 		login = *start.login

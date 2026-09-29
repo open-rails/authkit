@@ -102,8 +102,8 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/step-up/password", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLPasswordStepUp, Handler: http.HandlerFunc(s.handlePasswordStepUpPOST)},
 		{Method: http.MethodPost, Path: "/step-up/2fa", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FAVerify, Handler: http.HandlerFunc(s.handleTwoFactorStepUpPOST)},
 
-		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Handler: http.HandlerFunc(s.handleOIDCLinkStartPOST)},
-		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Handler: http.HandlerFunc(s.handleOIDCStepUpStartPOST)},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLinkStartPOST)},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCStepUpStartPOST)},
 
 		{Method: http.MethodGet, Path: "/user/2fa", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RLUserMe, Handler: http.HandlerFunc(s.handleUser2FAStatusGET), MFAEnrollmentExempt: true},
 		{Method: http.MethodPost, Path: "/user/2fa", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FAEnable, Handler: http.HandlerFunc(s.handleUser2FAPOST), MFAEnrollmentExempt: true},
@@ -234,8 +234,8 @@ func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	selected := routeGroupSet(groups)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
-		{Method: http.MethodGet, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
-		{Method: http.MethodPost, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Handler: http.HandlerFunc(s.handleOIDCLoginPOST)},
+		{Method: http.MethodGet, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
+		{Method: http.MethodPost, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginPOST)},
 		{Method: http.MethodGet, Path: "/{provider}/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		// response_mode=form_post providers (Apple) deliver the same response as a

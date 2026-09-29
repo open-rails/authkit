@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,12 @@ import (
 
 	"github.com/open-rails/authkit/internal/db"
 )
+
+// riverConfig configures a River client AuthKit owns. It logs through the
+// slog default, like the rest of AuthKit, instead of River's stdout logger.
+func riverConfig(schema string) *river.Config {
+	return &river.Config{Schema: schema, Logger: slog.Default()}
+}
 
 // RiverOwnership mirrors authkit.RiverOwnership.
 type RiverOwnership struct{ fromHost bool }
@@ -75,7 +82,7 @@ func (s *Engine) initRiver(ownership *RiverOwnership) error {
 	if s.maintenance.fromHost {
 		return nil
 	}
-	client, err := riverhelpers.New(context.Background(), s.pg, &river.Config{Schema: s.cfg.River.Schema}, s.RiverJobs())
+	client, err := riverhelpers.New(context.Background(), s.pg, riverConfig(s.cfg.River.Schema), s.RiverJobs())
 	if err != nil {
 		return fmt.Errorf("authkit: construct managed River: %w", err)
 	}

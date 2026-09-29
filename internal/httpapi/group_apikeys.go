@@ -47,6 +47,9 @@ func apiKeyJSON(k iam.APIKey) map[string]any {
 // groupAPIKeyMint mints a key created by the caller and returns its token
 // once, as "secret".
 func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
+	if s.rateLimited(w, r, RLAPIKeyMint) {
+		return
+	}
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)

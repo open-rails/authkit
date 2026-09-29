@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit"
@@ -237,11 +238,12 @@ func (f flakyEmail) SendLoginCode(ctx context.Context, email, username, code str
 }
 
 // TestSecuritySecretsStayOutOfLogs: AuthKit's log output (the slog default,
-// which carries the standard log package too) never holds a secret it handled:
-// a password or its hash, an access or refresh token, an API-key secret, a
-// one-time or backup code, a TOTP secret, or a reset, verification or invite
-// link or its token. The credential flows run on the HTTP surface, then again
-// while the mail provider fails, so the error paths log too.
+// which carries the standard log package and AuthKit's River) never holds a
+// secret it handled: a password or its hash, an access or refresh token, an
+// API-key secret, a one-time or backup code, a TOTP secret, or a reset,
+// verification or invite link or its token. The credential flows run on the
+// HTTP surface, then again while the mail provider fails, so the error paths
+// log too.
 func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	logs := captureLogs(t)
 	var mailDown atomic.Bool
@@ -250,6 +252,10 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 		withEngine(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
 		withDeps(func(d *authkit.Deps) { d.Email = flakyEmail{EmailSender: d.Email, down: &mailDown} }))
 	h = h.observed(jar)
+	// AuthKit's River runs through every flow below and logs to the same place.
+	require.NoError(t, h.auth.Start(context.Background()))
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "River client started") }, time.Minute, 50*time.Millisecond,
+		"AuthKit's River did not log through the slog default")
 	ok := func(r response) response {
 		t.Helper()
 		require.Less(t, r.status, 300, r.String())

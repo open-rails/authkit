@@ -180,7 +180,7 @@ func (s *Engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *ri
 	}
 	// Insert-only client: no worker registry, start/stop, polling or owned pool.
 	// InsertTx writes into this fleet's schema using the same account transaction.
-	return river.NewClient(riverpgxv5.New(s.pg), &river.Config{Schema: schema})
+	return river.NewClient(riverpgxv5.New(s.pg), riverConfig(schema))
 }
 
 type accountDeliveryWorker struct {
