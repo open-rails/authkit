@@ -3,6 +3,8 @@ package authkit_test
 import (
 	"context"
 	"errors"
+	"os"
+	"regexp"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -21,17 +23,16 @@ var readmeRoles = authkit.RoleConfig{
 		"channel": {
 			Permissions: []string{
 				"channel:posts:edit", "channel:posts:delete", "channel:posts:approve",
-				"channel:metadata:edit",
+				"channel:self:edit",
+				"channel:self:delete",
 			},
 		},
-		"root": {Permissions: []string{"root:channels:delete"}},
 	},
 	Roles: []authkit.Role{
 		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
 		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
 			"channel:*",
 			"root:users:*",
-			"root:channels:delete",
 		}},
 	},
 }
@@ -79,10 +80,9 @@ func TestReadmeRolesBlock(t *testing.T) {
 	} {
 		require.Contains(t, auth.Patterns(), route)
 	}
-	for _, perm := range []iam.Perm{"channel:metadata:edit", "root:channels:delete", "channel:members:manage"} {
+	for _, perm := range []iam.Perm{"channel:self:edit", "channel:self:delete", "channel:members:manage"} {
 		require.True(t, auth.KnownPermission(perm), perm)
 	}
-	require.False(t, auth.KnownPermission("channel:self:delete"), "AuthKit registers no self permissions")
 
 	_, err = pg.Pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS channels (
 		name        text PRIMARY KEY,
@@ -112,14 +112,11 @@ func TestReadmeRolesBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(adminID)])
 	admin := iam.UserActor(adminID)
-	for _, perm := range []iam.Perm{"channel:metadata:edit", "channel:posts:approve"} {
+	for _, perm := range []iam.Perm{"channel:self:edit", "channel:self:delete", "channel:posts:approve"} {
 		ok, err := auth.Can(ctx, admin, iam.GroupByID(groupID), perm)
 		require.NoError(t, err)
 		require.True(t, ok, perm)
 	}
-	ok, err := auth.Can(ctx, admin, iam.RootGroup(), "root:channels:delete")
-	require.NoError(t, err)
-	require.True(t, ok)
 
 	require.NoError(t, pgx.BeginFunc(ctx, pg.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM channels WHERE group_id = $1`, groupID); err != nil {
@@ -130,7 +127,21 @@ func TestReadmeRolesBlock(t *testing.T) {
 	g, err := auth.Group(ctx, iam.GroupByID(groupID))
 	require.NoError(t, err)
 	require.NotNil(t, g.DeletedAt)
-	ok, err = auth.Can(ctx, admin, iam.GroupByID(groupID), "channel:posts:approve")
+	ok, err := auth.Can(ctx, admin, iam.GroupByID(groupID), "channel:posts:approve")
 	require.NoError(t, err)
 	require.False(t, ok, "a deleted group grants nothing")
+}
+
+// TestReadmeSnippetsAreInTheExample keeps README.md honest: every Go snippet in it
+// must appear, verbatim, in examples/reddit/main.go, which CI builds and vets.
+func TestReadmeSnippetsAreInTheExample(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	require.NoError(t, err)
+	example, err := os.ReadFile("examples/reddit/main.go")
+	require.NoError(t, err)
+	blocks := regexp.MustCompile("(?s)```go\n(.*?)```").FindAllStringSubmatch(string(readme), -1)
+	require.NotEmpty(t, blocks, "README has Go snippets")
+	for i, b := range blocks {
+		require.Contains(t, string(example), b[1], "README Go snippet %d is not in examples/reddit/main.go", i+1)
+	}
 }
