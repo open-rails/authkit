@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -87,8 +88,8 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	fingerprint := s.roleCatalogFingerprint()
 	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
-		var stored string
-		err := st.q.QueryRow(ctx, `SELECT fingerprint FROM role_catalog_state`).Scan(&stored)
+		q := db.New(st.q)
+		stored, err := q.RoleCatalogFingerprint(ctx)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -100,9 +101,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 			return err
 		}
 		st.touched = append(st.touched, authorityTouch{groupID: rootID})
-		_, err = st.q.Exec(ctx, `INSERT INTO role_catalog_state(fingerprint) VALUES($1)
- ON CONFLICT (singleton) DO UPDATE SET fingerprint=EXCLUDED.fingerprint, swept_at=now()`, fingerprint)
-		return err
+		return q.RoleCatalogSetFingerprint(ctx, fingerprint)
 	})
 }
 

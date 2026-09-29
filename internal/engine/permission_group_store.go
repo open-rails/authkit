@@ -2,9 +2,8 @@ package engine
 
 // DB-backed engine for the permission-group model (#111): the store loads the
 // subject's assignments on a target group and on root, and feeds the pure
-// decision core (rbac.Schema.Can). Hand-written over db.DBTX (pool or tx)
-// so it composes with the engine's schema-bound pool exactly like the
-// generated queries; unqualified table names resolve through the
+// decision core (rbac.Schema.Can). It runs the generated queries over a
+// db.DBTX (pool or tx); unqualified table names resolve through the
 // schema-bound AuthKit pool (authkit #69).
 
 import (
@@ -29,8 +28,20 @@ func groupRoleTable(kind iam.SubjectKind) (table, subjectColumn string, err erro
 	case iam.SubjectKindRemoteApplication:
 		return "group_remote_application_roles", "remote_application_id", nil
 	default:
-		return "", "", fmt.Errorf("invalid group subject kind %q", kind)
+		return "", "", invalidSubjectKind(kind)
 	}
+}
+
+// requireGroupSubjectKind: role assignments exist for users and applications.
+func requireGroupSubjectKind(kind iam.SubjectKind) error {
+	if kind == iam.SubjectKindUser || kind == iam.SubjectKindRemoteApplication {
+		return nil
+	}
+	return invalidSubjectKind(kind)
+}
+
+func invalidSubjectKind(kind iam.SubjectKind) error {
+	return fmt.Errorf("invalid group subject kind %q", kind)
 }
 
 // PermissionGroupStore is the database access layer for permission-groups. It
@@ -83,8 +94,8 @@ func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
 
 // CreateGroup inserts a non-root permission group and returns its id.
 func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Persona) (string, error) {
-	var id string
-	if err := st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id::text`, persona.String()).Scan(&id); err != nil {
+	id, err := db.New(st.q).PermissionGroupInsert(ctx, persona.String())
+	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
 	return id, st.record(ctx, groupEvent(iam.EventGroupCreated, id, persona))
@@ -93,14 +104,14 @@ func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Per
 // lockGroup locks a group row for its permanent delete and returns its
 // persona. The root group cannot be deleted.
 func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (iam.Persona, error) {
-	var persona iam.Persona
-	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(scanPersona(&persona))
+	name, err := db.New(st.q).PermissionGroupPersonaForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.Persona{}, iam.ErrGroupNotFound
 	}
 	if err != nil {
 		return iam.Persona{}, err
 	}
+	persona := ident.Persona(name)
 	if persona == iam.RootPersona {
 		return iam.Persona{}, fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 	}
@@ -112,7 +123,7 @@ func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string)
 	if err != nil {
 		return err
 	}
-	if _, err := st.q.Exec(ctx, `DELETE FROM permission_groups WHERE id=$1::uuid`, groupID); err != nil {
+	if err := db.New(st.q).PermissionGroupDelete(ctx, groupID); err != nil {
 		return err
 	}
 	return st.record(ctx, groupEvent(iam.EventGroupPurged, groupID, persona))
@@ -121,9 +132,7 @@ func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string)
 // RootGroupID returns the singleton root group's internal id (ErrGroupNotFound
 // if the deployment has not seeded one yet).
 func (st *permissionGroupStore) RootGroupID(ctx context.Context) (string, error) {
-	var id string
-	err := st.q.QueryRow(ctx,
-		`SELECT id::text FROM permission_groups WHERE persona = 'root'`).Scan(&id)
+	id, err := db.New(st.q).PermissionGroupRootID(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", iam.ErrGroupNotFound
 	}
@@ -133,7 +142,7 @@ func (st *permissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // WalkAssignments returns the subject's assignments on the target group and on
 // root: exactly what rbac.Schema.ResolveGrants/Can consume.
 func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]rbac.Assignment, error) {
-	byGroup, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, false)
+	byGroup, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -142,13 +151,11 @@ func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 
 // readAssignmentsForGroups reads, for every live target, the subject's
 // assignments on that group and on root, in one query. Deleted, unknown and
-// malformed targets have no assignments. Authorization excludes
-// deleted/reserved native accounts in the same MVCC query; introspection and
-// no-escalation comparisons retain latent assignments, including those of a
-// deleted target.
-func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, requirePresentUser bool) (map[string][]rbac.Assignment, error) {
-	table, column, err := groupRoleTable(subject.Kind)
-	if err != nil {
+// malformed targets have no assignments; an application's count only while it
+// is enabled and its control group is live. Latent assignments of
+// deleted/reserved accounts are included.
+func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject) (map[string][]rbac.Assignment, error) {
+	if err := requireGroupSubjectKind(subject.Kind); err != nil {
 		return nil, err
 	}
 	out := map[string][]rbac.Assignment{}
@@ -156,30 +163,27 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH targets AS (
- SELECT id,persona FROM permission_groups WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL),
- chain AS (SELECT id AS target,id,persona FROM targets
- UNION SELECT t.id,rg.id,rg.persona FROM targets t JOIN permission_groups rg ON rg.persona='root')
- SELECT c.target::text,c.id::text,c.persona,a.role FROM chain c
- JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
- WHERE (NOT $3 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
- AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb))
- AND ($4 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
- ORDER BY c.target,c.id`, table, column), ids, subject.ID, requirePresentUser, subject.Kind)
+	q := db.New(st.q)
+	arg := db.GroupUserAssignmentsForGroupsParams{SubjectID: subject.ID, GroupIds: ids}
+	var rows []db.GroupUserAssignmentsForGroupsRow
+	var err error
+	if subject.Kind == iam.SubjectKindUser {
+		rows, err = q.GroupUserAssignmentsForGroups(ctx, arg)
+	} else {
+		var apps []db.GroupApplicationAssignmentsForGroupsRow
+		apps, err = q.GroupApplicationAssignmentsForGroups(ctx, db.GroupApplicationAssignmentsForGroupsParams(arg))
+		for _, r := range apps {
+			rows = append(rows, db.GroupUserAssignmentsForGroupsRow(r))
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var target, assigned string
-		var assignment rbac.Assignment
-		if err := rows.Scan(&target, &assignment.PermissionGroupID, scanPersona(&assignment.Persona), &assigned); err != nil {
-			return nil, err
-		}
-		assignment.Role = ident.Role(assignment.Persona, assigned)
-		out[target] = append(out[target], assignment)
+	for _, r := range rows {
+		persona := ident.Persona(r.Persona)
+		out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.Role(persona, r.Role)})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // groupBatchIDs keeps distinct canonical UUIDs; anything else cannot name a group.
@@ -204,49 +208,41 @@ func (st *permissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 	if len(userIDs) == 0 {
 		return out, nil
 	}
-	rows, err := st.q.Query(ctx,
-		`SELECT user_id::text, role FROM group_user_roles
-		 WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[])`,
-		rootGID, userIDs)
+	rows, err := db.New(st.q).GroupUserRolesForUsers(ctx, db.GroupUserRolesForUsersParams{GroupID: rootGID, UserIds: userIDs})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var uid, role string
-		if err := rows.Scan(&uid, &role); err != nil {
-			return nil, err
-		}
-		out[uid] = append(out[uid], role)
+	for _, r := range rows {
+		out[r.UserID] = append(out[r.UserID], r.Role)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // AssignRole replaces the current role for a group and subject. The composite
 // primary key enforces one assignment; callers validate the role definition.
 // Assigning the role already held changes nothing.
 func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
+	q := db.New(st.q)
 	if subject.Kind == iam.SubjectKindRemoteApplication && role.IsOwner() {
-		var operable bool
-		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled AND permission_group_id=$2::uuid)`, subject.ID, groupID).Scan(&operable); err != nil {
+		operable, err := q.RemoteApplicationEnabledInGroup(ctx, db.RemoteApplicationEnabledInGroupParams{ID: subject.ID, GroupID: groupID})
+		if err != nil {
 			return err
 		}
 		if !operable {
 			return iam.ErrInsufficientAuthority
 		}
 	}
-	table, subjectColumn, err := groupRoleTable(subject.Kind)
-	if err != nil {
+	if err := requireGroupSubjectKind(subject.Kind); err != nil {
 		return err
 	}
-	var persona iam.Persona
-	err = st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(scanPersona(&persona))
+	name, err := q.PermissionGroupLivePersonaForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrGroupNotFound
 	}
 	if err != nil {
 		return err
 	}
+	persona := ident.Persona(name)
 	if role.Persona() != persona {
 		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}
@@ -254,8 +250,12 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	if err != nil || previous == role {
 		return err
 	}
-	if _, err := st.q.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (permission_group_id, %s, role) VALUES ($1::uuid, $2::uuid, $3)
- ON CONFLICT (permission_group_id, %s) DO UPDATE SET role=EXCLUDED.role`, table, subjectColumn, subjectColumn), groupID, subject.ID, role.Name()); err != nil {
+	if subject.Kind == iam.SubjectKindUser {
+		err = q.GroupUserRoleUpsert(ctx, db.GroupUserRoleUpsertParams{GroupID: groupID, UserID: subject.ID, Role: role.Name()})
+	} else {
+		err = q.GroupApplicationRoleUpsert(ctx, db.GroupApplicationRoleUpsertParams{GroupID: groupID, ApplicationID: subject.ID, Role: role.Name()})
+	}
+	if err != nil {
 		return err
 	}
 	st.touch(groupID, subject)
@@ -264,24 +264,31 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 
 // UnassignRole deletes the matching current assignment.
 func (st *permissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
-	return st.unassign(ctx, groupID, subject, "AND r.role=$3", role.Name())
+	name := role.Name()
+	return st.unassign(ctx, groupID, subject, &name)
 }
 
 // UnassignSubject deletes the subject's current assignment in this group.
 func (st *permissionGroupStore) UnassignSubject(ctx context.Context, groupID string, subject iam.Subject) error {
-	return st.unassign(ctx, groupID, subject, "")
+	return st.unassign(ctx, groupID, subject, nil)
 }
 
-func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, subject iam.Subject, filter string, args ...any) error {
-	table, subjectColumn, err := groupRoleTable(subject.Kind)
-	if err != nil {
-		return err
+// unassign deletes the subject's assignment in the group; role, when set,
+// must match.
+func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, subject iam.Subject, role *string) error {
+	q := db.New(st.q)
+	var deleted db.GroupUserRoleDeleteRow
+	var err error
+	switch subject.Kind {
+	case iam.SubjectKindUser:
+		deleted, err = q.GroupUserRoleDelete(ctx, db.GroupUserRoleDeleteParams{GroupID: groupID, UserID: subject.ID, Role: role})
+	case iam.SubjectKindRemoteApplication:
+		var app db.GroupApplicationRoleDeleteRow
+		app, err = q.GroupApplicationRoleDelete(ctx, db.GroupApplicationRoleDeleteParams{GroupID: groupID, ApplicationID: subject.ID, Role: role})
+		deleted = db.GroupUserRoleDeleteRow(app)
+	default:
+		return invalidSubjectKind(subject.Kind)
 	}
-	var persona iam.Persona
-	var role string
-	err = st.q.QueryRow(ctx, fmt.Sprintf(`DELETE FROM %s r USING permission_groups g
- WHERE g.id=r.permission_group_id AND r.permission_group_id=$1::uuid AND r.%s=$2::uuid %s RETURNING g.persona, r.role`, table, subjectColumn, filter),
-		append([]any{groupID, subject.ID}, args...)...).Scan(scanPersona(&persona), &role)
 	st.touch(groupID, subject)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -289,22 +296,16 @@ func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, su
 	if err != nil {
 		return err
 	}
-	return st.record(ctx, roleEvent(groupID, persona, subject, ident.Role(persona, role), iam.Role{}))
+	persona := ident.Persona(deleted.Persona)
+	return st.record(ctx, roleEvent(groupID, persona, subject, ident.Role(persona, deleted.Role), iam.Role{}))
 }
 
 // OwnerCount returns the count of live, unbanned, unreserved user owners and
 // enabled application owners. Lifecycle safety uses the transaction-bound
 // engine guard, which also checks the deployment's MFA policy.
 func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
-	var n int
-	err := st.q.QueryRow(ctx, `SELECT
-    (SELECT count(*) FROM group_user_roles r JOIN users u ON u.id=r.user_id
-     WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND u.deleted_at IS NULL
-     AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
-     AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp()))
-    + (SELECT count(*) FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
-       WHERE r.permission_group_id=$1::uuid AND r.role='owner' AND a.enabled AND a.permission_group_id=r.permission_group_id)`, groupID).Scan(&n)
-	return n, err
+	n, err := db.New(st.q).PermissionGroupOwnerCount(ctx, groupID)
+	return int(n), err
 }
 
 // GrantsOnGroups returns, per live target group, the de-duplicated UNION of
@@ -313,7 +314,7 @@ func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
 // are absent. Latent assignments of deleted/reserved accounts are included.
 func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *rbac.Schema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
-	byGroup, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, false)
+	byGroup, err := st.readAssignmentsForGroups(ctx, groupIDs, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -346,19 +347,14 @@ func (st *permissionGroupStore) groupsByID(ctx context.Context, groupIDs []strin
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := st.q.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups WHERE id=ANY($1::uuid[])`, ids)
+	rows, err := db.New(st.q).PermissionGroupsByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		g, err := scanGroup(rows)
-		if err != nil {
-			return nil, err
-		}
-		out[g.ID] = g
+	for _, r := range rows {
+		out[r.ID] = publicGroup(r)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // groupByID is groupsByID for one id; absence is ErrGroupNotFound.
@@ -374,10 +370,7 @@ func (st *permissionGroupStore) groupByID(ctx context.Context, groupID string) (
 	return g, nil
 }
 
-const groupColumns = `id::text, persona, created_at, deleted_at`
-
-func scanGroup(row pgx.Row) (iam.Group, error) {
-	var g iam.Group
-	err := row.Scan(&g.ID, scanPersona(&g.Persona), &g.CreatedAt, &g.DeletedAt)
-	return g, err
+// publicGroup projects a permission_groups row.
+func publicGroup(r db.PermissionGroup) iam.Group {
+	return iam.Group{ID: r.ID, Persona: ident.Persona(r.Persona), CreatedAt: r.CreatedAt, DeletedAt: r.DeletedAt}
 }

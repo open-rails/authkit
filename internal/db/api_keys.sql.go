@@ -7,7 +7,210 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const aPIKeyByLookupID = `-- name: APIKeyByLookupID :one
+SELECT k.id, k.secret_hash, k.role, k.expires_at, k.revoked_at,
+  (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))::boolean AS creator_live,
+  g.id AS group_id, g.persona, g.created_at AS group_created_at
+FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
+WHERE k.key_id = $1 AND g.deleted_at IS NULL
+`
+
+type APIKeyByLookupIDRow struct {
+	ID             string
+	SecretHash     []byte
+	Role           string
+	ExpiresAt      *time.Time
+	RevokedAt      *time.Time
+	CreatorLive    bool
+	GroupID        string
+	Persona        string
+	GroupCreatedAt time.Time
+}
+
+// APIKeyByLookupID reads a key of a live group. creator_live: the key's
+// creator is the system (NULL) or a usable account.
+func (q *Queries) APIKeyByLookupID(ctx context.Context, keyID string) (APIKeyByLookupIDRow, error) {
+	row := q.db.QueryRow(ctx, aPIKeyByLookupID, keyID)
+	var i APIKeyByLookupIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.SecretHash,
+		&i.Role,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatorLive,
+		&i.GroupID,
+		&i.Persona,
+		&i.GroupCreatedAt,
+	)
+	return i, err
+}
+
+const aPIKeyInsert = `-- name: APIKeyInsert :one
+INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz)
+ON CONFLICT (key_id) DO NOTHING
+RETURNING id, created_at
+`
+
+type APIKeyInsertParams struct {
+	GroupID    string
+	KeyID      string
+	SecretHash []byte
+	Name       string
+	Role       string
+	CreatedBy  *string
+	ExpiresAt  *time.Time
+}
+
+type APIKeyInsertRow struct {
+	ID        string
+	CreatedAt time.Time
+}
+
+func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (APIKeyInsertRow, error) {
+	row := q.db.QueryRow(ctx, aPIKeyInsert,
+		arg.GroupID,
+		arg.KeyID,
+		arg.SecretHash,
+		arg.Name,
+		arg.Role,
+		arg.CreatedBy,
+		arg.ExpiresAt,
+	)
+	var i APIKeyInsertRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
+const aPIKeyRevoke = `-- name: APIKeyRevoke :exec
+UPDATE api_keys SET revoked_at = now() WHERE id = $1
+`
+
+func (q *Queries) APIKeyRevoke(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, aPIKeyRevoke, id)
+	return err
+}
+
+const aPIKeyRoleCounts = `-- name: APIKeyRoleCounts :many
+SELECT pg.persona, r.role, count(*)::bigint AS n
+FROM api_keys r JOIN permission_groups pg ON pg.id = r.permission_group_id
+WHERE r.revoked_at IS NULL
+GROUP BY pg.persona, r.role
+`
+
+type APIKeyRoleCountsRow struct {
+	Persona string
+	Role    string
+	N       int64
+}
+
+func (q *Queries) APIKeyRoleCounts(ctx context.Context) ([]APIKeyRoleCountsRow, error) {
+	rows, err := q.db.Query(ctx, aPIKeyRoleCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIKeyRoleCountsRow
+	for rows.Next() {
+		var i APIKeyRoleCountsRow
+		if err := rows.Scan(&i.Persona, &i.Role, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const aPIKeyRoleForUpdate = `-- name: APIKeyRoleForUpdate :one
+SELECT role FROM api_keys WHERE id = $1 AND permission_group_id = $2 AND revoked_at IS NULL FOR UPDATE
+`
+
+type APIKeyRoleForUpdateParams struct {
+	ID      string
+	GroupID string
+}
+
+func (q *Queries) APIKeyRoleForUpdate(ctx context.Context, arg APIKeyRoleForUpdateParams) (string, error) {
+	row := q.db.QueryRow(ctx, aPIKeyRoleForUpdate, arg.ID, arg.GroupID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
+const aPIKeyTouch = `-- name: APIKeyTouch :exec
+UPDATE api_keys SET last_used_at = now()
+WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')
+`
+
+// APIKeyTouch records a use at most once per 5 minutes per key.
+func (q *Queries) APIKeyTouch(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, aPIKeyTouch, id)
+	return err
+}
+
+const aPIKeysByGroup = `-- name: APIKeysByGroup :many
+SELECT id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
+FROM api_keys
+WHERE permission_group_id = $1 AND ($2::uuid IS NULL OR id < $2::uuid)
+ORDER BY id DESC
+LIMIT $3::bigint
+`
+
+type APIKeysByGroupParams struct {
+	GroupID   string
+	After     *string
+	PageLimit int64
+}
+
+type APIKeysByGroupRow struct {
+	ID         string
+	KeyID      string
+	Name       string
+	Role       string
+	CreatedBy  string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	ExpiresAt  *time.Time
+	RevokedAt  *time.Time
+}
+
+// APIKeysByGroup lists a group's keys newest first, never the secret hash.
+func (q *Queries) APIKeysByGroup(ctx context.Context, arg APIKeysByGroupParams) ([]APIKeysByGroupRow, error) {
+	rows, err := q.db.Query(ctx, aPIKeysByGroup, arg.GroupID, arg.After, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIKeysByGroupRow
+	for rows.Next() {
+		var i APIKeysByGroupRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.KeyID,
+			&i.Name,
+			&i.Role,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const aPIKeysRevokeCreatedBy = `-- name: APIKeysRevokeCreatedBy :exec
 

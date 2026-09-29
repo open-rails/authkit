@@ -88,8 +88,11 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 		if err := s.requireRoleGrant(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
 			return err
 		}
-		return st.q.QueryRow(ctx, `INSERT INTO group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
- VALUES($1::uuid,$2,$3::uuid,$4,$5) RETURNING id::text`, g.ID, role.Name(), nullable(creator), sha256Hex(out.Code), out.ExpiresAt).Scan(&out.ID)
+		id, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{
+			GroupID: g.ID, Role: role.Name(), InvitedBy: nullable(creator), CodeHash: sha256Hex(out.Code), ExpiresAt: out.ExpiresAt,
+		})
+		out.ID = id
+		return err
 	})
 	if err != nil {
 		return iam.InviteLinkCreated{}, err
@@ -113,19 +116,16 @@ func (s *Engine) InviteLinks(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 	if err != nil {
 		return iam.ListPage[iam.InviteLink]{}, err
 	}
-	rows, err := st.q.Query(ctx, `SELECT id::text, role, COALESCE(invited_by::text,''), created_at, expires_at, redeemed_at, revoked_at
- FROM group_invite_links WHERE permission_group_id=$1::uuid AND ($2::uuid IS NULL OR id<$2::uuid)
- ORDER BY id DESC LIMIT $3`, g.ID, after, p.PageLimit()+1)
+	rows, err := db.New(st.q).InviteLinksByGroup(ctx, db.InviteLinksByGroupParams{GroupID: g.ID, After: after, PageLimit: int64(p.PageLimit() + 1)})
 	if err != nil {
 		return iam.ListPage[iam.InviteLink]{}, err
 	}
-	links, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.InviteLink, error) {
-		var l iam.InviteLink
-		err := row.Scan(&l.ID, scanRole(&l.Role, g.Persona), &l.InvitedBy, &l.CreatedAt, &l.ExpiresAt, &l.RedeemedAt, &l.RevokedAt)
-		return l, err
-	})
-	if err != nil {
-		return iam.ListPage[iam.InviteLink]{}, err
+	links := make([]iam.InviteLink, len(rows))
+	for i, r := range rows {
+		links[i] = iam.InviteLink{
+			ID: r.ID, Role: ident.Role(g.Persona, r.Role), InvitedBy: r.InvitedBy, CreatedAt: r.CreatedAt,
+			ExpiresAt: r.ExpiresAt, RedeemedAt: r.RedeemedAt, RevokedAt: r.RevokedAt,
+		}
 	}
 	return idPage(links, p.PageLimit(), func(l iam.InviteLink) string { return l.ID }), nil
 }
@@ -141,19 +141,18 @@ func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 		if !isUUID(linkID) {
 			return iam.ErrInviteLinkNotFound
 		}
-		var role iam.Role
-		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, g.ID).Scan(scanRole(&role, g.Persona))
+		q := db.New(st.q)
+		name, err := q.InviteLinkRoleForUpdate(ctx, db.InviteLinkRoleForUpdateParams{ID: linkID, GroupID: g.ID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInviteLinkNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
+		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermMembersManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
 			return err
 		}
-		_, err = st.q.Exec(ctx, `UPDATE group_invite_links SET revoked_at=now(), updated_at=now() WHERE id=$1::uuid`, linkID)
-		return err
+		return q.InviteLinkRevoke(ctx, linkID)
 	})
 }
 
@@ -175,8 +174,8 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 	redeemer := iam.UserSubject(a.ID())
 	codeHash := sha256Hex(code)
 	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
-		var groupID string
-		err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
+		q := db.New(st.q)
+		groupID, err := q.InviteLinkGroupByCode(ctx, codeHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return s.acceptAccountInvite(ctx, st, redeemer, codeHash, &out)
 		}
@@ -186,24 +185,19 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 			return err
 		}
-		var linkID, role string
-		var redeemedAt, expiresAt, revokedAt *time.Time
-		var issuerOK bool
-		err = st.q.QueryRow(ctx, `SELECT l.id::text, g.id::text, g.persona, l.role, l.redeemed_at, l.expires_at, l.revoked_at, `+issuerLive("l.invited_by")+`
- FROM group_invite_links l JOIN permission_groups g ON g.id=l.permission_group_id
- WHERE l.code_hash=$1 AND l.permission_group_id=$2::uuid
- FOR UPDATE OF l`, codeHash, groupID).Scan(&linkID, &out.GroupID, scanPersona(&out.Persona), &role, &redeemedAt, &expiresAt, &revokedAt, &issuerOK)
+		link, err := q.InviteLinkByCodeForUpdate(ctx, db.InviteLinkByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInviteLinkNotFound
 		}
 		if err != nil {
 			return err
 		}
-		out.Role = ident.Role(out.Persona, role)
-		if revokedAt != nil || !issuerOK {
+		out.GroupID, out.Persona = link.GroupID, ident.Persona(link.Persona)
+		out.Role = ident.Role(out.Persona, link.Role)
+		if link.RevokedAt != nil || !link.IssuerLive {
 			return errmodel.ErrInviteLinkRevoked
 		}
-		if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+		if link.ExpiresAt != nil && !link.ExpiresAt.After(time.Now().UTC()) {
 			return errmodel.ErrInviteLinkExpired
 		}
 		live, err := subjectUsable(ctx, st.q, redeemer)
@@ -217,14 +211,13 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		if err != nil || already {
 			return err
 		}
-		if redeemedAt != nil {
+		if link.RedeemedAt != nil {
 			return iam.ErrInviteLinkNotFound
 		}
 		if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
 			return err
 		}
-		_, err = st.q.Exec(ctx, `UPDATE group_invite_links SET redeemed_at=now(), updated_at=now() WHERE id=$1::uuid`, linkID)
-		return err
+		return q.InviteLinkRedeem(ctx, link.ID)
 	})
 	if err != nil {
 		return authflow.InviteRedemption{}, err
@@ -237,8 +230,8 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 // so the role lands only with the consent of whoever proved it. Anything else
 // is ErrInviteLinkNotFound, never a hint about the invitation.
 func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupStore, redeemer iam.Subject, codeHash string, out *authflow.InviteRedemption) error {
-	var groupID string
-	err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM account_registration_invites WHERE code_hash=$1 AND permission_group_id IS NOT NULL`, codeHash).Scan(&groupID)
+	q := db.New(st.q)
+	groupID, err := q.AccountInviteGroupByCode(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrInviteLinkNotFound
 	}
@@ -248,26 +241,19 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 		return err
 	}
-	var inviteID, role string
-	var consumedAt, revokedAt *time.Time
-	var expiresAt time.Time
-	var issuerOK, addressed bool
-	err = st.q.QueryRow(ctx, `SELECT i.id::text, g.id::text, g.persona, COALESCE(i.role,''), i.consumed_at, i.expires_at, i.revoked_at, `+issuerLive("i.invited_by")+`,
-       EXISTS(SELECT 1 FROM users u WHERE u.id=$3::uuid AND lower(u.email::text)=lower(i.email::text) AND u.email_verified)
- FROM account_registration_invites i JOIN permission_groups g ON g.id=i.permission_group_id AND g.deleted_at IS NULL
- WHERE i.code_hash=$1 AND i.permission_group_id=$2::uuid
- FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.GroupID, scanPersona(&out.Persona), &role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !addressed {
+	invite, err := q.AccountInviteByCodeForUpdate(ctx, db.AccountInviteByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID, UserID: redeemer.ID})
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !invite.Addressed {
 		return iam.ErrInviteLinkNotFound
 	}
 	if err != nil {
 		return err
 	}
-	out.Role = ident.Role(out.Persona, role)
-	if revokedAt != nil || !issuerOK {
+	out.GroupID, out.Persona = invite.GroupID, ident.Persona(invite.Persona)
+	out.Role = ident.Role(out.Persona, invite.Role)
+	if invite.RevokedAt != nil || !invite.IssuerLive {
 		return errmodel.ErrInviteLinkRevoked
 	}
-	if !expiresAt.After(time.Now().UTC()) {
+	if !invite.ExpiresAt.After(time.Now().UTC()) {
 		return errmodel.ErrInviteLinkExpired
 	}
 	live, err := subjectUsable(ctx, st.q, redeemer)
@@ -281,22 +267,16 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	if err != nil || already {
 		return err
 	}
-	if consumedAt != nil {
+	if invite.ConsumedAt != nil {
 		return iam.ErrInviteLinkNotFound
 	}
 	if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
 		return err
 	}
-	_, err = st.q.Exec(ctx, `UPDATE account_registration_invites SET consumed_at=now(), consumed_by=$2::uuid, updated_at=now() WHERE id=$1::uuid`, inviteID, redeemer.ID)
-	return err
+	return q.AccountInviteConsume(ctx, db.AccountInviteConsumeParams{ID: invite.ID, UserID: redeemer.ID})
 }
 
 // subjectHasRole reports whether the user already holds role in the group.
 func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role iam.Role) (bool, error) {
-	var exists bool
-	err := q.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM group_user_roles
-		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3)`,
-		groupID, userID, role.Name()).Scan(&exists)
-	return exists, err
+	return db.New(q).GroupUserHasRole(ctx, db.GroupUserHasRoleParams{GroupID: groupID, UserID: userID, Role: role.Name()})
 }

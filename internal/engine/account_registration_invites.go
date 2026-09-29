@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
@@ -92,9 +93,11 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 				return err
 			}
 		}
-		return st.q.QueryRow(ctx, `INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
- VALUES ($1, $2::uuid, $3, $4, $5, $6) RETURNING id::text`,
-			email, nullable(creator), sha256Hex(out.Code), out.ExpiresAt, groupID, roleParam).Scan(&out.ID)
+		id, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{
+			Email: email, InvitedBy: nullable(creator), CodeHash: sha256Hex(out.Code), ExpiresAt: out.ExpiresAt, GroupID: groupID, Role: roleParam,
+		})
+		out.ID = id
+		return err
 	})
 	if err != nil {
 		return iam.AccountInviteCreated{}, err
@@ -129,26 +132,10 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	q := s.pg
-	var exists bool
-	err := q.QueryRow(ctx,
-		`SELECT EXISTS(
-		   SELECT 1 FROM account_registration_invites i
-		   WHERE i.code_hash = $1 AND i.revoked_at IS NULL
-		     AND i.consumed_at IS NULL AND i.expires_at > now() AND `+issuerLive("i.invited_by")+`
-		 )`,
-		sha256Hex(token)).Scan(&exists)
-	return exists, err
+	return s.q.AccountInviteValid(ctx, sha256Hex(token))
 }
 
-type registrationInvite struct {
-	ID      string
-	GroupID *string
-	Role    *string
-	Persona *string
-}
-
-func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
+func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil || mode == iam.RegistrationModeClosed {
 		return nil, errmodel.ErrRegistrationDisabled
@@ -160,12 +147,12 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 		return nil, nil
 	}
-	q := tx
-	if err := s.lockAuthority(ctx, q); err != nil {
+	if err := s.lockAuthority(ctx, tx); err != nil {
 		return nil, err
 	}
-	var groupID *string
-	err = q.QueryRow(ctx, `SELECT i.permission_group_id::text FROM account_registration_invites i WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now() AND `+issuerLive("i.invited_by"), sha256Hex(token)).Scan(&groupID)
+	q := db.New(tx)
+	codeHash := sha256Hex(token)
+	groupID, err := q.AccountInviteGroupLive(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errmodel.ErrAccountRegistrationInviteNotFound
 	}
@@ -173,16 +160,11 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, err
 	}
 	if groupID != nil {
-		if err := lockPermissionGroup(ctx, q, *groupID); err != nil {
+		if err := lockPermissionGroup(ctx, tx, *groupID); err != nil {
 			return nil, err
 		}
 	}
-	var invite registrationInvite
-	err = tx.QueryRow(ctx, `SELECT i.id::text,i.permission_group_id::text,i.role,g.persona
-FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id=i.permission_group_id
-WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now() AND `+issuerLive("i.invited_by")+`
-AND i.permission_group_id IS NOT DISTINCT FROM $2::uuid
-FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &invite.Role, &invite.Persona)
+	invite, err := q.AccountInviteForUpdate(ctx, db.AccountInviteForUpdateParams{CodeHash: codeHash, GroupID: groupID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errmodel.ErrAccountRegistrationInviteNotFound
 	}
@@ -192,22 +174,21 @@ FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &
 	return &invite, nil
 }
 
-func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *registrationInvite, userID string) error {
+func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *db.AccountInviteForUpdateRow, userID string) error {
 	if invite == nil {
 		return nil
 	}
-	q := tx
-	if _, err := q.Exec(ctx, `UPDATE account_registration_invites SET consumed_at=now(),consumed_by=$2::uuid,updated_at=now() WHERE id=$1::uuid`, invite.ID, userID); err != nil {
+	if err := db.New(tx).AccountInviteConsume(ctx, db.AccountInviteConsumeParams{ID: invite.ID, UserID: userID}); err != nil {
 		return err
 	}
-	if invite.GroupID != nil && invite.Role != nil {
+	if invite.PermissionGroupID != nil && invite.Role != nil {
 		var persona iam.Persona
 		if invite.Persona != nil {
 			persona = ident.Persona(*invite.Persona)
 		}
 		st := s.groupStoreFor(tx)
 		st.actor = iam.UserActor(userID)
-		return s.assignInvitedRole(ctx, st, *invite.GroupID, persona, userID, ident.Role(persona, *invite.Role))
+		return s.assignInvitedRole(ctx, st, *invite.PermissionGroupID, persona, userID, ident.Role(persona, *invite.Role))
 	}
 	return nil
 }
