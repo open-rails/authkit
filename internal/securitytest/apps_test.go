@@ -61,7 +61,7 @@ func appToken(t *testing.T, s *jwtkit.RSASigner, iss string) string {
 
 func (h *host) rootGroupID() string {
 	h.t.Helper()
-	g, err := h.auth.GroupInstanceForSlug(context.Background(), iam.RootGroup())
+	g, err := h.auth.Group(context.Background(), iam.RootGroup())
 	require.NoError(h.t, err)
 	return g.ID
 }
@@ -231,7 +231,7 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	cl, err := h.auth.Verifier().Verify(ctx, token.Value)
 	require.NoError(t, err, "overlapping audiences: the delegated token verifies here")
 	perm := iam.Perm(iam.PermRootUsersRead)
-	allowed, err := verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
+	allowed, err := verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.True(t, allowed)
 
@@ -243,7 +243,7 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, admin.id)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusForbidden, h.get("/admin/users", token.Value).status)
-	allowed, err = verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
+	allowed, err = verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "a banned user's delegated token kept its authority")
 }
