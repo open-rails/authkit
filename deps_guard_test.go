@@ -39,8 +39,9 @@ var sharedInternal = map[string]bool{
 const errmodelPackage = "github.com/open-rails/authkit/internal/errmodel"
 
 // stdlibOnly packages depend on nothing outside the standard library, except
-// the listed packages.
+// the listed packages. devicekey is linked into CLIs and machines.
 var stdlibOnly = map[string][]string{
+	"./devicekey":         {rootPackage + "/iam", errmodelPackage},
 	"./iam":               {errmodelPackage},
 	"./internal/errmodel": nil,
 	"./internal/netguard": nil,

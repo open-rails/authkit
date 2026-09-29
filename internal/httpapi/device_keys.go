@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
@@ -15,28 +15,21 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-type deviceKeyResponse struct {
-	ID        string    `json:"id"`
-	Label     string    `json:"label,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type DeviceKeyListResponse struct {
-	ID         string     `json:"id"`
-	Label      string     `json:"label,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	Current    bool       `json:"current"`
-}
-
+// deviceKeyTokenResponse is a device key's sign-in; the key is the token's own.
 type deviceKeyTokenResponse struct {
-	TokenSet  iam.TokenSet      `json:"token_set"`
-	DeviceKey deviceKeyResponse `json:"device_key"`
+	TokenSet  iam.TokenSet  `json:"token_set"`
+	DeviceKey devicekey.Key `json:"device_key"`
 }
 
-func deviceKeyHTTPResponse(id, label string, createdAt time.Time) deviceKeyResponse {
-	return deviceKeyResponse{ID: id, Label: label, CreatedAt: createdAt}
+func deviceKeyWire(key authflow.DeviceKey, current bool) devicekey.Key {
+	return devicekey.Key{ID: key.ID, Label: key.Label, CreatedAt: key.CreatedAt, LastUsedAt: key.LastUsedAt, RevokedAt: key.RevokedAt, Current: current}
+}
+
+func deviceKeyTokenHTTPResponse(result authflow.DeviceKeyAuthResult) deviceKeyTokenResponse {
+	return deviceKeyTokenResponse{
+		TokenSet:  iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt),
+		DeviceKey: deviceKeyWire(result.DeviceKey, true),
+	}
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +101,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		TokenSet:  iam.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
-		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
-	})
+	writeJSON(w, http.StatusOK, deviceKeyTokenHTTPResponse(result))
 }
 
 func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -179,10 +169,7 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		TokenSet:  iam.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
-		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
-	})
+	writeJSON(w, http.StatusOK, deviceKeyTokenHTTPResponse(result))
 }
 
 func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
@@ -201,13 +188,9 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	answer := make([]DeviceKeyListResponse, 0, len(keys))
+	answer := make([]devicekey.Key, 0, len(keys))
 	for _, key := range keys {
-		answer = append(answer, DeviceKeyListResponse{
-			ID: key.ID, Label: key.Label, CreatedAt: key.CreatedAt,
-			LastUsedAt: key.LastUsedAt, RevokedAt: key.RevokedAt,
-			Current: key.ID == claims.DeviceKeyID,
-		})
+		answer = append(answer, deviceKeyWire(key, key.ID == claims.DeviceKeyID))
 	}
 	writeList(w, answer, "")
 }

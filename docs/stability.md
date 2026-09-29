@@ -30,7 +30,8 @@ Not covered: anything under `internal/`, test helpers, log lines, metric names.
 
 Public: `authkit` (`New`, `Migrate`, configuration and `*Auth`), `iam`
 (shared types, standard library only), `verify` (database-free verification),
-`jwtkit`, `documents`, `authprovider`, `authtest` and `adapters/*`. The
+`jwtkit`, `documents`, `authprovider`, `authtest`, `devicekey` (the device-key
+client) and `adapters/*`. The
 implementation is `internal/engine`, the HTTP surface `internal/httpapi`.
 Nothing below the root imports it (`deps_guard_test.go`).
 

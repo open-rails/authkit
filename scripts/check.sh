@@ -81,7 +81,7 @@ required = {
                      'TestSecurityResetAccountMFA', 'TestSecurityOwnApplicationIsNoReplacementOwner',
                      'TestSecurityEmailFactorFollowsOwnChange', 'TestSecurityDeviceKeyRefusedBeforeBackupCode',
                      'TestSecurityRegistrationResendRevealsNothing', 'TestSecurityDeviceKeyIndependentFactors',
-                     'TestSecurityVerifyRequestByPhoneRevealsNothing'),
+                     'TestSecurityVerifyRequestByPhoneRevealsNothing', 'TestSecurityDeviceKeyClient'),
     'internal/engine': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
