@@ -134,7 +134,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
-			authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims()
+			authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims(false)
 			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, user, &status, map[string]any{"2fa_enrollment": true}, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
 			if err != nil {
 				return authflow.LoginOutcome{}, err

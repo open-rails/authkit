@@ -37,7 +37,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	}
 
 	var authMeta map[string]any
-	if !verify.SensitiveClaims(claims) {
+	if !s.sensitiveClaims(r, claims) {
 		// MFA-if-enrolled: the current password alone never clears the gate
 		// for an account with a second factor (M5).
 		if body.CurrentPassword == "" || s.hasUsableMFA(r, claims.UserID) {
@@ -66,7 +66,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		delete(authMeta, "ok")
 	}
 
-	keep := keepSession(claims)
+	keep := keepCredential(claims)
 	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
 	if err != nil {
 		serverErr(w, "database_error", err)

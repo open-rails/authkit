@@ -41,13 +41,16 @@ func decodeOptionalJSON(r *http.Request, dst any) error {
 	return decodeJSON(r, dst)
 }
 
-// keepSession is the caller's own session, the one a credential or contact
-// change keeps alive while every other session is revoked.
-func keepSession(claims verify.Claims) *string {
-	if claims.SessionID == "" {
-		return nil
+// keepCredential is the session or device key presenting a credential
+// change; it survives the revocation the change triggers.
+func keepCredential(claims verify.Claims) *string {
+	switch {
+	case claims.SessionID != "":
+		return &claims.SessionID
+	case claims.DeviceKeyID != "":
+		return &claims.DeviceKeyID
 	}
-	return &claims.SessionID
+	return nil
 }
 
 func parseIP(s string) net.IP {

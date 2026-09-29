@@ -167,6 +167,12 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 			fail(w, errmodel.CodeDeviceKeysDisabled)
 			return
 		}
+		// The key signed the challenge, but the account needs a second factor
+		// the key never proved: re-enroll it with code_2fa, or enroll a factor.
+		if errors.Is(err, errmodel.E(errmodel.CodeTwoFARequired)) || errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+			writeError(w, err)
+			return
+		}
 		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, errmodel.ErrUserBanned) {
 			s.logInternalError(r, "device_key_login_finish", "finish", "device_key_login_finish_failed", err)
 		}

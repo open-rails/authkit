@@ -189,7 +189,9 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *use
 		}
 	} else if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
 		if freshness, freshErr := s.SessionFreshness(ctx, userID, sid, time.Now()); freshErr == nil {
-			authTime, amr, acr := freshness.AssuranceClaims()
+			// An unknown MFA state counts as enrolled: the token is then fresh
+			// only as of the session's last second factor.
+			authTime, amr, acr := freshness.AssuranceClaims(mfa == nil || mfa.Satisfied)
 			claims["auth_time"] = authTime
 			claims["amr"] = amr
 			claims["acr"] = acr
@@ -234,8 +236,9 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *use
 
 // mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
 // assurance claims are server-owned, not passed through MintAccessToken's host
-// extras, so callers cannot forge an authentication method.
-func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof, mfaProof bool) (string, time.Time, error) {
+// extras, so callers cannot forge an authentication method. amr is what the
+// ceremony proved; it passes the same session MFA gate as every login.
+func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, amr []string) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", time.Time{}, err
@@ -243,18 +246,17 @@ func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 	if err := s.ensureUserAccess(ctx, u); err != nil {
 		return "", time.Time{}, err
 	}
+	status, mfaErr := s.mfaStatus(ctx, userID)
+	if err := s.requireSessionMFAStateOn(ctx, s.pg, userID, amr, status, mfaErr); err != nil {
+		return "", time.Time{}, err
+	}
 	var mfa *authflow.MFAStatus
-	if status, mfaErr := s.mfaStatus(ctx, userID); mfaErr == nil {
+	if mfaErr == nil {
 		mfa = &status
 	}
 	now := time.Now().UTC()
-	amr := []string{"device_key"}
 	acr := iam.AssuranceLevelPassword
-	if emailProof {
-		amr = append(amr, "email")
-	}
-	if mfaProof {
-		amr = append(amr, "otp", "mfa")
+	if hasAuthMethod(amr, "mfa") {
 		acr = iam.AssuranceLevelMFA
 	}
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{

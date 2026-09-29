@@ -31,6 +31,12 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
+	// MFA-if-enrolled: a password never re-proves an account with a second
+	// factor; it steps up with that factor (N1).
+	if s.hasUsableMFA(r, claims.UserID) {
+		s.requireStepUp(w, r, claims)
+		return
+	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
 		if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
 			// The stored hash can never verify (legacy reset-required); the user
@@ -155,6 +161,10 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 		fail(w, errmodel.CodeProviderNotLinked)
 		return
 	}
+	if s.hasUsableMFA(r, claims.UserID) {
+		s.requireStepUp(w, r, claims)
+		return
+	}
 	s.startProviderFlow(w, r, p.Name(), flowStart{
 		params: map[string]string{"max_age": "0"},
 		stepUp: &oidcstate.StateData{
@@ -180,7 +190,7 @@ func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd 
 		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
-	if !validOIDCStepUpTime(sd.StepUpStartedAt, authTime, time.Now().UTC()) {
+	if !validOIDCStepUpTime(sd.StepUpStartedAt, authTime, time.Now().UTC()) || s.hasUsableMFA(r, sd.StepUpUserID) {
 		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
@@ -225,11 +235,13 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 	if !s.requireLiveCredential(w, r, claims) {
 		return false, nil
 	}
+	mfa := s.hasUsableMFA(r, claims.UserID)
+	claims.MFAEnrolled = claims.MFAEnrolled || mfa
 	if verify.SensitiveClaims(claims) {
 		return true, nil
 	}
 	if password != "" {
-		if s.hasUsableMFA(r, claims.UserID) {
+		if mfa {
 			// MFA-if-enrolled: a password never clears the gate for an
 			// account with a second factor (M5).
 			s.requireStepUp(w, r, claims)
@@ -307,6 +319,13 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
 	ok, err := s.svc.HasUsableMFA(r.Context(), userID)
 	return ok || err != nil
+}
+
+// sensitiveClaims is verify.SensitiveClaims over the account's live MFA state:
+// a token minted before a second factor was enrolled must not hide it.
+func (s *Service) sensitiveClaims(r *http.Request, claims verify.Claims) bool {
+	claims.MFAEnrolled = claims.MFAEnrolled || s.hasUsableMFA(r, claims.UserID)
+	return verify.SensitiveClaims(claims)
 }
 
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authflow.StepUpTwoFactorOptions {

@@ -9,8 +9,8 @@
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
 
 -- name: SessionInsert :one
-INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
+INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
 RETURNING id::text, family_id::text;
 
 -- name: SessionByCurrentTokenHash :one
@@ -58,7 +58,7 @@ WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
 
 -- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       auth_methods
+       auth_methods, mfa_authenticated_at
 FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
@@ -68,14 +68,14 @@ WHERE id = sqlc.arg(session_id)::uuid
 
 -- name: SessionMarkAuthenticated :execrows
 -- Re-proving identity refreshes the freshness window and UNIONS the methods
--- just used into whatever the session already proved — it never downgrades
--- assurance. A password-only re-auth on an MFA session keeps its otp/mfa AMR,
--- so a later RequireMFA gate still passes.
+-- just used into what the session proved, so its refresh assurance never
+-- drops. MFA freshness moves only when these methods include the second factor.
 UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
       SELECT DISTINCT unnest(auth_methods || sqlc.arg(auth_methods)::text[])
-    )
+    ),
+    mfa_authenticated_at = CASE WHEN 'mfa' = ANY(sqlc.arg(auth_methods)::text[]) THEN now() ELSE mfa_authenticated_at END
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = sqlc.arg(issuer)
@@ -95,6 +95,13 @@ WHERE user_id = sqlc.arg(user_id) AND issuer = ANY(sqlc.arg(issuers)::text[])
   AND (sqlc.narg(keep_session_id)::uuid IS NULL OR id <> sqlc.narg(keep_session_id)::uuid)
   AND revoked_at IS NULL
 RETURNING id::text, issuer;
+
+-- name: DeviceKeysRevokeAllExcept :exec
+-- A credential change ends every device key of the account but keep_id, the
+-- one presenting the change.
+UPDATE user_device_keys SET revoked_at = now()
+WHERE user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL
+  AND (sqlc.narg(keep_id)::uuid IS NULL OR id <> sqlc.narg(keep_id)::uuid);
 
 -- name: SessionsCountActiveOutsideIssuers :one
 -- Live sessions an account-wide revocation could not reach: issuers missing
@@ -140,7 +147,7 @@ WHERE ctid = ANY(ARRAY(
 ));
 
 -- name: SessionFreshSinceForUpdate :one
-SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods, mfa_authenticated_at
 FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = sqlc.arg(issuer) AND revoked_at IS NULL

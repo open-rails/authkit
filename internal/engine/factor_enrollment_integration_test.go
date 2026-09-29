@@ -131,9 +131,8 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
-	passwordAgain := f.expect(200, f.request("POST", "/step-up/password", mfa.AccessToken, map[string]any{"password": pass})).Tokens
-	require.ElementsMatch(t, claims["amr"], unverifiedAccessClaims(t, passwordAgain.AccessToken)["amr"], "password re-auth preserves actual MFA proof")
-	require.Equal(t, iam.AssuranceLevelMFA, unverifiedAccessClaims(t, passwordAgain.AccessToken)["acr"])
+	passwordAgain := f.expect(403, f.request("POST", "/step-up/password", mfa.AccessToken, map[string]any{"password": pass}))
+	require.Equal(t, "step_up_required", passwordAgain.Error.Code, "a password never re-proves an account with a second factor")
 
 	// A fresh factor proof permits management but cannot replace the factor.
 	replacement := f.expect(200, f.request("POST", "/user/2fa", mfa.AccessToken, map[string]any{"method": "totp"}))
