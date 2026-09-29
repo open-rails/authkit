@@ -115,7 +115,8 @@ func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.Provider
 	}
 	var live bool
 	if isUUID(userID) {
-		if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL)`, userID).Scan(&live); err != nil {
+		var err error
+		if live, err = s.q.UserNotDeleted(ctx, userID); err != nil {
 			return err
 		}
 	}

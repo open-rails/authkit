@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
@@ -29,13 +30,11 @@ func (s *Engine) CompleteExternalLogin(ctx context.Context, in authflow.External
 	if in.Link != nil {
 		return authflow.LoginOutcome{Kind: authflow.LoginProviderLinked, UserID: userID}, nil
 	}
-	var version int64
-	var providerID string
-	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, in.Identity.Issuer, in.Identity.Subject).Scan(&version, &providerID)
+	link, err := s.q.UserProviderVerifiedLink(ctx, db.UserProviderVerifiedLinkParams{UserID: userID, Issuer: in.Identity.Issuer, Subject: in.Identity.Subject})
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
 	out.Created = created
 	if err == nil && created {
 		s.SendWelcome(ctx, userID)

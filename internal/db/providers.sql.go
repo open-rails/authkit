@@ -68,6 +68,17 @@ func (q *Queries) UserHasPassword(ctx context.Context, userID string) (bool, err
 	return exists, err
 }
 
+const userNotDeleted = `-- name: UserNotDeleted :one
+SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)
+`
+
+func (q *Queries) UserNotDeleted(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, userNotDeleted, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const userProviderByIssuerAny = `-- name: UserProviderByIssuerAny :one
 SELECT subject, verified_at
 FROM user_providers
@@ -211,6 +222,32 @@ func (q *Queries) UserProviderMergeProfile(ctx context.Context, arg UserProvider
 	return err
 }
 
+const userProviderProofSource = `-- name: UserProviderProofSource :one
+SELECT id FROM user_providers
+WHERE id = $1 AND user_id = $2 AND issuer = $3 AND subject = $4
+  AND verified_at IS NOT NULL
+FOR UPDATE
+`
+
+type UserProviderProofSourceParams struct {
+	ID      string
+	UserID  string
+	Issuer  string
+	Subject string
+}
+
+func (q *Queries) UserProviderProofSource(ctx context.Context, arg UserProviderProofSourceParams) (string, error) {
+	row := q.db.QueryRow(ctx, userProviderProofSource,
+		arg.ID,
+		arg.UserID,
+		arg.Issuer,
+		arg.Subject,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const userProviderSetUsername = `-- name: UserProviderSetUsername :exec
 UPDATE user_providers SET profile = jsonb_build_object('username', $4::text)
 WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL
@@ -347,6 +384,31 @@ func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProvid
 	)
 	var i UserProviderUpsertByIssuerRow
 	err := row.Scan(&i.ID, &i.UserID, &i.VerifiedAt)
+	return i, err
+}
+
+const userProviderVerifiedLink = `-- name: UserProviderVerifiedLink :one
+SELECT u.credential_version, p.id AS provider_id
+FROM users u JOIN user_providers p ON p.user_id = u.id
+WHERE u.id = $1 AND p.issuer = $2 AND p.subject = $3 AND p.verified_at IS NOT NULL
+`
+
+type UserProviderVerifiedLinkParams struct {
+	UserID  string
+	Issuer  string
+	Subject string
+}
+
+type UserProviderVerifiedLinkRow struct {
+	CredentialVersion int64
+	ProviderID        string
+}
+
+// What a provider sign-in proves: the account's credential version and the verified link.
+func (q *Queries) UserProviderVerifiedLink(ctx context.Context, arg UserProviderVerifiedLinkParams) (UserProviderVerifiedLinkRow, error) {
+	row := q.db.QueryRow(ctx, userProviderVerifiedLink, arg.UserID, arg.Issuer, arg.Subject)
+	var i UserProviderVerifiedLinkRow
+	err := row.Scan(&i.CredentialVersion, &i.ProviderID)
 	return i, err
 }
 

@@ -184,9 +184,7 @@ func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bo
 	if !s.PasskeysEnabled() {
 		return false, nil
 	}
-	var held bool
-	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id=$1::uuid AND rpid=$2 AND deleted_at IS NULL)`, userID, s.cfg.Passkeys.RPID).Scan(&held)
-	return held, err
+	return db.New(q).PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
 }
 
 func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
@@ -395,8 +393,7 @@ func (s *Engine) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 		if proof.ProviderID == "" {
 			return jwt.ErrTokenUnverifiable
 		}
-		var id string
-		err := source.QueryRow(ctx, `SELECT id::text FROM user_providers WHERE id=$1::uuid AND user_id=$2::uuid AND issuer=$3 AND subject=$4 AND verified_at IS NOT NULL FOR UPDATE`, proof.ProviderID, proof.Input.UserID, proof.ProviderIssuer, proof.ProviderSubject).Scan(&id)
+		_, err := q.UserProviderProofSource(ctx, db.UserProviderProofSourceParams{ID: proof.ProviderID, UserID: proof.Input.UserID, Issuer: proof.ProviderIssuer, Subject: proof.ProviderSubject})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}
@@ -405,8 +402,7 @@ func (s *Engine) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 		}
 	}
 	if proof.PasskeyID != "" {
-		var id string
-		err := source.QueryRow(ctx, `SELECT id::text FROM user_passkeys WHERE id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL FOR UPDATE`, proof.PasskeyID, proof.Input.UserID).Scan(&id)
+		_, err := q.PasskeyLiveForUpdate(ctx, db.PasskeyLiveForUpdateParams{ID: proof.PasskeyID, UserID: proof.Input.UserID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}

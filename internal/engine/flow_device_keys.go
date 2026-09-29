@@ -178,7 +178,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	if user != nil {
 		owner = user.ID
 	}
-	if err := deviceKeyEnrollable(ctx, s.pg, publicKey, owner); err != nil {
+	if err := deviceKeyEnrollable(ctx, s.q, publicKey, owner); err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
 	mfaProof, backupCode := false, ""
@@ -263,20 +263,23 @@ func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]a
 
 // deviceKeyEnrollable refuses a public key that is revoked or bound to an
 // account other than owner ("" for an account the enrollment would create).
-func deviceKeyEnrollable(ctx context.Context, q db.DBTX, publicKey []byte, owner string) error {
-	var holder string
-	var revoked bool
-	err := q.QueryRow(ctx, `SELECT user_id::text, revoked_at IS NOT NULL FROM user_device_keys WHERE public_key=$1`, publicKey).Scan(&holder, &revoked)
+func deviceKeyEnrollable(ctx context.Context, q *db.Queries, publicKey []byte, owner string) error {
+	key, err := q.DeviceKeyByPublicKey(ctx, publicKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if revoked || holder != owner {
+	if key.RevokedAt != nil || key.UserID != owner {
 		return errDeviceKeyInvalid
 	}
 	return nil
+}
+
+// publicDeviceKey is the one mapping from a device key row.
+func publicDeviceKey(k db.UserDeviceKey) authflow.DeviceKey {
+	return authflow.DeviceKey{ID: k.ID, Label: deref(k.Label), CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt}
 }
 
 // challengeDeviceKeySecondFactor names the proof the retry carries in
@@ -370,51 +373,46 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 		return authflow.DeviceKey{}, "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
+	q := s.qtx(tx)
 	if user == nil {
 		userID, err := newUUIDV7String()
 		if err != nil {
 			return authflow.DeviceKey{}, "", false, err
 		}
-		tag, err := q.Exec(ctx, `INSERT INTO users (id, email, email_verified)
-VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
+		inserted, err := q.DeviceKeyEnrollUserInsert(ctx, db.DeviceKeyEnrollUserInsertParams{ID: userID, Email: record.Email})
 		if err != nil {
 			return authflow.DeviceKey{}, "", false, err
 		}
-		if tag.RowsAffected() == 1 {
+		if inserted == 1 {
 			if err := s.emitEvents(ctx, tx, iam.UserActor(userID), userEvent(iam.EventUserRegistered, userID)); err != nil {
 				return authflow.DeviceKey{}, "", false, err
 			}
 		}
 	}
-	var userID string
-	if err := q.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
+	account, err := q.UserByEmail(ctx, record.Email)
+	if err != nil {
 		return authflow.DeviceKey{}, "", false, err
 	}
+	userID := account.ID
 	// The emailed enrollment code proves the address (ak#393).
 	proven, err := s.retirePreProofCredentials(ctx, tx, userID, nil)
 	if err != nil {
 		return authflow.DeviceKey{}, "", false, err
 	}
-	if _, err := q.Exec(ctx, `UPDATE users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
+	if err := q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: userID, EmailVerified: true}); err != nil {
 		return authflow.DeviceKey{}, "", false, err
 	}
 
-	var existing authflow.DeviceKey
-	var existingUserID string
-	var revokedAt *time.Time
-	err = q.QueryRow(ctx, `SELECT id, user_id, COALESCE(label, ''), created_at, last_used_at, revoked_at
-FROM user_device_keys WHERE public_key=$1`, publicKey).
-		Scan(&existing.ID, &existingUserID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt, &revokedAt)
+	existing, err := q.DeviceKeyByPublicKey(ctx, publicKey)
 	found := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKey{}, "", false, err
 	}
-	if found && (existingUserID != userID || revokedAt != nil) {
+	if found && (existing.UserID != userID || existing.RevokedAt != nil) {
 		return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
 	}
 	if backupCode != "" {
-		spent, err := s.verifyBackupCode(ctx, s.qtx(tx), userID, backupCode)
+		spent, err := s.verifyBackupCode(ctx, q, userID, backupCode)
 		if err != nil {
 			return authflow.DeviceKey{}, "", false, err
 		}
@@ -424,7 +422,7 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 	}
 	if found {
 		if mfaProof {
-			if _, err := q.Exec(ctx, `UPDATE user_device_keys SET mfa_proven_at=now() WHERE id=$1`, existing.ID); err != nil {
+			if err := q.DeviceKeyMarkMFAProven(ctx, existing.ID); err != nil {
 				return authflow.DeviceKey{}, "", false, err
 			}
 		}
@@ -432,16 +430,11 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 			return authflow.DeviceKey{}, "", false, err
 		}
 		s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
-		return existing, userID, false, nil
+		return publicDeviceKey(existing), userID, false, nil
 	}
 
-	var label *string
-	if record.Label != "" {
-		label = &record.Label
-	}
-	if err := q.QueryRow(ctx, `INSERT INTO user_device_keys (user_id, public_key, label, mfa_proven_at)
-VALUES ($1, $2, $3, CASE WHEN $4 THEN now() END) RETURNING id, COALESCE(label, ''), created_at, last_used_at`, userID, publicKey, label, mfaProof).
-		Scan(&existing.ID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt); err != nil {
+	inserted, err := q.DeviceKeyInsert(ctx, db.DeviceKeyInsertParams{UserID: userID, PublicKey: publicKey, Label: nullable(record.Label), MfaProven: mfaProof})
+	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
@@ -452,7 +445,7 @@ VALUES ($1, $2, $3, CASE WHEN $4 THEN now() END) RETURNING id, COALESCE(label, '
 		return authflow.DeviceKey{}, "", false, err
 	}
 	s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
-	return existing, userID, true, nil
+	return publicDeviceKey(inserted), userID, true, nil
 }
 
 // RecordFailedDeviceKeyEnrollment bounds online guessing without consuming a valid ceremony on one typo.
@@ -482,11 +475,8 @@ func (s *Engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (a
 		return authflow.DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
 	}
 	record := deviceKeyLogin{DeviceKeyID: deviceKeyID}
-	row := s.pg.QueryRow(ctx, `SELECT user_id, public_key
-FROM user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
-	var publicKey []byte
-	if err := row.Scan(&record.UserID, &publicKey); err == nil {
-		record.PublicKey = base64.RawURLEncoding.EncodeToString(publicKey)
+	if key, err := s.q.DeviceKeyActive(ctx, deviceKeyID); err == nil {
+		record.UserID, record.PublicKey = key.UserID, base64.RawURLEncoding.EncodeToString(key.PublicKey)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKeyChallenge{}, err
 	}
@@ -527,19 +517,15 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 
-	var deviceKey authflow.DeviceKey
-	var mfaBound bool
-	err = s.pg.QueryRow(ctx, `UPDATE user_device_keys
-SET last_used_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
-RETURNING id, COALESCE(label, ''), created_at, last_used_at, mfa_proven_at IS NOT NULL`, record.DeviceKeyID, record.UserID).
-		Scan(&deviceKey.ID, &deviceKey.Label, &deviceKey.CreatedAt, &deviceKey.LastUsedAt, &mfaBound)
+	touched, err := s.q.DeviceKeyTouch(ctx, db.DeviceKeyTouchParams{ID: record.DeviceKeyID, UserID: record.UserID})
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
+	deviceKey := publicDeviceKey(touched)
 	// A key counts as a second factor only when its enrollment proved one; any
 	// other key signs in only where a password alone would.
 	methods := []string{"device_key"}
-	if mfaBound {
+	if touched.MfaProvenAt != nil {
 		methods = append(methods, "mfa")
 	}
 	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, methods)
@@ -552,29 +538,19 @@ RETURNING id, COALESCE(label, ''), created_at, last_used_at, mfa_proven_at IS NO
 // ListDeviceKeys returns the user's machine credentials after proving that the
 // device which minted the caller's token is still active.
 func (s *Engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error) {
-	q := s.pg
-	var active bool
-	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM user_device_keys
-		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
-	)`, currentID, userID).Scan(&active); err != nil || !active {
+	active, err := s.q.DeviceKeyIsActive(ctx, db.DeviceKeyIsActiveParams{ID: currentID, UserID: userID})
+	if err != nil || !active {
 		return nil, errDeviceKeyInvalid
 	}
-	rows, err := q.Query(ctx, `SELECT id, COALESCE(label, ''), created_at, last_used_at, revoked_at
-		FROM user_device_keys WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	rows, err := s.q.DeviceKeysByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	keys := make([]authflow.DeviceKey, 0)
-	for rows.Next() {
-		var key authflow.DeviceKey
-		if err := rows.Scan(&key.ID, &key.Label, &key.CreatedAt, &key.LastUsedAt, &key.RevokedAt); err != nil {
-			return nil, err
-		}
-		keys = append(keys, key)
+	keys := make([]authflow.DeviceKey, 0, len(rows))
+	for _, k := range rows {
+		keys = append(keys, publicDeviceKey(k))
 	}
-	return keys, rows.Err()
+	return keys, nil
 }
 
 // ActiveDeviceKeys returns the user's unrevoked device public keys in
@@ -583,12 +559,15 @@ func (s *Engine) ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519
 	if err := s.deviceKeysEnabled(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pg.Query(ctx, `SELECT public_key FROM user_device_keys
-		WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at, id`, userID)
+	rows, err := s.q.DeviceKeyPublicKeysActive(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[ed25519.PublicKey])
+	keys := make([]ed25519.PublicKey, 0, len(rows))
+	for _, k := range rows {
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // RevokeDeviceKey idempotently revokes one key owned by the caller. The
@@ -601,27 +580,22 @@ func (s *Engine) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
+	q := s.qtx(tx)
 	if targetID == currentID {
-		result, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=COALESCE(revoked_at, now())
-			WHERE id=$1 AND user_id=$2`, currentID, userID)
+		n, err := q.DeviceKeyRevoke(ctx, db.DeviceKeyRevokeParams{ID: currentID, UserID: userID})
 		if err != nil {
 			return err
 		}
-		if result.RowsAffected() != 1 {
+		if n != 1 {
 			return errDeviceKeyInvalid
 		}
 		return tx.Commit(ctx)
 	}
-	var active bool
-	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM user_device_keys
-		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
-	)`, currentID, userID).Scan(&active); err != nil || !active {
+	active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
+	if err != nil || !active {
 		return errDeviceKeyInvalid
 	}
-	if _, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=COALESCE(revoked_at, now())
-		WHERE id=$1 AND user_id=$2`, targetID, userID); err != nil {
+	if _, err := q.DeviceKeyRevoke(ctx, db.DeviceKeyRevokeParams{ID: targetID, UserID: userID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -630,9 +604,7 @@ func (s *Engine) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 // revokeAllDeviceKeys revokes every live key of userID on q and returns the
 // count (ban, soft delete, account emergency revoke).
 func (s *Engine) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) (int64, error) {
-	tag, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=now()
-		WHERE user_id=$1 AND revoked_at IS NULL`, userID)
-	return tag.RowsAffected(), err
+	return db.New(q).DeviceKeysRevokeAll(ctx, userID)
 }
 
 // RevokeOtherDeviceKeys atomically revokes every key except the live key that
@@ -643,16 +615,12 @@ func (s *Engine) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID st
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
-	var active bool
-	if err := q.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM user_device_keys
-		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
-	)`, currentID, userID).Scan(&active); err != nil || !active {
+	q := s.qtx(tx)
+	active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
+	if err != nil || !active {
 		return errDeviceKeyInvalid
 	}
-	if _, err := q.Exec(ctx, `UPDATE user_device_keys SET revoked_at=now()
-		WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL`, userID, currentID); err != nil {
+	if err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: &currentID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

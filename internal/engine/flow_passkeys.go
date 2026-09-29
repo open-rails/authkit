@@ -184,7 +184,7 @@ func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, r
 	if err != nil {
 		return authflow.Passkey{}, err
 	}
-	return s.insertPasskey(ctx, s.pg, strings.TrimSpace(userID), cred, nil)
+	return s.insertPasskey(ctx, strings.TrimSpace(userID), cred, nil)
 }
 
 func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
@@ -302,45 +302,34 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 }
 
 func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error) {
-	rows, err := s.pg.Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
-FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
+	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []authflow.Passkey
-	for rows.Next() {
-		var p authflow.Passkey
-		var flags []byte
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &flags, &p.Label, &p.CreatedAt, &p.LastUsedAt); err != nil {
-			return nil, err
-		}
-		if len(flags) > 0 {
-			parsed := webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
-			p.BackupEligible, p.BackupState = parsed.BackupEligible, parsed.BackupState
-		}
-		out = append(out, p)
+	for _, p := range rows {
+		out = append(out, publicPasskey(p))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Engine) RenamePasskey(ctx context.Context, userID, id, label string) error {
-	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND deleted_at IS NULL`, nullable(strings.TrimSpace(label)), strings.TrimSpace(id), strings.TrimSpace(userID))
+	n, err := s.q.PasskeyRename(ctx, db.PasskeyRenameParams{Label: nullable(strings.TrimSpace(label)), ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return errmodel.ErrPasskeyNotFound
 	}
 	return nil
 }
 
 func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
-	tag, err := s.pg.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, strings.TrimSpace(id), strings.TrimSpace(userID))
+	n, err := s.q.PasskeyDelete(ctx, db.PasskeyDeleteParams{ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return errmodel.ErrPasskeyNotFound
 	}
 	return nil
@@ -400,8 +389,7 @@ func (s *Engine) passkeyUserForProof(ctx context.Context, userID string, createH
 }
 
 func (s *Engine) passkeyUserByHandle(ctx context.Context, handle []byte, allowRecovery bool) (passkeyUser, error) {
-	var userID string
-	err := s.pg.QueryRow(ctx, `SELECT user_id FROM user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
+	userID, err := s.q.PasskeyHandleUser(ctx, handle)
 	if err != nil {
 		return passkeyUser{}, err
 	}
@@ -415,8 +403,7 @@ func (s *Engine) passkeyUserByHandle(ctx context.Context, handle []byte, allowRe
 }
 
 func (s *Engine) passkeyHandle(ctx context.Context, userID string, create bool) ([]byte, error) {
-	var handle []byte
-	err := s.pg.QueryRow(ctx, `SELECT user_handle FROM user_passkey_handles WHERE user_id=$1`, userID).Scan(&handle)
+	handle, err := s.q.PasskeyHandleByUser(ctx, userID)
 	if err == nil {
 		return handle, nil
 	}
@@ -427,88 +414,79 @@ func (s *Engine) passkeyHandle(ctx context.Context, userID string, create bool) 
 	if _, err := rand.Read(handle); err != nil {
 		return nil, err
 	}
-	err = s.pg.QueryRow(ctx, `INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET user_handle=user_passkey_handles.user_handle RETURNING user_handle`, userID, handle).Scan(&handle)
-	return handle, err
+	return s.q.PasskeyHandleUpsert(ctx, db.PasskeyHandleUpsertParams{UserID: userID, UserHandle: handle})
 }
 
 func (s *Engine) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
-	rows, err := s.pg.Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt
-FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
+	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []webauthn.Credential
-	for rows.Next() {
-		cred, err := scanWebAuthnCredential(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, cred)
+	for _, p := range rows {
+		out = append(out, webAuthnCredential(p))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
-	var (
-		credentialID, publicKey, aaguid, flags []byte
-		transports                             []string
-		attachment, attType, attFmt            string
-		signCount                              int64
-		clone                                  bool
-	)
-	if err := row.Scan(&credentialID, &publicKey, &signCount, &clone, &aaguid, &transports, &attachment, &flags, &attType, &attFmt); err != nil {
-		return webauthn.Credential{}, err
+// passkeyFlags decodes the persisted authenticator flags byte (#235).
+func passkeyFlags(p db.UserPasskey) webauthn.CredentialFlags {
+	if len(p.Flags) == 0 {
+		return webauthn.CredentialFlags{}
 	}
+	return webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(p.Flags[0]))
+}
+
+// publicPasskey is the one mapping from a passkey row to what callers see.
+func publicPasskey(p db.UserPasskey) authflow.Passkey {
+	flags := passkeyFlags(p)
+	return authflow.Passkey{
+		ID: p.ID, UserID: p.UserID, Label: p.Label, Transports: p.Transports, AuthenticatorAttachment: p.AuthenticatorAttachment,
+		BackupEligible: flags.BackupEligible, BackupState: flags.BackupState, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt,
+	}
+}
+
+// webAuthnCredential is the one mapping from a passkey row to the credential a
+// WebAuthn ceremony verifies against.
+func webAuthnCredential(p db.UserPasskey) webauthn.Credential {
 	var transport []protocol.AuthenticatorTransport
-	for _, t := range transports {
+	for _, t := range p.Transports {
 		transport = append(transport, protocol.AuthenticatorTransport(t))
 	}
-	// UserPresent/UserVerified and backup state are derived from the persisted
-	// authenticator flags byte (#235).
-	credFlags := webauthn.CredentialFlags{}
-	if len(flags) > 0 {
-		credFlags = webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
-	}
 	return webauthn.Credential{
-		ID:                credentialID,
-		PublicKey:         publicKey,
-		AttestationType:   attType,
-		AttestationFormat: attFmt,
+		ID:                p.CredentialID,
+		PublicKey:         p.PublicKey,
+		AttestationType:   p.AttestationType,
+		AttestationFormat: p.AttestationFmt,
 		Transport:         transport,
-		Flags:             credFlags,
+		Flags:             passkeyFlags(p),
 		Authenticator: webauthn.Authenticator{
-			AAGUID:       aaguid,
-			SignCount:    uint32(signCount),
-			CloneWarning: clone,
-			Attachment:   protocol.AuthenticatorAttachment(attachment),
+			AAGUID:       p.Aaguid,
+			SignCount:    uint32(p.SignCount),
+			CloneWarning: p.CloneWarning,
+			Attachment:   protocol.AuthenticatorAttachment(p.AuthenticatorAttachment),
 		},
-	}, nil
+	}
 }
 
-func (s *Engine) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (authflow.Passkey, error) {
-	var p authflow.Passkey
-	var flags []byte
-	err := q.QueryRow(ctx, `INSERT INTO user_passkeys
-(user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-RETURNING id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at`,
-		userID, s.cfg.Passkeys.RPID, cred.ID, cred.PublicKey, int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, nullBytes(cred.Authenticator.AAGUID),
-		transportStrings(cred.Transport), string(cred.Authenticator.Attachment), []byte{byte(cred.Flags.ProtocolValue())}, cred.AttestationType, cred.AttestationFormat, label,
-	).Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &flags, &p.Label, &p.CreatedAt, &p.LastUsedAt)
-	if len(flags) > 0 {
-		parsed := webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
-		p.BackupEligible, p.BackupState = parsed.BackupEligible, parsed.BackupState
+func (s *Engine) insertPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (authflow.Passkey, error) {
+	p, err := s.q.PasskeyInsert(ctx, db.PasskeyInsertParams{
+		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID, PublicKey: cred.PublicKey,
+		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Aaguid: nullBytes(cred.Authenticator.AAGUID),
+		Transports: transportStrings(cred.Transport), AuthenticatorAttachment: string(cred.Authenticator.Attachment),
+		Flags: []byte{byte(cred.Flags.ProtocolValue())}, AttestationType: cred.AttestationType, AttestationFmt: cred.AttestationFormat, Label: label,
+	})
+	if err != nil {
+		return authflow.Passkey{}, err
 	}
-	return p, err
+	return publicPasskey(p), nil
 }
 
 func (s *Engine) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
-	var id string
-	err := s.pg.QueryRow(ctx, `UPDATE user_passkeys
-SET sign_count=$1, clone_warning=$2, flags=$3, last_used_at=NOW()
-WHERE user_id=$4 AND rpid=$5 AND credential_id=$6 AND deleted_at IS NULL RETURNING id`,
-		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)
+	id, err := s.q.PasskeyRecordUse(ctx, db.PasskeyRecordUseParams{
+		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Flags: []byte{byte(cred.Flags.ProtocolValue())},
+		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errmodel.ErrPasskeyNotFound
 	}

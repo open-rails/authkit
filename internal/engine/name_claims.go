@@ -24,12 +24,11 @@ func (s *Engine) namingNow() time.Time {
 // Name claims hold usernames and their former-name aliases.
 
 func lockNameClaims(ctx context.Context, q db.DBTX, names ...string) error {
-	_, err := q.Exec(ctx, `SELECT lock_name_claims('user','',$1::text[])`, names)
-	return err
+	return db.New(q).NameClaimsLock(ctx, names)
 }
 
 func claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now time.Time) error {
-	_, err := q.Exec(ctx, `SELECT claim_canonical_name('user', '', $1, $2::uuid, $3)`, name, id, now)
+	err := db.New(q).NameClaimCanonical(ctx, db.NameClaimCanonicalParams{Name: name, OwnerID: id, AtTime: now})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "name_claims_pkey" {
 		return mapUserUniqueViolation(err)
@@ -45,14 +44,15 @@ func renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string
 		return err
 	}
 	if oldName != "" {
+		queries := db.New(q)
+		var err error
 		if policy.FormerNameRetentionMode == iam.FormerNamesImmediate {
-			if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND owner_id=$2::uuid AND canonical`, oldName, id); err != nil {
-				return err
-			}
+			err = queries.NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{Name: oldName, OwnerID: id})
 		} else {
-			if _, err := q.Exec(ctx, `UPDATE name_claims SET canonical=false, expires_at=$3 WHERE owner_kind='user' AND persona='' AND name=lower($1) AND owner_id=$2::uuid AND canonical`, oldName, id, policy.FormerNameExpiresAt(now)); err != nil {
-				return err
-			}
+			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{Name: oldName, OwnerID: id, ExpiresAt: policy.FormerNameExpiresAt(now)})
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return claimCanonicalName(ctx, q, newName, id, now)
@@ -101,9 +101,7 @@ func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 // usernameTaken reports whether any claim holds name: a canonical name, an
 // unexpired alias, or a purged account's permanent reservation.
 func (s *Engine) usernameTaken(ctx context.Context, name string) (bool, error) {
-	var taken bool
-	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, strings.TrimSpace(name), s.namingNow()).Scan(&taken)
-	return taken, err
+	return s.q.NameClaimTaken(ctx, db.NameClaimTakenParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 }
 
 func (s *Engine) admitName(ctx context.Context, request iam.NameAdmissionRequest) error {
@@ -119,24 +117,18 @@ func (s *Engine) UserNamingState(ctx context.Context, id string) (iam.NamingStat
 	if err := s.requirePG(); err != nil {
 		return iam.NamingState{}, err
 	}
-	var last *time.Time
-	err := s.pg.QueryRow(ctx, `SELECT last_renamed_at FROM users WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&last)
+	last, err := s.q.UserLastRenamedAt(ctx, id)
 	if err != nil {
 		return iam.NamingState{}, err
 	}
 	now := s.namingNow()
 	state := s.NamingPolicy().State(last, now)
-	rows, err := s.pg.Query(ctx, `SELECT name,expires_at FROM name_claims WHERE owner_kind='user' AND owner_id=$1::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$2) ORDER BY name`, id, now)
+	aliases, err := s.q.NameClaimAliasesByUser(ctx, db.NameClaimAliasesByUserParams{OwnerID: id, AtTime: now})
 	if err != nil {
 		return state, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var alias iam.NameAlias
-		if err := rows.Scan(&alias.Name, &alias.ExpiresAt); err != nil {
-			return state, err
-		}
-		state.Aliases = append(state.Aliases, alias)
+	for _, a := range aliases {
+		state.Aliases = append(state.Aliases, iam.NameAlias{Name: a.Name, ExpiresAt: a.ExpiresAt})
 	}
-	return state, rows.Err()
+	return state, nil
 }

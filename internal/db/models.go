@@ -82,3 +82,35 @@ type User struct {
 	LastRenamedAt     *time.Time
 	CredentialVersion int64
 }
+
+// Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.
+type UserDeviceKey struct {
+	ID          string
+	UserID      string
+	PublicKey   []byte
+	Label       *string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	RevokedAt   *time.Time
+	MfaProvenAt *time.Time
+}
+
+type UserPasskey struct {
+	ID                      string
+	UserID                  string
+	Rpid                    string
+	CredentialID            []byte
+	PublicKey               []byte
+	SignCount               int64
+	CloneWarning            bool
+	Aaguid                  []byte
+	Transports              []string
+	AuthenticatorAttachment string
+	Flags                   []byte
+	AttestationType         string
+	AttestationFmt          string
+	Label                   *string
+	CreatedAt               time.Time
+	LastUsedAt              *time.Time
+	DeletedAt               *time.Time
+}
