@@ -6,8 +6,7 @@ limited authority; the platform authenticates the issuer and applies its own
 resource policy. No application proxy is required for platform requests.
 
 AuthKit supports the ES256/P-256 profile of [RFC 9449 DPoP](https://www.rfc-editor.org/rfc/rfc9449.html).
-The existing RFC 8705 certificate path remains available for native clients.
-There is no new route, database table or migration.
+The RFC 8705 certificate path remains available for native clients.
 
 ## Issuance
 
@@ -25,10 +24,10 @@ A key proves possession, never user identity or permission. Only the returned
 grant becomes signed authority; audience, TTL and document rules still apply.
 Delegated permissions are scope-free, so a grant may carry a permission in an
 AuthKit persona namespace (`root:…`, `org:…`) only when the user holds it at the
-root group; otherwise the mint answers `403 delegation_refused`. A checker
-built on this deployment (its `*authkit.Auth`) re-checks those
-permissions on use, so the token loses them when the user does. Permissions in
-the host's own vocabulary remain the authorizer's decision.
+root group; otherwise the mint answers `403 delegation_refused`. `Can` on this
+deployment re-checks those permissions on use, so the token loses them when the
+user does. AuthKit's own management routes refuse delegated tokens outright.
+Permissions in the host's own vocabulary remain the authorizer's decision.
 
 The response is `{token, expires_at, token_type: "DPoP"}`. The delegated token
 carries exactly `cnf: {"jkt": "<SHA-256 public JWK thumbprint>"}`. Certificate
@@ -78,16 +77,16 @@ Presenting the token under `Bearer`, detaching verification from the request,
 or omitting the proof fails. Certificate and JWK confirmations are mutually
 exclusive; neither silently downgrades to bearer authentication.
 
-Configure the receiving verifier with `verify.WithDPoP(replay, requestURL)`.
-`requestURL` returns the trusted public URL of this request, including any
-proxy-stripped path prefix. It must not trust caller-controlled `Host` or
-forwarding headers. `replay` is one atomic claim per
-fixed-size key with the supplied TTL, shared across all receiving replicas.
-An embedding host can pass `(*authkit.Auth).ClaimDPoPProof`, which claims in
-AuthKit's Postgres ephemeral store. A receiver with its own storage can supply the
-minimal callback without importing AuthKit's PostgreSQL engine. Live replay
-claims must not be evicted to admit more claims; capacity errors fail closed.
-A Redis replay store needs a `noeviction` policy.
+A host embedding AuthKit builds the receiving verifier with
+`auth.NewVerifier(...)`: it shares AuthKit's Postgres replay store and checks
+proofs against the issuer's origin plus the request path;
+`verify.WithDPoPRequestURL` replaces that URL when a proxy rewrites paths. Any
+other receiver configures `verify.WithDPoP(replay, requestURL)`. `requestURL`
+returns the trusted public URL of this request, including any proxy-stripped
+prefix, and must not trust caller-controlled `Host` or forwarding headers.
+`replay` is one atomic claim per fixed-size key with the supplied TTL, shared
+across all receiving replicas. Live claims must not be evicted to admit more;
+capacity errors fail closed. A Redis replay store needs a `noeviction` policy.
 
 Authenticate a request once. After `verify.Required` succeeds, downstream
 handlers use `verify.ClaimsFromContext` and authorize from those verified claims.

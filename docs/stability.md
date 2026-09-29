@@ -5,7 +5,8 @@ AuthKit is pre-v1 (`v0.x`).
 ## Go API
 
 Any v0 minor release may break the Go API. Breaks are hard cuts: no aliases,
-deprecated shims or compatibility layers. Release notes say what to change.
+deprecated shims or compatibility layers. [Release notes](release-notes/) say
+what to change.
 Patch releases only fix bugs.
 
 ## Contracts, even before v1
@@ -24,6 +25,14 @@ deliberate, release-noted decision:
   in-place upgrade path.
 
 Not covered: anything under `internal/`, test helpers, log lines, metric names.
+
+## Packages
+
+Public: `authkit` (`New`, `Migrate`, configuration and `*Auth`), `iam`
+(shared types, standard library only), `verify` (database-free verification),
+`jwtkit`, `documents`, `authprovider`, `authtest` and `adapters/*`. The
+implementation is `internal/engine`, the HTTP surface `internal/httpapi`.
+Nothing below the root imports it (`deps_guard_test.go`).
 
 ## v1
 

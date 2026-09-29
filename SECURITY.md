@@ -12,6 +12,18 @@ boundaries, so every push and pull request runs the same gating pipeline.
   the impact you observed. We acknowledge promptly and coordinate a fix and
   disclosure timeline with you.
 
+## Security model
+
+- Host code is trusted. `iam.OperatorActor()` exists only in host code: no
+  request, token or HTTP input can produce it (`TestRequestSurfaceCannotBuildActors`
+  guards the request surface). Every other actor is resolved live on each
+  operation, and the zero actor is refused.
+- Who may do what: [roles](docs/roles.md). Credentials never outlive their
+  issuer: [ownership](docs/ownership.md). Unproven contacts:
+  [contact ownership](docs/security/contact-ownership.md). Tokens and actors:
+  [verification](docs/verification.md). Tested threats:
+  [security tests](docs/security-tests.md).
+
 ## CI pipeline
 
 The `Validate` workflow in `.github/workflows/ci.yaml` runs on pushes and pull

@@ -32,18 +32,18 @@ AuthKit returns stable error codes — listed with their HTTP statuses in
 Password and username policies are host-configured and published in
 `GET {api}/capabilities` (see [capabilities](capabilities.md)).
 
-**Success shapes (#313):** session routes return `authkit.TokenSet`
+**Success shapes (#313):** session routes return `iam.TokenSet`
 (`{access_token, token_type, expires_in, refresh_token?}`) alone, or under `token_set` beside
 route fields (registration `{next_action, user, token_set?}`, step-up `{token_set, fresh_auth}`,
 device keys `{token_set, device_key}`, passwordless/SIWS/OIDC-json extras). Lists are
 `{object:"list", data:[...], next_cursor?}`. `POST {api}/admin/users/{user_id}/sessions/revoke` returns
-`authkit.AccountSessionRevocation` (see the README). Mutations with nothing to return answer `204`;
+`iam.AccountSessionRevocation`. Mutations with nothing to return answer `204`;
 anti-enumeration sends answer `202` with an empty body. Pending challenges are `403` error
 envelopes (`2fa_required`, `2fa_enrollment_required`, `verification_required`) with the
-challenge in `metadata`. `GET /me` returns `authkit.UserProfile`.
+challenge in `metadata`. `GET /me` returns the account profile.
 
-**Error envelope (Stripe-style, nested — same shape as OpenRails; breaking as of
-v0.52.0).** Every error response is:
+**Error envelope (Stripe-style, nested, same shape as OpenRails).** Every error
+response is:
 
 ```json
 { "error": { "type": "invalid_request_error", "code": "password_too_short",
@@ -51,8 +51,11 @@ v0.52.0).** Every error response is:
              "metadata": { "...": "optional machine-readable context" } } }
 ```
 
-- `code` is the stable machine code (an `authkit.Code`); every 500 is `internal_error`;
-  match on `error.code`, not `error` (which was a bare string before v0.52.0).
+- `code` is the stable machine code; every 500 is `internal_error`. Match on
+  `error.code`. In Go, `iam.AsError(err)` returns the `iam.Error` (`Code`,
+  `Status`, `Param`, `Metadata`) and `errors.Is` matches the `iam.Err*`
+  sentinels; `iam.WriteError`, `authkitgin.Error` and `authkitfiber.Error`
+  write the envelope.
 - `type` is derived from the HTTP status: `invalid_request_error` (400/404/409),
   `authentication_error` (401), `authorization_error` (403),
   `rate_limit_error` (429), `api_error` (5xx).
@@ -76,7 +79,7 @@ root role assignments and remote applications.
 
 | Method | Path | Group | Auth | Bucket | Mounted when |
 |---|---|---|---|---|---|
-| GET, HEAD | `/.well-known/authkit/documents/{digest}` | root | reader application (`Documents.Readers`) |  | WithDocuments |
+| GET, HEAD | `/.well-known/authkit/documents/{digest}` | root | reader application (`Documents.Readers`) |  | Documents.Readers |
 | GET | `/.well-known/jwks.json` | root | public |  |  |
 | POST | `{api}/2fa/challenge` | auth | public | `auth_2fa_verify` | TwoFactor.Mode != disabled |
 | POST | `{api}/2fa/verify` | auth | public | `auth_2fa_verify` | TwoFactor.Mode != disabled |
@@ -146,11 +149,15 @@ root role assignments and remote applications.
 | POST | `{api}/admin/users/{user_id}/ban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | required (engine: `root:users:manage` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}/signins` | admin | `root:users:read` |  |  |
+| GET | `{api}/admin/roles` | admin | `root:members:read` |  |  |
+| PUT | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
+| DELETE | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
-| POST | `{api}/org` | permission_groups | required |  | Roles.Personas |
+| POST | `{api}/org` | permission_groups | required |  | Creation.Enabled |
 | GET | `{api}/org/{instance_slug}` | permission_groups | `org:self:read` |  | Roles.Personas |
 | PATCH | `{api}/org/{instance_slug}` | permission_groups | `org:self:update` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}` | permission_groups | `org:self:delete` |  | Roles.Personas |
 | GET | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:read` |  | Roles.Personas |
 | POST | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
 | DELETE | `{api}/org/{instance_slug}/api-keys/{key}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
@@ -187,8 +194,8 @@ token mint (login + refresh).
 **LIVE is the opt-in stateful twin** (ak#267, v0.92.0).
 `authkit.New` supplies the engine as its verifier's liveness source.
 Standalone `verify.NewVerifier()` users wire `verifier.WithLiveness(auth)`
-explicitly. Mount `verify.RequiredLive` /
-`RequiredLiveUser` (or the `authkitgin` twins) instead of `Required`. It denies
+explicitly. Mount `verify.RequiredLive` (or `authkitgin.RequiredLive`,
+`auth.RequireLive`) instead of `Required`. It denies
 banned, deleted, reserved and unknown accounts on the user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
 FRESH as of that lookup — **do not read the account per request to refresh
 display fields.** Roles and entitlements are not re-enriched. `verifier.IsLive`
@@ -207,7 +214,7 @@ as `RequiredLive`. Mount either live middleware per route, on a group/subtree,
 or globally at the application handler. Ordinary `Required` and `Optional`
 remain stateless; there is no automatic admin-role inference or global flag.
 
-AuthKit's intrinsic root-permission routes also require current liveness for an
+AuthKit's root-permission routes also require current liveness for an
 authorized native user before running the elevated operation. This covers the
 admin directory, ban, recovery and deletion endpoints. Credential-based checks
 for non-user principals remain unchanged; ordinary AUTH routes stay stateless.
@@ -223,11 +230,6 @@ tombstoned and unresolved ids, so no caller needs a fallback
 branch. Derived assets (extra avatar sizes, CDN rewrites) stay host-owned.
 
 ---
-
-
----
-
-
 
 ## OIDC Browser Flows
 
@@ -335,9 +337,10 @@ Passkeys:
   username input with `autocomplete="username webauthn"` and call
   `navigator.credentials.get({ publicKey, mediation: "conditional" })`.
 
-Reserved slug policy:
-- Reserved owner slugs are seeded in DB migrations as reserved user placeholders.
-- Public APIs do not use a hardcoded slug denylist; reserved slug claims are rejected by normal in-use/owner-namespace conflicts.
+Reserved names: an account whose metadata sets `reserved: true` (an import can)
+is a placeholder that holds its username, cannot sign in and grants nothing.
+There is no hardcoded denylist: a reserved name answers the normal in-use
+conflict, and hosts refuse names with `Deps.NameAdmission`.
 
 ---
 
@@ -349,37 +352,30 @@ Registration resend and email/phone verification request endpoints are honest ab
 
 ---
 
-
----
-
 For verification, registration resend, and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
-
 
 ---
 
 ## Permission Groups
 
-Hosts expose resource-scoped management through generated permission-group routes.
-
-Terminology: a configured permission-group persona is the public route and
-permission namespace. For example, a `merchant` persona generates
-`/merchant/:instance_slug/...` routes and `merchant:<area>:<action>` permissions.
-
-For each configured persona, AuthKit emits only the route families enabled by
-that persona's management profile:
-
-Built-in `root` emits member-management plus role-list routes by default.
+A persona is the route and permission namespace: a `merchant` persona generates
+`/merchant/{instance_slug}/...` routes gated by `merchant:<resource>:<action>`
+permissions ([roles](roles.md)). Every persona but root gets the group's own
+`GET`/`PATCH`/`DELETE`, members, invite links and the role list;
+`Creation.Enabled` adds `POST /merchant`, `CustomRoles` the custom-role routes,
+`APIKeys` the API-key routes and `RemoteApplications` the application routes.
+Root's roles are managed under `/admin`. Every generated route checks `Can`
+live for the calling actor and refuses delegated tokens.
 
 ---
 
 ## API keys (opaque machine credentials)
 
 Long-lived, revocable bearer credentials owned by a permission group, for
-machine/automation callers (CI, operator CLIs, service-to-service). An API key
-acts as an API-key principal for that permission group: middleware sets
-`Claims.Permissions` and `TokenType = verify.APIKeyPrincipalType`
-(`Claims.PrincipalKind() == authkit.PrincipalKindAPIKey`), with no `UserID`. Permissions are opaque to AuthKit; the
-embedding app owns the vocabulary and enforces meaning.
+machine/automation callers (CI, operator CLIs, service-to-service). A key acts
+as `iam.APIKeyActor(id)` in its own group only: middleware sets `Claims.APIKeyID`
+and `TokenType = verify.APIKeyPrincipalType`, with no `UserID`. Its permissions
+are those of its role, from the persona's catalog.
 
 **Presentation.** `Authorization: Bearer <prefix>_st_<lookup_id>_<secret>`. `<prefix>` is
 the host's configured `authkit.Config.APIKeys.Prefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
@@ -398,8 +394,10 @@ human login path).
 `<persona>:credentials:manage` permission. The request body supplies one `role`;
 AuthKit validates that the role exists in the target group and enforces
 no-escalation. Permissions resolve from that role at verify time rather than
-being frozen into the key. Only a user (or the host's operator actor, whose
-keys have no creator) issues keys and invite links; machine actors never do.
+being frozen into the key. No key may hold a role that needs MFA. Only a user
+(or the host's operator actor, whose keys have no creator) issues keys and
+invite links; machine actors never do. The JSON field for the public id is
+`lookup_id`, and lists use the standard list envelope.
 Revoking a key, or an invite link, needs the same authority as minting its
 role. A key or link is revoked automatically once its creator can no longer
 mint its role, including after a role-catalog change at boot.
@@ -409,8 +407,8 @@ mint its role, including after a role-catalog change at boot.
 First-party services that have their own AuthKit issuer/JWKS should mint
 short-lived service JWTs instead of receiving generated opaque API keys
 from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
-`iat`, `nbf`, `exp`, `jti`, `token_use=service`, `permissions: []` and `scope: []`.
-AuthKit's default mint lifetime is 15 minutes.
+`iat`, `nbf`, `exp`, `jti`, `token_use=service` and `permissions: []`. An OAuth
+`scope` claim grants nothing. AuthKit's default mint lifetime is 15 minutes.
 
 Use `authkit.MintServiceJWT` or `(*authkit.Auth).MintServiceJWT` on the caller side,
 and `(*verify.Verifier).VerifyServiceJWT` on the receiver side. Verification uses registered issuers/JWKS, including
@@ -449,9 +447,6 @@ banned, deleted or reserved creator is refused.
 
 ---
 
-
----
-
 ## Two-Factor Authentication
 
 `POST /user/2fa` enrolls a factor in two steps. `{method}` starts it: TOTP
@@ -472,19 +467,13 @@ the session's first factor is not independent and verifies nothing. Other
 sessions keep their proofs: their next refresh returns `2fa_required`, or
 `step_up_required` when older than ten minutes.
 
-Hosts may require 2FA for permission-group roles with
-`iam.RoleDef{RequiresMFA: true}`. Assigning that role, or redeeming an invite link
-for it, returns `2fa_enrollment_required` until account MFA is enabled with at
-least one factor. Disabling MFA removes those MFA-required user role assignments.
+Hosts mark permissions that need 2FA with `Persona.RequireMFA`; any role reaching
+one needs MFA ([roles](roles.md)). Assigning that role, or redeeming an invite
+link for it, returns `2fa_enrollment_required` until account MFA is enabled with
+at least one factor. Disabling MFA removes those MFA-required user role
+assignments.
 
 ---
-
-
----
-
-
----
-
 
 ## Remote Application Issuers (resource-server side)
 

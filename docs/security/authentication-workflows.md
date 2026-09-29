@@ -1,11 +1,10 @@
 # Authentication workflows
 
-The embedded flows own authentication policy; HTTP presents `LoginOutcome`.
-`PasswordLogin`, `PasswordlessLogin`, `ConfirmVerification`, and
-`CompleteExternalLogin` return a session, a second-factor challenge, or a restricted
-enrollment grant. Hosts must handle every outcome; a first-factor user ID alone
-is not permission to issue a session. Passkey login uses the same completion path
-with actual UV proof. See the [wire contract](../api-endpoints.md#authentication-continuation).
+The engine's flows own authentication policy; the HTTP layer only presents
+their outcome. Password, passwordless, verification and external logins each
+return a session, a second-factor challenge, or a restricted enrollment grant; a
+first-factor user ID alone never issues a session. Passkey login uses the same
+completion path with actual UV proof. See the [wire contract](../api-endpoints.md#authentication-continuation).
 
 The final account lock checks the credential version captured before password or
 passkey verification, and the provider/passkey/session that supplied the proof.
@@ -38,5 +37,4 @@ servers with real signed responses; email/SMS delivery is captured at its
 external boundary. The browser workflow uses Chromium and two real origins.
 
 [Testing](../testing.md) names the six workflow groups, focused security checks
-and the single local/CI command. These tests exercise public behavior rather
-than the retired routes or duplicate private-handler layouts.
+and the single local/CI command.

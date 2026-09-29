@@ -39,17 +39,35 @@ immediate changes matter, use the owning service's live authorization lookup.
 `RequiredLive` refreshes only the profile fields shown above, and the lookup's
 result describes that moment, not a guarantee against later concurrent changes.
 
-## Issuer trust
+## Actors
 
-The unused `IssuerOptions.RemoteApplicationSlug` option has been removed;
-application identity is always resolved from the store.
+`verify.ActorFromClaims` (and `ActorFromContext`, `authkitgin.Actor`,
+`authkitfiber.Actor`) turns verified claims into the `iam.Actor` that host
+operations take. It never yields an operator.
+
+| Verified token | Actor |
+| --- | --- |
+| Native access token, device-key tokens included | `iam.UserActor(UserID)` |
+| API key | `iam.APIKeyActor(APIKeyID)` |
+| Remote-application token | `iam.RemoteApplicationActor(id).Within(token permissions)` |
+| Delegated access token | `iam.DelegatedActor(grant)` |
+| External user token (`Subject`, no `UserID`) | none |
+
+Checks resolve the actor live: a banned or deleted user, a revoked key or a
+disabled application covers nothing. API keys and applications act only in
+their own group; a ceiling narrows, never widens. A delegated actor carries the
+authority of its local user or application, capped by its permissions; foreign
+delegation carries none. AuthKit's own management routes refuse delegated
+actors.
+
+## Issuer trust
 
 `AddIssuer` requires at least one accepted audience; an issuer without one
 would accept its tokens for every audience.
 
 Explicit `AddIssuer` registrations otherwise trust an external issuer. An
 external `access+jwt` yields `Claims.Subject` and `Claims.Issuer`, with an empty
-`UserID`. Use `Claims.Principal()` for the qualified identity. Map that pair to
+`UserID`. Use `Claims.Identity()` for the qualified identity. Map that pair to
 a local account deliberately before looking up local permissions. Registering
 an application in the store never grants authority over local users.
 
