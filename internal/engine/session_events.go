@@ -52,30 +52,19 @@ func (s *Engine) SessionEvents(ctx context.Context, userID string, q iam.Session
 		kinds = append(kinds, string(k))
 	}
 	limit := q.Page.PageLimit()
-	rows, err := s.pg.Query(ctx, `SELECT id, occurred_at, issuer, session_id, event, COALESCE(method,''), COALESCE(reason,''), COALESCE(ip_addr,''), COALESCE(user_agent,'')
- FROM session_events WHERE user_id=$1 AND (cardinality($2::text[])=0 OR event=ANY($2::text[]))
- AND ($3::timestamptz IS NULL OR (occurred_at,id)<($3,$4))
- ORDER BY occurred_at DESC, id DESC LIMIT $5`, userID, kinds, at, id, limit+1)
+	rows, err := s.q.SessionEventsByUser(ctx, db.SessionEventsByUserParams{UserID: userID, Kinds: kinds, AfterAt: at, AfterID: id, PageLimit: int64(limit) + 1})
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var e iam.SessionEvent
-		var rowID int64
-		if err := rows.Scan(&rowID, &e.OccurredAt, &e.Issuer, &e.SessionID, &e.Kind, &e.Method, &e.Reason, &e.IP, &e.UserAgent); err != nil {
-			return out, err
-		}
-		out.Items = append(out.Items, e)
-		ids = append(ids, rowID)
+	for _, r := range rows[:min(len(rows), limit)] {
+		out.Items = append(out.Items, iam.SessionEvent{
+			Kind: iam.SessionEventKind(r.Event), OccurredAt: r.OccurredAt, Issuer: r.Issuer, SessionID: r.SessionID,
+			Method: deref(r.Method), Reason: deref(r.Reason), IP: deref(r.IpAddr), UserAgent: deref(r.UserAgent),
+		})
 	}
-	if err := rows.Err(); err != nil {
-		return out, err
-	}
-	if len(out.Items) > limit {
-		out.Items = out.Items[:limit]
-		out.Next = encodePageCursor(out.Items[limit-1].OccurredAt.UTC().Format(time.RFC3339Nano), strconv.FormatInt(ids[limit-1], 10))
+	if len(rows) > limit {
+		last := rows[limit-1]
+		out.Next = encodePageCursor(last.OccurredAt.UTC().Format(time.RFC3339Nano), strconv.FormatInt(last.ID, 10))
 	}
 	return out, nil
 }

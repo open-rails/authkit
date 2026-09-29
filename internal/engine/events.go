@@ -97,9 +97,8 @@ func eventSubject(e iam.Event) string {
 type accountIdentity struct{ email, phone, username string }
 
 func readAccountIdentity(ctx context.Context, q db.DBTX, userID string) (accountIdentity, error) {
-	var id accountIdentity
-	err := q.QueryRow(ctx, `SELECT COALESCE(email::text,''), COALESCE(phone_number,''), COALESCE(username::text,'') FROM users WHERE id=$1::uuid`, userID).Scan(&id.email, &id.phone, &id.username)
-	return id, err
+	u, err := db.New(q).UserByID(ctx, userID)
+	return accountIdentity{email: deref(u.Email), phone: deref(u.PhoneNumber), username: deref(u.Username)}, err
 }
 
 // identityChanges reads the account again and returns the events of what
@@ -136,15 +135,8 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 	if !ok {
 		return errors.New("authkit: events are recorded only in the transaction of their change")
 	}
-	type subscriber struct{ issuer, schema string }
-	rows, err := tx.Query(ctx, `SELECT issuer, river_schema FROM account_delivery_fleets WHERE events AND issuer=ANY($1) ORDER BY issuer FOR KEY SHARE`, s.accountIssuers())
-	if err != nil {
-		return err
-	}
-	subscribers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (subscriber, error) {
-		var sub subscriber
-		return sub, row.Scan(&sub.issuer, &sub.schema)
-	})
+	txq := s.qtx(tx)
+	subscribers, err := txq.AccountEventFleetsForShare(ctx, s.accountIssuers())
 	if err != nil || len(subscribers) == 0 {
 		return err
 	}
@@ -156,20 +148,20 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 		}
 	}
 	for _, sub := range subscribers {
-		client, err := s.eventRiver(sub.schema)
+		client, err := s.eventRiver(sub.RiverSchema)
 		if err != nil {
 			return err
 		}
 		for i, e := range events {
-			var row int64
-			err := tx.QueryRow(ctx, `INSERT INTO account_events
- (issuer,subject,event_id,kind,actor_kind,actor_id,user_id,group_id,persona,application_id,previous_value,current_value,reason,until)
- VALUES ($1,$2,$3::uuid,$4,$5,$6,$7::uuid,$8::uuid,$9,$10::uuid,$11,$12,$13,$14) RETURNING id`,
-				sub.issuer, eventSubject(e), ids[i], string(e.Kind), actorKind, actorID, nullable(e.UserID), nullable(e.GroupID), e.Persona.String(), nullable(e.ApplicationID), e.Previous, e.Current, e.Reason, e.Until).Scan(&row)
+			row, err := txq.AccountEventInsert(ctx, db.AccountEventInsertParams{
+				Issuer: sub.Issuer, Subject: eventSubject(e), EventID: ids[i], Kind: string(e.Kind), ActorKind: actorKind, ActorID: actorID,
+				UserID: nullable(e.UserID), GroupID: nullable(e.GroupID), Persona: e.Persona.String(), ApplicationID: nullable(e.ApplicationID),
+				PreviousValue: e.Previous, CurrentValue: e.Current, Reason: e.Reason, Until: e.Until,
+			})
 			if err != nil {
 				return fmt.Errorf("authkit: record %s event: %w", e.Kind, err)
 			}
-			if _, err := client.InsertTx(ctx, tx, accountEventArgs{Schema: s.dbSchema(), Issuer: sub.issuer, Row: row}, &river.InsertOpts{Queue: accountEventQueue(s.dbSchema(), sub.issuer)}); err != nil {
+			if _, err := client.InsertTx(ctx, tx, accountEventArgs{Schema: s.dbSchema(), Issuer: sub.Issuer, Row: row}, &river.InsertOpts{Queue: accountEventQueue(s.dbSchema(), sub.Issuer)}); err != nil {
 				return err
 			}
 		}
@@ -223,47 +215,42 @@ func (w *accountEventWorker) Work(ctx context.Context, job *river.Job[accountEve
 // of its subject is delivered, and deletes the row. No transaction or pool
 // connection is held while the hook runs.
 func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
-	var e iam.Event
-	var issuer, subject, kind, actorKind, persona string
-	var userID, groupID, appID *string
-	var failures int
-	err := s.pg.QueryRow(ctx, `SELECT issuer, subject, event_id::text, kind, occurred_at, actor_kind, actor_id, user_id::text, group_id::text, persona,
- application_id::text, previous_value, current_value, reason, until, attempts FROM account_events WHERE id=$1`, row).Scan(
-		&issuer, &subject, &e.ID, &kind, &e.OccurredAt, &actorKind, &e.ActorID, &userID, &groupID, &persona, &appID, &e.Previous, &e.Current, &e.Reason, &e.Until, &failures)
+	rec, err := s.q.AccountEventByID(ctx, row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // delivered
 	}
 	if err != nil {
 		return err
 	}
-	if issuer != s.cfg.Token.Issuer {
+	if rec.Issuer != s.cfg.Token.Issuer {
 		return river.JobCancel(errors.New("authkit: account event issuer mismatch"))
 	}
-	e.Kind, e.ActorKind, e.Persona = iam.EventKind(kind), iam.ActorKind(actorKind), ident.Persona(persona)
-	e.UserID, e.GroupID, e.ApplicationID = deref(userID), deref(groupID), deref(appID)
-	var blocked bool
-	var wait float64
-	err = s.pg.QueryRow(ctx, `SELECT count(*)>0, COALESCE(EXTRACT(EPOCH FROM max(retry_at)-statement_timestamp()),0)::float8
- FROM account_events WHERE issuer=$1 AND subject=$2 AND id<$3`, issuer, subject, row).Scan(&blocked, &wait)
+	e := iam.Event{
+		ID: rec.EventID, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
+		ActorKind: iam.ActorKind(rec.ActorKind), ActorID: rec.ActorID,
+		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),
+		Previous: rec.PreviousValue, Current: rec.CurrentValue, Reason: rec.Reason, Until: rec.Until,
+	}
+	failures := int(rec.Attempts)
+	earlier, err := s.q.AccountEventEarlierPending(ctx, db.AccountEventEarlierPendingParams{Issuer: rec.Issuer, Subject: rec.Subject, ID: row})
 	if err != nil {
 		return err
 	}
-	if blocked {
+	if earlier.Blocked {
 		// Wake after the earliest failed predecessor's next attempt.
-		return river.JobSnooze(time.Second + max(time.Duration(wait*float64(time.Second)), 0))
+		return river.JobSnooze(time.Second + max(time.Duration(earlier.Wait*float64(time.Second)), 0))
 	}
 	if s.onEvent != nil {
 		if err := invokeEventHook(ctx, s.onEvent, e); err != nil {
 			delay := eventRetryDelay(failures + 1)
-			if _, uerr := s.pg.Exec(ctx, `UPDATE account_events SET attempts=attempts+1, retry_at=statement_timestamp()+make_interval(secs => $2) WHERE id=$1`, row, delay.Seconds()); uerr != nil {
+			if uerr := s.q.AccountEventRetry(ctx, db.AccountEventRetryParams{ID: row, DelaySeconds: delay.Seconds()}); uerr != nil {
 				return errors.Join(err, uerr)
 			}
 			slog.WarnContext(ctx, "authkit: event hook failed; will retry", "event_id", e.ID, "kind", e.Kind, "attempt", failures+1, "retry_in", delay, "error", err)
 			return river.JobSnooze(delay)
 		}
 	}
-	_, err = s.pg.Exec(ctx, `DELETE FROM account_events WHERE id=$1`, row)
-	return err
+	return s.q.AccountEventDelete(ctx, row)
 }
 
 func invokeEventHook(ctx context.Context, hook func(context.Context, iam.Event) error, e iam.Event) (err error) {

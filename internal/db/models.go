@@ -8,6 +8,40 @@ import (
 	"time"
 )
 
+type AccountDeletion struct {
+	ID         string
+	UserID     string
+	DeletedAt  time.Time
+	PurgeAt    time.Time
+	State      string
+	Recipients []string
+	RestoredAt *time.Time
+	PurgedAt   *time.Time
+	// The user who deleted the account; NULL = the operator.
+	DeletedBy *string
+}
+
+type AccountEvent struct {
+	ID            int64
+	Issuer        string
+	Subject       string
+	EventID       string
+	Kind          string
+	OccurredAt    time.Time
+	ActorKind     string
+	ActorID       string
+	UserID        *string
+	GroupID       *string
+	Persona       string
+	ApplicationID *string
+	PreviousValue string
+	CurrentValue  string
+	Reason        string
+	Until         *time.Time
+	Attempts      int32
+	RetryAt       *time.Time
+}
+
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings
 type MfaFactor struct {
 	ID           string
@@ -50,6 +84,19 @@ type RemoteApplication struct {
 	TrustRoot string
 	// The user who supplied the keys of a group registration; NULL = the operator.
 	RegisteredBy *string
+}
+
+type SessionEvent struct {
+	ID         int64
+	OccurredAt time.Time
+	Issuer     string
+	UserID     string
+	SessionID  string
+	Event      string
+	Method     *string
+	Reason     *string
+	IpAddr     *string
+	UserAgent  *string
 }
 
 type User struct {

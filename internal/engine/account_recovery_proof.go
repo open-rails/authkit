@@ -42,9 +42,7 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 		}
 		return nil
 	}
-	var id string
-	var self bool
-	err := tx.QueryRow(ctx, `SELECT id::text, deleted_by IS NOT DISTINCT FROM user_id FROM account_deletions WHERE user_id=$1::uuid AND state='deleted' AND deleted_at=$2 AND purge_at>statement_timestamp()`, user.ID, user.DeletedAt).Scan(&id, &self)
+	deletion, err := s.qtx(tx).AccountDeletionRecoverable(ctx, db.AccountDeletionRecoverableParams{UserID: user.ID, DeletedAt: *user.DeletedAt})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
@@ -53,21 +51,22 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 	}
 	// Only a self-deletion is undone by signing in; an account staff or the
 	// system deleted comes back only through RestoreUsers (N5).
-	if !self {
+	if !selfDeleted(deletion) {
 		return errmodel.E(errmodel.CodeAccountDisabled)
 	}
-	if proof.DeletionID != "" && proof.DeletionID != id {
+	if proof.DeletionID != "" && proof.DeletionID != deletion.ID {
 		return jwt.ErrTokenUnverifiable
 	}
-	proof.DeletionID = id
+	proof.DeletionID = deletion.ID
 	return nil
 }
 
 func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof loginProof) (authflow.LoginOutcome, error) {
-	var now, purgeAt time.Time
-	if err := tx.QueryRow(ctx, `SELECT statement_timestamp(),purge_at FROM account_deletions WHERE id=$1::uuid AND user_id=$2::uuid AND state='deleted' AND purge_at>statement_timestamp()`, proof.DeletionID, proof.Input.UserID).Scan(&now, &purgeAt); err != nil {
+	window, err := s.qtx(tx).AccountDeletionPurgeWindow(ctx, db.AccountDeletionPurgeWindowParams{ID: proof.DeletionID, UserID: proof.Input.UserID})
+	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	now, purgeAt := window.Now, window.PurgeAt
 	expires := now.Add(10 * time.Minute)
 	if purgeAt.Before(expires) {
 		expires = purgeAt
@@ -116,8 +115,8 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error
 	if err := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.AuthMethods, status, nil); err != nil {
 		return err
 	}
-	var now time.Time
-	if err := tx.QueryRow(ctx, "SELECT statement_timestamp()").Scan(&now); err != nil {
+	now, err := s.qtx(tx).StatementTimestamp(ctx)
+	if err != nil {
 		return err
 	}
 	if !now.Before(proof.ExpiresAt) {
