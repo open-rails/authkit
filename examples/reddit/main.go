@@ -189,20 +189,25 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 		})
 	}
 
-	r.GET("/c", f.listChannels)               // anyone can browse the channels
-	r.POST("/c", signedIn, f.createChannel)   // anyone signed in can start a channel
+	r.GET("/c", f.listChannels)             // anyone can browse the channels
+	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
+
 	ch := r.Group("/c/:channel", f.channel)   // every route below knows its channel
 	ch.GET("", f.getChannel)                  // anyone can read a channel's page
 	ch.GET("/posts", f.listPosts(true))       // anyone can read
 	ch.POST("/posts", signedIn, f.createPost) // anyone signed in can post
-	ch.GET("/queue", may("channel:posts:approve"), f.listPosts(false))
-	ch.PATCH("/posts/:id", may("channel:posts:edit"), f.editPost)
-	ch.DELETE("/posts/:id", may("channel:posts:delete"), f.deletePost)
-	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approvePost)
-	ch.PUT("/moderators/:user_id", signedIn, f.appoint) // AuthKit checks who may hand out badges
-	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)
-	ch.PATCH("", may("channel:self:edit"), f.editChannel)
-	ch.DELETE("", may("channel:self:delete"), f.deleteChannel)
+
+	// moderator-specific routes:
+	ch.GET("/queue", may("channel:posts:approve"), f.listPosts(false))         // see pending posts
+	ch.PATCH("/posts/:id", may("channel:posts:edit"), f.editPost)              // edit a post
+	ch.DELETE("/posts/:id", may("channel:posts:delete"), f.deletePost)         // delete a post
+	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approvePost) // approve / disapprove posts
+
+	// admin-specific routes:
+	ch.PUT("/moderators/:user_id", signedIn, f.appoint)        // appoint a moderator
+	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)     // remove a moderator
+	ch.PATCH("", may("channel:self:edit"), f.editChannel)      // edit channel settings
+	ch.DELETE("", may("channel:self:delete"), f.deleteChannel) // delete channel
 }
 
 type Post struct {
