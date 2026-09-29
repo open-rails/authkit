@@ -24,6 +24,8 @@ export type Capabilities = {
   solana: { login: boolean }
   verification: { registration: string }
   languages?: string[]
+  // The serving mount's anchors as full paths; unmounted ones are omitted.
+  paths?: { api: string; oidc?: string; jwks?: string }
 }
 
 // Naming and password policy AuthKit advertises.

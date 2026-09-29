@@ -7,9 +7,18 @@ bodies. Cookie-enabled mounts validate origin and fetch metadata before JSON
 mutations execute; browser OIDC callbacks keep their separate state-bound
 form-post protocol. See the [refresh-cookie contract](../README.md#refresh-cookie).
 
-AuthKit HTTP handlers are prefix-neutral. The paths below are handler paths; when a host mounts AuthKit API routes at `/api/v1`, `GET /me` becomes public route `GET /api/v1/me`.
+## Mount layout
 
-Downstream applications that embed AuthKit should mount the AuthKit API at `/api/v1` and should not add an extra `/auth` segment. Browser OIDC routes should usually be mounted outside API versioning at `/oidc/*`.
+Every route lives beneath `HTTPConfig.BasePath` (`{base}`), which is the path of `Token.Issuer`:
+
+| Anchor | Path |
+|---|---|
+| `{api}` JSON API | `{base}` + `HTTPConfig.APIPath` (default `/api/v1`; `/` is `{base}` itself) |
+| `{oidc}` browser OIDC | `{base}/oidc` |
+| JWKS | `{base}/.well-known/jwks.json` |
+| documents | `{base}/.well-known/authkit/documents/{digest}` |
+
+`BasePath` "" derives `{base}` from the issuer (`https://hub.example/v1/auth` gives `/v1/auth`; a root issuer gives the host root). When the issuer is a URL, a set `BasePath` must equal its path and `New` refuses anything else, so `issuer + /.well-known/jwks.json` and the document resolver's `issuer + /.well-known/authkit/documents/{digest}` are always served. Paths are plain segments (`[A-Za-z0-9._~-]`). Serve them unchanged, with no `StripPrefix` in front. OIDC `redirect_uri` is `Frontend.BaseURL`'s origin + `{oidc}/{provider}/callback` (`/step-up/callback` for step-up). `{api}/oidc/*` starts are mounted only with browser OIDC, because they could never complete without its callback. `GET {api}/capabilities` reports the serving mount's anchors as `paths: {api, oidc?, jwks?}`.
 
 AuthKit's route registry is the canonical source of truth. `authkit.New`
 builds the whole surface once from `Config.HTTP`; hosts mount `Handler()` at
@@ -17,8 +26,8 @@ the root, call `Mount(mux)`, or use the `authkitgin`/`authkitfiber` adapters.
 `HTTPConfig.Groups` selects route groups (`auth`, `registration`, `account`,
 `device_keys`, `admin`, `permission_groups`, `browser_oidc`, `applications`,
 `delegated`, `documents`) and `HTTPConfig.Exclude` drops routes the host
-shadows (`"GET /api/v1/me"`) — never a duplicated allowlist. Browser OIDC login/callback routes mount under
-`/oidc`; account provider linking is self-service user API
+shadows (`"GET /api/v1/me"`, full paths as `Patterns` reports them) — never a
+duplicated allowlist. Account provider linking is self-service user API
 (`POST {api}/oidc/{provider}/link/start`).
 
 AuthKit is opinionated about identity validation. Host apps should not
@@ -77,12 +86,12 @@ root role assignments and remote applications.
 ## Route table
 
 <!-- routes:begin -->
-`{api}` is the mount's `APIPrefix` (default `/api/v1`); `{oidc}` is `/oidc`. Bucket = the per-IP rate-limit bucket the registry applies before the handler (per-identifier and branch buckets live in the handler). Mounted when = the configuration that enables the route (blank = always).
+`{base}`, `{api}` and `{oidc}` are the [mount layout](#mount-layout) anchors. Bucket = the per-IP rate-limit bucket the registry applies before the handler (per-identifier and branch buckets live in the handler). Mounted when = the configuration that enables the route (blank = always).
 
 | Method | Path | Group | Auth | Bucket | Mounted when |
 |---|---|---|---|---|---|
-| GET, HEAD | `/.well-known/authkit/documents/{digest}` | root | reader application (`Documents.Readers`) |  | Documents.Readers |
-| GET | `/.well-known/jwks.json` | root | public |  |  |
+| GET, HEAD | `{base}/.well-known/authkit/documents/{digest}` | documents | reader application (`Documents.Readers`) |  | Documents.Readers |
+| GET | `{base}/.well-known/jwks.json` | auth | public |  |  |
 | POST | `{api}/2fa/challenge` | auth | public | `auth_2fa_verify` | TwoFactor.Mode != disabled |
 | POST | `{api}/2fa/verify` | auth | public | `auth_2fa_verify` | TwoFactor.Mode != disabled |
 | GET | `{api}/capabilities` | auth | public |  |  |
@@ -104,8 +113,8 @@ root role assignments and remote applications.
 | GET | `{api}/me` | account | required | `auth_user_me` |  |
 | GET | `{api}/me/groups` | account | required |  |  |
 | GET | `{api}/me/permissions` | account | required |  |  |
-| POST | `{api}/oidc/{provider}/link/start` | account | required |  | Identity.Providers |
-| POST | `{api}/oidc/{provider}/step-up/start` | account | required |  | Identity.Providers |
+| POST | `{api}/oidc/{provider}/link/start` | account | required |  | Identity.Providers, browser OIDC mounted |
+| POST | `{api}/oidc/{provider}/step-up/start` | account | required |  | Identity.Providers, browser OIDC mounted |
 | GET | `{api}/passkeys` | account | required |  | Passkeys.RPID |
 | POST | `{api}/passkeys/register/begin` | account | required | `auth_passkey_register` | Passkeys.RPID |
 | POST | `{api}/passkeys/register/finish` | account | required | `auth_passkey_register` | Passkeys.RPID |
@@ -241,7 +250,7 @@ session must still be live and fresh. See [credential grants](security/credentia
 
 Notes:
 - After AuthKit handles the provider callback, full-page login redirects to `{BaseURL}{OIDCReturnPath}`. The default OIDC return path is `/login/callback`; host apps may configure another app-relative path.
-- `GET /oidc/:provider/login?return_to=/subscribe?plan=pro` preserves the app-relative path through the provider redirect and returns it as `return_to` in the callback URL fragment. AuthKit rejects absolute URLs, protocol-relative URLs, backslashes, and CR/LF before storing it.
+- `GET {oidc}/{provider}/login?return_to=/subscribe?plan=pro` preserves the app-relative path through the provider redirect and returns it as `return_to` in the callback URL fragment. AuthKit rejects absolute URLs, protocol-relative URLs, backslashes, and CR/LF before storing it.
 - JSON/SPAs flows such as password login, registration, in-app 2FA, and POST-based verification/reset do not navigate away; the client owns any `return_to` state for those flows.
 
 ---

@@ -32,7 +32,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Username:      iam.UsernamePolicy{MinLength: 6, MaxLength: 20},
 		Password:      authkit.PasswordPolicy{MinLength: 12, RequireDigit: true, AllowCommon: true},
 		SolanaNetwork: "devnet",
-		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
+		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
 	}, authkit.Deps{Postgres: testdb.Pool(t)})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
@@ -68,7 +68,8 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Verification struct {
 			Registration string `json:"registration"`
 		} `json:"verification"`
-		Languages []string `json:"languages"`
+		Languages []string          `json:"languages"`
+		Paths     map[string]string `json:"paths"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &caps))
 	require.Equal(t, "invite_only", caps.Registration.Mode)
@@ -83,6 +84,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.True(t, caps.Solana.Login)
 	require.Equal(t, "optional", caps.Verification.Registration)
 	require.Equal(t, []string{"en", "es"}, caps.Languages)
+	require.Equal(t, map[string]string{"api": "/auth", "jwks": iam.JWKSPath}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))

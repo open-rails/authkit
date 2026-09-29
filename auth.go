@@ -114,7 +114,7 @@ func (a *Auth) Close() {
 func (a *Auth) CheckSMSHealth(ctx context.Context) error { return a.engine.CheckSMSHealth(ctx) }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
-// Mount it at the host root: it owns its anchored paths.
+// Mount it at the host root: its paths already include HTTPConfig.BasePath.
 func (a *Auth) Handler() http.Handler {
 	if a.mount == nil {
 		return nil
@@ -126,7 +126,8 @@ func (a *Auth) Handler() http.Handler {
 func (a *Auth) Routes() []iam.Route { return a.mount.Routes() }
 
 // Patterns returns the mounted routes as net/http ServeMux patterns
-// ("GET /api/v1/me"), sorted. A GET pattern also serves HEAD.
+// ("GET /api/v1/me"), full paths beneath HTTPConfig.BasePath, sorted. A GET
+// pattern also serves HEAD.
 func (a *Auth) Patterns() []string {
 	var out []string
 	for _, route := range a.mount.Routes() {

@@ -116,7 +116,7 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 			},
 		},
 		deps: authkit.Deps{Postgres: pg.Pool, Email: mail},
-		http: authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: apiPrefix},
+		http: authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix},
 	}
 	for _, opt := range opts {
 		opt(&cfg)

@@ -35,7 +35,7 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.HTTP = testHTTPConfig()
-	cfg.HTTP.APIPrefix = "/auth"
+	cfg.HTTP.APIPath = "/auth"
 	runtime := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(runtime.Close)
 	_, err := runtime.CreateUser(context.Background(), iam.OperatorActor(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
@@ -87,9 +87,9 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig(t)
-	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "bad prefix"}
+	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true, APIPath: "bad prefix"}
 	_, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool})
-	require.ErrorContains(t, err, "APIPrefix")
+	require.ErrorContains(t, err, "APIPath")
 	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /nowhere"}}
 	_, err = authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "matches no mounted route")
@@ -115,7 +115,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			cfg := testConfig(t)
 			cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
 			if fail {
-				cfg.HTTP.APIPrefix = "invalid prefix"
+				cfg.HTTP.APIPath = "invalid prefix"
 			}
 			var runtime *authkit.Auth
 			var err error
@@ -146,7 +146,7 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	// No client-IP posture: the HTTP layer refuses after the engine is built.
 	cfg := testConfig(t)
-	cfg.HTTP = authkit.HTTPConfig{APIPrefix: "/auth"}
+	cfg.HTTP = authkit.HTTPConfig{APIPath: "/auth"}
 	runtime, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 	require.ErrorContains(t, err, "client-IP posture")
 	require.Nil(t, runtime)

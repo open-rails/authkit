@@ -1,7 +1,7 @@
 package iam
 
 // HTTP contract vocabulary: route groups and gates, the route catalog entry,
-// and the root-anchored paths and cookie names clients depend on.
+// and the issuer-relative paths and cookie names clients depend on.
 
 // RouteGroup names one capability of AuthKit's HTTP surface. Hosts mount the
 // default groups or select exactly the ones they expose.
@@ -52,10 +52,10 @@ type Route struct {
 }
 
 const (
-	// JWKSPath serves the issuer's public signing keys, root-anchored so
-	// verifiers derive it from the issuer.
+	// JWKSPath serves the issuer's public signing keys beneath the issuer's
+	// path (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
 	JWKSPath = "/.well-known/jwks.json"
-	// DocumentsPath is the root-anchored published-document surface.
+	// DocumentsPath is the published-document surface, beside JWKSPath.
 	DocumentsPath = "/.well-known/authkit/documents/{digest}"
 )
 

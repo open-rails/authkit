@@ -1,0 +1,179 @@
+package securitytest
+
+import (
+	"bytes"
+	"context"
+	"crypto"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/verify"
+	"github.com/stretchr/testify/require"
+)
+
+// TestSecurityBasePathConfinesSurface: AuthKit under its issuer's path serves
+// every route there and none at the host root; OIDC redirect URIs name the
+// callback the mount serves (an API-path link start once named one it never
+// served); verifiers and document resolvers reach JWKS and documents from the
+// issuer alone; a BasePath that disagrees with the issuer is refused.
+func TestSecurityBasePathConfinesSurface(t *testing.T) {
+	ctx := context.Background()
+	pg := testdb.ScratchPostgres(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	const base = "/tenant/auth"
+	iss := server.URL + base
+	s := signer()
+	cfg := authkit.Config{
+		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+		Token:        authkit.TokenConfig{Issuer: iss, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}},
+		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
+		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
+		Identity:     authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("gh-client", "gh-secret")}},
+		HTTP:         authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
+	}
+	withApps(&cfg)
+	auth, err := authkit.New(ctx, cfg, authkit.Deps{Postgres: pg.Pool})
+	require.NoError(t, err)
+	t.Cleanup(auth.Close)
+	require.NoError(t, auth.Mount(mux))
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	call := func(method, path, token string, body any) *http.Response {
+		t.Helper()
+		var reader io.Reader
+		if body != nil {
+			raw, err := json.Marshal(body)
+			require.NoError(t, err)
+			reader = bytes.NewReader(raw)
+		}
+		req, err := http.NewRequest(method, server.URL+path, reader)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
+	}
+	decode := func(resp *http.Response, v any) {
+		t.Helper()
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(v))
+	}
+
+	partner := newSigner(t, "partner-kid")
+	_, err = auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+		Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, partner), Enabled: true,
+	})
+	require.NoError(t, err)
+	doc, err := auth.PublishDocument(ctx, documents.Publication{Type: "example.catalog/v1", Payload: json.RawMessage(`{"catalog":true}`), Audiences: []string{"partner"}})
+	require.NoError(t, err)
+
+	t.Run("no route escapes the base path", func(t *testing.T) {
+		routes := auth.Routes()
+		require.NotEmpty(t, routes)
+		for _, route := range routes {
+			require.Truef(t, strings.HasPrefix(route.Path, base+"/"), "%s %s escapes %s", route.Method, route.Path, base)
+		}
+		for _, want := range []string{"GET " + base + iam.JWKSPath, "GET " + base + "/.well-known/authkit/documents/{digest}",
+			"GET " + base + "/oidc/{provider}/callback", "POST " + base + "/api/v1/oidc/{provider}/link/start", "GET " + base + "/api/v1/me"} {
+			require.Contains(t, auth.Patterns(), want)
+		}
+		for _, path := range []string{iam.JWKSPath, "/.well-known/authkit/documents/" + doc.Digest, "/api/v1/capabilities",
+			"/oidc/github/login", "/auth" + iam.JWKSPath, "/tenant" + iam.JWKSPath} {
+			require.Equal(t, http.StatusTeapot, call(http.MethodGet, path, "", nil).StatusCode, "%s reached AuthKit outside %s", path, base)
+		}
+	})
+
+	t.Run("capabilities advertise the mount's paths", func(t *testing.T) {
+		resp := call(http.MethodGet, base+"/api/v1/capabilities", "", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var caps struct {
+			Paths map[string]string `json:"paths"`
+		}
+		decode(resp, &caps)
+		require.Equal(t, map[string]string{"api": base + "/api/v1", "oidc": base + "/oidc", "jwks": base + iam.JWKSPath}, caps.Paths)
+	})
+
+	user, err := auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: "basepath@security.test", Username: "basepath", Password: password, EmailVerified: true})
+	require.NoError(t, err)
+	login := call(http.MethodPost, base+"/api/v1/password/login", "", map[string]string{"identifier": "basepath@security.test", "password": password})
+	require.Equal(t, http.StatusOK, login.StatusCode)
+	var session struct {
+		AccessToken string `json:"access_token"`
+	}
+	decode(login, &session)
+
+	t.Run("a verifier finds JWKS from the issuer", func(t *testing.T) {
+		v := verify.NewVerifier()
+		require.NoError(t, v.AddIssuer(iss, []string{audience}, verify.IssuerOptions{JWKSURI: iss + iam.JWKSPath, IsLocal: true}))
+		claims, err := v.Verify(ctx, session.AccessToken)
+		require.NoError(t, err)
+		require.Equal(t, user.ID, claims.UserID)
+	})
+
+	t.Run("a resolver fetches documents from the issuer", func(t *testing.T) {
+		v := verify.NewVerifier()
+		require.NoError(t, v.AddIssuer(iss, []string{"partner"}, verify.IssuerOptions{JWKSURI: iss + iam.JWKSPath}))
+		asPartner := func(r *http.Request) error {
+			r.Header.Set("Authorization", "Bearer "+appToken(t, partner, partnerIssuer))
+			return nil
+		}
+		resolver := documents.NewResolver(v, nil, asPartner, documents.ResolverOptions{AllowHTTP: true})
+		payload, err := resolver.Resolve(ctx, iss, doc, "partner")
+		require.NoError(t, err)
+		require.JSONEq(t, `{"catalog":true}`, string(payload))
+	})
+
+	callback := iss + "/oidc/github/callback"
+	redirectURI := func(t *testing.T, authURL string) string {
+		t.Helper()
+		u, err := url.Parse(authURL)
+		require.NoError(t, err)
+		return u.Query().Get("redirect_uri")
+	}
+	t.Run("browser login redirects to the mounted callback", func(t *testing.T) {
+		resp := call(http.MethodGet, base+"/oidc/github/login", "", nil)
+		require.Equal(t, http.StatusFound, resp.StatusCode)
+		require.Equal(t, callback, redirectURI(t, resp.Header.Get("Location")))
+	})
+	t.Run("API link start redirects to the mounted callback", func(t *testing.T) {
+		resp := call(http.MethodPost, base+"/api/v1/oidc/github/link/start", session.AccessToken, map[string]any{})
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var start struct {
+			AuthURL string `json:"auth_url"`
+		}
+		decode(resp, &start)
+		require.Equal(t, callback, redirectURI(t, start.AuthURL))
+	})
+
+	t.Run("BasePath must match the issuer", func(t *testing.T) {
+		for _, path := range []string{"/", "/other", "/tenant", base + "/x", "/tenant/{auth}", "/tenant/../auth"} {
+			bad := cfg
+			bad.HTTP.BasePath = path
+			_, err := authkit.New(ctx, bad, authkit.Deps{Postgres: pg.Pool})
+			require.ErrorContains(t, err, "BasePath", "BasePath %q", path)
+		}
+		same := cfg
+		same.HTTP.BasePath = base + "/"
+		again, err := authkit.New(ctx, same, authkit.Deps{Postgres: pg.Pool})
+		require.NoError(t, err)
+		defer again.Close()
+		require.Equal(t, auth.Patterns(), again.Patterns())
+	})
+}

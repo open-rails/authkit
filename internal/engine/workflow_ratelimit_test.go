@@ -61,7 +61,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	post := func(path, token, forwarded string, payload map[string]string) (int, map[string]any) {
 		raw, err := json.Marshal(payload)
 		require.NoError(t, err)
-		req, err := http.NewRequest(http.MethodPost, server.URL+httpapi.DefaultAPIPrefix+path, strings.NewReader(string(raw)))
+		req, err := http.NewRequest(http.MethodPost, server.URL+httpapi.DefaultAPIPath+path, strings.NewReader(string(raw)))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Forwarded-For", forwarded)

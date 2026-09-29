@@ -31,6 +31,8 @@ type AuthorizeRequest func(*http.Request) error
 type LookupDocument func(context.Context, string) (SignedDocument, error)
 
 // NewPublisher returns the framework-neutral well-known publication handler.
+// It serves PublicationPathPrefix+digest beneath the issuer's path, where
+// Resolver fetches it.
 func NewPublisher(lookup LookupDocument, authorize AuthorizeRequest) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -38,7 +40,7 @@ func NewPublisher(lookup LookupDocument, authorize AuthorizeRequest) http.Handle
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		digest, ok := strings.CutPrefix(r.URL.Path, PublicationPathPrefix)
+		digest, ok := afterLast(r.URL.Path, PublicationPathPrefix)
 		if !ok || strings.Contains(digest, "/") || ValidateDigest(digest) != nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -330,6 +332,13 @@ func (r *Resolver) fetch(ctx context.Context, issuer string, reference Reference
 	})
 }
 
+func afterLast(s, sep string) (string, bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[i+len(sep):], true
+	}
+	return "", false
+}
+
 func publicationURL(issuer, digest string, allowHTTP bool) (string, *url.URL, error) {
 	u, err := url.Parse(issuer)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -339,7 +348,7 @@ func publicationURL(issuer, digest string, allowHTTP bool) (string, *url.URL, er
 		return "", nil, ErrUntrustedIssuer
 	}
 	origin := &url.URL{Scheme: strings.ToLower(u.Scheme), Host: strings.ToLower(u.Host)}
-	u.Path = PublicationPathPrefix + digest
+	u.Path = strings.TrimRight(u.Path, "/") + PublicationPathPrefix + digest
 	u.RawPath, u.RawQuery, u.Fragment = "", "", ""
 	return u.String(), origin, nil
 }
