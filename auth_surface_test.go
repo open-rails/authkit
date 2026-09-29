@@ -69,7 +69,7 @@ func TestAuthPublicSurface(t *testing.T) {
 		}
 	}
 	for _, name := range names {
-		require.False(t, strings.HasSuffix(name, "As") || strings.HasPrefix(name, "Operator"),
+		require.False(t, strings.HasSuffix(name, "As") || strings.HasPrefix(name, "System"),
 			"%s: the actor is a parameter, never part of the name", name)
 	}
 }

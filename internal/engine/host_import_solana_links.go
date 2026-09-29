@@ -23,7 +23,7 @@ type importedSolanaLinkProfile struct {
 	VerificationRequired bool       `json:"verification_required"`
 }
 
-// ImportSolanaLinks imports legacy wallet claims under the operator, one
+// ImportSolanaLinks imports legacy wallet claims as a host operation, one
 // outcome per row. It never verifies a wallet: only a successful SIWS proof
 // promotes an imported claim.
 func (s *Engine) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {

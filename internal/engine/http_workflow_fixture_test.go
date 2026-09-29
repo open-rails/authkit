@@ -317,7 +317,7 @@ func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) str
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
-	_, err = core.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	_, err = core.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug:    slug,
 		Issuer:  issuer,
 		Enabled: true,
@@ -328,7 +328,7 @@ func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) str
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = core.DeleteRemoteApplication(context.Background(), iam.OperatorActor(), iam.RootGroup(), slug)
+		_ = core.DeleteRemoteApplication(context.Background(), iam.SystemActor(), iam.RootGroup(), slug)
 	})
 
 	// A remote application addresses its token to THIS platform (ak#324: the

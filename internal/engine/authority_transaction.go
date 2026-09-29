@@ -112,7 +112,7 @@ func (h hostSavepoint) Commit(ctx context.Context) error {
 // changed (root grants apply in every group, so a root touch sweeps the whole
 // site). A credential never outlives the authority that issued it; otherwise a
 // demoted creator could redeem their own link, or keep using their own key or
-// application, to regain the role. Operator-issued credentials (no creator)
+// application, to regain the role. System-issued credentials (no creator)
 // are swept only for MFA: no key or application holds a role that needs it.
 func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
 	seen := map[authorityTouch]bool{}

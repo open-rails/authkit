@@ -22,13 +22,13 @@ func TestSecurityPurgedUsernameStaysReserved(t *testing.T) {
 	// Final purge is this physical delete, after recovery and host callbacks.
 	_, err := h.pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, gone.id)
 	require.NoError(t, err)
-	_, err = h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: unique("impostor") + "@security.test", Username: gone.username})
+	_, err = h.auth.CreateUser(ctx, iam.SystemActor(), iam.NewUser{Email: unique("impostor") + "@security.test", Username: gone.username})
 	require.Error(t, err, "the purged username was released for re-registration")
 	_, err = h.auth.User(ctx, iam.UserByUsername(gone.username))
 	require.Error(t, err, "the reserved name resolved to a dead account")
 	t.Run("control: other names remain available", func(t *testing.T) {
 		name := unique("fresh")
-		_, err := h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: name + "@security.test", Username: name})
+		_, err := h.auth.CreateUser(ctx, iam.SystemActor(), iam.NewUser{Email: name + "@security.test", Username: name})
 		require.NoError(t, err)
 	})
 }
@@ -123,7 +123,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		require.Equal(t, "account_authority_escalation", resp.errorCode())
 	})
 	t.Run("M1: restore re-checks the roles the account resumes", func(t *testing.T) {
-		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{orgOwner.id})))
+		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{orgOwner.id})))
 		require.ErrorIs(t, ops["RestoreUsers"](iam.UserActor(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation)
 		require.NoError(t, ops["RestoreUsers"](iam.UserActor(siteadmin.id), orgOwner.id))
 	})
@@ -138,7 +138,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		require.ErrorIs(t, h.auth.Unban(ctx, self, siteadmin.id), iam.ErrCannotTargetSelf)
 		require.ErrorIs(t, ops["UpdateUser"](self, siteadmin.id), iam.ErrCannotTargetSelf)
 	})
-	t.Run("verified flags and imported hashes are the operator's", func(t *testing.T) {
+	t.Run("verified flags and imported hashes are the system's", func(t *testing.T) {
 		verified := true
 		_, err := h.auth.UpdateUser(ctx, iam.UserActor(siteadmin.id), plain.id, iam.UserUpdate{EmailVerified: &verified})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
@@ -164,17 +164,17 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 	h.enrollEmail2FA(holder)
 	h.grant(iam.RootGroup(), holder, "security")
 	attacker := unique("takeover") + "@security.test"
-	_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), holder.id, iam.UserUpdate{Email: &attacker})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &attacker})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
 	u, err := h.auth.User(ctx, iam.UserByID(holder.id))
 	require.NoError(t, err)
 	require.Equal(t, holder.email, u.Email)
 	require.True(t, u.EmailVerified)
 
-	t.Run("control: an operator vouching for the new address keeps MFA and roles", func(t *testing.T) {
+	t.Run("control: the system vouching for the new address keeps MFA and roles", func(t *testing.T) {
 		moved := unique("moved") + "@security.test"
 		verified := true
-		u, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
+		u, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
 		require.NoError(t, err)
 		require.Equal(t, moved, u.Email)
 		var enabled bool
@@ -196,7 +196,7 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 	squatter := h.register(victim)
 	id := h.userID(victim)
 	verified := true
-	_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), id, iam.UserUpdate{EmailVerified: &verified})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), id, iam.UserUpdate{EmailVerified: &verified})
 	require.NoError(t, err)
 	login := h.post("/password/login", map[string]string{"identifier": victim, "password": password}, "")
 	require.Equal(t, http.StatusUnauthorized, login.status, "the squatter's password survived: %s", login)
@@ -208,7 +208,7 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 	t.Run("control: verifying a proven account keeps its credentials", func(t *testing.T) {
 		a := h.newAccount("proven")
 		s := h.login(a)
-		_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), a.id, iam.UserUpdate{EmailVerified: &verified})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{EmailVerified: &verified})
 		require.NoError(t, err)
 		h.login(a)
 		require.Equal(t, http.StatusOK, h.refresh(s.RefreshToken).status)
@@ -229,7 +229,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 		// of the fresh-auth gate is the only way through.
 		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day', mfa_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
 		require.NoError(t, err)
-		tok, err := h.auth.MintAccessToken(ctx, iam.OperatorActor(), a.id, iam.AccessTokenOptions{SessionID: sid})
+		tok, err := h.auth.MintAccessToken(ctx, iam.SystemActor(), a.id, iam.AccessTokenOptions{SessionID: sid})
 		require.NoError(t, err)
 		return tok.Value
 	}
@@ -274,11 +274,11 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 		end  func(a account)
 	}{
 		{"ban", func(a account) {
-			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{Reason: "abuse"}))
-			require.NoError(t, h.auth.Unban(ctx, iam.OperatorActor(), a.id))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{Reason: "abuse"}))
+			require.NoError(t, h.auth.Unban(ctx, iam.SystemActor(), a.id))
 		}},
 		{"soft delete", func(a account) {
-			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{a.id})))
+			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{a.id})))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -424,7 +424,7 @@ func TestSecurityBannedTokenCreatesNoGroup(t *testing.T) {
 	ctx := context.Background()
 	banned := h.newAccount("bannedcreator")
 	token := h.login(banned).AccessToken
-	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), banned.id, iam.Ban{Reason: "abuse"}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
 	slug := unique("bannedorg")
 	resp := h.post("/"+string(orgPersona), map[string]string{"slug": slug}, token)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
@@ -449,7 +449,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	h.grant(iam.RootGroup(), support, "staff")
 	h.enrollEmail2FA(target)
 	phone, verified := "+1555"+uniqueDigits(7), true
-	_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), target.id, iam.UserUpdate{Phone: &phone, PhoneVerified: &verified})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), target.id, iam.UserUpdate{Phone: &phone, PhoneVerified: &verified})
 	require.NoError(t, err)
 
 	evil := unique("p3evil") + "@security.test"
@@ -507,12 +507,12 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 
 // TestSecurityUserManagementNeedsMFA (owner decision c): root:users:manage
 // edits other people's accounts, so it needs MFA like root:members:manage.
-// Only the operator sets another account's password; staff send a reset.
+// Only the system sets another account's password; staff send a reset.
 func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
-	res, err := h.auth.AssignGroupRoles(ctx, iam.OperatorActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, "staff")
+	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, "staff")
 	require.NoError(t, err)
 	require.ErrorIs(t, res[0].Err, iam.ErrTwoFAEnrollmentRequired, "a root:users:manage role went to an account without MFA")
 	// A role granted while 2FA was off: signing in yields only an enrollment token.
@@ -529,7 +529,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	h.login(target)
 
-	t.Run("control: the operator sets it", func(t *testing.T) {
+	t.Run("control: the system sets it", func(t *testing.T) {
 		require.NoError(t, h.setPassword(target.id, chosen))
 		resp := h.post("/password/login", map[string]string{"identifier": target.email, "password": chosen}, "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
@@ -538,7 +538,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 
 // TestSecurityEmailFactorFollowsOwnChange (R3): the account's own email
 // change needs MFA and proves the new mailbox, so it moves the email factor
-// there; an operator's change never does. The factor listing shows where the
+// there; the system's change never does. The factor listing shows where the
 // codes go, masked.
 func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
@@ -584,9 +584,9 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, sent, h.mail.count(`^login to=`+a.email+` `), "a login code went to the old mailbox")
 
-	t.Run("control: an operator change leaves the factor where it was proven", func(t *testing.T) {
+	t.Run("control: the system change leaves the factor where it was proven", func(t *testing.T) {
 		third, verified := unique("third")+"@security.test", true
-		_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), a.id, iam.UserUpdate{Email: &third, EmailVerified: &verified})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &third, EmailVerified: &verified})
 		require.NoError(t, err)
 		require.Equal(t, moved, pinned())
 	})

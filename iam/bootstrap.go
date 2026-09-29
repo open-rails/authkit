@@ -3,7 +3,7 @@ package iam
 import "time"
 
 // BootstrapManifest is genesis seed data: accounts, their root roles and
-// remote applications. ApplyBootstrapManifest applies it under the operator.
+// remote applications. ApplyBootstrapManifest applies it as a host operation.
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
 	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
@@ -59,7 +59,7 @@ type BootstrapOptions struct {
 	// DryRun validates and counts without writing.
 	DryRun bool
 	// StartupOnly applies the manifest at most once per database schema; leave
-	// it false for operator or CLI applies.
+	// it false for host or CLI applies.
 	StartupOnly bool
 	// Name labels the StartupOnly receipt ("" is "default"). Another name does
 	// not rerun genesis.

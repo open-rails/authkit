@@ -61,7 +61,7 @@ func (s *Engine) requireIssuableRole(ctx context.Context, st *permissionGroupSto
 }
 
 // CreateInviteLink mints a single-use link granting l.Role in ref:
-// CAP(<p>:members:manage) plus COVER(role). Only a user or the operator issues
+// CAP(<p>:members:manage) plus COVER(role). Only a user or the system issues
 // credentials. The code is returned once.
 func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.GroupRef, l iam.NewInviteLink) (iam.InviteLinkCreated, error) {
 	creator, err := credentialIssuer(a)

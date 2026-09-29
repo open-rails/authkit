@@ -100,7 +100,7 @@ func importRejected(idx int, reason string) iam.ImportRow {
 	return iam.ImportRow{Index: idx, Status: iam.ImportRejected, Reason: reason}
 }
 
-// ImportUsers bulk-imports accounts (target: 500k+ rows) under the operator.
+// ImportUsers bulk-imports accounts (target: 500k+ rows) as a host operation.
 // Rows are validated in Go, then each chunk runs in one transaction: find the
 // accounts its rows name, insert the rest with one multi-row INSERT, store
 // their password hashes, and merge where asked. A row sharing an identifier
@@ -351,7 +351,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	for _, p := range fresh {
 		if inserted[p.id] && p.deletedAt != nil {
-			// As the operator's DeleteUsers would have: deleted_by stays NULL.
+			// As the system's DeleteUsers would have: deleted_by stays NULL.
 			if err = s.createAccountDeletion(ctx, tx, client, p.id, nil); err != nil {
 				return err
 			}

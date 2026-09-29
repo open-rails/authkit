@@ -42,8 +42,9 @@ deps.OnEvent = func(ctx context.Context, e iam.Event) error {
 | `role.granted`, `role.changed`, `role.revoked` | `GroupID`, `Persona` (`root` for root roles), `UserID` or `ApplicationID`, role `Previous` → `Current` |
 | `group.created`, `group.deleted`, `group.purged` | `GroupID`, `Persona` |
 
-`ActorKind`/`ActorID` name who made the change (`ActorID` is empty for the
-operator); both are empty when AuthKit acted on its own, such as the end of a
+`ActorKind`/`ActorID` name who made the change: `system` with an empty
+`ActorID` for your own code, host operations included; both are empty when
+AuthKit acted on its own, such as the end of a
 recovery window. Removing an account, application or group records no role
 events for the assignments that go with it. `ImportUsers` records no events,
 though an account it imports as deleted still ends in `user.purged`.

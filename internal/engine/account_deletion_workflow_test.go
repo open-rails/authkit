@@ -52,7 +52,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	remove := func() {
 		t.Helper()
-		results, err := client.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+		results, err := client.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}
@@ -70,7 +70,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
 	remove()
 	require.Equal(t, first, current(), "repeated deletion must not reset the deadline/generation")
-	results, err := client.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err := client.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	remove()
@@ -105,7 +105,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(t.Context()))
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), second.ID, false))
-	results, err = client.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err = client.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
 	// Run the real River client. Prior callbacks are receipt-idempotent, then
@@ -133,7 +133,7 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	t.Cleanup(runtime.Close)
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
-	results, err := runtime.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err := runtime.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err)
 	var deleted *time.Time
@@ -174,7 +174,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	second := makeRuntime(issuers[1], "sibling_jobs")
 	user, err := first.createUser(t.Context(), "two-fleets@example.test", "twofleets")
 	require.NoError(t, err)
-	results, err := first.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err := first.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	var generation string
@@ -190,7 +190,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		defer mu.Unlock()
 		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
 	}, 10*time.Second, 25*time.Millisecond)
-	results, err = first.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err = first.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	// The second deployment was offline throughout deletion and recovery. Its

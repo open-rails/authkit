@@ -43,11 +43,11 @@ func withRBAC(c *authkit.Config) {
 	}
 }
 
-// grant assigns role with operator authority. The holder of an MFA-required
+// grant assigns role with system authority. The holder of an MFA-required
 // role enrolls the email second factor first.
 func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
 	h.t.Helper()
-	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.OperatorActor(), group, []iam.Subject{iam.UserSubject(a.id)}, role)
+	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.SystemActor(), group, []iam.Subject{iam.UserSubject(a.id)}, role)
 	require.NoError(h.t, err)
 	if errors.Is(res[0].Err, iam.ErrTwoFAEnrollmentRequired) {
 		h.enrollEmail2FA(a)
@@ -85,8 +85,8 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	unban := func(target account, token string) response {
 		return h.post("/admin/users/"+target.id+"/unban", nil, token)
 	}
-	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), moderator.id, iam.Ban{}))
-	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), admin.id, iam.Ban{}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), moderator.id, iam.Ban{}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), admin.id, iam.Ban{}))
 
 	for _, tc := range []struct {
 		name   string
@@ -228,10 +228,10 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	require.True(t, stillOwner)
 }
 
-// createOrg creates group as the operator, owned by owner.
+// createOrg creates group as the system, owned by owner.
 func (h *host) createOrg(ctx context.Context, group iam.GroupRef, owner account) (iam.Group, error) {
 	o := iam.UserSubject(owner.id)
-	g, _, err := h.auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: group.Persona(), Slug: group.Slug(), Owner: &o})
+	g, _, err := h.auth.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: group.Persona(), Slug: group.Slug(), Owner: &o})
 	return g, err
 }
 
@@ -396,7 +396,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 }
 
 // TestSecurityAccountPeerRemoteApplication: a deployment sharing this account
-// store delegates its users here as an operator-registered remote application.
+// store delegates its users here as a system-registered remote application.
 // Its delegated subjects name accounts in the shared store, so no group or
 // domain may register its issuer; its native user tokens, signed by the same
 // keys, never authenticate here in either role; and registering it never
@@ -438,10 +438,10 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
 
-	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
+	t.Run("the system may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
-			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
@@ -449,7 +449,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	enabled := true
-	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
 	}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
@@ -489,11 +489,11 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, h.get("/me", forged).status)
 	})
 
-	t.Run("the operator disables the peer", func(t *testing.T) {
+	t.Run("the system disables the peer", func(t *testing.T) {
 		app, err := h.auth.RemoteApplication(ctx, peerIssuer)
 		require.NoError(t, err)
 		app.Enabled = false
-		_, err = h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), app)
+		_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), app)
 		require.NoError(t, err)
 		_, err = ver.Verify(ctx, delegated)
 		require.Error(t, err)
@@ -563,15 +563,15 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
 	require.Equal(t, "last_owner", resp.errorCode())
-	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{founder.id})), iam.ErrLastOwner)
-	require.ErrorIs(t, h.auth.Ban(ctx, iam.OperatorActor(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
+	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{founder.id})), iam.ErrLastOwner)
+	require.ErrorIs(t, h.auth.Ban(ctx, iam.SystemActor(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
 	require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 	require.NotContains(t, h.ownerlessGroups(), g.ID)
 
 	t.Run("OwnerlessGroups lists groups without an owner", func(t *testing.T) {
 		var empty []string
 		for range 2 {
-			created, _, err := h.auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: orgPersona, Slug: unique("r1empty")})
+			created, _, err := h.auth.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: orgPersona, Slug: unique("r1empty")})
 			require.NoError(t, err)
 			empty = append(empty, created.ID)
 		}

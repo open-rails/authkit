@@ -27,7 +27,7 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	t.Cleanup(second.Close)
 	allowed, err := second.Can(t.Context(), iam.UserActor(user.ID), iam.RootGroup(), "root:posts:edit")
 	require.NoError(t, err)
-	require.False(t, allowed, "restart must never restore an operator-revoked role")
+	require.False(t, allowed, "restart must never restore the system-revoked role")
 }
 
 // editorRoles declares an app root permission and a root role holding it.

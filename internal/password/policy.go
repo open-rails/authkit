@@ -45,7 +45,7 @@ func (e *RequirementsError) Error() string {
 	return "password_requirements_unmet: " + strings.Join(e.Missing, ",")
 }
 
-// Policy is the operator-configured password rule. The zero value is the
+// Policy is the host-configured password rule. The zero value is the
 // NIST SP 800-63B-style default: 8..128 characters, no composition rules,
 // common passwords rejected. Composition rules are opt-in.
 type Policy struct {

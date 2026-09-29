@@ -8,7 +8,7 @@ package engine
 //	COVER  the actor covers every permission a role confers (no escalation)
 //	ACCT   CAP on the root group plus coverage of the target account's root grants
 //
-// An operator skips every rule and never an invariant (last owner, MFA).
+// The system skips every rule and never an invariant (last owner, MFA).
 // Root is the widest scope: an actor's roles on root count in every group, but
 // root's own `root:` permissions count only on root (rbac.Schema.ResolveGrants).
 
@@ -83,15 +83,15 @@ func (s *Engine) withGroupMutation(ctx context.Context, a iam.Actor, ref iam.Gro
 
 // authority is an actor's live authority in one group.
 type authority struct {
-	actor    iam.Actor
-	operator bool
-	grants   []string // base grants in the group; none when bound elsewhere
+	actor  iam.Actor
+	system bool
+	grants []string // base grants in the group; none when bound elsewhere
 }
 
 // covers is the effective-coverage check: the base grants cover p and every
-// ceiling permits it. An operator covers everything.
+// ceiling permits it. The system covers everything.
 func (a authority) covers(p iam.Perm) bool {
-	return a.operator || iam.AnyGrantCovers(a.grants, p) && a.actor.CeilingCovers(p)
+	return a.system || iam.AnyGrantCovers(a.grants, p) && a.actor.CeilingCovers(p)
 }
 
 func (a authority) coversAll(grants []string) bool {
@@ -134,8 +134,8 @@ func requireActor(a iam.Actor) error {
 func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget) (authority, error) {
 	out := authority{actor: a}
 	switch a.Kind() {
-	case iam.ActorOperator:
-		out.operator = true
+	case iam.ActorSystem:
+		out.system = true
 		return out, nil
 	case iam.ActorUser:
 		return s.userAuthority(ctx, st, out, a.ID(), g)
@@ -254,7 +254,7 @@ func (s *Engine) roleGrants(ctx context.Context, st *permissionGroupStore, g gro
 
 // requireRoleCover is rule COVER for a role in g.
 func (s *Engine) requireRoleCover(ctx context.Context, st *permissionGroupStore, a authority, g groupTarget, role iam.Role) error {
-	if a.operator {
+	if a.system {
 		return nil
 	}
 	grants, err := s.roleGrants(ctx, st, g, role)
@@ -283,7 +283,7 @@ func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore,
 // site moderation never outranks a group role the actor does not itself hold.
 // Callers apply their self-targeting rule first.
 func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a iam.Actor, targetUserID string, p iam.Perm) error {
-	if err := requireActor(a); err != nil || a.Kind() == iam.ActorOperator {
+	if err := requireActor(a); err != nil || a.Kind() == iam.ActorSystem {
 		return err
 	}
 	rootID, err := s.rootGroup(ctx, st)

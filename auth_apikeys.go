@@ -11,7 +11,7 @@ import (
 
 // MintAPIKey issues a key holding k.Role in ref. The actor needs
 // <persona>:credentials:manage and must cover the role; only a user or the
-// operator issues credentials (the operator's keys have no creator). The
+// system issues credentials (the system's keys have no creator). The
 // token is returned once.
 func (a *Auth) MintAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
 	return a.engine.MintAPIKey(ctx, actor, ref, k)

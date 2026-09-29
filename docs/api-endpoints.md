@@ -77,7 +77,7 @@ response is:
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
 `authkit.LoadBootstrapManifestFile`, `authkit.ParseBootstrapManifestYAML`, and
-`(*authkit.Auth).ApplyBootstrapManifest(ctx, iam.OperatorActor(), manifest, opts)`, or
+`(*authkit.Auth).ApplyBootstrapManifest(ctx, iam.SystemActor(), manifest, opts)`, or
 `EnsureUserRole` for a single first admin. Bootstrap uses an existing account only through a
 verified email or phone the manifest names; it never adopts one by username, alias or unverified
 contact. Host applications layer their own domain bootstrap after AuthKit has applied users,
@@ -388,7 +388,7 @@ that verified that address.
 ## API keys (opaque machine credentials)
 
 Long-lived, revocable bearer credentials owned by a permission group, for
-machine/automation callers (CI, operator CLIs, service-to-service). A key acts
+machine/automation callers (CI, admin CLIs, service-to-service). A key acts
 as `iam.APIKeyActor(id)` in its own group only: middleware sets `Claims.APIKeyID`
 and `TokenType = verify.APIKeyPrincipalType`, with no `UserID`. Its permissions
 are those of its role, from the persona's catalog.
@@ -413,8 +413,8 @@ no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. No key may hold a role that needs MFA; a role that
 comes to need it (a `RequireMFA` change) confers nothing and the key is revoked
 at the next boot. A persona without `APIKeys` has no keys, even from the
-operator. Only a user
-(or the host's operator actor, whose keys have no creator) issues keys and
+system actor. Only a user
+(or `iam.SystemActor()`, whose keys have no creator) issues keys and
 invite links; machine actors never do. The JSON field for the public id is
 `lookup_id`, and lists use the standard list envelope.
 Revoking a key, or an invite link, needs the same authority as minting its
@@ -456,7 +456,7 @@ TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
 checked on every request.
 
 **Storage.** `profiles.api_keys` (`key_id` unique, `secret_hash` bytea,
-single `role`, `created_by` NULL only for operator-issued keys and
+single `role`, `created_by` NULL only for system-issued keys and
 `ON DELETE CASCADE` so no key outlives its creator, nullable
 `expires_at`/`revoked_at`, `last_used_at` touched best-effort/async). A key of a
 banned, deleted or reserved creator is refused.
@@ -492,7 +492,7 @@ the account had a factor is refused (`2fa_required`) until re-enrolled with it.
 An account that needs MFA (an MFA-required role, or Required 2FA) and has a
 passkey but no factor signs in with the passkey; any other first factor answers
 `403 passkey_required`, never an enrollment token; if the passkey is lost, the
-operator's `Auth.ResetAccountMFA` clears the account's second factors so its
+system's `Auth.ResetAccountMFA` clears the account's second factors so its
 next sign-in enrolls one. Device-key enrollment refuses a revoked key or one
 bound to another account before asking for a second factor, and spends a
 backup code only when the key is enrolled. A password change or reset revokes

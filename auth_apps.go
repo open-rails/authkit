@@ -15,12 +15,12 @@ import (
 // mutation takes an iam.Actor: registering one needs
 // <persona>:credentials:manage in the group; changing or deleting an existing
 // one also needs coverage of every role it holds, because whoever controls its
-// keys acts as it. Only the operator registers applications that are approved
+// keys acts as it. Only the system registers applications that are approved
 // or not rotated by a group (trust root manual), and only a domain proof
 // rotates a domain-rooted one.
 
 // UpsertRemoteApplication registers the issuer app.Issuer in the group ref,
-// or updates it there. Tier and TrustRoot are the operator's to set; other
+// or updates it there. Tier and TrustRoot are the system's to set; other
 // actors register at tier registered, trust root user.
 func (a *Auth) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, app iam.RemoteApplication) (iam.RemoteApplication, error) {
 	out, err := a.engine.UpsertRemoteApplication(ctx, actor, ref, app)
@@ -31,7 +31,7 @@ func (a *Auth) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref
 }
 
 // DeleteRemoteApplication deletes the application named slug that ref
-// controls. Only the operator deletes an operator-registered application.
+// controls. Only the system deletes a system-registered application.
 func (a *Auth) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, slug string) error {
 	return a.engine.DeleteRemoteApplication(ctx, actor, ref, slug)
 }
@@ -60,7 +60,7 @@ func (a *Auth) RemoteApplicationAuthority(ctx context.Context, appID string) (ia
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
 // A user actor mints only for itself, and every AuthKit permission in
 // d.Permissions must be held live by it on the root group
-// (iam.ErrDelegationRefused otherwise). The operator mints for any subject.
+// (iam.ErrDelegationRefused otherwise). The system mints for any subject.
 // Published documents are stamped into every token.
 func (a *Auth) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
 	return a.engine.MintDelegatedAccessToken(ctx, actor, d)

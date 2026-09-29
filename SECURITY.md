@@ -14,7 +14,7 @@ boundaries, so every push and pull request runs the same gating pipeline.
 
 ## Security model
 
-- Host code is trusted. `iam.OperatorActor()` exists only in host code: no
+- Host code is trusted. `iam.SystemActor()` exists only in host code: no
   request, token or HTTP input can produce it (`TestRequestSurfaceCannotBuildActors`
   guards the request surface). Every other actor is resolved live on each
   operation, and the zero actor is refused.

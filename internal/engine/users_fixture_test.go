@@ -10,7 +10,7 @@ import (
 )
 
 // Account and session setup shortcuts for engine tests: the public actor
-// operations with operator authority, and trusted session issuance that
+// operations with system authority, and trusted session issuance that
 // production reaches only through the login flows.
 
 // markEmailVerified sets the flag without the proof transition: a setup
@@ -21,17 +21,17 @@ func (s *Engine) markEmailVerified(ctx context.Context, id string) error {
 }
 
 func (s *Engine) adminSetPassword(ctx context.Context, id, pw string) error {
-	_, err := s.UpdateUser(ctx, iam.OperatorActor(), id, iam.UserUpdate{Password: &pw})
+	_, err := s.UpdateUser(ctx, iam.SystemActor(), id, iam.UserUpdate{Password: &pw})
 	return err
 }
 
 func (s *Engine) upsertPasswordHash(ctx context.Context, id, hash, algo string) error {
-	_, err := s.UpdateUser(ctx, iam.OperatorActor(), id, iam.UserUpdate{PasswordHash: &iam.PasswordHash{Hash: hash, Algo: algo}})
+	_, err := s.UpdateUser(ctx, iam.SystemActor(), id, iam.UserUpdate{PasswordHash: &iam.PasswordHash{Hash: hash, Algo: algo}})
 	return err
 }
 
 func (s *Engine) softDelete(ctx context.Context, id string) error {
-	return itemErr(s.DeleteUsers(ctx, iam.OperatorActor(), []string{id}))
+	return itemErr(s.DeleteUsers(ctx, iam.SystemActor(), []string{id}))
 }
 
 // selfDelete is the account deleting itself, the deletion a sign-in may undo.

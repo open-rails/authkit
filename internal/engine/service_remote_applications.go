@@ -289,7 +289,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 
 // accountPeerIssuer reports whether issuer is another deployment sharing this
 // account store. A peer's delegated subjects name accounts here, so only the
-// operator may register it as a remote application; a group or domain
+// system may register it as a remote application; a group or domain
 // registration under it would sign for every shared account.
 func (s *Engine) accountPeerIssuer(issuer string) bool {
 	key := issuerKey(issuer)

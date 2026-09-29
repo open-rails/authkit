@@ -20,7 +20,7 @@ import (
 
 // Bootstrap, first-admin and import paths (#399 lane E; audit H3 and the
 // bootstrap side of invariant #5): an address or name someone registered
-// without proving it never binds an operator's authority to their account,
+// without proving it never binds the system's authority to their account,
 // and these paths never mark a contact verified on an existing account.
 
 // registerAs registers an unverified password account with a chosen username.
@@ -67,7 +67,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	apply := func(users ...iam.BootstrapManifestUser) (iam.BootstrapResult, error) {
-		return h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
+		return h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
 	}
 	requireUntouched := func(t *testing.T, userID string) {
 		t.Helper()
@@ -159,7 +159,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		h.login(owner)
 	})
 
-	t.Run("non-operator actors are refused", func(t *testing.T) {
+	t.Run("non-system actors are refused", func(t *testing.T) {
 		admin := h.newAccount("bootadmin")
 		h.grant(iam.RootGroup(), admin, "admin")
 		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
@@ -175,7 +175,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 func TestSecurityEnsureUserRole(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
-	op, root := iam.OperatorActor(), iam.RootGroup()
+	op, root := iam.SystemActor(), iam.RootGroup()
 
 	t.Run("creates a credential-less account, then re-runs as a no-op", func(t *testing.T) {
 		email := unique("firstadmin") + "@security.test"
@@ -263,7 +263,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		require.Equal(t, iam.Role("superadmin"), h.rootRole(owner.id))
 	})
 
-	t.Run("non-operator actors are refused", func(t *testing.T) {
+	t.Run("non-system actors are refused", func(t *testing.T) {
 		admin := h.newAccount("ensureadmin")
 		h.grant(root, admin, "superadmin")
 		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
@@ -279,7 +279,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 func TestSecurityImportUsers(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	raw, err := bcrypt.GenerateFromPassword([]byte("Imported-legacy-pass-1"), bcrypt.MinCost)
 	require.NoError(t, err)
 	bcryptHash := string(raw)
@@ -351,7 +351,7 @@ func TestSecurityImportUsers(t *testing.T) {
 		h.login(owner) // the account's own password survives a merge
 	})
 
-	t.Run("non-operator actors are refused", func(t *testing.T) {
+	t.Run("non-system actors are refused", func(t *testing.T) {
 		user := h.newAccount("impuser")
 		_, err := h.auth.ImportUsers(ctx, iam.UserActor(user.id), []iam.ImportUser{{Username: unique("x")}}, iam.ImportOptions{})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
@@ -368,7 +368,7 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 	_, _ = rand.Read(key)
 	address := base58.Encode(key)
 	link := iam.ImportSolanaLink{UserID: one.id, Address: address, Source: "legacy", SourceID: "1"}
-	res, err := h.auth.ImportSolanaLinks(ctx, iam.OperatorActor(), []iam.ImportSolanaLink{
+	res, err := h.auth.ImportSolanaLinks(ctx, iam.SystemActor(), []iam.ImportSolanaLink{
 		link,
 		link,
 		{UserID: two.id, Address: address, Source: "legacy", SourceID: "2"},
@@ -388,7 +388,7 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 }
 
-// TestSecurityLinkProvider: an operator-linked identity signs in to exactly
+// TestSecurityLinkProvider: the system-linked identity signs in to exactly
 // the account it names; nobody else can link.
 func TestSecurityLinkProvider(t *testing.T) {
 	provider := &stubProvider{name: "opidp"}
@@ -398,8 +398,8 @@ func TestSecurityLinkProvider(t *testing.T) {
 	owner := h.newAccount("linked")
 	l := iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: provider.identity.Subject}
 	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.UserActor(owner.id), owner.id, l), iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), uuid.NewString(), l), iam.ErrUserNotFound)
-	require.NoError(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), owner.id, l))
+	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.SystemActor(), uuid.NewString(), l), iam.ErrUserNotFound)
+	require.NoError(t, h.auth.LinkProvider(ctx, iam.SystemActor(), owner.id, l))
 	var users int
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&users))
 	resp := h.providerCallback(provider.name)
@@ -411,7 +411,7 @@ func TestSecurityLinkProvider(t *testing.T) {
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&after))
 	require.Equal(t, users, after, "the provider login created an account instead of using the linked one")
 	other := h.newAccount("linkedother")
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), other.id, l), errmodel.ErrProviderAlreadyLinked)
+	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.SystemActor(), other.id, l), errmodel.ErrProviderAlreadyLinked)
 }
 
 // TestSecurityImportProviders: an imported provider identity signs in to
@@ -422,7 +422,7 @@ func TestSecurityImportProviders(t *testing.T) {
 	provider := &stubProvider{name: "impidp"}
 	h := newHost(t, withHTTP(generousLimits), withProviders(provider))
 	ctx := context.Background()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	link := func(prefix string) iam.ProviderLink {
 		return iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: unique(prefix)}
 	}
@@ -491,7 +491,7 @@ func TestSecurityImportProviders(t *testing.T) {
 }
 
 // TestSecurityImportedDeletionLifecycle: an imported deleted account is
-// what the operator's DeleteUsers leaves: it cannot sign in or restore
+// what the system's DeleteUsers leaves: it cannot sign in or restore
 // itself, OnSoftDelete runs, its recovery window runs from the imported
 // DeletedAt, and past the window it is purged after OnHardDelete with its
 // username kept. Without River such rows are refused whole.
@@ -515,7 +515,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 		d.OnSoftDelete, d.OnHardDelete, d.OnRestore = hook("soft"), hook("hard"), hook("restore")
 	}))
 	ctx := context.Background()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	raw, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	require.NoError(t, err)
 	recentAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)

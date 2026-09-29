@@ -27,7 +27,7 @@ type User struct {
 	Live bool `json:"live"`
 }
 
-// BanState is a ban in force. By is "" when an operator or a machine banned.
+// BanState is a ban in force. By is "" when the system or a machine banned.
 type BanState struct {
 	At     time.Time  `json:"at"`
 	Until  *time.Time `json:"until,omitempty"`
@@ -116,7 +116,7 @@ func IncludesDeleted(opts []ReadOption) bool {
 	return false
 }
 
-// NewUser creates a native account. Verified flags are an operator's
+// NewUser creates a native account. Verified flags are the system's
 // assertion that the address was proven elsewhere.
 type NewUser struct {
 	Email, Phone, Username, Password string

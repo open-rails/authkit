@@ -32,7 +32,7 @@ func TestSecurityUsernameChecks(t *testing.T) {
 		}
 	}))
 	ctx := context.Background()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	owner := h.newAccount("chkowner")
 	renamed := unique("chkrenamed")
 	_, err := h.auth.UpdateUser(ctx, op, owner.id, iam.UserUpdate{Username: &renamed})

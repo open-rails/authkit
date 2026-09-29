@@ -14,7 +14,7 @@ import (
 func TestImportUserProfileFields(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	lastLogin := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
 	res, err := auth.ImportUsers(ctx, op, []iam.ImportUser{
 		{Email: "profile@example.test", Username: "profile", LastLogin: &lastLogin, PreferredLanguage: " FR ", AvatarURL: "https://cdn.example.test/p.png"},

@@ -63,13 +63,13 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	allowed, err := checker.Can(ctx, scope, "channel:posts:read")
 	require.NoError(t, err)
 	require.True(t, allowed)
-	result, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
+	result, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID})
 	require.NoError(t, err)
 	require.ErrorIs(t, result[0].Err, iam.ErrLastOwner)
-	deleted, err := client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))
+	deleted, err := client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
-	again, err := client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))
+	again, err := client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, again.DeletedAt)
 	descriptor, err := client.Group(ctx, iam.GroupByID(id))
@@ -85,10 +85,10 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Error(t, err, "retired group's API key is unusable on subsequent requests")
 	_, err = client.Group(ctx, group)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
-	require.ErrorIs(t, assignRole(ctx, client, iam.OperatorActor(), group, iam.UserSubject(peer.ID), "reader"), iam.ErrGroupNotFound)
+	require.ErrorIs(t, assignRole(ctx, client, iam.SystemActor(), group, iam.UserSubject(peer.ID), "reader"), iam.ErrGroupNotFound)
 	_, err = client.UpdateGroup(ctx, iam.UserActor(owner.ID), iam.GroupByID(id), iam.GroupUpdate{DisplayName: new("changed")})
 	require.Error(t, err)
-	_, _, err = client.MintAPIKey(ctx, iam.OperatorActor(), group, iam.NewAPIKey{Name: "forbidden", Role: "reader"})
+	_, _, err = client.MintAPIKey(ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: "reader"})
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	var roles, keys, names int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=$1::uuid", id).Scan(&roles))
@@ -97,7 +97,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Equal(t, 1, keys)
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid AND canonical", id).Scan(&names))
 	require.Equal(t, 1, names)
-	result, err = client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID, peer.ID})
+	result, err = client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID, peer.ID})
 	require.NoError(t, err)
 	require.NoError(t, result[0].Err)
 	require.ErrorIs(t, result[1].Err, iam.ErrLastOwner, "active sibling still requires its owner")
@@ -106,10 +106,10 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Nil(t, current.DeletedAt)
 	root, err := client.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
-	_, err = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(root.ID))
+	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(root.ID))
 	require.Error(t, err)
-	require.NoError(t, client.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
-	require.NoError(t, client.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
+	require.NoError(t, client.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
+	require.NoError(t, client.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
 	_, err = client.Group(ctx, iam.GroupByID(id))
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
@@ -127,10 +127,10 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		var retireErr, deleteErr error
-		wg.Go(func() { <-start; _, retireErr = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id)) })
+		wg.Go(func() { <-start; _, retireErr = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id)) })
 		wg.Go(func() {
 			<-start
-			results, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
+			results, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID})
 			deleteErr = err
 			if err == nil {
 				deleteErr = results[0].Err
@@ -142,7 +142,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		if deleteErr != nil {
 			require.ErrorIs(t, deleteErr, iam.ErrLastOwner)
 		}
-		results, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
+		results, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 		retained, err := client.Group(ctx, iam.GroupByID(id))
@@ -162,19 +162,19 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	survivor := iam.GroupBySlug("channel", "survivor")
 	survivorID, err := seedGroup(ctx, client, survivor.Persona(), survivor.Slug(), "")
 	require.NoError(t, err)
-	application, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
+	application, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 	require.NoError(t, err)
 	// Arrange a historical cross-control assignment that ordinary assignment APIs
 	// already refuse. Retirement must not count this departing app as a replacement.
 	_, err = pool.Exec(ctx, "INSERT INTO profiles.group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'owner')", survivorID, application.ID)
 	require.NoError(t, err)
-	_, err = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(controller))
+	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(controller))
 	require.ErrorIs(t, err, iam.ErrLastOwner)
 	unchanged, err := client.Group(ctx, iam.GroupByID(controller))
 	require.NoError(t, err)
 	require.Nil(t, unchanged.DeletedAt, "failed retirement is atomic")
 	grantRole(t, client, survivor, iam.UserSubject(owner.ID), "owner")
-	_, err = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(controller))
+	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(controller))
 	require.NoError(t, err)
 	_, err = client.GetRemoteApplication(ctx, application.Issuer)
 	require.Error(t, err)
@@ -184,6 +184,6 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, allowed)
 	application.Enabled = false
-	_, err = client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(application.PermissionGroupID), *application)
+	_, err = client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(application.PermissionGroupID), *application)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 }

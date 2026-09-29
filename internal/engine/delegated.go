@@ -19,7 +19,7 @@ import (
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
 // A user actor mints for itself only, and every AuthKit-namespace permission
 // in the grant must be held live on the root group (checkDelegatedGrant); the
-// operator may mint for any subject; machine actors may not mint. Published
+// system may mint for any subject; machine actors may not mint. Published
 // documents are stamped into every token.
 func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
 	if err := requireActor(actor); err != nil {
@@ -27,7 +27,7 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 	}
 	d.Subject = strings.TrimSpace(d.Subject)
 	switch actor.Kind() {
-	case iam.ActorOperator:
+	case iam.ActorSystem:
 		if d.Subject == "" {
 			return iam.Token{}, fmt.Errorf("%w: delegated subject required", errmodel.E(errmodel.CodeInvalidRequest))
 		}

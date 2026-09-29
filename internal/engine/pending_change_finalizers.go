@@ -36,7 +36,7 @@ func (s *Engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 			return err
 		}
 		// The account asked for this change with MFA and just proved the new
-		// mailbox, so its email factor moves there. Staff, operator and import
+		// mailbox, so its email factor moves there. Staff, system and import
 		// changes never move it (P3, R3).
 		_, err := tx.Exec(ctx, `UPDATE mfa_factors SET email=$2, updated_at=now() WHERE user_id=$1::uuid AND method='email'`, rec.UserID, rec.Target)
 		return err

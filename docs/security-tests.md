@@ -29,8 +29,8 @@ Add a row and a test for every new attack class.
 | Delegated grant carries AuthKit authority the user lacks, or keeps it after the user loses it | `TestSecurityDelegatedGrantClamp` |
 | Go-path delegated mint for another user, by a machine actor, or with authority the user lacks | `TestSecurityDelegatedMintAuthority` |
 | Delegated token used on AuthKit's own management routes, or keeping a banned user's authority at host gates | `TestSecurityDelegatedPrincipalManagementPlane` |
-| Token shape (typ, subject claims, sender binding, issuer kind) verifies as another actor or an operator | `TestSecurityTokenMatrix` |
-| Credentials manager re-keys or deletes an operator-registered application, or one holding roles they don't cover | `TestSecurityOperatorApplicationRekey` |
+| Token shape (typ, subject claims, sender binding, issuer kind) verifies as another actor or the system | `TestSecurityTokenMatrix` |
+| Credentials manager re-keys or deletes a system-registered application, or one holding roles they don't cover | `TestSecuritySystemApplicationRekey` |
 | Group registers an application above tier `registered`, or a re-key keeps an approval | `TestSecurityGroupApplicationTier` |
 | Application holds an MFA-required role (assignment, bootstrap or a leftover row) or stands in for an MFA owner | `TestSecurityApplicationMFARoles` |
 | Unproven issuer claim, left as last owner, blocks the domain that proves the issuer | `TestSecurityIssuerSquatLastOwner` |
@@ -69,7 +69,7 @@ Add a row and a test for every new attack class.
 | Imported deleted account signs in or restores itself, skips its deletion hooks, outlives its window, or frees its username when purged | `TestSecurityImportedDeletionLifecycle` |
 | Username availability reveals more than "taken" or differs by owner; a deleted owner or expired alias resolves | `TestSecurityUsernameChecks` |
 | Session history shows another account's events, repeats or skips rows while paging, accepts a forged cursor, or is served without `root:users:read` | `TestSecuritySessionEventHistory` |
-| Non-operator links a provider identity; an operator link reaches another account | `TestSecurityLinkProvider` |
+| A non-system caller links a provider identity; a system link reaches another account | `TestSecurityLinkProvider` |
 | Stolen session plus password on an account with a second factor: password step-up, or a password-refreshed session, clears the fresh-auth gate (backup codes, passkey, factor, provider link, address change, host `Sensitive` route) | `TestSecurityPasswordStepUpNeedsSecondFactor` |
 | Device key enrolled before MFA signs in without it; an MFA-required role holder without a factor enrolls one; a password change leaves device keys | `TestSecurityDeviceKeyMFAGate` |
 | API key registers an application; an application outranks, or outlives the authority of, the user who registered it | `TestSecurityApplicationRegistrar` |
@@ -91,7 +91,7 @@ Add a row and a test for every new attack class.
 | Password of a passkey-only MFA-role holder yields an enrollment token | `TestSecurityPasskeyHolderNeedsPasskey` |
 | Anonymous verification request reveals whether an address exists or is verified | `TestSecurityVerifyRequestRevealsNothing` |
 | `root:users:manage` held without MFA; staff set another account's password | `TestSecurityUserManagementNeedsMFA` |
-| Lost passkey under Required 2FA is a permanent lockout; anyone but the operator resets an account's MFA | `TestSecurityResetAccountMFA` |
+| Lost passkey under Required 2FA is a permanent lockout; anyone but the system resets an account's MFA | `TestSecurityResetAccountMFA` |
 | Last human owner deletes themselves or is banned while only their own application co-owns the group; ownerless groups go unnoticed | `TestSecurityOwnApplicationIsNoReplacementOwner` |
 | The account's own verified email change leaves its email factor's codes at the old mailbox | `TestSecurityEmailFactorFollowsOwnChange` |
 | Re-enrolling a revoked or foreign device key burns backup codes | `TestSecurityDeviceKeyRefusedBeforeBackupCode` |

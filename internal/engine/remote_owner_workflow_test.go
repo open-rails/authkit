@@ -35,7 +35,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{
+	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{
 		Slug: "operable-owner", Issuer: "https://operable-owner.test", Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
@@ -98,7 +98,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, w.Code, w.Body.String())
 	// A cached signature/issuer never preserves disabled application authority.
 	app.Enabled = false
-	_, err = client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(app.PermissionGroupID), *app)
+	_, err = client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.PermissionGroupID), *app)
 	require.NoError(t, err)
 	w = serveAuthJSON(srv, http.MethodPut, base+owner+"/roles/owner", "", token)
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, w.Code, w.Body.String())
@@ -123,9 +123,9 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.NoError(t, err)
 	other, err := groupIDOf(ctx, client, second)
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "wrong-control", Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
+	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "wrong-control", Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
-	require.ErrorIs(t, assignRole(ctx, client, iam.OperatorActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
+	require.ErrorIs(t, assignRole(ctx, client, iam.SystemActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 	// Simulate an old invalid assignment: it must not allow the real owner to
 	// depart, although ordinary non-owner ancestor assignments remain valid.
 	_, err = client.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)

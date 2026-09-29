@@ -15,7 +15,7 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Username policy
 
-`authkit.Config.Username` (`iam.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `iam.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Operator imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
+`authkit.Config.Username` (`iam.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `iam.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Host imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
 
 ```json
 "username": {"min_length": 4, "max_length": 30, "pattern": "^[A-Za-z][A-Za-z0-9_]*$"}

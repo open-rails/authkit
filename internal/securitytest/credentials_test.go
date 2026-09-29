@@ -145,13 +145,13 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 }
 
 // TestSecurityAPIKeysNeedPersonaOptIn: a persona without APIKeys has no keys,
-// minted by a user or the operator.
+// minted by a user or the system.
 func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
 	ctx := context.Background()
 	owner := h.newAccount("nokeysowner")
 	group, _ := h.newOrg("nokeys", owner)
-	for _, a := range []iam.Actor{iam.UserActor(owner.id), iam.OperatorActor()} {
+	for _, a := range []iam.Actor{iam.UserActor(owner.id), iam.SystemActor()} {
 		_, _, err := h.auth.MintAPIKey(ctx, a, group, iam.NewAPIKey{Name: "ci", Role: iam.OwnerRole})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, a.String())
 	}
@@ -214,7 +214,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	t.Run("2FA turned on with an application holding root owner", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withEngine(withApps), withEngine(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 		s := newSigner(t, "p2b-kid")
-		app, err := h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 			Slug: "p2b-app", Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
 		})
 		require.NoError(t, err)
@@ -250,7 +250,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		// own application an owner, then proves the address.
 		name := unique("p2dfounder")
 		email := name + "@security.test"
-		u, err := h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: email, Username: name, Password: password})
+		u, err := h.auth.CreateUser(ctx, iam.SystemActor(), iam.NewUser{Email: email, Username: name, Password: password})
 		require.NoError(t, err)
 		group := iam.GroupBySlug(orgPersona, unique("p2d"))
 		_, err = h.createOrg(ctx, group, account{id: u.ID})
@@ -269,7 +269,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.True(t, orphaned, "control: the first proof orphans the application")
 
 		// A root custom-role edit sweeps the whole site.
-		require.NoError(t, h.auth.DefineGroupRole(ctx, iam.OperatorActor(), iam.RootGroup(), iam.CustomRole{Name: "auditor", Permissions: []string{iam.PermRootUsersRead}}))
+		require.NoError(t, h.auth.DefineGroupRole(ctx, iam.SystemActor(), iam.RootGroup(), iam.CustomRole{Name: "auditor", Permissions: []string{iam.PermRootUsersRead}}))
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 		require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.UserSubject(u.ID)))
 	})

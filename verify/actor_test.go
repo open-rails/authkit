@@ -35,8 +35,8 @@ func TestActorFromClaims(t *testing.T) {
 			if ok != (tc.kind != "") || a.Kind() != tc.kind || a.ID() != tc.id {
 				t.Fatalf("ActorFromClaims = (%v, %v), want kind %q id %q", a, ok, tc.kind, tc.id)
 			}
-			if a.Kind() == iam.ActorOperator {
-				t.Fatal("claims must never yield an operator")
+			if a.Kind() == iam.ActorSystem {
+				t.Fatal("claims must never yield the system")
 			}
 			if got := tc.cl.IsMachine(); got != tc.machine {
 				t.Fatalf("IsMachine = %v, want %v", got, tc.machine)

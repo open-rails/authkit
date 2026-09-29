@@ -112,13 +112,13 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withGroupCreation), withEvents(events))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
-	operator := iam.OperatorActor()
+	operator := iam.SystemActor()
 	root := iam.RootGroup()
 	rootGroup, err := h.auth.Group(ctx, root)
 	require.NoError(t, err)
 	var want []string
 	expect := func(e iam.Event) { want = append(want, sig(e)) }
-	byOperator := func(e iam.Event) iam.Event { e.ActorKind = iam.ActorOperator; return e }
+	byOperator := func(e iam.Event) iam.Event { e.ActorKind = iam.ActorSystem; return e }
 	byUser := func(id string, e iam.Event) iam.Event { e.ActorKind, e.ActorID = iam.ActorUser, id; return e }
 
 	staff := h.newAccount("staff")

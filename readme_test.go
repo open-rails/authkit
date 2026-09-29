@@ -55,7 +55,7 @@ func TestReadmeRolesBlock(t *testing.T) {
 	}
 
 	for boot := 1; boot <= 2; boot++ {
-		admin, err := auth.EnsureUserRole(ctx, iam.OperatorActor(), iam.RootGroup(), iam.UserByEmail("admin@readme.test"), "admin")
+		admin, err := auth.EnsureUserRole(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserByEmail("admin@readme.test"), "admin")
 		require.NoError(t, err, "README seed, boot %d", boot)
 		_, created, err := auth.CreateGroup(ctx, iam.UserActor(admin.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
 		require.NoError(t, err, "README seed, boot %d", boot)

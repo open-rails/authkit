@@ -1,7 +1,7 @@
 # Group deletion
 
 Your app deletes the entity a group guards, so it checks its own permission
-first and then calls `DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))`,
+first and then calls `DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))`,
 with `authkit.InTx(tx)` to delete its own row in the same transaction. Any
 other actor is refused. The group stops resolving and grants nothing: its
 roles, API keys and applications confer no authority, it accepts no authority
@@ -12,7 +12,7 @@ it again changes nothing. Root cannot be deleted. There is no restore.
 group, with `DeletedAt` set, for host cleanup. Group routes, membership lists
 and authorization skip it.
 
-`PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))` permanently deletes a
+`PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(id))` permanently deletes a
 live or deleted group with every role, custom role, key and link in it.
 Retention is the host's policy; AuthKit schedules no purge.
 

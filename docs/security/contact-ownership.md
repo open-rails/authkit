@@ -43,7 +43,7 @@ stranger to that address (ak#393).
 - **A second factor stays where it was proven.** An email factor is bound to
   the address its setup code proved, as an SMS factor is to its number. Only
   the account's own email change moves it: that request needs MFA and its
-  confirmation proves the new mailbox. Staff, operator and import changes never
+  confirmation proves the new mailbox. Staff, system and import changes never
   do. `GET /user/2fa` shows each email factor's address, masked. A contact
   change never leaves an account with a second factor or an MFA-required role
   without a proven contact.

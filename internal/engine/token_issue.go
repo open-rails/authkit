@@ -15,7 +15,7 @@ import (
 )
 
 // MintAccessToken mints an access token for a live account outside any login
-// flow. Operator only. Reserved claims in o.Claims are dropped; o.SessionID
+// flow; a host operation. Reserved claims in o.Claims are dropped; o.SessionID
 // becomes sid.
 func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
 	userID = strings.TrimSpace(userID)

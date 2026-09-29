@@ -119,9 +119,9 @@ func TestNothingBelowRootImportsRoot(t *testing.T) {
 
 // Request-facing code never builds an actor from path or body fields: the only
 // actor derivation is verify.ActorFromClaims, and nothing there may name the
-// operator or call an Operator* operation.
+// system actor or its kind.
 func TestRequestSurfaceCannotBuildActors(t *testing.T) {
-	constructors := map[string]bool{"OperatorActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+	constructors := map[string]bool{"SystemActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
 	derivation := filepath.Join("verify", "actor.go")
 	var violations []string
 	for _, root := range []string{"internal/httpapi", "verify", "adapters"} {
@@ -147,13 +147,13 @@ func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 				if !ok {
 					return true
 				}
-				if strings.HasPrefix(sel.Sel.Name, "Operator") {
+				if sel.Sel.Name == "SystemActor" || sel.Sel.Name == "ActorSystem" {
 					violations = append(violations, path+": "+sel.Sel.Name)
 				}
 				if iamName == "" {
 					return true
 				}
-				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "OperatorActor" {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "SystemActor" {
 					if path != derivation {
 						violations = append(violations, path+": iam."+sel.Sel.Name)
 					}

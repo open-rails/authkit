@@ -20,7 +20,7 @@ const (
 // `pattern`. Length is governed separately by UsernamePolicy.
 const UsernamePattern = "^[A-Za-z][A-Za-z0-9_]*$"
 
-// UsernamePolicy is the operator-configured username length rule. Zero fields
+// UsernamePolicy is the host-configured username length rule. Zero fields
 // take defaults.
 type UsernamePolicy struct {
 	MinLength int
@@ -47,7 +47,7 @@ func (p UsernamePolicy) Validate(username string) error {
 	return p.validate(username, p.MaxLength, false)
 }
 
-// ValidateImport checks an operator-provisioned username: the configured
+// ValidateImport checks an host-provisioned username: the configured
 // minimum, a maximum of at least 64, and hyphens are also allowed.
 func (p UsernamePolicy) ValidateImport(username string) error {
 	return p.validate(username, max(p.MaxLength, UsernameMaxLengthCeiling), true)

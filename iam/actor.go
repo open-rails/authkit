@@ -10,12 +10,12 @@ const (
 	ActorAPIKey            ActorKind = "api_key"
 	ActorRemoteApplication ActorKind = "remote_application"
 	ActorDelegated         ActorKind = "delegated"
-	ActorOperator          ActorKind = "operator"
+	ActorSystem            ActorKind = "system"
 )
 
 // Actor is who performs an operation. Its fields are unexported: the zero
-// Actor is invalid and every operation refuses it, and OperatorActor is the
-// only way to build an operator. Authority is resolved live per operation;
+// Actor is invalid and every operation refuses it, and SystemActor is the
+// only way to build the system actor. Authority is resolved live per operation;
 // nothing is cached in the value.
 type Actor struct {
 	kind  ActorKind
@@ -60,10 +60,10 @@ func DelegatedActor(g DelegatedGrant) Actor {
 	return a.Within(g.Permissions...)
 }
 
-// OperatorActor is the trusted host authority. It skips authority rules but
-// never invariants (last owner, MFA-required roles). Never derive it from
-// request input.
-func OperatorActor() Actor { return Actor{kind: ActorOperator} }
+// SystemActor is your application's own code acting, with no user: trusted
+// host authority. It skips authority rules but never invariants (last owner,
+// MFA-required roles). Never derive it from request input.
+func SystemActor() Actor { return Actor{kind: ActorSystem} }
 
 func newActor(kind ActorKind, id string) Actor {
 	id = strings.TrimSpace(id)
@@ -74,10 +74,10 @@ func newActor(kind ActorKind, id string) Actor {
 }
 
 // Within narrows the actor to permissions covered by perms (an intersection
-// with any existing ceiling). On an operator or the zero Actor it returns the
+// with any existing ceiling). On the system or the zero Actor it returns the
 // zero Actor.
 func (a Actor) Within(perms ...Perm) Actor {
-	if a.kind == "" || a.kind == ActorOperator {
+	if a.kind == "" || a.kind == ActorSystem {
 		return Actor{}
 	}
 	ceilings := make([][]Perm, len(a.ceilings), len(a.ceilings)+1)
@@ -88,7 +88,7 @@ func (a Actor) Within(perms ...Perm) Actor {
 
 func (a Actor) Kind() ActorKind { return a.kind }
 
-// ID is the user, API key, application or delegated subject id; "" for an operator.
+// ID is the user, API key, application or delegated subject id; "" for the system.
 func (a Actor) ID() string { return a.id }
 
 // IsZero reports whether a is the invalid zero Actor.
@@ -117,13 +117,13 @@ func (a Actor) CeilingCovers(perm Perm) bool {
 	return true
 }
 
-// String is "<kind>:<id>" (or "operator"), for logs and audit.
+// String is "<kind>:<id>" (or "system"), for logs and audit.
 func (a Actor) String() string {
 	switch a.kind {
 	case "":
 		return "invalid"
-	case ActorOperator:
-		return string(ActorOperator)
+	case ActorSystem:
+		return string(ActorSystem)
 	}
 	return string(a.kind) + ":" + a.id
 }

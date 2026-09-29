@@ -14,7 +14,7 @@ import (
 )
 
 // EnsureUserRole makes the account u names hold role in ref, under the
-// operator, and is idempotent on every boot.
+// system, and is idempotent on every boot.
 //
 // u is an id, an email or a phone; a username proves nothing and is refused.
 // With no account for the contact, one is created without credentials and
@@ -32,7 +32,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.Grou
 		return iam.User{}, err
 	}
 	var outID string
-	err = s.withGroupMutation(ctx, iam.OperatorActor(), ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, iam.SystemActor(), ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}

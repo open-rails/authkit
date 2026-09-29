@@ -72,9 +72,9 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "a user cannot make someone else an owner")
 	_, _, err = e.CreateGroup(ctx, iam.Actor{}, iam.NewGroup{Persona: "channel", Slug: "anonymous"})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	acme, created, err := e.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: "org", Slug: "acme"})
+	acme, created, err := e.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: "org", Slug: "acme"})
 	require.NoError(t, err)
-	require.True(t, created, "the operator creates any persona's group, with or without an owner")
+	require.True(t, created, "the system creates any persona's group, with or without an owner")
 	for _, slug := range []string{"rust", "python"} {
 		_, err := seedGroup(ctx, e, "channel", slug, "")
 		require.NoError(t, err)
@@ -177,11 +177,11 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(local, golangRef, "channel:posts:edit"), "a delegation is capped by its permissions")
 	foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://elsewhere.test", Subject: carol, Permissions: []iam.Perm{"channel:members:read"}})
 	require.False(t, can(foreign, golangRef, "channel:members:read"), "a foreign delegation carries no authority here")
-	require.True(t, can(iam.OperatorActor(), golangRef, "channel:posts:edit"))
+	require.True(t, can(iam.SystemActor(), golangRef, "channel:posts:edit"))
 	require.False(t, can(iam.Actor{}, golangRef, "channel:posts:edit"))
 	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:posts:pin")
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	require.NoError(t, e.Ban(ctx, iam.OperatorActor(), dave, iam.Ban{}))
+	require.NoError(t, e.Ban(ctx, iam.SystemActor(), dave, iam.Ban{}))
 	require.False(t, can(iam.UserActor(dave), golangRef, "channel:posts:edit"), "a banned user holds nothing")
 
 	perms, err := e.EffectivePermissions(ctx, iam.UserActor(carol), []iam.GroupRef{golangRef, annRef, iam.GroupBySlug("channel", "missing")})
@@ -205,7 +205,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "go", updated.Slug)
 	require.Equal(t, "Gophers", updated.DisplayName)
-	_, err = e.UpdateGroup(ctx, iam.OperatorActor(), iam.RootGroup(), iam.GroupUpdate{DisplayName: new("Site")})
+	_, err = e.UpdateGroup(ctx, iam.SystemActor(), iam.RootGroup(), iam.GroupUpdate{DisplayName: new("Site")})
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
 	// Delete is a soft delete gated by self:delete.
@@ -222,16 +222,16 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(iam.UserActor(bob), golangRef, "channel:posts:edit"), "a deleted group grants nothing")
 	require.Equal(t, []string{"announcements", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel"}))
 	require.Equal(t, []string{"announcements", "go", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel", IncludeDeleted: true}))
-	replay, err := e.DeleteGroup(ctx, iam.OperatorActor(), golangRef)
+	replay, err := e.DeleteGroup(ctx, iam.SystemActor(), golangRef)
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, replay.DeletedAt)
-	_, err = e.DeleteGroup(ctx, iam.OperatorActor(), iam.RootGroup())
+	_, err = e.DeleteGroup(ctx, iam.SystemActor(), iam.RootGroup())
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
-	// Purge is the operator's permanent delete.
+	// Purge is the system's permanent delete.
 	require.ErrorIs(t, e.PurgeGroup(ctx, iam.UserActor(bob), golangRef, iam.PurgeGroupOptions{}), iam.ErrInsufficientAuthority)
-	require.NoError(t, e.PurgeGroup(ctx, iam.OperatorActor(), golangRef, iam.PurgeGroupOptions{}))
-	require.NoError(t, e.PurgeGroup(ctx, iam.OperatorActor(), golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
+	require.NoError(t, e.PurgeGroup(ctx, iam.SystemActor(), golangRef, iam.PurgeGroupOptions{}))
+	require.NoError(t, e.PurgeGroup(ctx, iam.SystemActor(), golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
 	_, err = e.Group(ctx, golangRef)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
@@ -390,7 +390,7 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	_, err = seedGroup(ctx, e, "channel", "m3-unowned", plain)
 	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired, "the owner role reaches the MFA permission")
 
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	require.ErrorIs(t, assignRole(ctx, e, op, ref, iam.UserSubject(plain), "moderator"), iam.ErrTwoFAEnrollmentRequired)
 	require.ErrorIs(t, assignRole(ctx, e, op, ref, iam.UserSubject(plain), "senior"), iam.ErrTwoFAEnrollmentRequired, "an include carries MFA")
 	require.ErrorIs(t, assignRole(ctx, e, op, iam.RootGroup(), iam.UserSubject(plain), "staff"), iam.ErrTwoFAEnrollmentRequired, "a root role covering the owner's permissions needs MFA")

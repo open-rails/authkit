@@ -6,7 +6,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// seedGroup creates a group as the operator, owned by the user ownerID ("" =
+// seedGroup creates a group as the system, owned by the user ownerID ("" =
 // no owner), and returns its id.
 func seedGroup(ctx context.Context, e *Engine, persona iam.Persona, slug, ownerID string) (string, error) {
 	ng := iam.NewGroup{Persona: persona, Slug: slug}
@@ -14,7 +14,7 @@ func seedGroup(ctx context.Context, e *Engine, persona iam.Persona, slug, ownerI
 		owner := iam.UserSubject(ownerID)
 		ng.Owner = &owner
 	}
-	g, _, err := e.CreateGroup(ctx, iam.OperatorActor(), ng)
+	g, _, err := e.CreateGroup(ctx, iam.SystemActor(), ng)
 	return g.ID, err
 }
 

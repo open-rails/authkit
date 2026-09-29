@@ -52,7 +52,7 @@ result describes that moment, not a guarantee against later concurrent changes.
 
 `verify.ActorFromClaims` (and `ActorFromContext`, `authkitgin.Actor`,
 `authkitfiber.Actor`) turns verified claims into the `iam.Actor` that host
-operations take. It never yields an operator.
+operations take. It never yields the system.
 
 | Verified token | Actor |
 | --- | --- |

@@ -7,9 +7,11 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// Accounts. Reads take no actor: the host is the trust boundary. Every
-// mutation takes the actor right after ctx; iam.OperatorActor() is trusted
-// host authority. A non-operator needs rule ACCT: the named root:users:*
+// Accounts. Reads take no actor: the host is the trust boundary. Host
+// operations (CreateUser, PurgeUsers, ResetAccountMFA) take none either: your
+// code decides. Every other mutation takes the actor right after ctx;
+// iam.SystemActor() is trusted host authority, and any other actor needs rule
+// ACCT: the named root:users:*
 // permission and coverage of the target account's grants in root and in every
 // group it holds a role in.
 
@@ -69,7 +71,7 @@ func (a *Auth) CreateUser(ctx context.Context, u iam.NewUser) (iam.User, error) 
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
 // change its own Username, AvatarURL and PreferredLanguage. Password,
-// PasswordHash and the verified flags are operator-only; setting a verified
+// PasswordHash and the verified flags are system-only; setting a verified
 // flag on an account with no proven contact first retires its pre-proof
 // credentials. An email change never moves the account's email factor.
 func (a *Auth) UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {

@@ -84,7 +84,7 @@ type EmailSender interface {
 	// SendDeviceKeyEnrolled tells the account's address that a new device key
 	// can now sign in as it.
 	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice iam.DeviceKeyNotice) error
-	// SendMFAReset tells the account's address that the operator removed its
+	// SendMFAReset tells the account's address that the system removed its
 	// passkeys, second factors and device keys and signed it out everywhere.
 	SendMFAReset(ctx context.Context, email, username string) error
 }

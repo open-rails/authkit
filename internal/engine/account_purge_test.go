@@ -12,7 +12,7 @@ import (
 )
 
 // TestAccountPurgeSweepsCredentialsBeforeTheRowGoes (H1): PurgeUsers is the
-// operator's; it closes the recovery window at once, and once the row goes no
+// system's; it closes the recovery window at once, and once the row goes no
 // key the account issued is live, including one no earlier sweep saw.
 func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
@@ -24,7 +24,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	user, err := runtime.createUser(ctx, "purged@example.test", "purgeduser")
 	require.NoError(t, err)
 	var rootID string
-	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
+	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		rootID, err = runtime.rootGroup(ctx, st)
 		return err
 	}))
@@ -44,10 +44,10 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	issued := key("issued")
 
 	_, err = runtime.PurgeUsers(ctx, iam.UserActor(user.ID), []string{user.ID})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "purge is the operator's")
-	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, iam.OperatorActor(), []string{user.ID})))
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "purge is the system's")
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, iam.SystemActor(), []string{user.ID})))
 	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
-	restore, err := runtime.RestoreUsers(ctx, iam.OperatorActor(), []string{user.ID})
+	restore, err := runtime.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, restore[0].Err, "a purge closes the recovery window")
 
@@ -75,7 +75,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ctx := t.Context()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	times := func(userID string) (users, deletion, purge time.Time) {
 		t.Helper()
 		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT u.deleted_at, d.deleted_at, d.purge_at

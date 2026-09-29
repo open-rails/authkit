@@ -70,8 +70,8 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.NoError(t, err)
 			var deadline time.Time
 			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&deadline))
-			require.NoError(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release}))
-			require.NoError(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release})) // captured-ID replay
+			require.NoError(t, svc.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release}))
+			require.NoError(t, svc.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release})) // captured-ID replay
 			var remaining int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
 			require.Zero(t, remaining)
@@ -90,7 +90,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		_, err := pool.Exec(ctx, `CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
   CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-group') EXECUTE FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
-		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{}), "injected lifecycle failure")
+		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(group), iam.PurgeGroupOptions{}), "injected lifecycle failure")
 		var canonical bool
 		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, group).Scan(&canonical))
 		require.True(t, canonical, "reservation rolls back with the failed delete")
@@ -103,7 +103,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
 		go func() {
-			deleted <- svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{})
+			deleted <- svc.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(group), iam.PurgeGroupOptions{})
 		}()
 		require.Eventually(t, func() bool {
 			var n int
@@ -137,7 +137,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(owner.ID), group, iam.CustomRole{Name: role, Permissions: []string{permission}}))
 	}
 	define("org:billing:read")
-	app, err := svc.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", Enabled: true})
+	app, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", Enabled: true})
 	require.NoError(t, err)
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))

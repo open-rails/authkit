@@ -5,7 +5,7 @@ package engine
 // CAP(<persona>:credentials:manage); both need COVER of every role they grant
 // or take away, so nobody hands out or strips authority above their own (only
 // an owner can mint or remove an owner). The last usable owner and
-// MFA-required roles are invariants that bind operators too.
+// MFA-required roles are invariants that bind the system too.
 
 import (
 	"context"
@@ -74,7 +74,7 @@ func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.Grou
 
 // requireRegistrarCover: a group-registered application acts with the
 // authority of the user who supplied its keys (rule CRED), so it holds only a
-// role its registrar could issue it. This binds the operator too.
+// role its registrar could issue it. This binds the system too.
 func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupStore, g groupTarget, subject iam.Subject, role iam.Role) error {
 	if subject.Kind != iam.SubjectKindRemoteApplication {
 		return nil

@@ -44,7 +44,7 @@ Roles: authkit.RoleConfig{
   disabled deployment-wide the rule is inert.
 - An account that needs MFA and has a passkey but no factor signs in only with
   the passkey (`passkey_required`). When the passkey is lost, verify the person
-  out of band and call `ResetAccountMFA(ctx, iam.OperatorActor(), userID)`: it
+  out of band and call `ResetAccountMFA(ctx, iam.SystemActor(), userID)`: it
   removes the account's passkeys, factors, backup codes, device keys and
   sessions, keeps its roles, and the next sign-in enrolls a factor.
 
@@ -79,13 +79,13 @@ authority and revokes what the creator can no longer issue.
 
 Your app creates and deletes groups, because it owns what they guard. It
 decides who may make a channel and which names are allowed, then calls AuthKit
-with the operator:
+with the system:
 
 ```go
 tx, err := db.Begin(ctx)
 // ...
 owner := iam.UserSubject(userID)
-g, err := auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+g, err := auth.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
 // ...
 _, err = tx.Exec(ctx, `INSERT INTO channels (name, group_id) VALUES ($1, $2)`, name, g.ID)
 // ...
@@ -93,7 +93,7 @@ err = tx.Commit(ctx)
 ```
 
 - `CreateGroup`, `DeleteGroup` (soft) and `PurgeGroup` refuse every actor but
-  `iam.OperatorActor()`. Before deleting, the app checks its own permission,
+  `iam.SystemActor()`. Before deleting, the app checks its own permission,
   for example `RequirePermission(iam.RootGroup(), "root:channels:delete")`.
 - `NewGroup.Owner`, when set, must be a live account; it gets the `owner` role.
 - `authkit.InTx(tx)` runs the operation in a savepoint of your transaction, so
@@ -115,15 +115,15 @@ reads take none (the host is the trust boundary). The zero actor is refused.
 | `iam.APIKeyActor(id)` | the key's role, only in the key's group |
 | `iam.RemoteApplicationActor(id)` | the application's roles, only in its group |
 | `iam.DelegatedActor(grant)` | its local user or application, capped by the grant's permissions |
-| `iam.OperatorActor()` | everything; host code only |
+| `iam.SystemActor()` | everything; host code only |
 
-Every actor but the operator is resolved live: a banned or deleted user, a
+Every actor but the system is resolved live: a banned or deleted user, a
 revoked or expired key, or a disabled application covers nothing. `Within`
-narrows an actor to a permission ceiling. The operator skips the permission
+narrows an actor to a permission ceiling. The system skips the permission
 rules but not the invariants: the last usable owner and MFA-required roles
-bind it too. Only users and the operator issue credentials (API keys, invite
+bind it too. Only users and the system issue credentials (API keys, invite
 links, account invites, group-registered applications); a user's credentials
-die with the user's authority, the operator's never. The user who supplies a
+die with the user's authority, the system's never. The user who supplies a
 group application's keys is its registrar: the application holds only roles
 the registrar could issue, and loses them with the registrar's authority. `verify.ActorFromClaims` derives the actor of a request
 ([verification](verification.md)).

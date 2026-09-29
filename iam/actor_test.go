@@ -3,14 +3,14 @@ package iam
 import "testing"
 
 func TestActor(t *testing.T) {
-	for _, a := range []Actor{{}, UserActor(" "), APIKeyActor(""), RemoteApplicationActor(""), DelegatedActor(DelegatedGrant{Subject: "s"}), OperatorActor().Within("org:*"), Actor{}.Within("org:*")} {
+	for _, a := range []Actor{{}, UserActor(" "), APIKeyActor(""), RemoteApplicationActor(""), DelegatedActor(DelegatedGrant{Subject: "s"}), SystemActor().Within("org:*"), Actor{}.Within("org:*")} {
 		if !a.IsZero() || a.Kind() != "" || a.String() != "invalid" {
 			t.Fatalf("want the zero actor, got %v", a)
 		}
 	}
-	op := OperatorActor()
-	if op.IsZero() || op.Kind() != ActorOperator || op.ID() != "" || op.Bounded() || !op.CeilingCovers("root:users:ban") {
-		t.Fatalf("operator = %v", op)
+	op := SystemActor()
+	if op.IsZero() || op.Kind() != ActorSystem || op.ID() != "" || op.Bounded() || !op.CeilingCovers("root:users:ban") {
+		t.Fatalf("system = %v", op)
 	}
 	u := UserActor(" user-1 ")
 	if u.ID() != "user-1" || u.String() != "user:user-1" || u.Bounded() || !u.CeilingCovers("org:members:manage") {

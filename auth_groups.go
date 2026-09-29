@@ -14,7 +14,7 @@ import (
 // Roles. Every mutation takes an iam.Actor and is checked by the engine: a
 // user subject needs <persona>:members:manage, an application subject
 // <persona>:credentials:manage, and the actor must cover every role it grants
-// or takes away. iam.OperatorActor() skips those rules; the last usable owner
+// or takes away. iam.SystemActor() skips those rules; the last usable owner
 // and MFA-required roles bind everyone. Items fail independently: each
 // OpResult carries its own error, while the error return is for the whole call
 // (zero actor, unknown group, unassignable role, dead actor).
