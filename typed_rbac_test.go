@@ -111,7 +111,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.NoError(t, err, "a root permission asked of a channel is false, not an error")
 	require.False(t, can(sAdmin, golang, channelsDelete), "root:channels:delete counts only on root")
 
-	require.Panics(t, func() { auth.RequirePermissionOn(iam.RootGroup(), rbac.Root.Roles.Manage) }, "root:roles:manage needs CustomRoles")
+	require.Panics(t, func() { auth.RequirePermissionOn(iam.RootGroup(), rbac.Root.Credentials.Manage) }, "root:credentials:manage needs APIKeys or RemoteApplications")
 
 	// Each model gates a route: the per-channel one on the group the route's
 	// loader attaches, the global one on root.

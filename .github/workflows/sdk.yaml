@@ -10,7 +10,6 @@ on:
       - 'iam/**'
       - 'internal/**'
       - 'authprovider/**'
-      - 'documents/**'
       - 'verify/**'
       - 'jwtkit/**'
       - 'go.mod'

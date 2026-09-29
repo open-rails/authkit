@@ -591,7 +591,6 @@ export const ko: AuthUiMessageBundle = {
     username_not_allowed: "이 사용자명은 사용할 수 없습니다.",
     username_too_long: "사용자 이름은 최대 30자 이하여야 합니다.",
     username_too_short: "사용자 이름은 최소 4자 이상이어야 합니다.",
-    verification_link_expired: "이 인증 링크가 만료되었습니다.",
     verification_required: "계속하려면 연락처 정보를 인증하세요.",
     wallet_already_linked: "이 지갑은 이미 다른 계정에 연결되어 있습니다.",
     wallet_change_requires_unlink:

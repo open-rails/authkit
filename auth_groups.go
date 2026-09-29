@@ -75,15 +75,6 @@ func (a *Client) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.Pag
 	return a.engine.ListSubjectGroups(ctx, s, p)
 }
 
-// OwnerlessGroups lists the live groups, root aside, that no owner counts for
-// under the last-owner rule, a page at a time: groups created without one, or
-// left without one by the credential sweep at boot, which only logs it. An
-// owner whose required MFA enrollment is pending does not count. Assign one
-// with AssignGroupRoles.
-func (a *Client) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
-	return a.engine.OwnerlessGroups(ctx, p)
-}
-
 // Group lifecycle. A group guards an entity of your app (a channel); the app
 // owns that entity, its name and its data, and stores the group's ID. These
 // are host operations: your code decides who may create or delete one,
@@ -104,7 +95,7 @@ func (a *Client) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Opti
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
-// role, custom role, API key, invite and application in it. Purging an
+// role, API key, invite and application in it. Purging an
 // unknown group is a no-op.
 func (a *Client) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
 	return a.engine.PurgeGroup(ctx, ref, options(opts).tx)
@@ -132,22 +123,6 @@ func options(opts []Option) operationOptions {
 // records are all part of tx, and the lock is held until tx ends, so commit
 // promptly.
 func InTx(tx pgx.Tx) Option { return func(o *operationOptions) { o.tx = tx } }
-
-// DefineGroupRole creates or redefines the custom role name, holding perms
-// (permissions or patterns of the persona), in a group whose persona has
-// CustomRoles, and returns it. It needs `<persona>:roles:manage` and must
-// cover the old and new permissions; redefining a role users hold also needs
-// `<persona>:members:manage`, and one API keys or applications hold
-// `<persona>:credentials:manage`.
-func (a *Client) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
-	return a.engine.DefineGroupRole(ctx, actor, ref, name, perms...)
-}
-
-// DeleteGroupRole deletes a custom role and every reference to it, under
-// DefineGroupRole's rule.
-func (a *Client) DeleteGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, role iam.Role) error {
-	return a.engine.DeleteGroupRole(ctx, actor, ref, role)
-}
 
 // Can reports whether actor holds perm in the group, checked live: a banned
 // or deleted user, a revoked key, an unknown group or an actor bound to
@@ -192,9 +167,7 @@ func (a *Client) Permission(text string) (iam.Perm, error) {
 }
 
 // Role resolves a role name for groups of persona: a declared role or the
-// owner role, else iam.ErrRoleNotAssignable. When the persona has
-// CustomRoles, any valid name resolves; whether a group defines it is checked
-// where the role is used.
+// owner role, else iam.ErrRoleNotAssignable.
 func (a *Client) Role(persona iam.Persona, name string) (iam.Role, error) {
 	return a.engine.PermissionGroupSchema().ParseRole(persona, name)
 }

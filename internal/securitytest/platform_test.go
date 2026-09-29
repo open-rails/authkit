@@ -163,8 +163,8 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 // TestSecurityRefreshCookieCSRF: a cross-site page must not spend or plant the
 // browser's refresh cookie. On HTTPS the cookie is __Host- prefixed (Secure,
 // host-only, Path=/), so a sibling subdomain can only plant the bare name; that
-// name is read only as a lone pre-v0.137 cookie until the registry's
-// AcceptUntil (TestSecurityRefreshCookieUpgrade).
+// name is read only alone, as the HTTP scheme's cookie
+// (TestSecurityRefreshCookieUpgrade).
 func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
 		withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
@@ -221,48 +221,41 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	})
 }
 
-// TestSecurityRefreshCookieUpgrade: a browser holding the cookies an earlier
-// release set stays signed in across an upgrade. One refresh reads the session,
-// reissues the current cookie and expires the historical variants; sign-out
-// clears every variant. Same-path duplicates are still refused.
+// TestSecurityRefreshCookieUpgrade: a browser holding the other scheme's
+// refresh cookie stays signed in when a deployment moves to HTTPS. One refresh
+// reads it, reissues the current cookie and expires the other; sign-out clears
+// every variant. Same-path duplicates are refused.
 func TestSecurityRefreshCookieUpgrade(t *testing.T) {
-	legacyPath := apiPrefix + "/token"
 	for _, tc := range []struct {
-		name, baseURL, current string
-		jar                    func(valid string) []*http.Cookie
+		name string
+		jar  func(valid string) []*http.Cookie
 	}{
-		{"http: stale pre-v0.137 cookie beside the current one", "http://app.security.test", "authkit_rt", func(valid string) []*http.Cookie {
-			return []*http.Cookie{{Name: "authkit_rt", Value: "stale-legacy"}, {Name: "authkit_rt", Value: valid}}
-		}},
-		{"http: pre-v0.137 cookie alone", "http://app.security.test", "authkit_rt", func(valid string) []*http.Cookie {
+		{"the plain cookie alone", func(valid string) []*http.Cookie {
 			return []*http.Cookie{{Name: "authkit_rt", Value: valid}}
 		}},
-		{"https: pre-v0.137 plain cookie alone", "https://app.security.test", "__Host-authkit_rt", func(valid string) []*http.Cookie {
-			return []*http.Cookie{{Name: "authkit_rt", Value: valid}}
-		}},
-		{"https: stale plain cookie beside the current one", "https://app.security.test", "__Host-authkit_rt", func(valid string) []*http.Cookie {
-			return []*http.Cookie{{Name: "authkit_rt", Value: "stale-legacy"}, {Name: "__Host-authkit_rt", Value: valid}}
+		{"a stale plain cookie beside the current one", func(valid string) []*http.Cookie {
+			return []*http.Cookie{{Name: "authkit_rt", Value: "stale-plain"}, {Name: "__Host-authkit_rt", Value: valid}}
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
-				withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = tc.baseURL }))
+				withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
 			a := h.newAccount("upgrade")
 			login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 			require.Equal(t, http.StatusOK, login.status, login.String())
-			valid := cookieNamed(login.cookies, tc.current, "/")
-			require.NotNil(t, valid, "login set no %s cookie", tc.current)
+			valid := cookieNamed(login.cookies, "__Host-authkit_rt", "/")
+			require.NotNil(t, valid, "login set no __Host-authkit_rt cookie")
 
 			resp := h.do(request{method: http.MethodPost, path: "/token", cookies: tc.jar(valid.Value),
 				body: map[string]string{"grant_type": "refresh_token"}})
-			require.Equal(t, http.StatusOK, resp.status, "an upgraded browser was signed out: %s", resp)
+			require.Equal(t, http.StatusOK, resp.status, "the browser was signed out: %s", resp)
 			require.Contains(t, resp.String(), "access_token")
-			next := cookieNamed(resp.cookies, tc.current, "/")
+			next := cookieNamed(resp.cookies, "__Host-authkit_rt", "/")
 			require.NotNil(t, next, "the current cookie was not reissued")
 			require.NotEmpty(t, next.Value)
-			legacy := cookieNamed(resp.cookies, "authkit_rt", legacyPath)
-			require.NotNil(t, legacy, "the pre-v0.137 cookie was not expired")
-			require.Less(t, legacy.MaxAge, 0)
+			plain := cookieNamed(resp.cookies, "authkit_rt", "/")
+			require.NotNil(t, plain, "the plain cookie was not expired")
+			require.Less(t, plain.MaxAge, 0)
 
 			access := struct {
 				AccessToken string `json:"access_token"`
@@ -270,9 +263,9 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			resp.json(t, &access)
 			out := h.do(request{method: http.MethodDelete, path: "/logout", token: access.AccessToken, cookies: []*http.Cookie{next}})
 			require.Less(t, out.status, 300, out.String())
-			for _, variant := range [][2]string{{"authkit_rt", legacyPath}, {"authkit_rt", "/"}, {"__Host-authkit_rt", "/"}} {
-				c := cookieNamed(out.cookies, variant[0], variant[1])
-				require.NotNil(t, c, "sign-out left %s at %s", variant[0], variant[1])
+			for _, name := range []string{"authkit_rt", "__Host-authkit_rt"} {
+				c := cookieNamed(out.cookies, name, "/")
+				require.NotNil(t, c, "sign-out left %s", name)
 				require.Less(t, c.MaxAge, 0)
 			}
 		})
@@ -283,7 +276,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		require.Equal(t, "no_session", resp.errorCode())
 	})
-	t.Run("same-path duplicates are still refused", func(t *testing.T) {
+	t.Run("same-path duplicates are refused", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
 			withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
@@ -291,7 +284,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		valid := cookieNamed(login.cookies, "authkit_rt", "/")
 		require.NotNil(t, valid)
 		resp := h.do(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token"},
-			cookies: []*http.Cookie{{Name: "authkit_rt", Value: "a"}, {Name: "authkit_rt", Value: "b"}, {Name: "authkit_rt", Value: valid.Value}}})
+			cookies: []*http.Cookie{{Name: "authkit_rt", Value: "a"}, {Name: "authkit_rt", Value: valid.Value}}})
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
 		require.NotContains(t, resp.String(), "access_token")
 	})

@@ -122,10 +122,6 @@ func TestStoredIssuerRevocationAcrossVerificationEntrypoints(t *testing.T) {
 					require.Error(t, err)
 					_, err = v.VerifyRequest(req)
 					require.Error(t, err)
-					require.Error(t, v.ValidateDocumentIssuer(ctx, app.Issuer))
-					doc := testSignedDocument(t, signer, app.Issuer)
-					_, err = v.VerifyDocument(ctx, doc, verifyOptions(app.Issuer, doc))
-					require.Error(t, err)
 					src.app = &app
 					src.getErr = nil
 				}

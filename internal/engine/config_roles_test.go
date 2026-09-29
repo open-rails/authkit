@@ -47,7 +47,7 @@ func TestRoleConfigCompiles(t *testing.T) {
 		ident.Perm("channel:self:read"):        false, // AuthKit registers no self permissions
 		ident.Perm("root:channels:delete"):     false,
 		ident.Perm("channel:members:read"):     true,
-		ident.Perm("channel:roles:manage"):     false, // CustomRoles is off
+		ident.Perm("channel:roles:manage"):     false,
 		ident.Perm("channel:roles:read"):       false,
 		ident.Perm("channel:credentials:read"): false, // APIKeys and RemoteApplications are off
 		ident.Perm("root:users:read"):          true,
@@ -74,13 +74,14 @@ func TestRoleConfigCompiles(t *testing.T) {
 
 func TestRoleConfigCapabilityBuiltins(t *testing.T) {
 	s, err := RoleConfig{Personas: map[string]Persona{
-		"org":  {CustomRoles: true, APIKeys: true},
-		"root": {CustomRoles: true, RemoteApplications: true},
+		"org":  {APIKeys: true},
+		"root": {RemoteApplications: true},
 	}}.schema()
 	require.NoError(t, err)
-	for _, perm := range []iam.Perm{ident.Perm("org:roles:manage"), ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:roles:manage"), ident.Perm("root:credentials:manage")} {
+	for _, perm := range []iam.Perm{ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:credentials:manage")} {
 		require.True(t, s.KnownPermission(perm), perm)
 	}
+	require.False(t, s.KnownPermission(ident.Perm("org:roles:manage")), "there are no custom roles")
 }
 
 func TestRoleConfigRejects(t *testing.T) {

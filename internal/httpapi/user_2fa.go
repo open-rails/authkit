@@ -20,7 +20,6 @@ type twoFactorStatusResponse struct {
 	PhoneNumber          *string                   `json:"phone_number,omitempty"`
 	DefaultFactor        *TwoFactorFactorResponse  `json:"default_factor,omitempty"`
 	Factors              []TwoFactorFactorResponse `json:"factors,omitempty"`
-	AvailableFactors     []TwoFactorFactorResponse `json:"available_factors,omitempty"`
 	AllowedMethods       []string                  `json:"allowed_methods,omitempty"`
 	BackupCodesRemaining int                       `json:"backup_codes_remaining,omitempty"`
 }
@@ -54,7 +53,6 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 		PhoneNumber:          settings.PhoneNumber,
 		DefaultFactor:        defaultTwoFactorFactorResponse(factors),
 		Factors:              factors,
-		AvailableFactors:     factors,
 		AllowedMethods:       s.svc.TwoFactorAllowedMethods(),
 		BackupCodesRemaining: len(settings.BackupCodes),
 	})
@@ -89,7 +87,6 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Method      string  `json:"method"`
 		Code        string  `json:"code,omitempty"`
-		Phone       string  `json:"phone,omitempty"`
 		PhoneNumber *string `json:"phone_number"`
 		Default     bool    `json:"default,omitempty"`
 		FactorID    string  `json:"factor_id,omitempty"`
@@ -103,7 +100,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
-	phone := strings.TrimSpace(req.Phone)
+	phone := ""
 	if req.PhoneNumber != nil {
 		phone = strings.TrimSpace(*req.PhoneNumber)
 	}
@@ -192,13 +189,6 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	factorID := strings.TrimSpace(r.URL.Query().Get("factor_id"))
-	var body struct {
-		FactorID string `json:"factor_id"`
-	}
-	_ = decodeJSON(r, &body)
-	if factorID == "" {
-		factorID = strings.TrimSpace(body.FactorID)
-	}
 	var removed []authflow.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {

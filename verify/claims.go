@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -51,7 +50,6 @@ type Claims struct {
 	// these values; the consuming app owns their schema and semantics.
 	// Reserved well-known keys: `tier` (opaque entitlement-tier string, surfaced
 	// as UserTier) and `roles` (uuid array, surfaced as DelegatedRoles).
-	// `documents` is forbidden here because it is a top-level signed claim.
 	// Everything else is free-form per consuming app. Values are kept as raw
 	// JSON so the receiver decodes each into its own typed schema; nil when the
 	// claim is absent.
@@ -64,11 +62,6 @@ type Claims struct {
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
 	// Nil when absent.
 	DelegatedRoles []string
-
-	// Documents is the validated top-level `documents` claim on a delegated
-	// token: versioned document type -> canonical content digest. Payload schema
-	// and authorization remain application-owned.
-	Documents map[string]string
 
 	// ConfirmationCertificateSHA256 is the RFC 8705 `cnf.x5t#S256` binding of a
 	// delegated token, already matched against the TLS peer leaf. Nil for an
@@ -104,13 +97,6 @@ type Claims struct {
 	// carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
-	// RemoteApplicationDomain / Tier / TrustRoot are the application's stored
-	// identity facts (#296), resolved server-side like ID: hosts authorize on
-	// an unclaimable identity (id, proven domain, root-registered issuer),
-	// never on the slug.
-	RemoteApplicationDomain    string
-	RemoteApplicationTier      iam.ApplicationTier
-	RemoteApplicationTrustRoot iam.ApplicationTrustRoot
 
 	// Machine authority is resolved live from the receiving AuthKit deployment.
 	// The group id and authority issuer fence ownership.
@@ -212,11 +198,8 @@ type DelegatedPrincipal struct {
 	// service authorizes against its own catalog. This is the authority source.
 	Permissions []string
 	// Attributes contains opaque, consumer-interpreted inline JSON values.
-	// Reserved keys: tier (UserTier), roles (Roles); documents is a separate
-	// top-level signed claim.
+	// Reserved keys: tier (UserTier), roles (Roles).
 	Attributes map[string]json.RawMessage
-	// Documents are exact typed signed-document references carried by the token.
-	Documents map[string]string
 	// ConfirmationCertificateSHA256 is the verified certificate binding; nil
 	// when the token is an unbound bearer.
 	ConfirmationCertificateSHA256 *[32]byte
@@ -261,35 +244,12 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		DelegatedSubject:                c.DelegatedSubject,
 		Permissions:                     c.Permissions,
 		Attributes:                      c.Attributes,
-		Documents:                       c.Documents,
 		ConfirmationCertificateSHA256:   c.ConfirmationCertificateSHA256,
 		ConfirmationJWKThumbprintSHA256: c.ConfirmationJWKThumbprintSHA256,
 		JTI:                             c.JTI,
 		UserTier:                        c.UserTier,
 		Roles:                           c.DelegatedRoles,
 	}, true
-}
-
-// DocumentReference returns one validated typed document reference carried by
-// these claims. It does not fetch or interpret the referenced payload.
-func (c Claims) DocumentReference(documentType string) (documents.Reference, bool) {
-	documentType = strings.TrimSpace(documentType)
-	digest, ok := c.Documents[documentType]
-	if !ok {
-		return documents.Reference{}, false
-	}
-	reference := documents.Reference{Type: documentType, Digest: digest}
-	return reference, reference.Validate() == nil
-}
-
-func (p DelegatedPrincipal) DocumentReference(documentType string) (documents.Reference, bool) {
-	documentType = strings.TrimSpace(documentType)
-	digest, ok := p.Documents[documentType]
-	if !ok {
-		return documents.Reference{}, false
-	}
-	reference := documents.Reference{Type: documentType, Digest: digest}
-	return reference, reference.Validate() == nil
 }
 
 // DelegatedAccess is the canonical accessor for a delegated access token's

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
@@ -81,17 +80,15 @@ type (
 	emailStub        struct{ EmailSender }
 	smsStub          struct{ SMSSender }
 	entitlementsStub struct{ EntitlementsProvider }
-	snsStub          struct{ SolanaSNSResolver }
 	limiterStub      struct{ RateLimiter }
 	identityStub     struct{ authprovider.Provider }
-	documentsStub    struct{ documents.Provider }
 	redisStub        struct{ redis.UniversalClient }
 )
 
 // implementations supplies a value for each interface a field can hold.
 var implementations = []any{
-	jwtkit.StaticKeySource{}, emailStub{}, smsStub{}, entitlementsStub{}, snsStub{},
-	limiterStub{}, identityStub{}, documentsStub{}, redisStub{},
+	jwtkit.StaticKeySource{}, emailStub{}, smsStub{}, entitlementsStub{},
+	limiterStub{}, identityStub{}, redisStub{},
 }
 
 func nonZero(typ reflect.Type) reflect.Value {

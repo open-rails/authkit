@@ -371,7 +371,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			enabled := f.expect(200, f.request("POST", "/user/2fa", grant.AccessToken, map[string]any{"method": "totp", "code": flowTOTP(t, totp.Secret)}))
 			require.NotEmpty(t, enabled.BackupCodes)
 			f.session(enabled.Tokens, "email", "totp", "otp", "mfa")
-			replay := f.request("POST", "/user/2fa", grant.AccessToken, map[string]any{"method": "sms", "phone": uniquePhone()})
+			replay := f.request("POST", "/user/2fa", grant.AccessToken, map[string]any{"method": "sms", "phone_number": uniquePhone()})
 			require.GreaterOrEqual(t, replay.status, 400, replay.raw)
 			// Recovery invalidates the captured first factor and its enrollment grant.
 			var second flowResponse
@@ -572,8 +572,8 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(fragment.Get("allowed_methods")), &methods))
 			require.Contains(t, methods, "sms")
 			phone := uniquePhone()
-			f.expect(202, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone": phone}))
-			enrolled := f.expect(200, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
+			f.expect(202, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone}))
+			enrolled := f.expect(200, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
 			f.session(enrolled.Tokens, "oauth", "sms", "otp", "mfa")
 			next, _ := f.providerLogin(provider, identity, "", false)
 			f.expect(403, next)

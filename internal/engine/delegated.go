@@ -2,15 +2,12 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
@@ -19,8 +16,7 @@ import (
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
 // A user actor mints for itself only, and every AuthKit-namespace permission
 // in the grant must be held live on the root group (checkDelegatedGrant); the
-// system may mint for any subject; machine actors may not mint. Published
-// documents are stamped into every token.
+// system may mint for any subject; machine actors may not mint.
 func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
 	if err := requireActor(actor); err != nil {
 		return iam.Token{}, err
@@ -50,25 +46,11 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 	if signer == nil {
 		return iam.Token{}, iam.ErrSigningNotConfigured
 	}
-	refs, providers, err := s.delegatedDocuments(d.Documents)
-	if err != nil {
-		return iam.Token{}, err
-	}
-	d.Documents = refs
 	d.TTL = s.delegatedTTL(d.TTL)
 	now := time.Now()
 	token, err := mintDelegatedAccessToken(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), d, now)
 	if err != nil {
 		return iam.Token{}, err
-	}
-	if len(providers) > 0 {
-		kid, err := signingKID(token)
-		if err != nil {
-			return iam.Token{}, errmodel.E(errmodel.CodeDelegatedDocumentUnavailable, errmodel.WithCause(err))
-		}
-		if err := reconcileDocumentKeys(ctx, providers, refs, kid); err != nil {
-			return iam.Token{}, err
-		}
 	}
 	return iam.Token{Value: token, ExpiresAt: now.Add(d.TTL)}, nil
 }
@@ -132,27 +114,8 @@ func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
 	return known && auth.covers(p)
 }
 
-// signingKID is the kid protected header of a compact JWS this engine signed.
-func signingKID(token string) (string, error) {
-	header, _, ok := strings.Cut(token, ".")
-	if !ok {
-		return "", errors.New("token is not a compact JWS")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(header)
-	if err != nil {
-		return "", errors.New("token has a malformed protected header")
-	}
-	var h struct {
-		KeyID string `json:"kid"`
-	}
-	if err := json.Unmarshal(raw, &h); err != nil || strings.TrimSpace(h.KeyID) == "" {
-		return "", errors.New("token signing key id is unavailable")
-	}
-	return strings.TrimSpace(h.KeyID), nil
-}
-
 // mintDelegatedAccessToken signs a canonical delegated access token: typ
-// delegated-access+jwt, delegated_sub and never sub, permissions, documents,
+// delegated-access+jwt, delegated_sub and never sub, permissions,
 // attributes (roles ride under attributes.roles), a jti and at most one sender
 // binding. The caller has authorized the grant and clamped p.TTL.
 func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer string, p iam.DelegatedAccess, now time.Time) (string, error) {
@@ -165,14 +128,6 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	if p.Subject == "" {
 		return "", errors.New("delegated_sub required")
 	}
-	references, err := documents.NormalizeReferences(p.Documents)
-	if err != nil {
-		return "", err
-	}
-	if _, shadowsTopLevel := p.Attributes["documents"]; shadowsTopLevel {
-		return "", fmt.Errorf("%w: attributes.documents is reserved", documents.ErrReservedAttribute)
-	}
-
 	claims := jwt.MapClaims{
 		"iss":           issuer,
 		"iat":           now.Unix(),
@@ -193,9 +148,6 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 		if len(perms) > 0 {
 			claims["permissions"] = perms
 		}
-	}
-	if len(references) > 0 {
-		claims["documents"] = references
 	}
 	// Merge the typed Roles convenience into attributes.roles (typed field wins
 	// over any Attributes["roles"] the caller also set). Drop blanks so callers
@@ -230,6 +182,7 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	// explicit p.JTI wins; otherwise mint a fresh uuidv7.
 	jti := strings.TrimSpace(p.JTI)
 	if jti == "" {
+		var err error
 		if jti, err = newUUIDV7String(); err != nil {
 			return "", fmt.Errorf("delegated jti: %w", err)
 		}

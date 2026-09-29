@@ -10,58 +10,8 @@ import (
 	"time"
 )
 
-const remoteApplicationByDomainForUpdate = `-- name: RemoteApplicationByDomainForUpdate :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM remote_applications
-WHERE domain = $1
-FOR UPDATE
-`
-
-type RemoteApplicationByDomainForUpdateRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationByDomainForUpdate(ctx context.Context, domain string) (RemoteApplicationByDomainForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationByDomainForUpdate, domain)
-	var i RemoteApplicationByDomainForUpdateRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.PermissionGroupID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
-		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
 FROM remote_applications
 WHERE issuer = $1
 `
@@ -75,12 +25,7 @@ type RemoteApplicationByIssuerRow struct {
 	Mode              string
 	PublicKeys        []byte
 	Enabled           bool
-	DisplayName       string
-	Tier              string
 	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -97,61 +42,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
 		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const remoteApplicationBySlug = `-- name: RemoteApplicationBySlug :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM remote_applications
-WHERE slug = $1
-`
-
-type RemoteApplicationBySlugRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationBySlug(ctx context.Context, slug string) (RemoteApplicationBySlugRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationBySlug, slug)
-	var i RemoteApplicationBySlugRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.PermissionGroupID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
-		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -159,8 +50,7 @@ func (q *Queries) RemoteApplicationBySlug(ctx context.Context, slug string) (Rem
 }
 
 const remoteApplicationBySlugForUpdate = `-- name: RemoteApplicationBySlugForUpdate :one
-
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
 FROM remote_applications
 WHERE slug = $1
 FOR UPDATE
@@ -175,19 +65,11 @@ type RemoteApplicationBySlugForUpdateRow struct {
 	Mode              string
 	PublicKeys        []byte
 	Enabled           bool
-	DisplayName       string
-	Tier              string
 	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
 
-// Application self-registration (#264). Domain-rooted rows are KEYED by the
-// proven domain (create-or-reprove idempotency); the slug is a separately
-// claimed handle and the uuid stays stable across every refresh/rotation.
 func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug string) (RemoteApplicationBySlugForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, remoteApplicationBySlugForUpdate, slug)
 	var i RemoteApplicationBySlugForUpdateRow
@@ -200,12 +82,7 @@ func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug str
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
 		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -224,156 +101,6 @@ func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (i
 	return result.RowsAffected(), nil
 }
 
-const remoteApplicationDomainInsert = `-- name: RemoteApplicationDomainInsert :one
-INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at)
-VALUES ($1, $2::uuid, $3, $4, $5, $6, true, $7, 'registered', 'domain', $8, $9, now())
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-`
-
-type RemoteApplicationDomainInsertParams struct {
-	Slug              string
-	PermissionGroupID *string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	DisplayName       string
-	Domain            string
-	DocumentEndpoint  string
-}
-
-type RemoteApplicationDomainInsertRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationDomainInsert(ctx context.Context, arg RemoteApplicationDomainInsertParams) (RemoteApplicationDomainInsertRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationDomainInsert,
-		arg.Slug,
-		arg.PermissionGroupID,
-		arg.Issuer,
-		arg.JwksUri,
-		arg.Mode,
-		arg.PublicKeys,
-		arg.DisplayName,
-		arg.Domain,
-		arg.DocumentEndpoint,
-	)
-	var i RemoteApplicationDomainInsertRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.PermissionGroupID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
-		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const remoteApplicationDomainRefresh = `-- name: RemoteApplicationDomainRefresh :one
-UPDATE remote_applications
-SET issuer            = $1,
-    jwks_uri          = $2,
-    mode              = $3,
-    public_keys       = $4,
-    display_name      = $5,
-    document_endpoint = $6,
-    enabled           = true,
-    root_verified_at  = now(),
-    updated_at        = now()
-WHERE domain = $7 AND trust_root = 'domain'
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-`
-
-type RemoteApplicationDomainRefreshParams struct {
-	Issuer           string
-	JwksUri          string
-	Mode             string
-	PublicKeys       []byte
-	DisplayName      string
-	DocumentEndpoint string
-	Domain           string
-}
-
-type RemoteApplicationDomainRefreshRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-// Idempotent re-registration: the re-fetched document is the trust-root proof,
-// so it refreshes issuer/keys/config, re-proves the root, and re-enables a
-// sweeper-disabled row. Tier is untouched (approval is an admin act).
-func (q *Queries) RemoteApplicationDomainRefresh(ctx context.Context, arg RemoteApplicationDomainRefreshParams) (RemoteApplicationDomainRefreshRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationDomainRefresh,
-		arg.Issuer,
-		arg.JwksUri,
-		arg.Mode,
-		arg.PublicKeys,
-		arg.DisplayName,
-		arg.DocumentEndpoint,
-		arg.Domain,
-	)
-	var i RemoteApplicationDomainRefreshRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.PermissionGroupID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
-		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
 INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
@@ -386,7 +113,7 @@ ON CONFLICT (issuer) DO UPDATE
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
 `
 
 type RemoteApplicationUpsertParams struct {
@@ -408,12 +135,7 @@ type RemoteApplicationUpsertRow struct {
 	Mode              string
 	PublicKeys        []byte
 	Enabled           bool
-	DisplayName       string
-	Tier              string
 	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -443,12 +165,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.DisplayName,
-		&i.Tier,
 		&i.TrustRoot,
-		&i.Domain,
-		&i.DocumentEndpoint,
-		&i.RootVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -456,7 +173,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 }
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
 FROM remote_applications
 WHERE enabled = true
 ORDER BY slug ASC
@@ -471,12 +188,7 @@ type RemoteApplicationsEnabledRow struct {
 	Mode              string
 	PublicKeys        []byte
 	Enabled           bool
-	DisplayName       string
-	Tier              string
 	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -499,12 +211,7 @@ func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplic
 			&i.Mode,
 			&i.PublicKeys,
 			&i.Enabled,
-			&i.DisplayName,
-			&i.Tier,
 			&i.TrustRoot,
-			&i.Domain,
-			&i.DocumentEndpoint,
-			&i.RootVerifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

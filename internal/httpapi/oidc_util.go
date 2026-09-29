@@ -135,11 +135,11 @@ func callbackParams(r *http.Request) url.Values {
 // cookies are untouched.
 func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
 	http.SetCookie(w, s.stateCookie(r, p, state, "", -1))
-	// A flow begun before an upgrade left a historical variant; never read, it
-	// is only removed.
+	// A flow begun under the other scheme left its variant; never read, it is
+	// only removed.
 	current := CurrentCookie(CookieOIDCState, s.stateCookieSecure(r, p))
 	suffix := stateCookieSuffix(state)
-	expireCookieVariants(w, r, CookieOIDCState, &current, s.stateCookieSecure(r, p), func(v CookieVariant) string { return v.Name + suffix }, "", true)
+	expireCookieVariants(w, r, CookieOIDCState, &current, s.stateCookieSecure(r, p), func(v CookieVariant) string { return v.Name + suffix }, true)
 }
 
 // stateCookieMatches reports whether the request carries the state cookie and it

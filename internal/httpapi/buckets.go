@@ -32,9 +32,6 @@ const (
 	RLAuthSessionsRevoke       = "auth_sessions_revoke"
 	RLAuthSessionsRevokeAll    = "auth_sessions_revoke_all"
 
-	// #264 application self-registration (per-IP AND per-domain/slug keys).
-	RLApplicationRegister = "application_register"
-
 	// #261 delegated-token mint (authenticated; bounds signing cost per IP).
 	RLDelegatedTokenMint = "delegated_token_mint"
 

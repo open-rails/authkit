@@ -89,7 +89,7 @@ describe("AuthProvider", () => {
       "GET /api/v1/me/permissions": ({ url }) => {
         expect(url).toContain("group_id=g1")
         return json(200, {
-          object: "permission_set",
+          group_id: "g1",
           permissions: ["root:tags:*"],
         })
       },

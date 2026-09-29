@@ -226,30 +226,20 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	return out.withoutMFAGrants(s), err
 }
 
-// subjectGrants is the subject's walk-up union of grants in gid, custom roles included.
+// subjectGrants is the subject's walk-up union of grants in gid.
 func (s *Engine) subjectGrants(ctx context.Context, st *permissionGroupStore, subject iam.Subject, gid string) ([]string, error) {
-	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, subject, true)
+	asg, err := st.WalkAssignments(ctx, gid, subject)
 	if err != nil {
 		return nil, err
 	}
-	return s.groupSchemaOrDefault().ResolveGrants(gid, asg, resolver), nil
+	return s.groupSchemaOrDefault().ResolveGrants(gid, asg), nil
 }
 
-// roleGrants returns what role confers in g: a catalog role's permissions or a
-// custom role's stored grants, else ErrRoleNotAssignable.
-func (s *Engine) roleGrants(ctx context.Context, st *permissionGroupStore, g groupTarget, role iam.Role) ([]string, error) {
-	sch := s.groupSchemaOrDefault()
-	if r, ok := sch.Role(g.Persona, role); ok {
+// roleGrants returns what a catalog role confers in g, else
+// ErrRoleNotAssignable.
+func (s *Engine) roleGrants(_ context.Context, _ *permissionGroupStore, g groupTarget, role iam.Role) ([]string, error) {
+	if r, ok := s.groupSchemaOrDefault().Role(g.Persona, role); ok {
 		return r.Permissions, nil
-	}
-	if td, ok := sch.Persona(g.Persona); ok && td.CustomRoles {
-		resolver, err := st.CustomRolesFor(ctx, []string{g.ID})
-		if err != nil {
-			return nil, err
-		}
-		if grants, ok := resolver(g.ID, role); ok {
-			return grants, nil
-		}
 	}
 	return nil, fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 }

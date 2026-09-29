@@ -65,7 +65,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 			return
 		}
 		writeJSON(w, http.StatusAccepted, map[string]any{
-			"ok":       true,
 			"group_id": g.ID,
 			"persona":  g.Persona,
 			"email":    email,
@@ -84,7 +83,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
 		"group_id": g.ID,
 		"persona":  g.Persona,
 		"user_id":  userID,
@@ -102,12 +100,7 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g ia
 	if !s.writeOpResult(w, res, err) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"group_id": g.ID,
-		"persona":  g.Persona,
-		"user_id":  userID,
-	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // groupMemberRole assigns or replaces the user's single role in the group.
@@ -126,7 +119,6 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
 		"group_id": g.ID,
 		"persona":  g.Persona,
 		"user_id":  userID,
@@ -246,9 +238,5 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 	for gid, p := range byGroup {
 		id, perms = gid, p
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object":      "permission_set",
-		"group_id":    id,
-		"permissions": perms,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"group_id": id, "permissions": perms})
 }

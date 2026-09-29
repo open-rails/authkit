@@ -20,7 +20,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NotContains(t, unverifiedAccessClaims(t, stale), "mfa_enrolled")
 	for _, body := range []any{
 		map[string]any{"method": "totp"}, map[string]any{"method": "totp", "code": "123456"},
-		map[string]any{"method": "email"}, map[string]any{"method": "sms", "phone": "+15551234567"},
+		map[string]any{"method": "email"}, map[string]any{"method": "sms", "phone_number": "+15551234567"},
 		map[string]any{"default": true, "factor_id": "anything"},
 	} {
 		denied := f.expect(403, f.request("POST", "/user/2fa", stale, body))
@@ -92,18 +92,18 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	var status struct {
 		Method               string `json:"method"`
 		BackupCodesRemaining int    `json:"backup_codes_remaining"`
-		AvailableFactors     []struct {
+		Factors              []struct {
 			ID        string `json:"id"`
 			Method    string `json:"method"`
 			IsDefault bool   `json:"is_default"`
-		} `json:"available_factors"`
+		} `json:"factors"`
 	}
 	listed := f.expect(200, f.request("GET", "/user/2fa", current, nil))
 	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
 	require.Equal(t, "totp", status.Method)
 	require.Equal(t, 10, status.BackupCodesRemaining)
-	require.Len(t, status.AvailableFactors, 1)
-	factor := status.AvailableFactors[0]
+	require.Len(t, status.Factors, 1)
+	factor := status.Factors[0]
 	require.NotEmpty(t, factor.ID)
 	require.Equal(t, "totp", factor.Method)
 	require.True(t, factor.IsDefault)

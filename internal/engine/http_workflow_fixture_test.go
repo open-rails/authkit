@@ -35,7 +35,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -308,53 +307,19 @@ func coreFromConfig(cfg Config, pool *pgxpool.Pool, opts ...coreOpt) (*Engine, e
 	return New(context.Background(), cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }
 
-const documentsTestType = "example.entitlements/v1"
-
-// registerDocumentReader registers a remote application (static keys) nested
-// under the root group and returns a bearer token minted by ITS OWN key.
-func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) string {
+// mintRemoteApplicationToken signs a remote-application access token with the
+// application's own key: typ remote-application-access+jwt, no subject. A
+// non-nil perms narrows the stored authority.
+func mintRemoteApplicationToken(t *testing.T, signer jwtkit.Signer, issuer string, audiences, perms []string) string {
 	t.Helper()
-	ctx := context.Background()
-	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
-	require.NoError(t, err)
-	_, err = core.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
-		Slug:    slug,
-		Issuer:  issuer,
-		Enabled: true,
-		PublicKeys: []iam.RemoteApplicationKey{{
-			KID:          signer.KID(),
-			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
-		}},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = core.DeleteRemoteApplication(context.Background(), iam.SystemActor(), iam.RootGroup(), slug)
-	})
-
-	// A remote application addresses its token to THIS platform (ak#324: the
-	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
-	token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccess{
-		Issuer:    issuer,
-		Audiences: []string{"test-app"},
-		TTL:       time.Minute,
-	})
-	require.NoError(t, err)
-	return token.Value
-}
-
-func getDocument(h http.Handler, method, digest, token string, header http.Header) *httptest.ResponseRecorder {
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(method, documents.PublicationPathPrefix+digest, nil)
-	if token != "" {
-		r.Header.Set("Authorization", "Bearer "+token)
+	now := time.Now()
+	claims := jwt.MapClaims{"iss": issuer, "aud": audiences, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}
+	if perms != nil {
+		claims["permissions"] = perms
 	}
-	for key, values := range header {
-		for _, value := range values {
-			r.Header.Set(key, value)
-		}
-	}
-	h.ServeHTTP(w, r)
-	return w
+	token, err := jwtkit.SignWithType(context.Background(), signer, claims, jwtkit.RemoteApplicationAccessTokenType, true)
+	require.NoError(t, err)
+	return token
 }
 
 // nestedTokenBody decodes a composite response ({"token_set": ...}) into the
@@ -819,7 +784,12 @@ func stalePasswordUserToken(t *testing.T, srv *httpapi.Service, pool *pgxpool.Po
 // posture unless the options declare one.
 type Option func(*httpapi.Config)
 
-func WithoutRateLimiter() Option { return func(c *httpapi.Config) { c.DisableRateLimiting = true } }
+func WithoutRateLimiter() Option { return func(c *httpapi.Config) { c.Limiter = unlimited{} } }
+
+// unlimited allows every request.
+type unlimited struct{}
+
+func (unlimited) AllowNamed(string, string) (bool, error) { return true, nil }
 
 func configOf(opts ...Option) httpapi.Config {
 	var c httpapi.Config

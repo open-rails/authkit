@@ -52,8 +52,7 @@ func (s *Engine) inviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-// requireIssuableRole refuses a role that the group cannot hand out: unknown,
-// or custom while the persona has custom roles off.
+// requireIssuableRole refuses a role that is not in the group's catalog.
 func (s *Engine) requireIssuableRole(ctx context.Context, st *permissionGroupStore, g groupTarget, role iam.Role) ([]string, error) {
 	if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
 		return nil, err

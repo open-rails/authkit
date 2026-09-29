@@ -48,8 +48,8 @@ func (p *Persona) UnmarshalText(b []byte) error {
 
 const ownerRoleName = "owner"
 
-// Role is a role of a persona: its owner role, one the app declares
-// (`moderator`), or a group's custom role. A role bundles permissions; where
+// Role is a role of a persona: its owner role or one the app declares
+// (`moderator`). A role bundles permissions; where
 // it is held is its scope, and a role held on root applies in every group. Its
 // text form is `<persona>:<name>` (`channel:moderator`).
 type Role struct {

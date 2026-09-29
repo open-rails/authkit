@@ -20,10 +20,9 @@ type Settings struct {
 
 	RequireMFAEnrollment    bool
 	AllowPrivateNetworkJWKS bool
-	ApplicationRegistration bool
 	DeviceKeys              bool
 	PasswordlessLogin       bool
-	SolanaNetwork           string
+	SolanaNetwork           iam.SolanaNetwork
 	Providers               []authprovider.Provider
 
 	FrontendBaseURL string
@@ -35,7 +34,6 @@ type Settings struct {
 	Password                 password.Policy
 
 	Delegated DelegatedSettings
-	Documents DocumentSettings
 }
 
 // DelegatedSettings are the delegated-token mint route's validated bounds.
@@ -43,15 +41,4 @@ type DelegatedSettings struct {
 	Audiences                        []string
 	AllowDPoP                        bool
 	TTLFloor, TTLDefault, TTLCeiling time.Duration
-}
-
-// DocumentSettings authorize readers of the published-document surface.
-type DocumentSettings struct {
-	Readers             []DocumentReader
-	AllowRegisteredTier bool
-}
-
-// DocumentReader pins one reader by exactly one identity.
-type DocumentReader struct {
-	ID, Domain, Issuer string
 }

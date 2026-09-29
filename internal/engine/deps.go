@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,11 +25,10 @@ type Deps struct {
 	OnRestore              func(context.Context, iam.UserDeletion) error
 	OnEvent                func(context.Context, iam.Event) error
 	DelegatedAuthorization iam.DelegationAuthorizer
-	ApplicationAdmission   func(ctx context.Context, domain string) error
 	NameAdmission          func(context.Context, iam.NameAdmissionRequest) error
-	SolanaSNSResolver      SolanaSNSResolver
-	OutboundHTTP           *http.Client
 	Clock                  func() time.Time
+	// SolanaSNSResolver replaces the SNS resolver in AuthKit's own tests.
+	SolanaSNSResolver SolanaSNSResolver
 }
 
 func (s *Engine) applyDeps(d Deps) error {
@@ -64,12 +62,10 @@ func (s *Engine) applyDeps(d Deps) error {
 	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
 	s.onEvent = d.OnEvent
 	s.delegationAuthorizer = d.DelegatedAuthorization
-	s.appAdmission = d.ApplicationAdmission
 	s.nameAdmission = d.NameAdmission
 	if d.SolanaSNSResolver != nil {
 		s.solanaSNSResolver = d.SolanaSNSResolver
 	}
-	s.appHTTPClient = d.OutboundHTTP
 	if d.Clock != nil {
 		s.now = d.Clock
 	}

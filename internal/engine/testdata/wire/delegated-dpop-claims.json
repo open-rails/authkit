@@ -7,6 +7,5 @@
   "aud": ["platform"],
   "permissions": ["resource:read"],
   "attributes": {"tenant": "cozy"},
-  "documents": {"example.policy/v1": "$string"},
   "cnf": {"jkt": "$string"}
 }

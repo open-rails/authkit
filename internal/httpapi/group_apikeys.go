@@ -101,5 +101,5 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g ia
 		fail(w, errmodel.CodeNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+	w.WriteHeader(http.StatusNoContent)
 }

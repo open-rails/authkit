@@ -49,12 +49,13 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	cfg.Token.ExpectedAudiences = []string{"test"}
 	cfg.Roles = RoleConfig{
 		Personas: map[string]Persona{
-			"channel": {Permissions: []string{"channel:posts:read", "channel:posts:write"}, CustomRoles: true},
+			"channel": {Permissions: []string{"channel:posts:read", "channel:posts:write"}},
 			"section": {Permissions: []string{"section:pages:write"}},
 		},
 		Roles: []Role{
 			{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}},
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []string{"reader"}},
+			{Persona: "channel", Name: "curator", Permissions: []string{"channel:posts:write"}},
 			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
 		},
 	}
@@ -85,7 +86,6 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	section, sectionRef := create(ident.Persona("section"))
 	assign(sectionRef, "editor")
 	curated, curatedRef := create(ident.Persona("channel"))
-	require.NoError(t, defineRole(rt, ctx, iam.UserActor(owner.ID), curatedRef, "curator", []string{"channel:posts:write"}))
 	assign(curatedRef, "curator")
 	retired, retiredRef := create(ident.Persona("channel"))
 	assign(retiredRef, "reader")

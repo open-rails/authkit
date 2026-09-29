@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -44,16 +45,15 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	requireErrorCode(t, w.Body.String(), string(errmodel.CodeLastOwner))
 	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "owner-app", Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
 	require.NoError(t, err)
-	w = serveAuthJSON(srv, http.MethodPut, base+"/remote-applications/owner-app/roles/owner", "", token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodPut, base+"/remote-applications/owner-app/roles/member", "", managerToken)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.NoError(t, assignRole(ctx, client, iam.UserActor(owner), group, iam.RemoteApplicationSubject(app.ID), "owner"))
+	err = assignRole(ctx, client, iam.UserActor(manager), group, iam.RemoteApplicationSubject(app.ID), "member")
+	require.True(t, errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation), "a manager cannot demote an owner application: %v", err)
 	require.NoError(t, client.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.PermissionGroupID), app.Slug))
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	require.Equal(t, http.StatusOK, assign(token, peer, "member"))
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	w = serveAuthJSON(srv, http.MethodDelete, base+"/members/"+owner, "", token)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	allowed, err := client.Can(ctx, iam.UserActor(peer), group, ident.Perm("org:members:manage"))
 	require.NoError(t, err)
 	require.True(t, allowed)

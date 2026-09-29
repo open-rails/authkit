@@ -133,88 +133,53 @@ func (st *permissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // WalkAssignments returns the subject's assignments on the target group and on
 // root: exactly what rbac.Schema.ResolveGrants/Can consume.
 func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]rbac.Assignment, error) {
-	assignments, _, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, false)
-	return assignments, err
-}
-
-// Memberships and their mutable custom definitions come from one MVCC snapshot.
-// A delete/recreate cannot combine a retired membership with the replacement
-// role's permissions. Include all definitions on assigned groups, preserving
-// the existing authorization resolver's scope for target-role checks.
-func (st *permissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject iam.Subject, definitions bool) ([]rbac.Assignment, rbac.CustomRoleResolver, error) {
-	return st.readAssignments(ctx, groupID, subject, definitions, false)
-}
-
-// Authorization excludes deleted/reserved native accounts in the same MVCC
-// query. Ban freshness is separate. Introspection and no-escalation comparisons
-// must retain latent assignments, including those of a deleted target.
-func (st *permissionGroupStore) readAssignments(ctx context.Context, groupID string, subject iam.Subject, definitions, requirePresentUser bool) ([]rbac.Assignment, rbac.CustomRoleResolver, error) {
-	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, definitions, requirePresentUser)
+	byGroup, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return byGroup[groupID], resolver, nil
+	return byGroup[groupID], nil
 }
 
 // readAssignmentsForGroups reads, for every live target, the subject's
 // assignments on that group and on root, in one query. Deleted, unknown and
-// malformed targets have no assignments.
-func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, definitions, requirePresentUser bool) (map[string][]rbac.Assignment, rbac.CustomRoleResolver, error) {
+// malformed targets have no assignments. Authorization excludes
+// deleted/reserved native accounts in the same MVCC query; introspection and
+// no-escalation comparisons retain latent assignments, including those of a
+// deleted target.
+func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, requirePresentUser bool) (map[string][]rbac.Assignment, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
-		return nil, nil, err
-	}
-	type key struct {
-		group string
-		role  iam.Role
-	}
-	custom := map[key][]string{}
-	resolver := func(group string, role iam.Role) ([]string, bool) {
-		p, ok := custom[key{group, role}]
-		return p, ok
+		return nil, err
 	}
 	out := map[string][]rbac.Assignment{}
 	ids := groupBatchIDs(groupIDs)
 	if len(ids) == 0 {
-		return out, resolver, nil
+		return out, nil
 	}
 	rows, err := st.q.Query(ctx, fmt.Sprintf(`WITH targets AS (
  SELECT id,persona FROM permission_groups WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL),
  chain AS (SELECT id AS target,id,persona FROM targets
  UNION SELECT t.id,rg.id,rg.persona FROM targets t JOIN permission_groups rg ON rg.persona='root')
- SELECT c.target::text,c.id::text,c.persona,a.role,r.role,r.permissions FROM chain c
+ SELECT c.target::text,c.id::text,c.persona,a.role FROM chain c
  JOIN %s a ON a.permission_group_id=c.id AND a.%s=$2::uuid
- LEFT JOIN group_custom_roles r ON r.permission_group_id=c.id AND $3
- WHERE (NOT $4 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
+ WHERE (NOT $3 OR EXISTS(SELECT 1 FROM users actor WHERE actor.id=$2::uuid
  AND actor.deleted_at IS NULL AND COALESCE(actor.metadata->'reserved','false'::jsonb)<>'true'::jsonb))
- AND ($5 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
- ORDER BY c.target,c.id,r.role`, table, column), ids, subject.ID, definitions, requirePresentUser, subject.Kind)
+ AND ($4 <> 'remote_application' OR EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id=actor.permission_group_id WHERE actor.id=$2::uuid AND actor.enabled AND control.deleted_at IS NULL))
+ ORDER BY c.target,c.id`, table, column), ids, subject.ID, requirePresentUser, subject.Kind)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
-	seen := map[[2]string]bool{}
 	for rows.Next() {
 		var target, assigned string
 		var assignment rbac.Assignment
-		var role *string
-		var permissions []string
-		if err := rows.Scan(&target, &assignment.PermissionGroupID, scanPersona(&assignment.Persona), &assigned, &role, &permissions); err != nil {
-			return nil, nil, err
+		if err := rows.Scan(&target, &assignment.PermissionGroupID, scanPersona(&assignment.Persona), &assigned); err != nil {
+			return nil, err
 		}
 		assignment.Role = ident.Role(assignment.Persona, assigned)
-		if k := [2]string{target, assignment.PermissionGroupID}; !seen[k] {
-			seen[k] = true
-			out[target] = append(out[target], assignment)
-		}
-		if role != nil {
-			custom[key{assignment.PermissionGroupID, ident.Role(assignment.Persona, *role)}] = permissions
-		}
+		out[target] = append(out[target], assignment)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	return out, resolver, nil
+	return out, rows.Err()
 }
 
 // groupBatchIDs keeps distinct canonical UUIDs; anything else cannot name a group.
@@ -342,101 +307,19 @@ func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 	return n, err
 }
 
-// UpsertCustomRole defines or redefines a group's custom role. The caller
-// validates the grants and authorizes the change.
-func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, role iam.Role, grants []string) error {
-	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
- INSERT INTO group_custom_roles(permission_group_id,role,permissions)
- SELECT id,$2,$3 FROM locked
- ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,updated_at=now()`, groupID, role.Name(), grants)
-	if err == nil && tag.RowsAffected() == 0 {
-		return iam.ErrGroupNotFound
-	}
-	if err == nil {
-		st.touched = append(st.touched, authorityTouch{groupID: groupID})
-	}
-	return err
-}
-
-// CustomRole returns a group's custom role grants; exists is false when the
-// group defines no such role.
-func (st *permissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (grants []string, exists bool, err error) {
-	err = st.q.QueryRow(ctx, `SELECT permissions FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2`, groupID, role.Name()).Scan(&grants)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, nil
-	}
-	return grants, err == nil, err
-}
-
-// roleRefs counts the live rows in a group that carry one role name.
-type roleRefs struct{ users, applications, apiKeys, invites int }
-
-func (r roleRefs) any() bool { return r.users+r.applications+r.apiKeys+r.invites > 0 }
-
-func (st *permissionGroupStore) roleReferences(ctx context.Context, groupID string, role iam.Role) (roleRefs, error) {
-	var r roleRefs
-	err := st.q.QueryRow(ctx, `SELECT
- (SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid AND role=$2),
- (SELECT count(*) FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND role=$2),
- (SELECT count(*) FROM api_keys WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())),
- (SELECT count(*) FROM group_invite_links WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND redeemed_at IS NULL AND (expires_at IS NULL OR expires_at>now()))
- + (SELECT count(*) FROM account_registration_invites WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now())`,
-		groupID, role.Name()).Scan(&r.users, &r.applications, &r.apiKeys, &r.invites)
-	return r, err
-}
-
-// CustomRolesFor preloads the custom roles for a set of group ids and returns a
-// CustomRoleResolver backed by the result — so the pure decision core resolves
-// custom-role grants without per-call DB access.
-func (st *permissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []string) (rbac.CustomRoleResolver, error) {
-	if len(groupIDs) == 0 {
-		return func(string, iam.Role) ([]string, bool) { return nil, false }, nil
-	}
-	rows, err := st.q.Query(ctx,
-		`SELECT r.permission_group_id::text, g.persona, r.role, r.permissions FROM group_custom_roles r
-		 JOIN permission_groups g ON g.id = r.permission_group_id
-		 WHERE r.permission_group_id = ANY($1::uuid[])`,
-		groupIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	type key struct {
-		g string
-		r iam.Role
-	}
-	m := map[key][]string{}
-	for rows.Next() {
-		var gid, role string
-		var persona iam.Persona
-		var perms []string
-		if err := rows.Scan(&gid, scanPersona(&persona), &role, &perms); err != nil {
-			return nil, err
-		}
-		m[key{gid, ident.Role(persona, role)}] = perms
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return func(groupID string, role iam.Role) ([]string, bool) {
-		p, ok := m[key{groupID, role}]
-		return p, ok
-	}, nil
-}
-
 // GrantsOnGroups returns, per live target group, the de-duplicated UNION of
 // grant PATTERNS the subject holds on that group and on root, resolved
-// against the schema's catalog + per-group custom roles, in one query. Globs
+// against the schema's catalog, in one query. Globs
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
 // are absent. Latent assignments of deleted/reserved accounts are included.
 func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *rbac.Schema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
-	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, true, false)
+	byGroup, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, false)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string][]string, len(byGroup))
 	for gid, assignments := range byGroup {
-		if grants := schema.ResolveGrants(gid, assignments, resolver); len(grants) > 0 {
+		if grants := schema.ResolveGrants(gid, assignments); len(grants) > 0 {
 			out[gid] = grants
 		}
 	}
@@ -497,48 +380,4 @@ func scanGroup(row pgx.Row) (iam.Group, error) {
 	var g iam.Group
 	err := row.Scan(&g.ID, scanPersona(&g.Persona), &g.CreatedAt, &g.DeletedAt)
 	return g, err
-}
-
-// DeleteCustomRole retires a definition and every reference to it. The caller
-// must hold the group lifecycle lock in a transaction. An absent definition is
-// a no-op, so a catalog role cannot accidentally lose its assignments here.
-func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID string, role iam.Role) error {
-	var exists bool
-	if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2)`, groupID, role.Name()).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	var revoked []iam.Event
-	for _, kind := range []iam.SubjectKind{iam.SubjectKindUser, iam.SubjectKindRemoteApplication} {
-		table, column, err := groupRoleTable(kind)
-		if err != nil {
-			return err
-		}
-		rows, err := st.q.Query(ctx, fmt.Sprintf(`DELETE FROM %s r USING permission_groups g
- WHERE g.id=r.permission_group_id AND r.permission_group_id=$1::uuid AND r.role=$2 RETURNING r.%s::text, g.persona`, table, column), groupID, role.Name())
-		if err != nil {
-			return err
-		}
-		events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.Event, error) {
-			var id string
-			var persona iam.Persona
-			if err := row.Scan(&id, scanPersona(&persona)); err != nil {
-				return iam.Event{}, err
-			}
-			return roleEvent(groupID, persona, iam.Subject{Kind: kind, ID: id}, role, iam.Role{}), nil
-		})
-		if err != nil {
-			return err
-		}
-		revoked = append(revoked, events...)
-	}
-	for _, table := range []string{"api_keys", "group_invite_links", "account_registration_invites", "group_custom_roles"} {
-		if _, err := st.q.Exec(ctx, "DELETE FROM "+table+" WHERE permission_group_id=$1::uuid AND role=$2", groupID, role.Name()); err != nil {
-			return err
-		}
-	}
-	st.touched = append(st.touched, authorityTouch{groupID: groupID})
-	return st.record(ctx, revoked...)
 }

@@ -101,19 +101,10 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 }
 
 // roleRequiresMFA reports whether role (in persona) needs MFA: its permissions
-// reach one the schema marks as needing MFA (Persona.RequireMFA). A custom
-// role is looked up in gid; with gid empty only catalog roles are known.
-func (s *Engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, role iam.Role) (bool, error) {
-	sch := s.groupSchemaOrDefault()
-	if def, ok := sch.Role(persona, role); ok {
-		return def.RequiresMFA, nil
-	}
-	gid = strings.TrimSpace(gid)
-	if gid == "" || role.IsZero() || role.Persona() != persona {
-		return false, nil
-	}
-	grants, _, err := newPermissionGroupStore(q).CustomRole(ctx, gid, role)
-	return sch.RequiresMFA(grants), err
+// reach one the schema marks as needing MFA (Persona.RequireMFA).
+func (s *Engine) roleRequiresMFA(_ context.Context, _ db.DBTX, _ string, persona iam.Persona, role iam.Role) (bool, error) {
+	def, ok := s.groupSchemaOrDefault().Role(persona, role)
+	return ok && def.RequiresMFA, nil
 }
 
 // userHoldsMFARequiredRole reports whether userID currently holds at least one
@@ -131,8 +122,6 @@ func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 		return false, err
 	}
 	defer rows.Close()
-	// Collect first: roleRequiresMFA may itself query q (custom roles), which
-	// cannot run while rows is open on a single-connection DBTX.
 	type assignment struct {
 		gid     string
 		persona iam.Persona

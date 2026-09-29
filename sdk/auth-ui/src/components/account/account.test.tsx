@@ -55,7 +55,7 @@ const capabilities = (password: Record<string, unknown> = {}) =>
         supports_link: true,
       },
     ],
-    password: { login: true, ...password },
+    password: { ...password },
     passwordless: { enabled: false },
     passkeys: { login: false },
     solana: { login: false },

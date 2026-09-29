@@ -35,10 +35,6 @@ type loginStart struct {
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	q := r.URL.Query()
-	if q.Get("link") == "1" || strings.EqualFold(q.Get("link"), "true") {
-		s.failBrowserFlow(w, r, nil, provider, errmodel.E(errmodel.CodeAuthRequiredForLink))
-		return
-	}
 	// An invitation is a bearer credential: it never rides in a URL, where
 	// history, logs and Referer keep it. POST /{provider}/login binds it to the
 	// flow's server-side state instead.

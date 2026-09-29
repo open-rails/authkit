@@ -93,7 +93,7 @@ func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, 
 		s.writeGroupOpError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": linkID})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // inviteRedeemRequest is the body for POST /invites/redeem.
@@ -121,7 +121,6 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
 		"group_id": res.GroupID,
 		"persona":  res.Persona,
 		"role":     res.Role.Name(),

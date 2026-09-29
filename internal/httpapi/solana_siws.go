@@ -34,7 +34,6 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Address  string `json:"address"`
 		Username string `json:"username"`
-		ChainID  string `json:"chain_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)

@@ -37,7 +37,7 @@ func newGroupsUser(t *testing.T, e *Engine, name string) string {
 func TestGroupOperationsWorkflow(t *testing.T) {
 	e := groupsTestEngine(t, iam.TwoFactorDisabled, RoleConfig{
 		Personas: map[string]Persona{
-			"channel": {Permissions: []string{"channel:posts:edit", "channel:metadata:edit"}, APIKeys: true, CustomRoles: true},
+			"channel": {Permissions: []string{"channel:posts:edit", "channel:metadata:edit"}, APIKeys: true},
 			"org":     {Permissions: []string{"org:records:read"}},
 		},
 		Roles: []Role{
@@ -271,73 +271,15 @@ func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	require.Equal(t, mustRole("org:member"), roleOf(proven))
 }
 
-// M2: redefining or deleting a held custom role changes what its holders
-// have, so it needs the authority to manage those holders, and a name live
-// rows still reference is never re-bound.
-func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
-	e := groupsTestEngine(t, iam.TwoFactorDisabled, RoleConfig{
-		Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:read", "channel:posts:write"}, CustomRoles: true, APIKeys: true}},
-		Roles: []Role{
-			{Persona: "channel", Name: "designer", Permissions: []string{"channel:roles:manage", "channel:posts:*"}},
-			{Persona: "channel", Name: "keeper", Permissions: []string{"channel:roles:manage", "channel:posts:*", "channel:members:manage"}},
-		},
-	})
-	ctx := t.Context()
-	owner, designer, keeper, holder := newGroupsUser(t, e, "m2owner"), newGroupsUser(t, e, "m2designer"), newGroupsUser(t, e, "m2keeper"), newGroupsUser(t, e, "m2holder")
-	gid, err := seedGroup(ctx, e, ident.Persona("channel"), owner)
-	require.NoError(t, err)
-	ref := iam.GroupByID(gid)
-	grantRole(t, e, ref, iam.UserSubject(designer), "designer")
-	grantRole(t, e, ref, iam.UserSubject(keeper), "keeper")
-	define := func(actor string, perms ...string) error {
-		return defineRole(e, ctx, iam.UserActor(actor), ref, "commenter", perms)
-	}
-	holds := func(p iam.Perm) bool {
-		ok, err := e.Can(ctx, iam.UserActor(holder), ref, p)
-		require.NoError(t, err)
-		return ok
-	}
-
-	require.NoError(t, define(designer, "channel:posts:read"), "an unheld role is the designer's to shape")
-	require.NoError(t, define(designer, "channel:posts:read", "channel:posts:write"))
-	require.NoError(t, define(designer, "channel:posts:read"))
-	grantRole(t, e, ref, iam.UserSubject(holder), "commenter")
-	require.ErrorIs(t, define(designer, "channel:posts:*"), iam.ErrInsufficientAuthority, "widening a held role needs members:manage")
-	require.ErrorIs(t, define(designer), iam.ErrInsufficientAuthority, "narrowing a held role needs members:manage")
-	require.ErrorIs(t, e.DeleteGroupRole(ctx, iam.UserActor(designer), ref, mustRole("channel:commenter")), iam.ErrInsufficientAuthority)
-	require.False(t, holds(ident.Perm("channel:posts:write")))
-	require.NoError(t, define(keeper, "channel:posts:read", "channel:posts:write"))
-	require.True(t, holds(ident.Perm("channel:posts:write")))
-
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(owner), ref, iam.NewAPIKey{Name: "commenter-key", Role: mustRole("channel:commenter")})
-	require.NoError(t, err)
-	require.ErrorIs(t, define(keeper, "channel:posts:read"), iam.ErrInsufficientAuthority, "a role an API key holds needs credentials:manage")
-	require.NoError(t, define(owner, "channel:posts:read"))
-	require.False(t, holds(ident.Perm("channel:posts:write")))
-
-	// A catalog role removed from config leaves rows naming it; defining a
-	// custom role of that name would hand them its permissions.
-	_, err = e.pg.Exec(ctx, `INSERT INTO group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'retired')`, gid, keeper)
-	require.Error(t, err, "one role per subject per group")
-	_, err = e.pg.Exec(ctx, `UPDATE group_user_roles SET role='retired' WHERE permission_group_id=$1::uuid AND user_id=$2::uuid`, gid, keeper)
-	require.NoError(t, err)
-	err = defineRole(e, ctx, iam.UserActor(owner), ref, "retired", []string{"channel:posts:write"})
-	require.ErrorIs(t, err, iam.ErrCustomRoleIsCatalogRole)
-	ok, err := e.Can(ctx, iam.UserActor(keeper), ref, ident.Perm("channel:posts:write"))
-	require.NoError(t, err)
-	require.False(t, ok)
-}
-
 // M3 and invariant #4: MFA follows permissions. A role reaching a permission
 // the persona marks RequireMFA needs MFA of its holder however it is built:
-// a catalog role, an include, a root role, a custom clone or a redefinition.
-// API keys cannot hold one.
+// a catalog role, an include or a root role. API keys cannot hold one.
 func TestMFAFollowsPermissions(t *testing.T) {
 	e := groupsTestEngine(t, iam.TwoFactorOptional, RoleConfig{
 		Personas: map[string]Persona{"channel": {
 			Permissions: []string{"channel:posts:edit", "channel:posts:delete"},
 			RequireMFA:  []string{"channel:posts:delete"},
-			CustomRoles: true, APIKeys: true,
+			APIKeys:     true,
 		}},
 		Roles: []Role{
 			{Persona: "channel", Name: "editor", Permissions: []string{"channel:posts:edit"}},
@@ -373,21 +315,10 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	require.ErrorIs(t, assignRole(ctx, e, op, iam.RootGroup(), iam.UserSubject(plain), "staff"), iam.ErrTwoFAEnrollmentRequired, "a root role covering the owner's permissions needs MFA")
 	require.NoError(t, assignRole(ctx, e, op, ref, iam.UserSubject(plain), "editor"))
 
-	keeperActor := iam.UserActor(keeper)
-	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "clone", []string{"channel:posts:delete"}))
-	require.ErrorIs(t, assignRole(ctx, e, keeperActor, ref, iam.UserSubject(plain), "clone"), iam.ErrTwoFAEnrollmentRequired, "a custom clone needs MFA")
-	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "helper", []string{"channel:posts:edit"}))
-	require.NoError(t, assignRole(ctx, e, keeperActor, ref, iam.UserSubject(plain), "helper"))
-	require.ErrorIs(t, defineRole(e, ctx, keeperActor, ref, "helper", []string{"channel:posts:*"}), iam.ErrTwoFAEnrollmentRequired, "a redefinition cannot hand MFA permissions to a holder without MFA")
-
 	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "mod-key", Role: mustRole("channel:moderator")})
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "an API key cannot present MFA")
 	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "editor-key", Role: mustRole("channel:editor")})
 	require.NoError(t, err)
-	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "bot", []string{"channel:posts:edit"}))
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "bot-key", Role: mustRole("channel:bot")})
-	require.NoError(t, err)
-	require.ErrorIs(t, defineRole(e, ctx, keeperActor, ref, "bot", []string{"channel:posts:delete"}), iam.ErrRoleNotAssignable)
 
 	// With MFA the same roles are held; dropping MFA drops them.
 	require.NoError(t, assignRole(ctx, e, op, iam.RootGroup(), iam.UserSubject(secure), "staff"))
@@ -481,14 +412,15 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	require.Len(t, list.Data, 2)
 	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/members", "", memberToken).Code, "member lacks org:members:read")
 	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+uuid.NewString()+"/members", "", ownerToken).Code, "an unknown group is refused, not revealed")
-	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+team+"/remote-applications", "", ownerToken).Code, "team has no applications")
-	require.Equal(t, http.StatusOK, serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/remote-applications", "", ownerToken).Code)
+	for _, g := range []string{team, gid} {
+		require.Equal(t, http.StatusNotFound, serveAuthJSON(srv, http.MethodGet, "/groups/"+g+"/remote-applications", "", ownerToken).Code, "remote applications have no HTTP routes")
+	}
 
 	w = serveAuthJSON(srv, http.MethodPut, "/groups/"+gid+"/members/"+member+"/roles/member", "", ownerToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/me/permissions?group_id="+gid, "", memberToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.JSONEq(t, `{"object":"permission_set","group_id":"`+gid+`","permissions":["org:catalog:read"]}`, w.Body.String())
+	require.JSONEq(t, `{"group_id":"`+gid+`","permissions":["org:catalog:read"]}`, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/me/groups", "", memberToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"group_id":"`+gid+`"`)

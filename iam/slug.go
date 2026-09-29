@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// slugRe admits lowercase alnum with internal hyphens/dots (#264: domain-shaped
-// slugs — an application registers slug = domain); max 253, no consecutive dots.
+// slugRe admits lowercase alnum with internal hyphens/dots (DNS-name shaped);
+// max 253, no consecutive dots.
 var slugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
 // ValidSlug reports whether slug is a well-formed DNS-name-shaped identifier.

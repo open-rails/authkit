@@ -92,7 +92,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
 		Keys:      authkit.KeysConfig{Source: keys()},
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:      authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
+		HTTP:      authkit.HTTPConfig{DirectPeerIP: true, Limiter: unlimited{}},
 	}
 	deps := authkit.Deps{Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {
@@ -155,3 +155,8 @@ func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 	})
 	return name
 }
+
+// unlimited is a rate limiter that allows every request.
+type unlimited struct{}
+
+func (unlimited) AllowNamed(string, string) (bool, error) { return true, nil }

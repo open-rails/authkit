@@ -37,7 +37,6 @@ func (c Config) settings() settings {
 		Roles:                 c.Roles.engine(),
 		Applications:          engine.ApplicationsConfig(c.Applications),
 		Delegated:             engine.DelegatedConfig(c.Delegated),
-		Documents:             c.Documents.engine(),
 		Schema:                c.Schema,
 		SolanaNetwork:         c.SolanaNetwork,
 		SessionEventRetention: c.SessionEventRetention,
@@ -47,14 +46,6 @@ func (c Config) settings() settings {
 		s.http = &h
 	}
 	return s
-}
-
-func (c DocumentsConfig) engine() engine.DocumentsConfig {
-	out := engine.DocumentsConfig{AllowRegisteredTier: c.AllowRegisteredTier}
-	for _, r := range c.Readers {
-		out.Readers = append(out.Readers, engine.DocumentReader(r))
-	}
-	return out
 }
 
 func (c HTTPConfig) internal() httpapi.Config {
@@ -67,15 +58,14 @@ func (c HTTPConfig) internal() httpapi.Config {
 			Wrap:          c.Wrap,
 			RefreshCookie: c.RefreshCookie,
 		},
-		DPoPRequestURL:      c.DPoPRequestURL,
-		Redis:               c.Redis,
-		RedisKeyPrefix:      c.RedisKeyPrefix,
-		DisableRateLimiting: c.DisableRateLimiting,
-		TrustedProxies:      append([]string(nil), c.TrustedProxies...),
-		CloudflareProxies:   append([]string(nil), c.CloudflareProxies...),
-		DirectPeerIP:        c.DirectPeerIP,
-		ClientIP:            c.ClientIP,
-		Languages:           httpapi.LanguageConfig{Supported: append([]string(nil), c.Languages.Supported...), Default: c.Languages.Default},
+		DPoPRequestURL:    c.DPoPRequestURL,
+		Redis:             c.Redis,
+		RedisKeyPrefix:    c.RedisKeyPrefix,
+		TrustedProxies:    append([]string(nil), c.TrustedProxies...),
+		CloudflareProxies: append([]string(nil), c.CloudflareProxies...),
+		DirectPeerIP:      c.DirectPeerIP,
+		ClientIP:          c.ClientIP,
+		Languages:         httpapi.LanguageConfig{Supported: append([]string(nil), c.Languages.Supported...), Default: c.Languages.Default},
 	}
 	if c.Limiter != nil {
 		out.Limiter = c.Limiter
@@ -101,10 +91,7 @@ func (d Deps) engine() engine.Deps {
 		OnRestore:              d.OnRestore,
 		OnEvent:                d.OnEvent,
 		DelegatedAuthorization: d.DelegatedAuthorization,
-		ApplicationAdmission:   d.ApplicationAdmission,
 		NameAdmission:          d.NameAdmission,
-		SolanaSNSResolver:      d.SolanaSNSResolver,
-		OutboundHTTP:           d.OutboundHTTP,
 		Clock:                  d.Clock,
 	}
 }

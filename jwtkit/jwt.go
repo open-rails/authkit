@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -44,18 +43,6 @@ type HeaderSigner interface {
 	SignWithHeaders(ctx context.Context, claims jwt.MapClaims, headers map[string]any) (token string, err error)
 }
 
-// PayloadSigner is the optional Signer extension for compact JWS payloads that
-// must be signed byte-for-byte. Unlike Sign, it does not marshal a MapClaims.
-// AuthKit's built-in RSA, ECDSA, and Ed25519 signers implement it.
-type PayloadSigner interface {
-	Signer
-	SignPayload(ctx context.Context, payload []byte, headers map[string]any) (token string, err error)
-}
-
-// ErrPayloadSignerRequired means a Signer can issue JWT claims but cannot sign
-// an exact caller-supplied JWS payload.
-var ErrPayloadSignerRequired = errors.New("payload signer required")
-
 // SignWithType signs claims, optionally stamping the JOSE `typ` header. It is the
 // single home for the "assert HeaderSigner and set typ, or fall back" idiom that
 // AuthKit's token-minting paths share:
@@ -76,17 +63,6 @@ func SignWithType(ctx context.Context, signer Signer, claims jwt.MapClaims, typ 
 		return signer.Sign(ctx, claims)
 	}
 	return hs.SignWithHeaders(ctx, claims, map[string]any{"typ": typ})
-}
-
-// SignPayloadWithType signs payload exactly as supplied and stamps typ. It is
-// used for signed documents, whose digest covers the same bytes carried by the
-// compact JWS payload.
-func SignPayloadWithType(ctx context.Context, signer Signer, payload []byte, typ string) (string, error) {
-	ps, ok := signer.(PayloadSigner)
-	if !ok {
-		return "", ErrPayloadSignerRequired
-	}
-	return ps.SignPayload(ctx, payload, map[string]any{"typ": typ})
 }
 
 // Minimal in-memory RSA signer for bootstrap/dev. Production should load from KMS or DB.
@@ -125,10 +101,6 @@ func (s *RSASigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, hea
 	return signWithHeaders(jwt.SigningMethodRS256, s.key, s.kid, claims, headers)
 }
 
-func (s *RSASigner) SignPayload(_ context.Context, payload []byte, headers map[string]any) (string, error) {
-	return signWithHeaders(jwt.SigningMethodRS256, s.key, s.kid, exactClaims{payload: payload}, headers)
-}
-
 // signWithHeaders is the shared signing body for every in-memory signer: build the
 // token with the given method, merge any extra JOSE headers (kid/alg are reserved
 // to the signer), stamp kid, and sign. The key is whatever crypto key the method
@@ -147,23 +119,6 @@ func signWithHeaders(method jwt.SigningMethod, key any, kid string, claims jwt.C
 	token.Header["kid"] = kid
 	return token.SignedString(key)
 }
-
-// exactClaims lets golang-jwt build and sign the JOSE header/signing input while
-// preserving an already-marshaled payload byte-for-byte.
-type exactClaims struct{ payload []byte }
-
-func (c exactClaims) MarshalJSON() ([]byte, error) {
-	if !json.Valid(c.payload) {
-		return nil, errors.New("invalid json payload")
-	}
-	return append([]byte(nil), c.payload...), nil
-}
-func (exactClaims) GetExpirationTime() (*jwt.NumericDate, error) { return nil, nil }
-func (exactClaims) GetIssuedAt() (*jwt.NumericDate, error)       { return nil, nil }
-func (exactClaims) GetNotBefore() (*jwt.NumericDate, error)      { return nil, nil }
-func (exactClaims) GetIssuer() (string, error)                   { return "", nil }
-func (exactClaims) GetSubject() (string, error)                  { return "", nil }
-func (exactClaims) GetAudience() (jwt.ClaimStrings, error)       { return nil, nil }
 
 // Helper to make base registered claims.
 func BaseRegisteredClaims(subject string, audiences []string, ttl time.Duration) jwt.RegisteredClaims {

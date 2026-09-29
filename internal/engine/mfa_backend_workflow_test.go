@@ -29,7 +29,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				session := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-horse-battery-1"})).AccessToken
 				body := map[string]any{"method": method}
 				if method == "sms" {
-					body["phone"] = uniquePhone()
+					body["phone_number"] = uniquePhone()
 				}
 				start := f.request("POST", "/user/2fa", session, body)
 				if method == "totp" {

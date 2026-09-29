@@ -16,29 +16,18 @@ import (
 )
 
 // API keys (#111): long-lived, revocable bearer credentials owned by a
-// permission group, for machine callers. A key holds one role of its group
-// (catalog or custom); its permissions resolve from that role at use time, so
-// editing the role changes every key holding it. Issuance follows rule CRED
+// permission group, for machine callers. A key holds one catalog role of its
+// group; its permissions resolve from that role at use time, so editing the
+// role changes every key holding it. Issuance follows rule CRED
 // (credential_issuers.go): the creator is recorded and the key dies with the
 // creator's authority. The system issues keys with no creator.
 
-// effectiveGroupRolePermissions resolves a role NAME to its effective permission
-// set within a permission-group of persona: a catalog role from the schema
-// (core.Config), or a per-group custom role from group_custom_roles. The role —
-// not any snapshot — is the source of truth, so resolution repeats at use time.
-func (s *Engine) effectiveGroupRolePermissions(ctx context.Context, st *permissionGroupStore, groupID string, persona iam.Persona, role iam.Role) ([]string, error) {
-	sch := s.groupSchemaOrDefault()
-	if def, ok := sch.Role(persona, role); ok {
-		perms := append([]string(nil), def.Permissions...)
-		return perms, nil
-	}
-	// Not a catalog role: look for a per-group custom role.
-	resolver, err := st.CustomRolesFor(ctx, []string{groupID})
-	if err != nil {
-		return nil, err
-	}
-	if perms, ok := resolver(groupID, role); ok {
-		return append([]string(nil), perms...), nil
+// effectiveGroupRolePermissions resolves a catalog role of persona to its
+// permissions. The role — not any snapshot — is the source of truth, so
+// resolution repeats at use time.
+func (s *Engine) effectiveGroupRolePermissions(_ context.Context, _ *permissionGroupStore, _ string, persona iam.Persona, role iam.Role) ([]string, error) {
+	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
+		return append([]string(nil), def.Permissions...), nil
 	}
 	return []string{}, nil
 }
@@ -57,7 +46,7 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	}
 	role := k.Role
 	if role.IsZero() {
-		return iam.APIKey{}, "", errmodel.ErrInvalidRole
+		return iam.APIKey{}, "", iam.ErrRoleNotAssignable
 	}
 	now := time.Now().UTC()
 	expiresAt := k.ExpiresAt
@@ -200,17 +189,15 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		secretHash  []byte
 		revokedAt   *time.Time
 		creatorLive bool
-		custom      []string
 		role        string
 	)
 	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
-        g.id::text, g.persona, g.created_at, r.permissions
+        g.id::text, g.persona, g.created_at
  FROM api_keys k
  JOIN permission_groups g ON g.id=k.permission_group_id
- LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
  WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
 		Scan(&p.ID, &secretHash, &role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, scanPersona(&p.Group.Persona), &p.Group.CreatedAt, &custom)
+			&p.Group.ID, scanPersona(&p.Group.Persona), &p.Group.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
@@ -229,13 +216,9 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	s.touchAccessTokenAsync(p.ID)
 	p.Role = ident.Role(p.Group.Persona, role)
 	sch := s.groupSchemaOrDefault()
-	persona, _ := sch.Persona(p.Group.Persona)
 	grants := []string{}
-	switch def, ok := sch.Role(p.Group.Persona, p.Role); {
-	case ok:
+	if def, ok := sch.Role(p.Group.Persona, p.Role); ok {
 		grants = def.Permissions
-	case custom != nil && persona.CustomRoles:
-		grants = custom
 	}
 	p.Permissions = ident.Perms(grants)
 	// A key can present no second factor: a role that came to need MFA (a

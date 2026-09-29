@@ -19,28 +19,11 @@ import (
 // SolanaProviderSlug is the provider slug used for Solana wallets.
 const solanaProviderSlug = "solana"
 
-func normalizeSolanaNetwork(network string) string {
-	network = strings.ToLower(strings.TrimSpace(network))
-	if network != "" {
-		switch network {
-		case "mainnet", "mainnet-beta":
-			return "mainnet"
-		case "testnet":
-			return "testnet"
-		case "devnet":
-			return "devnet"
-		default:
-			return network
-		}
-	}
-	return ""
-}
-
 func solanaChainIDForConfig(cfg Config) string {
-	if n := normalizeSolanaNetwork(cfg.SolanaNetwork); n != "" {
-		return n
+	if cfg.SolanaNetwork != "" {
+		return string(cfg.SolanaNetwork)
 	}
-	return "mainnet"
+	return string(iam.SolanaMainnet)
 }
 
 func (s *Engine) solanaChainID() string {

@@ -2,6 +2,7 @@ package securitytest
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -108,13 +109,11 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
 	s := newSigner(t, "n8-app")
 	const appIssuer = "https://n8-app.security.test"
-	resp := h.post(base+"/remote-applications", map[string]any{"slug": "n8-app", "issuer": appIssuer,
-		"public_keys": []map[string]string{{"kid": s.KID(), "public_key_pem": pemOf(t, s.PublicKey())}}}, token)
-	require.Equal(t, http.StatusCreated, resp.status, resp.String())
-	resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/n8-app/roles/member", token: token})
-	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	app, err := h.auth.RemoteApplication(ctx, appIssuer)
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
+		Slug: "n8-app", Issuer: appIssuer, PublicKeys: staticKeys(t, s), Enabled: true,
+	})
 	require.NoError(t, err)
+	require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(owner.id), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, roleIn(t, h.auth, group, "member"))))
 	hostRoute := func(auth *authkit.Client, bearer string) int {
 		gate := auth.RequirePermissionOn(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
@@ -159,18 +158,27 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 	require.Empty(t, keys.Items)
 }
 
-// registerApp registers a group application with token and gives it role.
-func (h *host) registerApp(base, token, slug, role string) iam.RemoteApplication {
+// registerApp registers a group application as registrar and gives it role.
+func (h *host) registerApp(group iam.GroupRef, registrar account, slug, role string) iam.RemoteApplication {
 	h.t.Helper()
-	iss := "https://" + slug + ".security.test"
-	resp := h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": iss,
-		"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(h.t)}}}, token)
-	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
-	resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + slug + "/roles/" + role, token: token})
-	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
-	app, err := h.auth.RemoteApplication(context.Background(), iss)
+	actor := iam.UserActor(registrar.id)
+	app, err := h.upsertGroupApp(actor, group, slug, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
 	require.NoError(h.t, err)
+	require.NoError(h.t, opErr(h.auth.AssignGroupRoles(h.t.Context(), actor, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, roleIn(h.t, h.auth, group, role))))
 	return app
+}
+
+// upsertGroupApp registers or updates a static-key application in group.
+func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, slug, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
+	return h.auth.UpsertRemoteApplication(h.t.Context(), actor, group, iam.RemoteApplication{
+		Slug: slug, Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
+	})
+}
+
+// requireRefused: the actor lacks the authority (a capability or coverage).
+func requireRefused(t *testing.T, err error) {
+	t.Helper()
+	require.True(t, errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation), "want an authority refusal, got %v", err)
 }
 
 func (h *host) roleOf(group iam.GroupRef, subject iam.Subject) iam.Role {
@@ -191,15 +199,14 @@ func (h *host) reboot(cfg authkit.Config) {
 // TestSecurityCredentialSweepNeverBlocksBoot (P2): an application owner role
 // that already confers nothing (it needs MFA, or its registrar is gone) is
 // retired without the last-owner refusal, and the boot sweep never refuses:
-// it retires and logs. No stored state keeps AuthKit from starting or blocks
-// a root custom-role edit.
+// it retires and logs. No stored state keeps AuthKit from starting.
 func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	ctx := context.Background()
 	t.Run("RequireMFA added to a permission an application owner holds", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 		owner := h.newAccount("p2aowner")
-		group, base := h.newOrg(owner)
-		app := h.registerApp(base, h.login(owner).AccessToken, "p2a-app", "owner")
+		group, _ := h.newOrg(owner)
+		app := h.registerApp(group, owner, "p2a-app", "owner")
 		cfg := h.cfg.engine
 		m := newSecurityModel()
 		m.org.RequireMFA(m.catalogRead)
@@ -224,8 +231,8 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	t.Run("a pre-0008 group registration as its group's only owner", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 		owner := h.newAccount("p2cowner")
-		group, base := h.newOrg(owner)
-		app := h.registerApp(base, h.login(owner).AccessToken, "p2c-app", "owner")
+		group, _ := h.newOrg(owner)
+		app := h.registerApp(group, owner, "p2c-app", "owner")
 		// The rows a pre-0008 deployment left: no registrar, and the
 		// application is the group's only owner.
 		_, err := h.pool.Exec(ctx, `UPDATE profiles.remote_applications SET registered_by=NULL WHERE id=$1::uuid`, app.ID)
@@ -241,7 +248,6 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	t.Run("Required 2FA: an application orphaned by its registrar's first proof", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
 			c.TwoFactor.Mode = iam.TwoFactorRequired
-			c.Roles = newSecurityModel(authkit.CustomRoles).Roles
 		}))
 		// An account whose address nobody proved founds a group and makes its
 		// own application an owner, then proves the address.
@@ -264,18 +270,21 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT registered_by IS NULL FROM profiles.remote_applications WHERE id=$1::uuid`, app.ID).Scan(&orphaned))
 		require.True(t, orphaned, "control: the first proof orphans the application")
 
-		// A root custom-role edit sweeps the whole site.
-		_, err = h.auth.DefineGroupRole(ctx, iam.SystemActor(), iam.RootGroup(), "auditor", iam.PermRootUsersRead)
-		require.NoError(t, err)
+		// A catalog change at boot sweeps the whole site.
+		cfg := h.cfg.engine
+		m := newSecurityModel()
+		m.Root.Role("auditor", m.Root.Users.Read)
+		cfg.Roles = m.Roles
+		h.reboot(cfg)
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 		require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.UserSubject(u.ID)))
 	})
 	t.Run("control: a live registrar's chosen change still keeps the last owner", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 		owner := h.newAccount("p2eowner")
-		_, base := h.newOrg(owner)
+		group, base := h.newOrg(owner)
 		token := h.login(owner).AccessToken
-		h.registerApp(base, token, "p2e-app", "owner")
+		h.registerApp(group, owner, "p2e-app", "owner")
 		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: token})
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
 		require.Equal(t, "last_owner", resp.errorCode())

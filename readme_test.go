@@ -95,7 +95,6 @@ func TestReadmeRolesBlock(t *testing.T) {
 	for _, perm := range []iam.Perm{PostsEdit, PostsDelete, PostsApprove, ChannelEdit, ChannelDelete, Channel.Members.Read, Channel.Members.Manage, rbac.Root.Users.Ban} {
 		require.True(t, auth.KnownPermission(perm), perm)
 	}
-	require.False(t, auth.KnownPermission(Channel.Roles.Manage), "CustomRoles is off")
 	require.False(t, auth.KnownPermission(Channel.Credentials.Manage), "APIKeys and RemoteApplications are off")
 	// A name read at run time resolves to the declared value.
 	perm, err := auth.Permission("channel:self:delete")

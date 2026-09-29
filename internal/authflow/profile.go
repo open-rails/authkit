@@ -16,9 +16,7 @@ type ProfileInput struct {
 	ClaimsUsername  string // fallback when the row carries no username
 	AuthTime        time.Time
 	StepUpSatisfied bool // the presented token is fresh enough for sensitive actions
-	// EnabledProviders lists the deployment's login providers;
 	// ProviderSupportsStepUp reports which linked providers can re-authenticate.
-	EnabledProviders       []string
 	ProviderSupportsStepUp func(provider string) bool
 }
 

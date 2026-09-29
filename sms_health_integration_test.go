@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +61,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	auth, err := authkit.New(context.Background(), authkit.Config{
 		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
 		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
-		HTTP:  authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
+		HTTP:  authkit.HTTPConfig{DirectPeerIP: true, Limiter: testhttp.Unlimited{}},
 	}, authkit.Deps{Postgres: testdb.Pool(t), SMS: sender})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)

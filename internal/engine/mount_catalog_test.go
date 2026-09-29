@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -128,10 +127,8 @@ func TestMountCatalog(t *testing.T) {
 			{http.MethodPost, "/api/v1/2fa/challenge"},
 			{http.MethodGet, "/api/v1/user/2fa"},
 			{http.MethodPost, "/api/v1/solana/challenge"},
-			{http.MethodPost, "/api/v1/applications/register"},
 			{http.MethodPost, "/api/v1/delegated/token"},
 			{http.MethodGet, "/oidc/example/login"},
-			{http.MethodGet, "/.well-known/authkit/documents/missing"},
 		} {
 			require.NotContains(t, routes, ref)
 			rec := mountCatalogRequest(mount, ref.method, ref.path, "", "")
@@ -211,18 +208,12 @@ func TestMountCatalog(t *testing.T) {
 	})
 }
 
-func TestMountCatalogOIDCAndDocuments(t *testing.T) {
+func TestMountCatalogOIDC(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Identity.Providers = []authprovider.Provider{testOAuth2Provider("catalog", "https://idp.example", "client", "secret")}
-	cfg.Documents.Readers = []DocumentReader{{Issuer: "https://reader.example"}}
 	client := newServerClient(t, cfg, pg.Pool)
-	doc, err := client.PublishDocument(t.Context(), documents.Publication{
-		Type: "example.mount-catalog/v1", Payload: json.RawMessage(`{"catalog":true}`),
-		Audiences: cfg.Token.ExpectedAudiences,
-	})
-	require.NoError(t, err)
 	svc, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
@@ -230,10 +221,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	require.NoError(t, err)
 	routes := mountCatalogByRoute(t, mount)
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		require.Equal(t, iam.Route{Method: method, Path: iam.DocumentsPath, Group: iam.RouteDocuments, Auth: iam.AuthRequired}, routes[routeKey{method, iam.DocumentsPath}])
 		require.Equal(t, iam.Route{Method: method, Path: "/oidc/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic}, routes[routeKey{method, "/oidc/{provider}/login"}])
-		rec := mountCatalogRequest(mount, method, "/.well-known/authkit/documents/"+doc.Digest, "", "")
-		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
 		require.Contains(t, routes, routeKey{method, "/oidc/{provider}/callback"})
@@ -244,15 +232,13 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 
 	for _, opts := range []httpapi.MountOptions{
 		{Groups: []iam.RouteGroup{iam.RouteRegistration}},
-		{Exclude: []string{"GET " + iam.DocumentsPath, "GET /oidc/{provider}/login", "POST /oidc/{provider}/login"}},
+		{Exclude: []string{"GET /oidc/{provider}/login", "POST /oidc/{provider}/login"}},
 	} {
 		filtered, err := httpapi.NewMount(svc, opts)
 		require.NoError(t, err)
 		filteredRoutes := mountCatalogByRoute(t, filtered)
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
-			require.NotContains(t, filteredRoutes, routeKey{method, iam.DocumentsPath})
 			require.NotContains(t, filteredRoutes, routeKey{method, "/oidc/{provider}/login"})
-			require.Equal(t, http.StatusNotFound, mountCatalogRequest(filtered, method, "/.well-known/authkit/documents/"+doc.Digest, "", "").Code)
 			require.Equal(t, http.StatusNotFound, mountCatalogRequest(filtered, method, "/oidc/catalog/login", "", "").Code)
 		}
 	}

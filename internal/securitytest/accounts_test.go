@@ -437,7 +437,7 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, g.DeletedAt)
 
-	app := h.registerApp(base, token, "life-app", "member")
+	app := h.registerApp(group, founder, "life-app", "member")
 	banned, deleted, reserved := h.newAccount("lifebanned"), h.newAccount("lifedeleted"), h.newAccount("lifereserved")
 	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
 	require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{deleted.id})))

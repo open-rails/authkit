@@ -13,8 +13,8 @@ import (
 )
 
 // Mount layout. The whole surface lives beneath one base path: the path of
-// the issuer, so verifiers and document resolvers find JWKS and documents at
-// the issuer plus iam.JWKSPath and iam.DocumentsPath. Beneath it, browser OIDC
+// the issuer, so verifiers find JWKS at the issuer plus iam.JWKSPath.
+// Beneath it, browser OIDC
 // sits at OIDCPath and the JSON API at APIPath. The surface is ONE handler.
 const (
 	DefaultAPIPath = "/api/v1"
@@ -39,8 +39,8 @@ type MountOptions struct {
 	// verifier's MFA-enrollment exempt set, so a shadowed enroll route stays
 	// reachable through the host's replacement.
 	Exclude []string
-	// Wrap decorates every API and browser-OIDC handler at mount time. JWKS and
-	// documents are not wrapped.
+	// Wrap decorates every API and browser-OIDC handler at mount time. JWKS is
+	// not wrapped.
 	Wrap func(iam.Route, http.Handler) http.Handler
 	// RefreshCookie (ak#271) delivers the rotating refresh token as an
 	// HttpOnly+Secure+SameSite=Lax cookie (iam.RefreshCookieName) instead of a
@@ -100,8 +100,8 @@ func layoutFrom(r *http.Request) mountLayout {
 	return layout
 }
 
-// NewMount builds the full AuthKit surface — JSON API, browser OIDC, JWKS and
-// published documents — as ONE net/http handler plus its route catalog. Every
+// NewMount builds the full AuthKit surface — JSON API, browser OIDC and JWKS
+// — as ONE net/http handler plus its route catalog. Every
 // route keeps the gate its RouteSpec carries; the mount adds no auth and
 // removes none.
 func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
@@ -160,15 +160,6 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 		register("GET "+jwks, svc.JWKSHandler(), iam.Route{Method: http.MethodGet, Path: jwks, Group: iam.RouteAuth, Auth: iam.AuthPublic})
 		layout.jwks = jwks
 	}
-	// #260: published signed documents sit beside JWKS (#254 — resolvers
-	// derive the URL from the issuer). Mounted when readers are configured and
-	// the group is selected; the handler itself enforces GET/HEAD and reader
-	// authorization.
-	if docs := joinRoutePath(base, iam.DocumentsPath); len(svc.settings.Documents.Readers) > 0 &&
-		(opts.Groups == nil || routeGroupSet(opts.Groups)(iam.RouteDocuments)) &&
-		!skip(http.MethodGet, docs) {
-		register(docs, svc.documentsHandler(), iam.Route{Method: http.MethodGet, Path: docs, Group: iam.RouteDocuments, Auth: iam.AuthRequired})
-	}
 
 	// #243/ak#324: the MFA-enrollment exempt surface is anchored at THIS
 	// mount's API path and matched exactly.
@@ -220,13 +211,13 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 
 	result.handler = withMountLayout(mux, layout)
 	if opts.RefreshCookie {
-		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{tokenPath: strings.TrimSuffix(api, "/") + "/token"})
+		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
 	return result, nil
 }
 
 // resolveBasePath derives the base from the issuer's path, or checks a set
-// one against it: JWKS and documents are only found where the issuer says.
+// one against it: JWKS is only found where the issuer says.
 // A non-URL issuer has no path, so any base goes.
 func resolveBasePath(configured, issuer string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(issuer))
@@ -245,7 +236,7 @@ func resolveBasePath(configured, issuer string) (string, error) {
 		return "", err
 	}
 	if isURL && base != derived {
-		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers and document resolvers look for JWKS and documents", configured, issuer)
+		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers look for JWKS", configured, issuer)
 	}
 	return base, nil
 }

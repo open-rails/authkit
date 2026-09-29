@@ -32,5 +32,10 @@ func ClientAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.
 
 // HTTP is a rate-limit-free, direct-peer HTTP configuration for tests.
 func HTTP() authkit.HTTPConfig {
-	return authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true}
+	return authkit.HTTPConfig{DirectPeerIP: true, Limiter: Unlimited{}}
 }
+
+// Unlimited is a rate limiter that allows every request.
+type Unlimited struct{}
+
+func (Unlimited) AllowNamed(string, string) (bool, error) { return true, nil }

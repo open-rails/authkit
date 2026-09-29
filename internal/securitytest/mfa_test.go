@@ -72,10 +72,10 @@ func (h *host) enrollTOTP(token string) (string, response) {
 // enrollSMS adds an SMS factor for phone with token.
 func (h *host) enrollSMS(token, phone string) {
 	h.t.Helper()
-	resp := h.post("/user/2fa", map[string]string{"method": "sms", "phone": phone}, token)
+	resp := h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone}, token)
 	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
 	code := h.mail.Last(h.t, authtest.Verification, phone).Code
-	resp = h.post("/user/2fa", map[string]string{"method": "sms", "phone": phone, "code": code}, token)
+	resp = h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone, "code": code}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 }
 
