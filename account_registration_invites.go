@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/secret"
@@ -52,21 +53,21 @@ func (s *engine) accountRegistrationInviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-func (s *engine) CreateAccountRegistrationInvite(ctx context.Context, req iam.CreateAccountRegistrationInviteRequest) (iam.AccountRegistrationInviteCreated, error) {
+func (s *engine) CreateAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest) (authflow.AccountRegistrationInviteCreated, error) {
 	return s.createAccountRegistrationInvite(ctx, req, true)
 }
 
-func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (iam.AccountRegistrationInviteCreated, error) {
+func (s *engine) createAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (authflow.AccountRegistrationInviteCreated, error) {
 	if err := s.requirePG(); err != nil {
-		return iam.AccountRegistrationInviteCreated{}, err
+		return authflow.AccountRegistrationInviteCreated{}, err
 	}
 	email := contact.NormalizeEmail(req.Email)
 	if err := contact.ValidateEmail(email); err != nil {
-		return iam.AccountRegistrationInviteCreated{}, err
+		return authflow.AccountRegistrationInviteCreated{}, err
 	}
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if invitedBy == "" {
-		return iam.AccountRegistrationInviteCreated{}, iam.ErrInvalidInvite
+		return authflow.AccountRegistrationInviteCreated{}, iam.ErrInvalidInvite
 	}
 
 	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
@@ -84,25 +85,25 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.Cr
 	var groupID *string
 	if carriesRole {
 		if !s.externalInvitesEnabled() {
-			return iam.AccountRegistrationInviteCreated{}, iam.ErrExternalInvitesDisabled
+			return authflow.AccountRegistrationInviteCreated{}, iam.ErrExternalInvitesDisabled
 		}
 		st := s.groupStore()
 		sch := s.groupSchemaOrDefault()
 		if !s.validRoleForPersona(sch, persona, role) {
-			return iam.AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
+			return authflow.AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 		}
 		gid, err := s.resolveGroupID(ctx, st, group)
 		if err != nil {
-			return iam.AccountRegistrationInviteCreated{}, err
+			return authflow.AccountRegistrationInviteCreated{}, err
 		}
 		groupID = &gid
 	} else if requireRootInvitePermission {
 		ok, err := s.Can(ctx, iam.UserSubject(invitedBy), iam.RootGroup(), iam.PermRootUsersInvite)
 		if err != nil {
-			return iam.AccountRegistrationInviteCreated{}, err
+			return authflow.AccountRegistrationInviteCreated{}, err
 		}
 		if !ok {
-			return iam.AccountRegistrationInviteCreated{}, iam.ErrInsufficientRoleAuthority
+			return authflow.AccountRegistrationInviteCreated{}, iam.ErrInsufficientRoleAuthority
 		}
 	}
 
@@ -138,9 +139,9 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.Cr
 		err = insert(s.pg)
 	}
 	if err != nil {
-		return iam.AccountRegistrationInviteCreated{}, err
+		return authflow.AccountRegistrationInviteCreated{}, err
 	}
-	created := iam.AccountRegistrationInviteCreated{
+	created := authflow.AccountRegistrationInviteCreated{
 		ID:        id,
 		Code:      code,
 		URL:       s.accountRegistrationInviteURL(code),

@@ -144,7 +144,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	}
 	f.expect(200, f.post("/solana/login", walletProof()))
 	var walletUser string
-	require.NoError(t, f.service.svc.Postgres().QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
+	require.NoError(t, fixtureBackend(f.service.svc).Postgres().QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
 	remove(walletUser)
 	wallet := walletProof()
 	confirmed = f.expect(409, f.post("/solana/login", wallet))

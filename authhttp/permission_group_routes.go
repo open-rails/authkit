@@ -19,6 +19,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	jwtkit "github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -170,7 +171,7 @@ func (s *Service) generatedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
-		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, verify.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
+		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, jwtkit.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
 		remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
 		if !ok || (claims.UserID == "" && !(remoteSelf && remoteOperation)) {
 			unauthorized(w, iam.CodeNotAuthenticated)
@@ -194,7 +195,7 @@ func (s *Service) generatedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 		// bound to their controlling group and verified permission ceiling.
 		var allowed bool
 		if remoteSelf {
-			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
+			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
 			err = nil
 			if allowed {
 				allowed, err = s.svc.Can(r.Context(), iam.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)

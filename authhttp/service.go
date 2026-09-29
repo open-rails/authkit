@@ -9,17 +9,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 )
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
 	dpopRequestURL      func(*http.Request) string
-	svc                 authkit.HTTPBackend
+	svc                 Backend
+	settings            authflow.Settings
 	verifier            *verify.Verifier
 	rl                  RateLimiter
 	closers             []func() // background work stopped by Close (#305)
@@ -75,7 +75,7 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, iam.CodeRateLimited)
+		tooManyAvailability(w, *result.Availability)
 		return true
 	}
 	tooMany(w, result.RetryAfter)
@@ -101,7 +101,7 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, iam.CodeRateLimited)
+		tooManyAvailability(w, *result.Availability)
 		return true
 	}
 	tooMany(w, result.RetryAfter)

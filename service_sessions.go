@@ -255,7 +255,7 @@ func (s *engine) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 		}
 		return "", time.Time{}, err
 	}
-	var mfaForToken *iam.MFAStatus
+	var mfaForToken *authflow.MFAStatus
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
@@ -344,7 +344,7 @@ func (s *engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
 }
 
-func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa iam.MFAStatus, in LoginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
+func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa authflow.MFAStatus, in LoginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
@@ -407,7 +407,7 @@ func (s *engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
 // ListUserSessions lists active sessions for a user and issuer.
-func (s *engine) ListUserSessions(ctx context.Context, userID string) ([]iam.Session, error) {
+func (s *engine) ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -415,12 +415,12 @@ func (s *engine) ListUserSessions(ctx context.Context, userID string) ([]iam.Ses
 	if err != nil {
 		return nil, err
 	}
-	var out []iam.Session
+	var out []authflow.Session
 	for _, r := range rows {
 		// LastAuthenticatedAt and RevokedAt are left at their zero value: the
 		// session-list query no longer selects them (#230 — the handler never
 		// renders them, and revoked_at is always NULL for the rows it returns).
-		out = append(out, iam.Session{
+		out = append(out, authflow.Session{
 			ID:         r.ID,
 			FamilyID:   r.FamilyID,
 			CreatedAt:  r.CreatedAt,

@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 )
@@ -32,22 +31,20 @@ func (s *Service) Close() {
 // New assembles a local HTTP transport inside HTTPConfiguration.BuildHTTP.
 // Applications normally set authkit.Config.HTTP instead. Runtime and portable
 // Clients deliberately do not implement HTTPBackend.
-func New(client authkit.HTTPBackend, hcfg Config) (*Service, error) {
-	if client == nil || client.Postgres() == nil {
-		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed authkit.HTTPBackend (Postgres is mandatory)")
+func New(client Backend, hcfg Config) (*Service, error) {
+	if client == nil {
+		return nil, errors.New("authkit: authhttp.New requires an engine backend")
 	}
 	if err := hcfg.Validate(); err != nil {
 		return nil, err
 	}
-	if err := probeMigrations(client); err != nil {
-		return nil, err
-	}
 	coreSvc := client
-	cfg := coreSvc.Config()
+	cfg := coreSvc.Settings()
 
 	s := &Service{
 		dpopRequestURL:    hcfg.DPoPRequestURL,
 		svc:               coreSvc,
+		settings:          cfg,
 		clientIP:          DefaultClientIP(),
 		clientIPExplicit:  hcfg.ClientIP != nil,
 		directPeerIP:      hcfg.DirectPeerIP,
@@ -68,34 +65,34 @@ func New(client authkit.HTTPBackend, hcfg Config) (*Service, error) {
 
 	verOpts := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),
-		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
-		verify.WithRemoteApplicationAudiences(cfg.Token.ExpectedAudiences...),
+		verify.WithAPIKeyPrefix(cfg.APIKeyPrefix),
+		verify.WithRemoteApplicationAudiences(cfg.ExpectedAudiences...),
 		// #240: wire the documented per-request forced-2FA-enrollment gate from
 		// the host's TwoFactor policy. Required mode challenges every existing
 		// un-enrolled user on their next request, not just at mint time.
-		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == iam.TwoFactorRequired),
+		verify.WithRequireMFAEnrollment(cfg.RequireMFAEnrollment),
 	}
 	// SSRF guard on JWKS fetches. Applications.AllowPrivateNetworkJWKS is the
 	// local-federation carve-out (#257): loopback/private JWKS the guarded
 	// dialer would refuse.
-	if !cfg.Applications.AllowPrivateNetworkJWKS {
+	if !cfg.AllowPrivateNetworkJWKS {
 		verOpts = append(verOpts, verify.WithSSRFGuard())
 	}
 	ver := verify.NewVerifier(verOpts...)
-	if err := ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
+	if err := ver.AddIssuer(cfg.Issuer, cfg.ExpectedAudiences, verify.IssuerOptions{
 		PublicKeys: coreSvc.PublicKeysByKID,
 		IsLocal:    true,
 	}); err != nil {
 		return nil, err
 	}
-	ver.WithService(coreSvc).WithLiveness(coreSvc).WithPermissionChecker(coreSvc, cfg.Token.Issuer)
+	ver.WithService(coreSvc).WithLiveness(coreSvc).WithPermissionChecker(coreSvc, cfg.Issuer)
 	s.verifier = ver
 
-	providers, err := providerRegistry(cfg.Identity.Providers, cfg.Token.AccountIssuers)
+	providers, err := providerRegistry(cfg.Providers, cfg.AccountIssuers)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireHTTPSForFormPost(providers, cfg.Frontend.BaseURL); err != nil {
+	if err := requireHTTPSForFormPost(providers, cfg.FrontendBaseURL); err != nil {
 		return nil, err
 	}
 	s.providers = providers
@@ -121,7 +118,7 @@ func New(client authkit.HTTPBackend, hcfg Config) (*Service, error) {
 			limits[bucket] = lim
 		}
 		if hcfg.Redis != nil {
-			prefix, err := redisKeyPrefix(hcfg.RedisKeyPrefix, coreSvc.Schema())
+			prefix, err := redisKeyPrefix(hcfg.RedisKeyPrefix, cfg.Schema)
 			if err != nil {
 				return nil, err
 			}
@@ -146,28 +143,9 @@ func New(client authkit.HTTPBackend, hcfg Config) (*Service, error) {
 	return s, nil
 }
 
-// probeMigrations fails fast at construction when AuthKit's migrations were
-// never run — a definitive "users table missing" beats a cryptic mid-request
-// `relation "users" does not exist`. Fail-open on probe errors
-// (connectivity, permissions): those surface elsewhere; only a definitive
-// "table missing" fails construction.
-func probeMigrations(client authkit.HTTPBackend) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	var exists bool
-	err := client.Postgres().QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'users')`,
-		client.Schema(),
-	).Scan(&exists)
-	if err != nil || exists {
-		return nil
-	}
-	return fmt.Errorf("authkit: schema %q has no users table — call authkit.ApplyMigrations before constructing the server", client.Schema())
-}
-
 // validate enforces the cross-layer dependency requirements for the configured
 // feature set (Config.Validate covers the HTTP layer's own fields).
-func (s *Service) validate(cfg authkit.Config) error {
+func (s *Service) validate(cfg authflow.Settings) error {
 	// #212: the registration-verification policy must be satisfiable by a
 	// configured delivery sender at CONSTRUCTION time. Fail here with an error
 	// instead of panicking later when handlers are mounted.

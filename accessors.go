@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
@@ -157,3 +158,41 @@ func (s *engine) qtx(tx pgx.Tx) *db.Queries {
 // call it during wiring, before serving requests. Hosts WITHOUT this cycle
 // should set Deps.Entitlements instead.
 func (s *engine) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
+
+// Settings derives the configuration the HTTP layer reads.
+func (s *engine) Settings() authflow.Settings {
+	c := s.cfg
+	readers := make([]authflow.DocumentReader, 0, len(c.Documents.Readers))
+	for _, r := range c.Documents.Readers {
+		readers = append(readers, authflow.DocumentReader{ID: r.ID, Domain: r.Domain, Issuer: r.Issuer})
+	}
+	return authflow.Settings{
+		Issuer:                   c.Token.Issuer,
+		AccountIssuers:           append([]string(nil), c.Token.AccountIssuers...),
+		ExpectedAudiences:        append([]string(nil), c.Token.ExpectedAudiences...),
+		RefreshTokenDuration:     c.Token.RefreshTokenDuration,
+		APIKeyPrefix:             c.APIKeys.Prefix,
+		Schema:                   s.dbSchema(),
+		RequireMFAEnrollment:     c.TwoFactor.Mode == iam.TwoFactorRequired,
+		AllowPrivateNetworkJWKS:  c.Applications.AllowPrivateNetworkJWKS,
+		ApplicationRegistration:  c.Applications.SelfRegistration,
+		DeviceKeys:               c.DeviceKeys.Enabled,
+		PasswordlessLogin:        c.Registration.PasswordlessLogin,
+		SolanaNetwork:            c.SolanaNetwork,
+		Providers:                append([]authprovider.Provider(nil), c.Identity.Providers...),
+		FrontendBaseURL:          c.Frontend.BaseURL,
+		OIDCReturnPath:           c.Frontend.OIDCReturnPath,
+		RegistrationMode:         c.Registration.NativeUserMode,
+		RegistrationVerification: c.Registration.Verification,
+		Username:                 c.Username,
+		Password:                 c.Password,
+		Delegated: authflow.DelegatedSettings{
+			Audiences:  append([]string(nil), c.Delegated.Audiences...),
+			AllowDPoP:  c.Delegated.AllowDPoP,
+			TTLFloor:   c.Delegated.TTLFloor,
+			TTLDefault: c.Delegated.TTLDefault,
+			TTLCeiling: c.Delegated.TTLCeiling,
+		},
+		Documents: authflow.DocumentSettings{Readers: readers, AllowRegisteredTier: c.Documents.AllowRegisteredTier},
+	}
+}

@@ -183,55 +183,6 @@ type GroupInviteLinkCreated struct {
 	URL  string
 }
 
-type RedeemGroupInviteLinkResult struct {
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-}
-
-type AccountRegistrationInvite struct {
-	ID         string
-	Email      string
-	InvitedBy  string
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
-	ConsumedAt *time.Time
-	ConsumedBy *string
-	// Persona/InstanceSlug/Role describe an OPTIONAL group role the code also grants
-	// on consume (#147 register+join). Empty for a plain registration invite.
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-type CreateAccountRegistrationInviteRequest struct {
-	Email     string
-	InvitedBy string
-	ExpiresIn time.Duration
-	// Persona/InstanceSlug/Role, when all set, make this a register+join invite: the
-	// minted code ALSO grants the given role in that permission group on consume
-	// (#147). The minting actor must hold that group's members:manage (no-escalation);
-	// a role-carrying invite does NOT require general root:users:invite. Leave empty
-	// for a plain registration invite (root:users:invite gated).
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-}
-
-type AccountRegistrationInviteCreated struct {
-	ID        string
-	Code      string
-	URL       string
-	Email     string
-	ExpiresAt time.Time
-	// Persona/InstanceSlug/Role echo the optional group grant carried by the code.
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-}
-
 type ImportUserStatus string
 
 type ImportUserResult struct {
@@ -280,27 +231,6 @@ type ImportUnverifiedSolanaLinksResult struct {
 	Rejected int
 }
 
-type MFAStatus struct {
-	Enabled        bool
-	Satisfied      bool
-	AllowedMethods []string
-}
-
-type PasswordlessStartRequest struct {
-	Identifier         string
-	Mode               string
-	ReturnTo           string
-	PreferredLanguage  string
-	AccountInviteToken string
-}
-
-type PasswordlessStartResult struct {
-	Sent    bool
-	Channel string
-	Code    string
-	LinkURL string
-}
-
 type CreatePermissionGroupRequest struct {
 	Persona            Persona
 	InstanceSlug       string
@@ -329,15 +259,6 @@ type DeletePermissionGroupOptions struct {
 	// ReleaseSlug applies to every canonical name in the deleted subtree;
 	// prior aliases retain their original expiry.
 	ReleaseSlug bool
-}
-
-// CustomRoleDef defines (or redefines) a per-group custom role: its grant
-// patterns, all in the group's persona namespace, and whether holding it
-// requires an enrolled second factor (mirrors RoleDef.RequiresMFA, #247).
-type CustomRoleDef struct {
-	Role        Role
-	Permissions []string
-	RequiresMFA bool
 }
 
 type GroupMember struct {
@@ -395,10 +316,6 @@ type RemoteApplicationAccessParams struct {
 	// remote application access token can never widen). nil/absent => no claim
 	// => full stored ceiling (backward-compatible with v0.28.0 tokens).
 	Permissions []string
-}
-
-type PreferredLanguage struct {
-	Language string
 }
 
 type ImportUserInput struct {

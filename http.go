@@ -19,7 +19,7 @@ type HTTPRoute struct {
 // implements this small construction boundary without an embedded/authhttp
 // package cycle. It is trusted host configuration, never a Client operation.
 type HTTPConfiguration interface {
-	BuildHTTP(HTTPBackend) (HTTPSurface, error)
+	BuildHTTP(backend any) (HTTPSurface, error)
 }
 
 // HTTPSurface is the runtime-owned result of local HTTP configuration.

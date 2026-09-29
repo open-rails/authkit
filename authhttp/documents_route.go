@@ -50,7 +50,7 @@ func (s *Service) documentsHandler() http.Handler {
 		}
 		return documents.SignedDocument{}, documents.ErrNotFound
 	}
-	cfg := s.svc.Config().Documents
+	cfg := s.settings.Documents
 	byID, byDomain, byIssuer := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, reader := range cfg.Readers {
 		switch {

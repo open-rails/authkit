@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -86,7 +87,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	section, sectionRef := create("section", "batch-section", "batch-moderated")
 	assign(sectionRef, "editor")
 	curated, curatedRef := create("channel", "batch-curated", "")
-	require.NoError(t, rt.engine.DefineGroupCustomRole(ctx, owner.ID, curatedRef, iam.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
+	require.NoError(t, rt.engine.DefineGroupCustomRole(ctx, owner.ID, curatedRef, authflow.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
 	assign(curatedRef, "curator")
 	retired, retiredRef := create("channel", "batch-retired", "")
 	assign(retiredRef, "reader")

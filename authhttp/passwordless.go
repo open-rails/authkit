@@ -32,7 +32,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	_, err := s.svc.StartPasswordless(r.Context(), iam.PasswordlessStartRequest{
+	_, err := s.svc.StartPasswordless(r.Context(), authflow.PasswordlessStartRequest{
 		Identifier:         identifier,
 		Mode:               req.Mode,
 		ReturnTo:           req.ReturnTo,

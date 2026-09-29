@@ -9,7 +9,7 @@ import (
 
 type sessionRevokeReasonKey struct{}
 
-// authflow.WithSessionRevokeReason annotates ctx so revoke paths can record a
+// WithSessionRevokeReason annotates ctx so revoke paths can record a
 // structured reason in the session log.
 func WithSessionRevokeReason(ctx context.Context, reason SessionRevokeReason) context.Context {
 	if ctx == nil {
@@ -18,7 +18,7 @@ func WithSessionRevokeReason(ctx context.Context, reason SessionRevokeReason) co
 	return context.WithValue(ctx, sessionRevokeReasonKey{}, string(reason))
 }
 
-// SessionRevokeReasonFrom reads the reason authflow.WithSessionRevokeReason attached,
+// SessionRevokeReasonFrom reads the reason WithSessionRevokeReason attached,
 // or nil.
 func SessionRevokeReasonFrom(ctx context.Context) *string {
 	if ctx == nil {
@@ -40,7 +40,7 @@ type ResolvedGroup struct {
 	Reference, ID string
 }
 
-// authflow.WithResolvedGroup binds the address already resolved by an HTTP request to its
+// WithResolvedGroup binds the address already resolved by an HTTP request to its
 // immutable target. It confers no permission: the caller must still authorize.
 // Only this exact persona/reference matches. Parent and other-target lookups keep
 // normal resolution. Every use rechecks target liveness and never falls back to
@@ -49,7 +49,7 @@ func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, referenc
 	return context.WithValue(ctx, resolvedGroupKey{}, ResolvedGroup{Persona: instance.Persona, Reference: strings.ToLower(strings.TrimSpace(reference)), ID: instance.ID})
 }
 
-// ResolvedGroupFrom reads the group authflow.WithResolvedGroup bound, if any.
+// ResolvedGroupFrom reads the group WithResolvedGroup bound, if any.
 func ResolvedGroupFrom(ctx context.Context) (ResolvedGroup, bool) {
 	g, ok := ctx.Value(resolvedGroupKey{}).(ResolvedGroup)
 	return g, ok

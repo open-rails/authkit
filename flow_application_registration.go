@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
 )
@@ -254,7 +255,7 @@ func (s *engine) applicationsEnabled() (iam.PersonaDef, error) {
 // boot-time self-heal AND the rotation-from-root path: the old keypair may be
 // gone entirely, the fresh domain proof adopts whatever the document declares
 // now.
-func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain string) (*iam.RegisteredApplication, error) {
+func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain string) (*authflow.RegisteredApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -341,7 +342,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
-		return &iam.RegisteredApplication{
+		return &authflow.RegisteredApplication{
 			Application:     *remoteAppFromRow(remoteAppRow(row)),
 			OrgPersona:      orgPersona,
 			OrgInstanceSlug: orgSlug,
@@ -410,7 +411,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return &iam.RegisteredApplication{
+	return &authflow.RegisteredApplication{
 		Application:     *remoteAppFromRow(remoteAppRow(row)),
 		OrgPersona:      td.Name,
 		OrgInstanceSlug: app.Slug,

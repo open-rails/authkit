@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
@@ -15,7 +16,10 @@ import (
 // Transport tests need private workflow setup. Capture it only in the trusted
 // constructor hook, never by adding accessors to the public Runtime or Client.
 type fixtureEngine interface {
-	authkit.HTTPBackend
+	Backend
+	Postgres() *pgxpool.Pool
+	Config() authkit.Config
+	Schema() string
 	documents.Signer
 	DocumentStore() documents.Store
 	StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error)
@@ -37,7 +41,7 @@ type testRuntime struct {
 }
 type captureBackend struct{ backend fixtureEngine }
 
-func (c *captureBackend) BuildHTTP(b authkit.HTTPBackend) (authkit.HTTPSurface, error) {
+func (c *captureBackend) BuildHTTP(b any) (authkit.HTTPSurface, error) {
 	c.backend = b.(fixtureEngine)
 	return fixtureSurface{}, nil
 }
@@ -56,7 +60,7 @@ func newTestRuntime(cfg authkit.Config, deps authkit.Deps) (*testRuntime, error)
 	}
 	return &testRuntime{Runtime: r, fixtureEngine: capture.backend}, nil
 }
-func fixtureBackend(b authkit.HTTPBackend) fixtureEngine { return b.(fixtureEngine) }
+func fixtureBackend(b Backend) fixtureEngine { return b.(fixtureEngine) }
 func newTestService(r *testRuntime, cfg Config) (*Service, error) {
 	return New(r.fixtureEngine, cfg)
 }

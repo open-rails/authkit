@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"errors"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
@@ -24,6 +25,10 @@ func New(cfg Config, deps Deps) (*Runtime, error) {
 		return nil, err
 	}
 	if cfg.HTTP != nil {
+		if engine.pg == nil {
+			engine.Close()
+			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
+		}
 		if err := engine.ConfigureHTTP(cfg.HTTP); err != nil {
 			engine.Close()
 			return nil, err
@@ -43,6 +48,10 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
 		return nil, err
 	}
 	if cfg.HTTP != nil {
+		if engine.pg == nil {
+			engine.Close()
+			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
+		}
 		if err := engine.ConfigureHTTP(cfg.HTTP); err != nil {
 			engine.Close()
 			return nil, err

@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
 )
@@ -175,8 +175,8 @@ func (s *engine) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, add
 
 // resolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
-func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (iam.SolanaLinkedAccount, error) {
-	account := iam.SolanaLinkedAccount{
+func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (authflow.SolanaLinkedAccount, error) {
+	account := authflow.SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
 		Address:             address,
@@ -232,7 +232,7 @@ func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address s
 }
 
 // GetSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
-func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*iam.SolanaLinkedAccount, error) {
+func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*authflow.SolanaLinkedAccount, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -252,7 +252,7 @@ func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*ia
 	}
 
 	if row.VerifiedAt == nil {
-		return &iam.SolanaLinkedAccount{
+		return &authflow.SolanaLinkedAccount{
 			Provider:            SolanaProviderSlug,
 			Issuer:              s.solanaIssuer(),
 			Address:             address,
@@ -279,7 +279,7 @@ func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*ia
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, address)
 	}
 
-	return &iam.SolanaLinkedAccount{
+	return &authflow.SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
 		Address:             address,

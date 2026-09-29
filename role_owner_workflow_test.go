@@ -186,10 +186,10 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		human := user()
 		g, gid := group("custom-life", human)
 		other := user()
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, iam.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
+		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, authflow.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, g, iam.UserSubject(other), "editor"))
 		require.ErrorIs(t, svc.AssignGroupRoleAs(ctx, human, g, iam.UserSubject(human), "editor"), iam.ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, iam.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read"}}))
+		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, authflow.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read"}}))
 		require.NoError(t, svc.DeleteGroupCustomRole(ctx, human, g, "editor"))
 		require.Empty(t, role(gid, other))
 		require.Equal(t, iam.OwnerRole, role(gid, human))
@@ -272,7 +272,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		customGroup, customGID := group("queued-custom", human)
 		customActor, customTarget := user(), user()
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, customGroup, iam.UserSubject(customActor), "manager"))
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, customGroup, iam.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:read"}}))
+		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, customGroup, authflow.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:read"}}))
 		require.NoError(t, svc.AssignGroupRoleAs(ctx, human, customGroup, iam.UserSubject(customTarget), "auditor"))
 		expiringActor := user()
 		require.NoError(t, svc.AssignRoleBySlugAs(ctx, owner, expiringActor, "manager"))
@@ -288,7 +288,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{"custom_role_redefinition", func() error {
 				return svc.AssignGroupRoleAs(ctx, customActor, customGroup, iam.UserSubject(customTarget), "reader")
 			}, func(st *PermissionGroupStore) error {
-				return st.UpsertCustomRole(ctx, customGID, iam.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
+				return st.UpsertCustomRole(ctx, customGID, authflow.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, iam.ErrRoleAssignmentEscalation},
 			{"banned_actor_retains_current_permission", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
 				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=NULL WHERE id=$1::uuid`, expiringActor)

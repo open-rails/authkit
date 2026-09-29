@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -19,7 +20,7 @@ func groupActorFromClaims(claims verify.Claims) (groupMutationActor, error) {
 	if claims.UserID != "" && claims.TokenType == "" && claims.RemoteApplicationID == "" && claims.DelegatedSubject == "" {
 		return groupMutationActor{userID: claims.UserID}, nil
 	}
-	if claims.TokenType != verify.RemoteApplicationTokenType || !strings.EqualFold(claims.TokenTyp, verify.RemoteApplicationAccessTokenType) || claims.RemoteApplicationID == "" || claims.UserID != "" || claims.DelegatedSubject != "" {
+	if claims.TokenType != verify.RemoteApplicationTokenType || !strings.EqualFold(claims.TokenTyp, jwtkit.RemoteApplicationAccessTokenType) || claims.RemoteApplicationID == "" || claims.UserID != "" || claims.DelegatedSubject != "" {
 		return groupMutationActor{}, iam.ErrInsufficientRoleAuthority
 	}
 	return groupMutationActor{remote: &claims}, nil

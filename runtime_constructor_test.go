@@ -37,8 +37,8 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	surface := &testHTTPSurface{}
-	cfg := Config{HTTP: httpBuildFunc(func(backend HTTPBackend) (HTTPSurface, error) {
-		_, err := backend.GroupInstanceForSlug(context.Background(), iam.RootGroup())
+	cfg := Config{HTTP: httpBuildFunc(func(backend any) (HTTPSurface, error) {
+		_, err := backend.(iam.Client).GroupInstanceForSlug(context.Background(), iam.RootGroup())
 		require.NoError(t, err, "topology must exist before HTTP construction")
 		return surface, errors.New("invalid HTTP policy")
 	})}

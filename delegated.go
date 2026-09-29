@@ -14,10 +14,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// DelegatedAccessTokenType is the canonical JOSE `typ` header value for a
-// delegated access token.
-const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
-
 // MintDelegatedAccessToken signs a canonical delegated access token using the
 // Runtime's internal signer. The host passes claims/params only and NEVER
 // touches the private key. When p.Issuer is empty it defaults to the Runtime's
@@ -183,5 +179,5 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.D
 	// Invariant: a delegated access token must never carry `sub`.
 	delete(claims, "sub")
 
-	return jwtkit.SignWithType(ctx, signer, claims, DelegatedAccessTokenType, true)
+	return jwtkit.SignWithType(ctx, signer, claims, jwtkit.DelegatedAccessTokenType, true)
 }

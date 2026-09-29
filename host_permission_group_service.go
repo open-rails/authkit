@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -515,7 +516,7 @@ func (s *engine) ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]
 // effective grants without ever passing AssignGroupRoleAs's no-escalation
 // gate. The actor must hold roles:manage AND already cover every permission in
 // BOTH the role's current grants (if it exists) and the requested ones.
-func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def iam.CustomRoleDef) error {
+func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def authflow.CustomRoleDef) error {
 	sch := s.groupSchemaOrDefault()
 	persona, role, permissions := group.Persona, def.Role, def.Permissions
 	td, ok := sch.Persona(persona)

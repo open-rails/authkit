@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -349,7 +350,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
 		perm := iam.Perm(iam.PermRootUsersBan)
-		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: verify.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
+		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: jwtkit.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
 		ok, err := verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)
 		require.True(t, ok)

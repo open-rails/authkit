@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 )
 
@@ -52,9 +51,9 @@ func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs 
 	return methods
 }
 
-// StepUpTwoFactorOptions lists the second factors a step-up can use, with the
+// NewStepUpTwoFactorOptions lists the second factors a step-up can use, with the
 // code destination masked. Nil when 2FA is not enabled.
-func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *iam.StepUpTwoFactorOptions {
+func NewStepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *StepUpTwoFactorOptions {
 	if settings == nil || !settings.Enabled {
 		return nil
 	}
@@ -65,13 +64,13 @@ func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string
 	if len(factors) == 0 {
 		return nil
 	}
-	out := &iam.StepUpTwoFactorOptions{}
+	out := &StepUpTwoFactorOptions{}
 	for _, factor := range factors {
 		method := strings.ToLower(strings.TrimSpace(factor.Method))
 		if !factor.Enabled || !ValidTwoFactorStepUpMethod(method) {
 			continue
 		}
-		option := iam.StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
+		option := StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
 		switch method {
 		case "email":
 			if emailDestination != "" {

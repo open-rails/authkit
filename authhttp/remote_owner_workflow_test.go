@@ -62,7 +62,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 		func(c *verify.Claims) { c.Issuer = "https://another-issuer.test" },
 		func(c *verify.Claims) { c.PermissionGroupAuthorityIssuer = "https://another-authority.test" },
 		func(c *verify.Claims) { c.PermissionGroupPersona = "root" },
-		func(c *verify.Claims) { c.TokenTyp = verify.DelegatedAccessTokenType; c.DelegatedSubject = "external" },
+		func(c *verify.Claims) { c.TokenTyp = jwtkit.DelegatedAccessTokenType; c.DelegatedSubject = "external" },
 		func(c *verify.Claims) { c.TokenType = verify.APIKeyPrincipalType },
 	} {
 		invalid := verified
@@ -92,7 +92,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	call(http.MethodGet, "/org/remote-owned/members", "", token, http.StatusOK)
 	call(http.MethodPost, "/org/remote-owned/members", `{"email":"unregistered@example.test","role":"member"}`, token, http.StatusForbidden)
 	// Sender metadata on a delegated credential is never app-self authority.
-	delegated, err := signer.SignWithHeaders(ctx, map[string]any{"iss": app.Issuer, "aud": cfg.Token.ExpectedAudiences, "exp": time.Now().Add(time.Minute).Unix(), "delegated_sub": "external-customer", "permissions": []string{"org:*"}}, map[string]any{"typ": verify.DelegatedAccessTokenType})
+	delegated, err := signer.SignWithHeaders(ctx, map[string]any{"iss": app.Issuer, "aud": cfg.Token.ExpectedAudiences, "exp": time.Now().Add(time.Minute).Unix(), "delegated_sub": "external-customer", "permissions": []string{"org:*"}}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodPut, base+owner+"/roles/owner", "", delegated)
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, w.Code, w.Body.String())

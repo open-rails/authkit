@@ -152,7 +152,7 @@ func TestNativeCredentialWorkflow(t *testing.T) {
 func testDeviceKeyLifecycle(t *testing.T) {
 	ctx := context.Background()
 	srv, sender := deviceKeyTestServer(t)
-	pool := srv.svc.Postgres()
+	pool := fixtureBackend(srv.svc).Postgres()
 	email := uniqueEmail("device-key")
 	publicKey, privateKey := newDeviceKey(t)
 
@@ -286,7 +286,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
 	require.Equal(t, second.DeviceKey.ID, proof.DeviceKey.ID)
 	var total int
-	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
+	require.NoError(t, fixtureBackend(srv.svc).Postgres().QueryRow(ctx, `SELECT count(*) FROM user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
 	require.Equal(t, 2, total)
 	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, proof.AccessToken)
 	require.Equal(t, http.StatusNoContent, revoked.Code, revoked.Body.String())

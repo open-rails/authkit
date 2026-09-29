@@ -24,7 +24,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	srv, sender := deviceKeyTestServerWithConfig(t, cfg)
-	pool := srv.svc.Postgres()
+	pool := fixtureBackend(srv.svc).Postgres()
 
 	email := uniqueEmail("device-key-mfa")
 	user, err := srv.svc.CreateUser(ctx, email, "dkmfa"+uniqueSuffix())

@@ -198,7 +198,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					channel = method
 				}
 				f.expect(403, f.post(start, body))
-				invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: uniqueEmail("invite"), InvitedBy: inviter})
+				invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: uniqueEmail("invite"), InvitedBy: inviter})
 				require.NoError(t, err)
 				require.Equal(t, invite.URL, f.email.lastInviteURL())
 				body["account_invite_token"] = invite.Code
@@ -271,7 +271,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	// revoked invitation must leave no account or password behind.
 	for _, start := range []string{"/register", "/passwordless/start"} {
 		email := uniqueEmail("revoked")
-		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
 		require.NoError(t, err)
 		payload := map[string]any{"identifier": email, "account_invite_token": invite.Code}
 		if start == "/register" {
@@ -311,7 +311,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	_, err := f.service.svc.CreateUser(ctx, uniqueEmail("collision"), username)
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
-	invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: collisionEmail, InvitedBy: inviter})
+	invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: collisionEmail, InvitedBy: inviter})
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite.Code}))
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": f.email.verificationCode(t)}))
@@ -631,7 +631,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 }
 
 func testRegistrationRollback(f *accountFlow, inviter string) {
-	t, pool, ctx := f.t, f.service.svc.Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.svc).Postgres(), f.t.Context()
 	_, err := pool.Exec(ctx, `CREATE FUNCTION registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON account_registration_invites FOR EACH ROW EXECUTE FUNCTION registration_failure()`)
 	require.NoError(t, err)
 	defer func() {
@@ -644,7 +644,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
 		require.NoError(t, err)
 		var failed flowResponse
 		if flow == "oidc" || flow == "oauth2" {
@@ -678,7 +678,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 }
 
 func testProofLifecycle(f *accountFlow) {
-	t, pool, ctx := f.t, f.service.svc.Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.svc).Postgres(), f.t.Context()
 	for _, phone := range []bool{false, true} {
 		for _, passwordless := range []bool{false, true} {
 			identifier := uniqueEmail("lifecycle")
@@ -779,7 +779,7 @@ func testProofLifecycle(f *accountFlow) {
 }
 
 func testPausedPasswordRecovery(f *accountFlow) {
-	t, pool, ctx := f.t, f.service.svc.Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.svc).Postgres(), f.t.Context()
 	user, err := f.service.svc.CreateUser(ctx, uniqueEmail("paused-password"), "paused"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, f.service.svc.AdminSetPassword(ctx, user.ID, "Original-password-12345"))

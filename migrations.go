@@ -111,3 +111,24 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 	}
 	return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, riverCfg.Schema)
 }
+
+// probeMigrations fails fast at construction when AuthKit's migrations were
+// never run: a definitive "users table missing" beats a cryptic mid-request
+// `relation "users" does not exist`. Probe errors (connectivity, permissions)
+// fail open; they surface elsewhere.
+func (s *engine) probeMigrations() error {
+	if s.pg == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var exists bool
+	err := s.pg.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'users')`,
+		s.dbSchema(),
+	).Scan(&exists)
+	if err != nil || exists {
+		return nil
+	}
+	return fmt.Errorf("authkit: schema %q has no users table — run authkit.Migrate before authkit.New", s.dbSchema())
+}

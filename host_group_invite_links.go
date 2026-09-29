@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/verify"
@@ -215,8 +216,8 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 // it validates the link (live, not expired/revoked, unredeemed), assigns the role
 // in the same transaction, and stamps redeemed_at. Idempotent: if the redeemer
 // already holds that role, it succeeds without consuming the link.
-func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (iam.RedeemGroupInviteLinkResult, error) {
-	var zero iam.RedeemGroupInviteLinkResult
+func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (authflow.RedeemGroupInviteLinkResult, error) {
+	var zero authflow.RedeemGroupInviteLinkResult
 	if err := s.requirePG(); err != nil {
 		return zero, err
 	}
@@ -293,7 +294,7 @@ func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	if err := tx.Commit(ctx); err != nil {
 		return zero, err
 	}
-	return iam.RedeemGroupInviteLinkResult{Persona: persona, InstanceSlug: instanceSlug, Role: role}, nil
+	return authflow.RedeemGroupInviteLinkResult{Persona: persona, InstanceSlug: instanceSlug, Role: role}, nil
 }
 
 // subjectHasRole reports whether the user already holds role in the group.

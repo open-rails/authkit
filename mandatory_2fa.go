@@ -16,7 +16,7 @@ import (
 
 var ErrTwoFARequired = iam.E(iam.CodeTwoFARequired)
 
-func (s *engine) MFAStatus(ctx context.Context, userID string) (iam.MFAStatus, error) {
+func (s *engine) MFAStatus(ctx context.Context, userID string) (authflow.MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
 	return s.MFAStatusWith(settings, err)
 }
@@ -27,14 +27,14 @@ func (s *engine) MFAStatus(ctx context.Context, userID string) (iam.MFAStatus, e
 // through MFAStatus, the step-up methods, and the step-up 2FA options — does not
 // recompute the read. Behaviour matches MFAStatus exactly: a "no 2FA row" lookup
 // (pgx.ErrNoRows) is the empty/disabled status, any other error propagates.
-func (s *engine) MFAStatusWith(settings *authflow.TwoFactorSettings, settingsErr error) (iam.MFAStatus, error) {
+func (s *engine) MFAStatusWith(settings *authflow.TwoFactorSettings, settingsErr error) (authflow.MFAStatus, error) {
 	if errors.Is(settingsErr, pgx.ErrNoRows) {
-		return iam.MFAStatus{}, nil
+		return authflow.MFAStatus{}, nil
 	}
 	if settingsErr != nil {
-		return iam.MFAStatus{}, settingsErr
+		return authflow.MFAStatus{}, settingsErr
 	}
-	return iam.MFAStatus{
+	return authflow.MFAStatus{
 		Enabled:        settings.Enabled,
 		Satisfied:      settings.Enabled && len(settings.Factors) > 0,
 		AllowedMethods: s.TwoFactorAllowedMethods(),
@@ -47,11 +47,11 @@ func (s *engine) MFAStatusWith(settings *authflow.TwoFactorSettings, settingsErr
 // recompute it. Behaviour matches requireSessionMFAState exactly: statusErr is only
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
-func (s *engine) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status iam.MFAStatus, statusErr error) error {
+func (s *engine) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status authflow.MFAStatus, statusErr error) error {
 	return s.requireSessionMFAStateOn(ctx, s.pg, userID, authMethods, status, statusErr)
 }
 
-func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID string, authMethods []string, status iam.MFAStatus, statusErr error) error {
+func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID string, authMethods []string, status authflow.MFAStatus, statusErr error) error {
 	if !s.TwoFactorEnabled() {
 		return nil
 	}

@@ -76,7 +76,7 @@ func TestStoredIssuerRevocationAcrossVerificationEntrypoints(t *testing.T) {
 					if bound {
 						mc["cnf"] = map[string]any{"x5t#S256": base64.RawURLEncoding.EncodeToString(sum[:])}
 					}
-					token, err := signer.SignWithHeaders(ctx, mc, map[string]any{"typ": DelegatedAccessTokenType})
+					token, err := signer.SignWithHeaders(ctx, mc, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 					require.NoError(t, err)
 					req := httptest.NewRequest(http.MethodGet, "https://resource.example/read", nil)
 					req.Header.Set("Authorization", "Bearer "+token)
@@ -134,7 +134,7 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 	v, src, signer := storedVerifier(t)
 	token, err := signer.SignWithHeaders(ctx, map[string]any{
 		"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "permissions": []string{"repo:read"}, "exp": time.Now().Add(time.Minute).Unix(),
-	}, map[string]any{"typ": DelegatedAccessTokenType})
+	}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
 	cl, principal, err := v.VerifyDelegatedAccess(ctx, token)
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestPermissionCatalogRunsOnEveryTypedDelegation(t *testing.T) {
 	ctx := context.Background()
 	v, signer := confirmationVerifier(t)
 	v.permValidator = func([]string) error { return errors.New("unknown catalog permission") }
-	token := signTyped(t, signer, DelegatedAccessTokenType, delegatedClaims(map[string]any{"permissions": []string{"unknown"}}))
+	token := signTyped(t, signer, jwtkit.DelegatedAccessTokenType, delegatedClaims(map[string]any{"permissions": []string{"unknown"}}))
 	_, err := v.Verify(ctx, token)
 	require.Error(t, err)
 	_, _, err = v.VerifyDelegatedAccess(ctx, token)
@@ -206,7 +206,7 @@ func TestStoredApplicationTrustModeChangesReplaceKeys(t *testing.T) {
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { jwtkit.ServeJWKS(w, r, jwks) }))
 	defer endpoint.Close()
 	mint := func(signer *jwtkit.RSASigner) string {
-		token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": RemoteApplicationAccessTokenType})
+		token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": jwtkit.RemoteApplicationAccessTokenType})
 		require.NoError(t, err)
 		return token
 	}
@@ -239,7 +239,7 @@ func TestStoredDelegationCannotOmitAuthorityBackend(t *testing.T) {
 	_, src, signer := storedVerifier(t)
 	v := NewVerifier()
 	require.NoError(t, v.LoadRemoteApplications(ctx, src, []string{"resource"}))
-	token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": DelegatedAccessTokenType})
+	token, err := signer.SignWithHeaders(ctx, map[string]any{"iss": src.app.Issuer, "aud": "resource", "delegated_sub": "actor", "exp": time.Now().Add(time.Minute).Unix()}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
 	_, _, err = v.VerifyDelegatedAccess(ctx, token)
 	require.Error(t, err, "even empty stored delegation requires live authority resolution")

@@ -194,6 +194,10 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *iam.GroupSchema, deps Dep
 	if err := s.applyDeps(deps); err != nil {
 		return nil, err
 	}
+	if err := s.probeMigrations(); err != nil {
+		s.Close()
+		return nil, err
+	}
 	if s.appHTTPClient == nil {
 		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
 	}

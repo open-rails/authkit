@@ -1,6 +1,10 @@
 package authhttp
 
-import "github.com/open-rails/authkit"
+import (
+	"errors"
+
+	"github.com/open-rails/authkit"
+)
 
 type runtimeHTTP struct {
 	*Service
@@ -13,7 +17,11 @@ func (s *runtimeHTTP) Routes() []authkit.HTTPRoute {
 
 // BuildHTTP implements authkit.HTTPConfiguration for a local Runtime. Hosts
 // set authkit.Config.HTTP; construction and cleanup stay runtime-owned.
-func (cfg Config) BuildHTTP(runtime authkit.HTTPBackend) (authkit.HTTPSurface, error) {
+func (cfg Config) BuildHTTP(backend any) (authkit.HTTPSurface, error) {
+	runtime, ok := backend.(Backend)
+	if !ok {
+		return nil, errors.New("authkit: HTTP backend does not implement authhttp.Backend")
+	}
 	// Freeze collection membership while retaining the host-owned provider objects.
 	cfg.Documents = append([]DocumentProvider(nil), cfg.Documents...)
 	cfg.Languages.Supported = append([]string(nil), cfg.Languages.Supported...)

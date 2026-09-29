@@ -19,7 +19,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 		t.Run(change, func(t *testing.T) {
 			ctx := context.Background()
 			srv, sender, _ := passwordlessTestServer(t, true)
-			pool := srv.svc.Postgres()
+			pool := fixtureBackend(srv.svc).Postgres()
 			email := uniqueEmail("audit-old-reset")
 			u, err := srv.svc.CreateUser(ctx, email, "auditreset"+uniqueSuffix())
 			require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 			t.Run(stage.name+"/"+method, func(t *testing.T) {
 				ctx := context.Background()
 				srv, sender, _ := passwordlessTestServer(t, true)
-				pool := srv.svc.Postgres()
+				pool := fixtureBackend(srv.svc).Postgres()
 				uid := mustPasswordUser(t, srv, "atomic-password")
 				user, err := srv.svc.AdminGetUser(ctx, uid)
 				require.NoError(t, err)

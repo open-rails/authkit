@@ -18,7 +18,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -452,7 +452,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		claims["iss"], claims["iat"], claims["exp"] = peerIssuer, now.Unix(), now.Add(5*time.Minute).Unix()
 		return sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": "peer-kid", "typ": typ}, claims)
 	}
-	delegated := peerToken(verify.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{audience}, "delegated_sub": user.id})
+	delegated := peerToken(jwtkit.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{audience}, "delegated_sub": user.id})
 
 	t.Run("the peer delegates a shared account", func(t *testing.T) {
 		cl, err := ver.Verify(ctx, delegated)
@@ -465,17 +465,17 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 
 	t.Run("a peer user token is not a delegation or a local session", func(t *testing.T) {
 		for name, aud := range map[string][]string{"peer audience": {"peer-app"}, "this audience": {audience}} {
-			_, err := ver.Verify(ctx, peerToken(verify.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id, "sid": "peer-session"}))
+			_, err := ver.Verify(ctx, peerToken(jwtkit.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id, "sid": "peer-session"}))
 			require.Error(t, err, name)
-			require.Equal(t, http.StatusUnauthorized, h.get("/me", peerToken(verify.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id})).status, name)
+			require.Equal(t, http.StatusUnauthorized, h.get("/me", peerToken(jwtkit.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id})).status, name)
 		}
-		_, err := ver.Verify(ctx, peerToken(verify.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{"peer-app"}, "delegated_sub": user.id}))
+		_, err := ver.Verify(ctx, peerToken(jwtkit.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{"peer-app"}, "delegated_sub": user.id}))
 		require.Error(t, err, "a delegation for another audience")
 	})
 
 	t.Run("the peer registration never shadows this deployment's issuer", func(t *testing.T) {
 		require.Equal(t, http.StatusOK, h.get("/me", h.login(user).AccessToken).status)
-		forged := sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": signer().KID(), "typ": verify.AccessTokenType},
+		forged := sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": signer().KID(), "typ": jwtkit.AccessTokenType},
 			jwt.MapClaims{"iss": issuer, "aud": []string{audience}, "sub": user.id, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix()})
 		require.Equal(t, http.StatusUnauthorized, h.get("/me", forged).status)
 	})

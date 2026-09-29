@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 
@@ -80,7 +81,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			// role on consume — one link covers register + join. Authorized by THIS
 			// group's members:manage (the role-carrying create path), which does not
 			// grant general root:users:invite authority.
-			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), iam.CreateAccountRegistrationInviteRequest{
+			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), authflow.CreateAccountRegistrationInviteRequest{
 				Email:        email,
 				InvitedBy:    actor.UserID,
 				Persona:      group.Persona,
@@ -691,7 +692,7 @@ func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	role := iam.Role(strings.TrimSpace(body.Role))
-	if err := s.svc.DefineGroupCustomRole(r.Context(), actor.UserID, group, iam.CustomRoleDef{Role: role, Permissions: body.Permissions, RequiresMFA: body.RequiresMFA}); err != nil {
+	if err := s.svc.DefineGroupCustomRole(r.Context(), actor.UserID, group, authflow.CustomRoleDef{Role: role, Permissions: body.Permissions, RequiresMFA: body.RequiresMFA}); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

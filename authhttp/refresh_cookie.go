@@ -92,7 +92,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 	}
 	// A finite refresh TTL mirrors onto the jar; an indefinite session
 	// (RefreshTokenDuration <= 0) gets a session cookie, matching the server.
-	if d := s.svc.Config().Token.RefreshTokenDuration; d > 0 {
+	if d := s.settings.RefreshTokenDuration; d > 0 {
 		c.MaxAge = int(d.Seconds())
 	}
 	http.SetCookie(w, c)
@@ -168,6 +168,6 @@ func (s *Service) cookieOriginAllowed(r *http.Request) bool {
 	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
-	configured, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
+	configured, ok := originFromBaseURL(s.settings.FrontendBaseURL)
 	return ok && strings.EqualFold(origin, configured)
 }

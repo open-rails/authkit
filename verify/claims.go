@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -224,7 +225,7 @@ func (c Claims) isDelegated() bool {
 // access token. The canonical signal is the `typ=delegated-access+jwt` JOSE
 // header plus a delegated subject and no local user subject.
 func (c Claims) IsDelegatedAccessToken() bool {
-	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) &&
+	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), jwtkit.DelegatedAccessTokenType) &&
 		strings.TrimSpace(c.UserID) == "" &&
 		c.isDelegated()
 }

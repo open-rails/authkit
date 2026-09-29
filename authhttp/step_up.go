@@ -295,7 +295,7 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 	return authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
 }
 
-func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *iam.StepUpTwoFactorOptions {
+func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authflow.StepUpTwoFactorOptions {
 	settings, err := s.svc.Get2FASettings(r.Context(), userID)
 	if err != nil {
 		return nil
@@ -311,7 +311,7 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *iam.St
 			break
 		}
 	}
-	return authflow.StepUpTwoFactorOptions(settings, email)
+	return authflow.NewStepUpTwoFactorOptions(settings, email)
 }
 
 func sessionFreshnessResponse(f authflow.SessionFreshness) map[string]any {

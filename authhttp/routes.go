@@ -193,15 +193,15 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// set PasskeyConfig.RPID get the routes; everyone else doesn't advertise a
 	// feature they can't fulfil.
 	passkeysEnabled := s.svc.PasskeysEnabled()
-	cfg := s.svc.Config()
-	passwordlessEnabled := cfg.Registration.PasswordlessLogin
-	registrationEnabled := cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
+	cfg := s.settings
+	passwordlessEnabled := cfg.PasswordlessLogin
+	registrationEnabled := cfg.RegistrationMode != iam.RegistrationModeClosed
 	twoFactorEnabled := s.svc.TwoFactorEnabled()
 	solanaEnabled := strings.TrimSpace(cfg.SolanaNetwork) != ""
 	oidcEnabled := len(s.providers) > 0
-	applicationsEnabled := cfg.Applications.SelfRegistration
+	applicationsEnabled := cfg.ApplicationRegistration
 	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
-	deviceKeysEnabled := cfg.DeviceKeys.Enabled
+	deviceKeysEnabled := cfg.DeviceKeys
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {

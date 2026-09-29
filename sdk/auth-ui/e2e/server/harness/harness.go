@@ -122,8 +122,8 @@ type surface struct {
 func (s surface) Routes() []authkit.HTTPRoute { return s.routes }
 func (s surface) Verifier() *verify.Verifier  { return s.Service.Verifier() }
 
-func (m *mountCapture) BuildHTTP(backend authkit.HTTPBackend) (authkit.HTTPSurface, error) {
-	svc, err := authhttp.New(backend, m.cfg)
+func (m *mountCapture) BuildHTTP(backend any) (authkit.HTTPSurface, error) {
+	svc, err := authhttp.New(backend.(authhttp.Backend), m.cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -149,7 +150,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	group := iam.GroupRef{Persona: "org", Instance: "role-lifecycle"}
 	role := iam.Role("auditor")
 	define := func(permission string) {
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, iam.CustomRoleDef{Role: role, Permissions: []string{permission}}))
+		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, authflow.CustomRoleDef{Role: role, Permissions: []string{permission}}))
 	}
 	define("org:billing:read")
 	app, err := svc.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", PermissionGroupID: gid, Enabled: true})
@@ -166,7 +167,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	key, secret := mint()
 	link, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
 	require.NoError(t, err)
-	invite, err := svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+	invite, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
 	allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
@@ -249,7 +250,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 				return err
 			},
 			func() error {
-				_, err := svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: "waiting@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+				_, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "waiting@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
 				return err
 			},
 		}

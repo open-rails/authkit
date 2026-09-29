@@ -140,7 +140,7 @@ func mintStatelessAccess(t *testing.T, signer jwtkit.Signer, iss, aud, sub strin
 		"sub": sub,
 		"iat": now.Add(-time.Minute).Unix(),
 		"exp": now.Add(time.Hour).Unix(),
-	}, map[string]any{"typ": AccessTokenType})
+	}, map[string]any{"typ": jwtkit.AccessTokenType})
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}

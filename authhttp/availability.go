@@ -5,20 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
-const (
-	ActionUpdateUsername       = iam.ActionUpdateUsername
-	ActionRequestPasswordReset = iam.ActionRequestPasswordReset
-	ActionRequestVerification  = iam.ActionRequestVerification
-)
-
-type ActionAvailability = iam.ActionAvailability
-
-func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.Time) ActionAvailability {
-	out := ActionAvailability{
+func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.Time) authflow.ActionAvailability {
+	out := authflow.ActionAvailability{
 		Action:  actionForRateLimitBucket(bucket),
 		Allowed: result.Allowed,
 		Reason:  strings.TrimSpace(result.Reason),
@@ -54,9 +46,9 @@ func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.
 func actionForRateLimitBucket(bucket string) string {
 	switch bucket {
 	case RLPasswordResetRequest:
-		return ActionRequestPasswordReset
+		return authflow.ActionRequestPasswordReset
 	case RLVerifyRequest, RLRegisterResend, RLContactChangeRequest:
-		return ActionRequestVerification
+		return authflow.ActionRequestVerification
 	default:
 		action := strings.TrimPrefix(strings.TrimSpace(bucket), "auth_")
 		if action == "" {

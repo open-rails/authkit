@@ -10,17 +10,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // UserProfile builds the caller's profile. Errors: the user row is missing
 // (stage "load_user"), or a store failure (stage "load_password" /
 // "load_2fa").
-func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam.UserProfile, error) {
+func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error) {
 	u, err := s.AdminGetUser(ctx, in.UserID)
 	if err != nil || u == nil {
-		return iam.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
+		return authflow.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
 	}
 	username := ""
 	if u.Username != nil {
@@ -36,7 +35,7 @@ func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam
 	}
 	hasPassword, err := s.HasPassword(ctx, u.ID)
 	if err != nil {
-		return iam.UserProfile{}, stageErr("load_password", err)
+		return authflow.UserProfile{}, stageErr("load_password", err)
 	}
 	solanaLinkedAccount, slErr := s.GetSolanaLinkedAccount(ctx, u.ID)
 	solanaAddress := ""
@@ -93,7 +92,7 @@ func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam
 	settings, settingsErr := s.Get2FASettings(ctx, u.ID)
 	mfa, err := s.MFAStatusWith(settings, settingsErr)
 	if err != nil {
-		return iam.UserProfile{}, stageErr("load_2fa", err)
+		return authflow.UserProfile{}, stageErr("load_2fa", err)
 	}
 	email := ""
 	if u.Email != nil {
@@ -101,10 +100,10 @@ func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam
 	}
 	// Cooldown-gated action availability (#262): a lookup failure omits the
 	// entry rather than failing the profile.
-	var availability []iam.ActionAvailability
+	var availability []authflow.ActionAvailability
 	namingState, namingErr := s.UserNamingState(ctx, u.ID)
 	if namingErr == nil {
-		entry := iam.ActionAvailability{Action: iam.ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
+		entry := authflow.ActionAvailability{Action: authflow.ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
 		if !namingState.Policy.Enabled {
 			entry.Reason = "renames_disabled"
 		} else {
@@ -114,7 +113,7 @@ func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam
 		entry.CooldownSeconds = &seconds
 		availability = append(availability, entry)
 	}
-	return iam.UserProfile{
+	return authflow.UserProfile{
 		ID:                  u.ID,
 		Username:            username,
 		Email:               u.Email,
@@ -135,12 +134,12 @@ func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam
 		CreatedAt:           createdAt,
 		Naming:              namingState,
 		Availability:        availability,
-		Security: iam.UserSecurity{
+		Security: authflow.UserSecurity{
 			LastAuthenticatedAt:               lastAuthenticatedAt,
 			TimeUntilStepUpRequired:           timeUntilStepUpRequired,
 			StepUpRequiredForSensitiveActions: !in.StepUpSatisfied,
 			StepUpMethods:                     authflow.StepUpMethods(hasPassword, settings, providerSlugs, in.ProviderSupportsStepUp),
-			StepUp2FA:                         authflow.StepUpTwoFactorOptions(settings, email),
+			StepUp2FA:                         authflow.NewStepUpTwoFactorOptions(settings, email),
 			MFAEnabled:                        mfa.Enabled,
 			MFASatisfied:                      mfa.Satisfied,
 			MFAAllowedMethods:                 mfa.AllowedMethods,

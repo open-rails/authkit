@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -129,10 +130,7 @@ func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	sendErrData(w, http.StatusTooManyRequests, iam.CodeRateLimited, map[string]any{"retry_after_seconds": seconds})
 }
 
-func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError iam.Code) {
-	if legacyError == "" {
-		legacyError = iam.CodeRateLimited
-	}
+func tooManyAvailability(w http.ResponseWriter, availability authflow.ActionAvailability) {
 	if availability.RetryAfterSeconds > 0 {
 		seconds := int(availability.RetryAfterSeconds)
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
@@ -144,10 +142,10 @@ func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability,
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	sendErrData(w, http.StatusTooManyRequests, legacyError, availabilityMap(availability))
+	sendErrData(w, http.StatusTooManyRequests, iam.CodeRateLimited, availabilityMap(availability))
 }
 
-func availabilityMap(a ActionAvailability) map[string]any {
+func availabilityMap(a authflow.ActionAvailability) map[string]any {
 	out := map[string]any{
 		"action":  a.Action,
 		"allowed": a.Allowed,
@@ -185,5 +183,5 @@ func accepted(w http.ResponseWriter) { w.WriteHeader(http.StatusAccepted) }
 
 // writeList answers the one list envelope: {object:"list", data, next_cursor?}.
 func writeList[T any](w http.ResponseWriter, items []T, nextCursor string) {
-	writeJSON(w, http.StatusOK, iam.NewListPage(items, nextCursor))
+	writeJSON(w, http.StatusOK, authflow.NewListPage(items, nextCursor))
 }

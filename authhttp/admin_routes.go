@@ -92,7 +92,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
-		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
+		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.settings.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		switch {
 		case claims.PrincipalKind() != iam.PrincipalKindUser:
 			if claims.HasPermission(perm) && claims.PermissionGroupAllows(scope) {

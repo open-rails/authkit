@@ -14,6 +14,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdpop"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
@@ -156,7 +157,7 @@ func TestRequestPrincipalDPoPVerifiedOnceAndScoped(t *testing.T) {
 	require.NoError(t, err)
 	thumbprint := sha256.Sum256(fmt.Appendf(nil, `{"crv":"P-256","kty":"EC","x":"%s","y":"%s"}`, base64.RawURLEncoding.EncodeToString(public[1:33]), base64.RawURLEncoding.EncodeToString(public[33:])))
 	claims := jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "delegated_sub": "external-user", "permissions": []string{"repo:read"}, "exp": time.Now().Add(time.Minute).Unix(), "cnf": map[string]any{"jkt": base64.RawURLEncoding.EncodeToString(thumbprint[:])}}
-	token := signTyped(t, signer, DelegatedAccessTokenType, claims)
+	token := signTyped(t, signer, jwtkit.DelegatedAccessTokenType, claims)
 	proofCalls := 0
 	seen := map[string]bool{}
 	WithDPoP(func(_ context.Context, key string, _ time.Duration) (bool, error) {
@@ -211,7 +212,7 @@ func TestRequestPrincipalDPoPVerifiedOnceAndScoped(t *testing.T) {
 
 func TestRequestPrincipalRemoteApplicationUsesImmutableIdentity(t *testing.T) {
 	v, source, signer := storedVerifier(t)
-	token := signTyped(t, signer, RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()})
+	token := signTyped(t, signer, jwtkit.RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": source.app.Issuer, "aud": "resource", "exp": time.Now().Add(time.Minute).Unix()})
 	r := principalRequest(token)
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
@@ -229,9 +230,9 @@ func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 		kind   auth.Kind
 		claims jwt.MapClaims
 	}{
-		{"external user", false, AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}},
-		{"device key", true, AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}},
-		{"unbound delegation", false, DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}},
+		{"external user", false, jwtkit.AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}},
+		{"device key", true, jwtkit.AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}},
+		{"unbound delegation", false, jwtkit.DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, signer := confirmationVerifier(t)

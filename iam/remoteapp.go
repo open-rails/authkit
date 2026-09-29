@@ -146,15 +146,3 @@ type ApplicationDocument struct {
 	// DocumentEndpoint is the optional signed-document base URL.
 	DocumentEndpoint string `json:"document_endpoint,omitempty"`
 }
-
-// RegisteredApplication is the result of a (re-)registration: the application
-// row plus its service-owned org (the permission group the application
-// principal owns).
-type RegisteredApplication struct {
-	Application     RemoteApplication
-	OrgPersona      Persona
-	OrgInstanceSlug string
-	// Created is false for an idempotent re-registration (the boot-time
-	// self-heal / rotation-from-root path).
-	Created bool
-}

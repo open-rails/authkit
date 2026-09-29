@@ -134,16 +134,3 @@ type AccountSessionRevocation struct {
 	// Issuers; nonzero means the account issuer configuration is incomplete.
 	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
 }
-
-// Session is a sanitized session view (no tokens). Part of the wire contract.
-type Session struct {
-	ID                  string
-	FamilyID            string
-	CreatedAt           time.Time
-	LastAuthenticatedAt *time.Time
-	LastUsedAt          time.Time
-	ExpiresAt           *time.Time
-	RevokedAt           *time.Time
-	UserAgent           *string
-	IPAddr              *string
-}

@@ -28,12 +28,12 @@ func (s *engine) SetPreferredLanguage(ctx context.Context, userID, language stri
 	return s.q.UserSetPreferredLanguage(ctx, db.UserSetPreferredLanguageParams{ID: userID, PreferredLanguage: &normalized})
 }
 
-func (s *engine) GetPreferredLanguage(ctx context.Context, userID string) (iam.PreferredLanguage, error) {
+func (s *engine) GetPreferredLanguage(ctx context.Context, userID string) (authflow.PreferredLanguage, error) {
 	if s.pg == nil {
-		return iam.PreferredLanguage{}, nil
+		return authflow.PreferredLanguage{}, nil
 	}
 	row, err := s.q.UserPreferredLanguage(ctx, strings.TrimSpace(userID))
-	return iam.PreferredLanguage{Language: row}, err
+	return authflow.PreferredLanguage{Language: row}, err
 }
 
 func contextWithPreferredLanguage(ctx context.Context, language string) context.Context {

@@ -98,8 +98,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 
 	// #143: the SIWS domain is derived from config (frontend BaseURL host, else
 	// issuer host), with request-based fallback. There is no WithSolanaDomain option.
-	cfg := s.svc.Config()
-	domain := siwsRequestDomain(siwsDomainFromConfig(cfg.Frontend.BaseURL, cfg.Token.Issuer), r)
+	domain := siwsRequestDomain(siwsDomainFromConfig(s.settings.FrontendBaseURL, s.settings.Issuer), r)
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), domain, address, req.Username)
 	if err != nil {

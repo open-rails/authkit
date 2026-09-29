@@ -3,6 +3,7 @@ package authhttp
 import (
 	"time"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
@@ -14,7 +15,7 @@ type RateLimiter interface {
 type RateLimitResult struct {
 	Allowed      bool
 	RetryAfter   time.Duration
-	Availability *ActionAvailability
+	Availability *authflow.ActionAvailability
 }
 
 type RateLimiterWithResult interface {

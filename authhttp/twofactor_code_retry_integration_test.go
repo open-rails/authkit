@@ -129,7 +129,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
 	// expire lets the stored step-up codes lapse as if their TTL had passed.
 	expire := func() {
-		tag, err := f.service.svc.Postgres().Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE '2fa:step-up:%' AND expires_at > now()`)
+		tag, err := fixtureBackend(f.service.svc).Postgres().Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE '2fa:step-up:%' AND expires_at > now()`)
 		require.NoError(t, err)
 		require.NotZero(t, tag.RowsAffected())
 	}

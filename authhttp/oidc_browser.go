@@ -267,7 +267,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		fragment := url.Values{"flow": {"link"}, "result": {"success"}, "provider": {name}}
-		target := buildFrontendCallbackURL(s.svc.Config().Frontend.BaseURL, s.svc.Config().Frontend.OIDCReturnPath, "#"+fragment.Encode())
+		target := buildFrontendCallbackURL(s.settings.FrontendBaseURL, s.settings.OIDCReturnPath, "#"+fragment.Encode())
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
@@ -288,7 +288,7 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 	// Authorization header from it — but the durable refresh token moves to
 	// the cookie, which these same-origin responses can set.
 	if sd.UI == "popup" {
-		targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
+		targetOrigin, ok := originFromBaseURL(s.settings.FrontendBaseURL)
 		if !ok {
 			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, iam.CodeInvalidBaseURL)
 			return
@@ -323,14 +323,14 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 		return
 	}
 
-	base := s.svc.Config().Frontend.BaseURL
+	base := s.settings.FrontendBaseURL
 	if base == "" {
 		base = "/"
 	}
 	state := callbackParams(r).Get("state")
 	fragmentRT := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken
 	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
-	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
+	target := buildFrontendCallbackURL(base, s.settings.OIDCReturnPath, frag)
 	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —
 	// the response must never be cached.
 	w.Header().Set("Cache-Control", "no-store")

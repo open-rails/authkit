@@ -83,7 +83,7 @@ func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, _ *http.Request) 
 }
 
 func (s *Service) capabilities() AuthCapabilities {
-	cfg := s.svc.Config()
+	cfg := s.settings
 	langs := []string(nil)
 	if s.langCfg != nil {
 		langs = append(langs, s.langCfg.Supported...)
@@ -94,8 +94,8 @@ func (s *Service) capabilities() AuthCapabilities {
 	}
 	return AuthCapabilities{
 		Registration: AuthRegistrationCapabilities{
-			Mode:                string(cfg.Registration.NativeUserMode),
-			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
+			Mode:                string(cfg.RegistrationMode),
+			InviteTokenRequired: cfg.RegistrationMode == iam.RegistrationModeInviteOnly,
 		},
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: AuthUsernameCapabilities{
@@ -114,7 +114,7 @@ func (s *Service) capabilities() AuthCapabilities {
 			RejectCommon:     !cfg.Password.AllowCommon,
 		},
 		Passwordless: AuthPasswordlessCapabilities{
-			Enabled:  cfg.Registration.PasswordlessLogin,
+			Enabled:  cfg.PasswordlessLogin,
 			Channels: channels,
 		},
 		Passkeys: AuthPasskeyCapabilities{
@@ -124,7 +124,7 @@ func (s *Service) capabilities() AuthCapabilities {
 			Login: cfg.SolanaNetwork != "",
 		},
 		Verification: AuthVerificationCapabilities{
-			Registration: string(cfg.Registration.Verification),
+			Registration: string(cfg.RegistrationVerification),
 		},
 		Languages: langs,
 	}

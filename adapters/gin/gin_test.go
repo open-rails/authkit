@@ -70,8 +70,8 @@ type testHTTPFactory struct{ service *authhttp.Service }
 type testHTTPSurface struct{ *authhttp.Service }
 
 func (*testHTTPSurface) Routes() []authkit.HTTPRoute { return nil }
-func (f *testHTTPFactory) BuildHTTP(backend authkit.HTTPBackend) (authkit.HTTPSurface, error) {
-	service, err := authhttp.New(backend, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
+func (f *testHTTPFactory) BuildHTTP(backend any) (authkit.HTTPSurface, error) {
+	service, err := authhttp.New(backend.(authhttp.Backend), authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
 	if err != nil {
 		return nil, err
 	}

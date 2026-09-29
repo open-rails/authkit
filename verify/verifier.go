@@ -892,9 +892,9 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	tokenTyp := strings.TrimSpace(typ)
 	hasSub := strClaim(mapClaims, "sub") != ""
 	hasDelegatedSub := strClaim(mapClaims, "delegated_sub") != ""
-	isAccessTyp := strings.EqualFold(tokenTyp, AccessTokenType)
-	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
-	isRemoteAppTyp := strings.EqualFold(tokenTyp, RemoteApplicationAccessTokenType)
+	isAccessTyp := strings.EqualFold(tokenTyp, jwtkit.AccessTokenType)
+	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, jwtkit.DelegatedAccessTokenType)
+	isRemoteAppTyp := strings.EqualFold(tokenTyp, jwtkit.RemoteApplicationAccessTokenType)
 	documentReferences, hasDocumentReferences, err := documentReferencesClaim(tokenStr)
 	if err != nil {
 		return Claims{}, err

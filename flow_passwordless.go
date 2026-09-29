@@ -49,25 +49,25 @@ type passwordlessChallenge struct {
 	AccountInviteToken string `json:"account_invite_token,omitempty"`
 }
 
-func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStartRequest) (iam.PasswordlessStartResult, error) {
+func (s *engine) StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
-		return iam.PasswordlessStartResult{}, iam.ErrPasswordlessDisabled
+		return authflow.PasswordlessStartResult{}, iam.ErrPasswordlessDisabled
 	}
 	if s.pg == nil {
-		return iam.PasswordlessStartResult{}, s.requirePG()
+		return authflow.PasswordlessStartResult{}, s.requirePG()
 	}
 	if !s.useEphemeralStore() {
-		return iam.PasswordlessStartResult{}, jwt.ErrTokenUnverifiable
+		return authflow.PasswordlessStartResult{}, jwt.ErrTokenUnverifiable
 	}
 	channel, identifier, err := normalizePasswordlessIdentifier(req.Identifier)
 	if err != nil {
-		return iam.PasswordlessStartResult{}, err
+		return authflow.PasswordlessStartResult{}, err
 	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, req.AccountInviteToken)
 	mode := normalizePasswordlessMode(req.Mode)
 	language, err := authflow.NormalizePreferredLanguage(req.PreferredLanguage)
 	if err != nil {
-		return iam.PasswordlessStartResult{}, err
+		return authflow.PasswordlessStartResult{}, err
 	}
 
 	var user *iam.User
@@ -78,7 +78,7 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 		user, err = s.getUserByPhone(ctx, identifier)
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return iam.PasswordlessStartResult{}, err
+		return authflow.PasswordlessStartResult{}, err
 	}
 
 	rec := passwordlessChallenge{
@@ -91,27 +91,27 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 	if user != nil {
 		version, err := s.q.UserCredentialVersion(ctx, user.ID)
 		if err != nil {
-			return iam.PasswordlessStartResult{}, err
+			return authflow.PasswordlessStartResult{}, err
 		}
 		contact := version.Email
 		if channel == PasswordlessChannelSMS {
 			contact = version.PhoneNumber
 		}
 		if contact == nil || *contact != identifier {
-			return iam.PasswordlessStartResult{}, jwt.ErrTokenUnverifiable
+			return authflow.PasswordlessStartResult{}, jwt.ErrTokenUnverifiable
 		}
 		rec.Version = version.CredentialVersion
 		rec.UserID = user.ID
 	} else {
 		if !s.passwordlessAutoRegistrationAllowed() {
-			return iam.PasswordlessStartResult{Channel: channel}, nil
+			return authflow.PasswordlessStartResult{Channel: channel}, nil
 		}
 		allowed, err := s.registrationAllowedForEmail(ctx, identifier)
 		if err != nil {
-			return iam.PasswordlessStartResult{}, err
+			return authflow.PasswordlessStartResult{}, err
 		}
 		if !allowed {
-			return iam.PasswordlessStartResult{}, iam.ErrRegistrationDisabled
+			return authflow.PasswordlessStartResult{}, iam.ErrRegistrationDisabled
 		}
 		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
 	}
@@ -127,7 +127,7 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 		rec.LinkHash = sha256Hex(linkToken)
 	}
 	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
-		return iam.PasswordlessStartResult{}, err
+		return authflow.PasswordlessStartResult{}, err
 	}
 
 	linkURL := ""
@@ -135,9 +135,9 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 		linkURL = s.passwordlessURL(channel, linkToken, rec.ReturnTo)
 	}
 	if err := s.sendPasswordlessChallenge(ctx, rec, code, linkURL); err != nil {
-		return iam.PasswordlessStartResult{}, err
+		return authflow.PasswordlessStartResult{}, err
 	}
-	return iam.PasswordlessStartResult{Sent: true, Channel: channel, Code: code, LinkURL: linkURL}, nil
+	return authflow.PasswordlessStartResult{Sent: true, Channel: channel, Code: code, LinkURL: linkURL}, nil
 }
 
 func (s *engine) PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error) {

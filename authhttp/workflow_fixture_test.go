@@ -59,7 +59,7 @@ func (f *accountFlow) completeWhileRevoking(userID string, complete func() flowR
 	defer cancel()
 	// An independent control connection avoids occupying the application pool,
 	// including CI's four-connection pool. It owns both the gate and observation.
-	control, err := pgx.ConnectConfig(ctx, f.service.svc.Postgres().Config().ConnConfig.Copy())
+	control, err := pgx.ConnectConfig(ctx, fixtureBackend(f.service.svc).Postgres().Config().ConnConfig.Copy())
 	require.NoError(t, err)
 	defer control.Close(context.Background())
 	var pid int32
@@ -164,7 +164,7 @@ END $$`)
 	return response
 }
 
-func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email string) (string, iam.AccountRegistrationInviteCreated) {
+func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email string) (string, authflow.AccountRegistrationInviteCreated) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := fixtureBackend(srv.svc).EnsureRootGroup(ctx)
@@ -172,7 +172,7 @@ func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email s
 	inviter, err := srv.svc.CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(srv.svc).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole))
-	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{
+	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,
 	})
@@ -430,7 +430,7 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	user, err := srv.svc.CreateUser(context.Background(), email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
+		_, _ = fixtureBackend(srv.svc).Postgres().Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	require.NoError(t, srv.svc.MarkEmailVerified(context.Background(), user.ID))
 	hash, err := password.HashArgon2id("Correct-password-12345")
@@ -897,7 +897,9 @@ func newInstanceTestUser(t *testing.T, srv *Service, prefix string) (id, token s
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
-	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
+	t.Cleanup(func() {
+		_, _ = fixtureBackend(srv.svc).Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
+	})
 	sid, _, _, err := fixtureBackend(srv.svc).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	tok, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
@@ -973,7 +975,7 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
-		_, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
+		_, _ = fixtureBackend(srv.svc).Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)

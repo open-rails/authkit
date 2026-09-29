@@ -75,7 +75,7 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 	}
 
 	if ui == "popup" {
-		if targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL); ok {
+		if targetOrigin, ok := originFromBaseURL(s.settings.FrontendBaseURL); ok {
 			payload := map[string]any{
 				"type":     "AUTHKIT_OIDC_ERROR",
 				"error":    string(code),
@@ -111,7 +111,7 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 			v.Set(key, string(raw))
 		}
 	}
-	target := buildFrontendCallbackURL(s.svc.Config().Frontend.BaseURL, s.svc.Config().Frontend.OIDCReturnPath, "#"+v.Encode())
+	target := buildFrontendCallbackURL(s.settings.FrontendBaseURL, s.settings.OIDCReturnPath, "#"+v.Encode())
 	// RFC 6749 §5.1 hygiene: flow results must never be cached — the Location
 	// fragment can carry an enrollment token (and its success sibling carries
 	// session tokens).

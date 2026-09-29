@@ -1,4 +1,4 @@
-package authkit
+package authhttp
 
 import (
 	context "context"
@@ -7,7 +7,6 @@ import (
 	time "time"
 
 	protocol "github.com/go-webauthn/webauthn/protocol"
-	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	siws "github.com/open-rails/authkit/internal/siws"
@@ -16,10 +15,9 @@ import (
 	verify "github.com/open-rails/authkit/verify"
 )
 
-// HTTPBackend is a local transport construction capability supplied only to
-// HTTPConfiguration.BuildHTTP. It is not the portable application Client, and
-// Runtime deliberately provides no accessor for it.
-type HTTPBackend interface {
+// Backend is the engine capability the HTTP layer drives. The engine
+// implements it; hosts never see it.
+type Backend interface {
 	iam.Client
 	verify.Enricher
 	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject, role iam.Role) error
@@ -44,13 +42,13 @@ type HTTPBackend interface {
 	ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error)
 	CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error)
 	CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error)
-	Config() Config
+	Settings() authflow.Settings
 	ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error)
 	ConfirmVerification(ctx context.Context, in authflow.VerificationInput) (authflow.LoginOutcome, error)
 	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (authflow.LoginOutcome, error)
-	CreateAccountRegistrationInvite(ctx context.Context, req iam.CreateAccountRegistrationInviteRequest) (iam.AccountRegistrationInviteCreated, error)
+	CreateAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest) (authflow.AccountRegistrationInviteCreated, error)
 	CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (authflow.CreateInstanceResult, error)
-	DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def iam.CustomRoleDef) error
+	DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def authflow.CustomRoleDef) error
 	DelegationAuthorizer() iam.DelegationAuthorizer
 	DeleteGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, role iam.Role) error
 	DeletePasskey(ctx context.Context, userID, id string) error
@@ -72,7 +70,7 @@ type HTTPBackend interface {
 	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)
 	GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*authflow.PendingRegistration, error)
 	GetPendingRegistrationByEmail(ctx context.Context, email string) (*authflow.PendingRegistration, error)
-	GetPreferredLanguage(ctx context.Context, userID string) (iam.PreferredLanguage, error)
+	GetPreferredLanguage(ctx context.Context, userID string) (authflow.PreferredLanguage, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
 	GetRemoteApplicationBySlug(ctx context.Context, slug string) (*iam.RemoteApplication, error)
 	GroupNamingState(ctx context.Context, id string) (iam.NamingState, error)
@@ -85,7 +83,7 @@ type HTTPBackend interface {
 	ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error)
 	ListRemoteApplicationsForGroup(ctx context.Context, group iam.GroupRef) ([]iam.RemoteApplication, error)
 	ListSessionEvents(ctx context.Context, userID string, eventTypes ...authflow.SessionEventType) ([]authflow.AuthSessionEvent, error)
-	ListUserSessions(ctx context.Context, userID string) ([]iam.Session, error)
+	ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
 	MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error
@@ -95,17 +93,16 @@ type HTTPBackend interface {
 	PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error)
 	PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error)
 	PermissionGroupSchema() *iam.GroupSchema
-	Postgres() *pgxpool.Pool
 	ProviderSlugs(ctx context.Context, userID string) ([]string, error)
 	PublicKeysByKID() map[string]crypto.PublicKey
 	PublicNativeUserRegistrationEnabled() bool
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
-	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (iam.RedeemGroupInviteLinkResult, error)
+	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (authflow.RedeemGroupInviteLinkResult, error)
 	PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error
 	ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
-	RegisterApplicationFromDomain(ctx context.Context, domain string) (*iam.RegisteredApplication, error)
+	RegisterApplicationFromDomain(ctx context.Context, domain string) (*authflow.RegisteredApplication, error)
 	RegistrationVerificationEnabled() bool
 	RenamePasskey(ctx context.Context, userID, id, label string) error
 	RequestEmailChange(ctx context.Context, userID, newEmail string) error
@@ -123,7 +120,6 @@ type HTTPBackend interface {
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
 	SMSAvailable() bool
 	SMSHealthy() bool
-	Schema() string
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
@@ -131,13 +127,13 @@ type HTTPBackend interface {
 	SoftDeleteUser(ctx context.Context, id string) error
 	SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error
 	RestoreUserAs(ctx context.Context, actorUserID, userID string) error
-	StartPasswordless(ctx context.Context, req iam.PasswordlessStartRequest) (iam.PasswordlessStartResult, error)
+	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
 	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)
 	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update iam.GroupInstanceUpdate) (iam.GroupInstance, error)
 	UserNamingState(ctx context.Context, id string) (iam.NamingState, error)
-	UserProfile(ctx context.Context, in authflow.ProfileInput) (iam.UserProfile, error)
+	UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error)
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)

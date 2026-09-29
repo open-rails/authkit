@@ -8,6 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -79,7 +80,7 @@ func (s *engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 		if err := s.ensureUserAccess(ctx, u); err != nil {
 			return "", time.Time{}, err
 		}
-		var mfa *iam.MFAStatus
+		var mfa *authflow.MFAStatus
 		if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
 			mfa = &status
 		}
@@ -99,7 +100,7 @@ func (s *engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 // mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.
-func (s *engine) mintAccessTokenForUser(ctx context.Context, u *iam.User, mfa *iam.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+func (s *engine) mintAccessTokenForUser(ctx context.Context, u *iam.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, extra, ttl, nil)
 }
 
@@ -111,7 +112,7 @@ type accessTokenAssurance struct {
 	DeviceKeyID string
 }
 
-func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *iam.User, mfa *iam.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
+func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *iam.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
@@ -210,7 +211,7 @@ func (s *engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 	if err := s.ensureUserAccess(ctx, u); err != nil {
 		return "", time.Time{}, err
 	}
-	var mfa *iam.MFAStatus
+	var mfa *authflow.MFAStatus
 	if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
 		mfa = &status
 	}

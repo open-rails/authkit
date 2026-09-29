@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -468,7 +469,7 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // its requires_mfa flag (#247). Only meaningful for personas whose CustomRoles
 // capability is set; the caller enforces that + validates each grant pattern
 // against the group's persona.
-func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def iam.CustomRoleDef) error {
+func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authflow.CustomRoleDef) error {
 	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
  INSERT INTO group_custom_roles(permission_group_id,role,permissions,requires_mfa)
  SELECT id,$2,$3,$4 FROM locked

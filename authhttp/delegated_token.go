@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -81,7 +81,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cfg := s.svc.Config().Delegated
+	cfg := s.settings.Delegated
 	audiences, err := resolveDelegatedAudiences(cfg.Audiences, req.Audiences)
 	if err != nil {
 		badRequest(w, iam.CodeInvalidAudiences)
@@ -108,7 +108,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		target := ""
 		if s.dpopRequestURL != nil {
 			target = s.dpopRequestURL(r)
-		} else if issuer, parseErr := url.Parse(s.svc.Config().Token.Issuer); parseErr == nil && issuer.User == nil {
+		} else if issuer, parseErr := url.Parse(s.settings.Issuer); parseErr == nil && issuer.User == nil {
 			target = issuer.Scheme + "://" + issuer.Host + r.URL.EscapedPath()
 		}
 		thumbprint, err = dpop.VerifyRequest(r, target, parent[1], nil, s.svc.ClaimDPoPProof)
@@ -290,7 +290,7 @@ func resolveDelegatedAudiences(allowed, requested []string) ([]string, error) {
 // bounds: absent/non-positive mints the default; anything else is clamped
 // into [floor, ceiling]. The CONFIG is never silently clamped (that refuses
 // at construction); the per-request value is.
-func clampDelegatedTTL(cfg authkit.DelegatedConfig, requestedSeconds int) time.Duration {
+func clampDelegatedTTL(cfg authflow.DelegatedSettings, requestedSeconds int) time.Duration {
 	if requestedSeconds <= 0 {
 		return cfg.TTLDefault
 	}

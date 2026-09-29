@@ -12,10 +12,6 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// RemoteApplicationAccessTokenType is the JOSE `typ` for a remote application
-// access token.
-const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
-
 // Programmatic access — two credential types, both STORED-authority (#76):
 //
 //   - API key: a shared secret; we
@@ -87,5 +83,5 @@ func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer,
 	delete(claims, "sub")
 	delete(claims, "delegated_sub")
 
-	return jwtkit.SignWithType(ctx, signer, claims, RemoteApplicationAccessTokenType, true)
+	return jwtkit.SignWithType(ctx, signer, claims, jwtkit.RemoteApplicationAccessTokenType, true)
 }

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 func applicationJSON(app iam.RemoteApplication) map[string]any {
@@ -38,7 +39,7 @@ func applicationJSON(app iam.RemoteApplication) map[string]any {
 	return m
 }
 
-func registeredApplicationJSON(reg *iam.RegisteredApplication) map[string]any {
+func registeredApplicationJSON(reg *authflow.RegisteredApplication) map[string]any {
 	return map[string]any{
 		"application": applicationJSON(reg.Application),
 		"org": map[string]any{

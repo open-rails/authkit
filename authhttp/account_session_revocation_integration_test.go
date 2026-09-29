@@ -47,7 +47,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	siteA := site(issuerA, accessTTL, issuerB)
 	siteB := site(issuerB, time.Hour, issuerA, issuerB)
 	siteC := site(issuerC, time.Hour)
-	require.Equal(t, []string{issuerA, issuerB}, siteA.svc.Config().Token.AccountIssuers)
+	require.Equal(t, []string{issuerA, issuerB}, fixtureBackend(siteA.svc).Config().Token.AccountIssuers)
 	require.NoError(t, fixtureBackend(siteA.svc).SeedPermissionGroupContainment(ctx))
 	_, err := fixtureBackend(siteA.svc).EnsureRootGroup(ctx)
 	require.NoError(t, err)
