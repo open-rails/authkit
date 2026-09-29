@@ -113,11 +113,11 @@ func TestReplicaAndStaleSession(t *testing.T) {
 
 	api := httptest.NewServer(auth.Handler())
 	t.Cleanup(api.Close)
-	startTOTP := func() (int, string) {
+	startTOTP := func(token string) (int, string) {
 		req, err := http.NewRequest(http.MethodPost, api.URL+"/api/v1/user/2fa", strings.NewReader(`{"method":"totp"}`))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
@@ -125,10 +125,10 @@ func TestReplicaAndStaleSession(t *testing.T) {
 		require.NoError(t, err)
 		return resp.StatusCode, string(body)
 	}
-	status, body := startTOTP()
+	status, body := startTOTP(tokens.AccessToken)
 	require.Equal(t, http.StatusOK, status, body)
-	authtest.StaleSession(t, auth, tokens.AccessToken)
-	status, body = startTOTP()
+	stale := authtest.StaleSession(t, auth, tokens.AccessToken)
+	status, body = startTOTP(stale)
 	require.Equal(t, http.StatusForbidden, status, body)
 	require.Contains(t, body, "step_up_required")
 }

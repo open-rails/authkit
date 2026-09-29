@@ -308,8 +308,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 		require.Equal(t, http.StatusOK, res.status, res.String())
 		var tokens iam.TokenSet
 		res.decode(t, &tokens)
-		authtest.StaleSession(t, auth, tokens.AccessToken)
-		return tokens.AccessToken
+		return authtest.StaleSession(t, auth, tokens.AccessToken)
 	}
 
 	owner := authtest.NewUser(t, auth)

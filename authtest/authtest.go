@@ -36,6 +36,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -158,22 +159,29 @@ func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client
 }
 
 // StaleSession moves the sign-in of the session behind accessToken a day into
-// the past, as if its user signed in long ago: routes that need a recent
-// sign-in then ask for a step-up. auth must come from New or Replica.
-func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) {
+// the past, as if its user signed in long ago, and returns a new access token
+// for that session: routes that need a recent sign-in then ask it for a
+// step-up. auth must come from New or Replica.
+func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string {
 	t.Helper()
 	b := builtWith(t, auth)
-	claims, err := auth.Verifier().Verify(context.Background(), accessToken)
+	ctx := context.Background()
+	claims, err := auth.Verifier().Verify(ctx, accessToken)
 	if err != nil || claims.SessionID == "" {
 		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
 	}
-	tag, err := b.deps.Postgres.Exec(context.Background(), `UPDATE `+pgx.Identifier{b.cfg.Schema, "refresh_sessions"}.Sanitize()+`
+	tag, err := b.deps.Postgres.Exec(ctx, `UPDATE `+pgx.Identifier{b.cfg.Schema, "refresh_sessions"}.Sanitize()+`
 		SET last_authenticated_at = now() - interval '1 day',
 		    mfa_authenticated_at = CASE WHEN mfa_authenticated_at IS NULL THEN NULL ELSE now() - interval '1 day' END
 		WHERE id = $1::uuid`, claims.SessionID)
 	if err != nil || tag.RowsAffected() != 1 {
 		t.Fatalf("authtest: stale session %s: %v", claims.SessionID, err)
 	}
+	token, err := auth.MintAccessToken(ctx, claims.UserID, iam.AccessTokenOptions{SessionID: claims.SessionID})
+	if err != nil {
+		t.Fatalf("authtest: stale session %s: %v", claims.SessionID, err)
+	}
+	return token.Value
 }
 
 // built is what New or Replica built a Client with.
