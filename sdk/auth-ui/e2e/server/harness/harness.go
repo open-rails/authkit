@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -23,7 +24,7 @@ const (
 // Runtime is a started-or-not AuthKit instance plus its captured deliveries.
 type Runtime struct {
 	*authkit.Client
-	Outbox *Outbox
+	Outbox *authtest.Outbox
 }
 
 // Open connects to dsn and applies AuthKit's migrations.
@@ -52,7 +53,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	for bucket := range limits {
 		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
-	outbox := &Outbox{}
+	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
 		HTTP: authkit.HTTPConfig{
 			DirectPeerIP:  true,
@@ -89,8 +90,8 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	}
 	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
 		Postgres: pool,
-		Email:    emailSender{outbox},
-		SMS:      smsSender{outbox},
+		Email:    outbox.Email(),
+		SMS:      outbox.SMS(),
 	})
 	if err != nil {
 		return nil, err
