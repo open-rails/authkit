@@ -148,6 +148,7 @@ export type AuthErrorCode =
   | "oidc_exchange_failed"
   | "passkey_clone_detected"
   | "passkey_not_found"
+  | "passkey_required"
   | "passkey_user_verification_required"
   | "password_change_failed"
   | "password_contains_identifier"
@@ -363,6 +364,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "oidc_exchange_failed": 401,
   "passkey_clone_detected": 401,
   "passkey_not_found": 404,
+  "passkey_required": 403,
   "passkey_user_verification_required": 401,
   "password_change_failed": 400,
   "password_contains_identifier": 400,

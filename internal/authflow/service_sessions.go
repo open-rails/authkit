@@ -19,19 +19,20 @@ type SessionFreshness struct {
 	MFAAuthenticatedAt time.Time
 }
 
-// AssuranceClaims are the token's auth_time, amr and acr. For an account with
-// a second factor (secondFactor), auth_time is when the session last proved
-// that factor, so a password re-auth never makes it fresh; a session that
-// never proved it carries no otp/mfa method.
+// AssuranceClaims are the token's auth_time, amr and acr. A token claims
+// otp/mfa only as of the session's last MFA proof. For an account with a
+// second factor (secondFactor), auth_time is that proof, so a password re-auth
+// never makes it fresh, and a session that never proved it claims no MFA. For
+// an account without one (passkeys only), a later re-auth without MFA is fresh
+// but no longer MFA (P5).
 func (f SessionFreshness) AssuranceClaims(secondFactor bool) (authTime int64, amr []string, acr string) {
 	amr = NormalizeAuthMethods(f.AuthMethods)
 	at := f.LastAuthenticatedAt
-	if secondFactor {
-		if f.MFAAuthenticatedAt.IsZero() {
-			amr = slices.DeleteFunc(amr, func(m string) bool { return m == "otp" || m == "mfa" })
-		} else {
-			at = f.MFAAuthenticatedAt
-		}
+	switch {
+	case secondFactor && !f.MFAAuthenticatedAt.IsZero():
+		at = f.MFAAuthenticatedAt
+	case secondFactor || !f.MFAAuthenticatedAt.IsZero() && f.MFAAuthenticatedAt.Before(f.LastAuthenticatedAt):
+		amr = slices.DeleteFunc(amr, func(m string) bool { return m == "otp" || m == "mfa" })
 	}
 	acr = iam.AssuranceLevelPassword
 	for _, method := range amr {

@@ -39,7 +39,7 @@ ON CONFLICT (user_id) DO UPDATE SET
   updated_at = NOW();
 
 -- name: MFAListFactorsByUser :many
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at, email
 FROM mfa_factors
 WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC;
@@ -50,9 +50,9 @@ SET is_default = false, updated_at = NOW()
 WHERE user_id = $1;
 
 -- name: MFAInsertFactor :one
-INSERT INTO mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
-VALUES (sqlc.arg(user_id), sqlc.arg(method), sqlc.narg(phone_number), sqlc.narg(totp_secret), sqlc.narg(last_totp_step), sqlc.arg(is_default), NOW())
-RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at;
+INSERT INTO mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, email, updated_at)
+VALUES (sqlc.arg(user_id), sqlc.arg(method), sqlc.narg(phone_number), sqlc.narg(totp_secret), sqlc.narg(last_totp_step), sqlc.arg(is_default), sqlc.narg(email), NOW())
+RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at, email;
 
 -- name: MFASetDefaultFactor :execrows
 UPDATE mfa_factors

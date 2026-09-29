@@ -574,6 +574,8 @@ export const es: AuthUiMessageBundle = {
     oidc_exchange_failed:
       "No se pudo completar el inicio de sesión con el proveedor.",
     passkey_not_found: "No se encontró la llave de acceso.",
+    passkey_required:
+      "Esta cuenta inicia sesión con una llave de acceso. Usa tu llave de acceso para continuar.",
     password_change_failed: "No se pudo cambiar la contraseña.",
     password_contains_identifier:
       "La contraseña no puede contener tu nombre de usuario ni tu correo.",

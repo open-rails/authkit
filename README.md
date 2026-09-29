@@ -149,7 +149,7 @@ It has no `self`, because nobody renames or deletes the whole site.
 
 A channel's members are the people who hold a role there: its owner and moderators. Readers and posters don't need to be members; who may post is your app's call.
 
-On every boot, AuthKit makes sure `ADMIN_EMAIL` is one. If there's no such account yet, AuthKit makes one with no password, and its owner signs in with "forgot password".
+On every boot, AuthKit makes sure `ADMIN_EMAIL` is one. If there's no such account yet, AuthKit makes one with no password, and its owner signs in with "forgot password". Admins can edit other people's accounts, so AuthKit has them set up two-factor sign-in the first time they log in.
 
 Channels are data, not config: they're made while the site runs. People make them with AuthKit's own route, `POST /api/v1/channel` with `{"slug": "golang"}`, and become that channel's owner. Code makes them with `CreateGroup`. Here our admin opens /c/announcements, a name only admins may take.
 

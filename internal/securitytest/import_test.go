@@ -142,6 +142,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 
 	t.Run("control: a verified address binds, and the account keeps its identity", func(t *testing.T) {
 		owner := h.newAccount("bound")
+		h.enrollEmail2FA(owner) // admin edits accounts, which needs MFA
 		phone := "+1555" + uniqueDigits(7)
 		res, err := apply(iam.BootstrapManifestUser{Username: unique("manifestname"), Email: owner.email, Phone: phone, PhoneVerified: true, RootRole: "admin",
 			Password: &iam.BootstrapUserPassword{Plaintext: "Manifest-seeded-passphrase-1"}})
@@ -194,9 +195,13 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, login.status, login.String())
 
 		// Proving the address is the one way in, and it verifies the address.
-		h.proveEmail(email, "First-admin-passphrase-7")
+		h.proveEmail(email, password)
 		emailVerified, _, _, _, _ = h.contactState(first.ID)
 		require.True(t, emailVerified)
+		// admin edits accounts, which needs MFA.
+		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
+		require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
+		h.enrollEmail2FA(account{id: first.ID, email: email})
 		promoted, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
 		require.NoError(t, err)
 		require.Equal(t, first.ID, promoted.ID)
@@ -229,6 +234,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 
 	t.Run("a verified account or an explicit id binds", func(t *testing.T) {
 		verified := h.newAccount("verifiedadmin")
+		h.enrollEmail2FA(verified)
 		u, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(verified.email), "admin")
 		require.NoError(t, err)
 		require.Equal(t, verified.id, u.ID)

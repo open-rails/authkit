@@ -52,9 +52,10 @@ func (a *Auth) CreateUser(ctx context.Context, actor iam.Actor, u iam.NewUser) (
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
-// change its own Username, AvatarURL and PreferredLanguage. PasswordHash and
-// the verified flags are operator-only; setting a verified flag on an account
-// with no proven contact first retires its pre-proof credentials.
+// change its own Username, AvatarURL and PreferredLanguage. Password,
+// PasswordHash and the verified flags are operator-only; setting a verified
+// flag on an account with no proven contact first retires its pre-proof
+// credentials. An email change never moves the account's email factor.
 func (a *Auth) UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
 	return a.engine.UpdateUser(ctx, actor, userID, u)
 }

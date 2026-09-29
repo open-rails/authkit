@@ -149,8 +149,9 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 	slices.Sort(p.Permissions)
 	mfa := spec.RequireMFA
 	if name == iam.RootPersona {
-		// Handing out site-wide roles always needs MFA, so the root owner does.
-		mfa = append([]string{string(iam.PermMembersManage(name))}, mfa...)
+		// Handing out site-wide roles and editing other people's accounts
+		// always need MFA, so the root owner does.
+		mfa = append([]string{string(iam.PermMembersManage(name)), iam.PermRootUsersManage}, mfa...)
 	}
 	for _, raw := range mfa {
 		pattern := iam.Perm(strings.TrimSpace(raw))

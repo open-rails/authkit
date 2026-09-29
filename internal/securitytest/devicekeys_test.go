@@ -87,8 +87,8 @@ func (h *host) deviceLogin(k *deviceKey) response {
 // TestSecurityDeviceKeyMFAGate (N2): a device key is a login and passes the
 // session MFA gate like every other. A key enrolled with only an emailed code
 // stops signing in once the account has a second factor, until re-enrolled
-// with it; a holder of an MFA-required role without one cannot enroll a key;
-// and a password change ends every device key.
+// with a factor independent of that mailbox; a holder of an MFA-required role
+// without one cannot enroll a key; and a password change ends every device key.
 func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withDeviceKeys))
 	ctx := context.Background()
@@ -103,7 +103,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	}
 
 	// The victim enables 2FA and is made an MFA-required root role holder.
-	h.enrollEmail2FA(victim)
+	backup := h.enrollEmail2FA(victim)
 	h.grant(iam.RootGroup(), victim, "security")
 	for _, k := range []*deviceKey{stolen, laptop} {
 		resp := h.deviceLogin(k)
@@ -111,11 +111,12 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 		require.Equal(t, "2fa_required", resp.errorCode())
 	}
 
-	t.Run("re-enrolling with the second factor re-proves a key", func(t *testing.T) {
+	t.Run("re-enrolling with an independent factor re-proves a key", func(t *testing.T) {
 		resp := h.deviceEnroll(laptop, victim.email, nil)
 		require.Equal(t, http.StatusForbidden, resp.status, "the emailed code alone re-proved the key: %s", resp)
 		require.Equal(t, "step_up_required", resp.errorCode())
-		resp = h.deviceEnroll(laptop, victim.email, func() string { return h.mail.last(t, `^login to=`+victim.email+` code=(\S+)`) })
+		// The email factor reads the enrollment mailbox (P1); a backup code does not.
+		resp = h.deviceEnroll(laptop, victim.email, func() string { return backup[0] })
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		resp = h.deviceLogin(laptop)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
@@ -149,5 +150,53 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 		resp = h.deviceLogin(early)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+	})
+}
+
+// TestSecurityDeviceKeyNeedsIndependentFactor (P1): the enrollment code is
+// emailed, so the email factor, read from the same mailbox, never makes a
+// device key MFA-grade. A mailbox reader gets no second-factor code and cannot
+// bind a key; a TOTP or SMS code or a backup code can.
+func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys))
+	ctx := context.Background()
+	victim := h.newAccount("p1victim")
+	backup := h.enrollEmail2FA(victim)
+	// The attacker reads the victim's mailbox, including the victim's own
+	// sign-in codes.
+	h.passwordStep(victim, "198.51.100.41")
+	mailbox := func() string { return h.mail.last(t, `^login to=`+victim.email+` code=(\S+)`) }
+	sent := h.mail.count(`^login to=` + victim.email + ` `)
+
+	stolen := newDeviceKey(t)
+	resp := h.deviceEnroll(stolen, victim.email, nil)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "step_up_required", resp.errorCode())
+	var meta struct {
+		Error struct {
+			Metadata struct {
+				Method string `json:"method"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	resp.json(t, &meta)
+	require.Equal(t, "backup_code", meta.Error.Metadata.Method, "the enrollment mailbox was offered as the second factor")
+	require.Equal(t, sent, h.mail.count(`^login to=`+victim.email+` `), "enrollment mailed a second-factor code to the enrollment mailbox")
+
+	resp = h.deviceEnroll(stolen, victim.email, mailbox)
+	require.Equal(t, http.StatusUnauthorized, resp.status, "a mailbox code bound a device key: %s", resp)
+	require.Equal(t, "invalid_code", resp.errorCode())
+	var keys int
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1::uuid`, victim.id).Scan(&keys))
+	require.Zero(t, keys)
+
+	t.Run("control: a backup code binds the key", func(t *testing.T) {
+		laptop := newDeviceKey(t)
+		resp := h.deviceEnroll(laptop, victim.email, func() string { return backup[0] })
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = h.deviceLogin(laptop)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		_, claims := splitToken(t, session(t, resp).AccessToken)
+		require.ElementsMatch(t, []any{"device_key", "mfa"}, claims["amr"])
 	})
 }

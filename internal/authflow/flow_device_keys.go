@@ -6,8 +6,9 @@ import (
 
 // DeviceKeySecondFactorRequired is returned by FinishDeviceKeyEnrollment when
 // the email code and key proof are valid but the account has a usable second
-// factor that was not presented (#293). The ceremony stays live for a retry
-// carrying the code; for SMS/email factors the code has just been sent.
+// factor that was not presented (#293). Method is a factor independent of the
+// enrollment mailbox (totp, sms) or backup_code. The ceremony stays live for a
+// retry carrying the code; for an SMS factor the code has just been sent.
 type DeviceKeySecondFactorRequired struct{ Method string }
 
 func (e *DeviceKeySecondFactorRequired) Error() string {

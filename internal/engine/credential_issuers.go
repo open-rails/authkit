@@ -79,7 +79,9 @@ func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGrou
 // that shadows a custom role stored in a live group refuses the boot: it would
 // silently re-point every holder, key and link of that custom role. When the
 // catalog differs from the one last reconciled, the whole-site sweep re-checks
-// every live credential against its creator under the new catalog.
+// every live credential against its creator under the new catalog. That sweep
+// never refuses the boot: it retires what the new catalog no longer allows and
+// logs what it did.
 func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
@@ -87,6 +89,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	sch := s.groupSchemaOrDefault()
 	fingerprint := s.roleCatalogFingerprint()
 	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+		st.reconcile = true
 		if err := refuseShadowedCustomRoles(ctx, st, sch); err != nil {
 			return err
 		}

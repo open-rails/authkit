@@ -78,6 +78,15 @@ Add a row and a test for every new attack class.
 | Staff email change plus reset strips the second factor of an account holding no MFA role | `TestSecurityContactChangeKeepsEnrolledMFA` |
 | Banned account's live token creates a group | `TestSecurityBannedTokenCreatesNoGroup` |
 | API key minted for a persona that does not enable keys | `TestSecurityAPIKeysNeedPersonaOptIn` |
+| Mailbox reader binds a device key with the email factor, from the same mailbox as the enrollment code | `TestSecurityDeviceKeyNeedsIndependentFactor` |
+| Credential sweep's last-owner refusal fails `authkit.New` or a root custom-role edit (MFA added to owner, 2FA turned on with an app root owner, pre-0008 app owner, orphaned app under Required 2FA) | `TestSecurityCredentialSweepNeverBlocksBoot` |
+| Staff email change plus reset redirects the email factor's codes on an account a phone keeps proven | `TestSecurityEmailFactorIsPinned` |
+| Upper-case subject id in a group role operation lets the issuer's credentials survive its departure | `TestSecurityGroupRoleIDsAreCanonical` |
+| Password step-up on a stolen passkey session yields an MFA-fresh token | `TestSecurityPasswordStepUpOnPasskeySession` |
+| Moderator's deletion of a self-deleted account undone by the user signing in | `TestSecurityStaffDeleteOverridesSelfDelete` |
+| Password of a passkey-only MFA-role holder yields an enrollment token | `TestSecurityPasskeyHolderNeedsPasskey` |
+| Anonymous verification request reveals whether an address exists or is verified | `TestSecurityVerifyRequestRevealsNothing` |
+| `root:users:manage` held without MFA; staff set another account's password | `TestSecurityUserManagementNeedsMFA` |
 
 The cookie compatibility guard `TestCookieRegistry` (`internal/engine`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).

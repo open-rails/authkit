@@ -159,3 +159,128 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, keys.Items)
 }
+
+// registerApp registers a group application with token and gives it role.
+func (h *host) registerApp(base, token, slug string, role iam.Role) iam.RemoteApplication {
+	h.t.Helper()
+	iss := "https://" + slug + ".security.test"
+	resp := h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": iss,
+		"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(h.t)}}}, token)
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
+	resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + slug + "/roles/" + string(role), token: token})
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	app, err := h.auth.RemoteApplication(context.Background(), iss)
+	require.NoError(h.t, err)
+	return app
+}
+
+func (h *host) roleOf(group iam.GroupRef, subject iam.Subject) iam.Role {
+	h.t.Helper()
+	roles, err := h.auth.GroupRoles(context.Background(), group, []iam.Subject{subject})
+	require.NoError(h.t, err)
+	return roles[subject]
+}
+
+// reboot starts AuthKit again on the host's database with cfg.
+func (h *host) reboot(cfg authkit.Config) {
+	h.t.Helper()
+	runtime, err := authkit.New(context.Background(), cfg, h.cfg.deps)
+	require.NoError(h.t, err, "a credential sweep refused the boot")
+	h.t.Cleanup(runtime.Close)
+}
+
+// TestSecurityCredentialSweepNeverBlocksBoot (P2): an application owner role
+// that already confers nothing (it needs MFA, or its registrar is gone) is
+// retired without the last-owner refusal, and the boot sweep never refuses:
+// it retires and logs. No stored state keeps AuthKit from starting or blocks
+// a root custom-role edit.
+func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
+	ctx := context.Background()
+	t.Run("RequireMFA added to a permission an application owner holds", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		owner := h.newAccount("p2aowner")
+		group, base := h.newOrg("p2a", owner)
+		app := h.registerApp(base, h.login(owner).AccessToken, "p2a-app", iam.OwnerRole)
+		cfg := h.cfg.engine
+		personas := maps.Clone(cfg.Roles.Personas)
+		org := personas[string(orgPersona)]
+		org.RequireMFA = []string{"org:catalog:read"}
+		personas[string(orgPersona)] = org
+		cfg.Roles.Personas = personas
+		h.reboot(cfg)
+		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)), "the application kept an owner role that needs MFA")
+		require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.UserSubject(owner.id)))
+	})
+	t.Run("2FA turned on with an application holding root owner", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withEngine(withApps), withEngine(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
+		s := newSigner(t, "p2b-kid")
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+			Slug: "p2b-app", Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
+		})
+		require.NoError(t, err)
+		grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), iam.OwnerRole)
+		cfg := h.cfg.engine
+		cfg.TwoFactor.Mode = iam.TwoFactorOptional
+		h.reboot(cfg)
+		require.Empty(t, h.roleOf(iam.RootGroup(), iam.RemoteApplicationSubject(app.ID)))
+	})
+	t.Run("a pre-0008 group registration as its group's only owner", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		owner := h.newAccount("p2cowner")
+		group, base := h.newOrg("p2c", owner)
+		app := h.registerApp(base, h.login(owner).AccessToken, "p2c-app", iam.OwnerRole)
+		// The rows a pre-0008 deployment left: no registrar, and the
+		// application is the group's only owner.
+		_, err := h.pool.Exec(ctx, `UPDATE profiles.remote_applications SET registered_by=NULL WHERE id=$1::uuid`, app.ID)
+		require.NoError(t, err)
+		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.group_user_roles WHERE user_id=$1::uuid`, owner.id)
+		require.NoError(t, err)
+		// The first boot after the upgrade sweeps: the fingerprint changed.
+		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.role_catalog_state`)
+		require.NoError(t, err)
+		h.reboot(h.cfg.engine)
+		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
+	})
+	t.Run("Required 2FA: an application orphaned by its registrar's first proof", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+			c.TwoFactor.Mode = iam.TwoFactorRequired
+			c.Roles.Personas[string(iam.RootPersona)] = authkit.Persona{CustomRoles: true}
+		}))
+		// An account whose address nobody proved founds a group and makes its
+		// own application an owner, then proves the address.
+		name := unique("p2dfounder")
+		email := name + "@security.test"
+		u, err := h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: email, Username: name, Password: password})
+		require.NoError(t, err)
+		group := iam.GroupBySlug(orgPersona, unique("p2d"))
+		_, err = h.createOrg(ctx, group, account{id: u.ID})
+		require.NoError(t, err)
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(u.ID), group, iam.RemoteApplication{
+			Slug: "p2d-app", Issuer: "https://p2d-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "p2d-kid")), Enabled: true,
+		})
+		require.NoError(t, err)
+		require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(u.ID), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, iam.OwnerRole)))
+		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
+		token := h.mail.last(t, `^reset to=`+email+` .* token=(\S+)`)
+		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")
+		require.Less(t, resp.status, 300, resp.String())
+		var orphaned bool
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT registered_by IS NULL FROM profiles.remote_applications WHERE id=$1::uuid`, app.ID).Scan(&orphaned))
+		require.True(t, orphaned, "control: the first proof orphans the application")
+
+		// A root custom-role edit sweeps the whole site.
+		require.NoError(t, h.auth.DefineGroupRole(ctx, iam.OperatorActor(), iam.RootGroup(), iam.CustomRole{Name: "auditor", Permissions: []string{iam.PermRootUsersRead}}))
+		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
+		require.Equal(t, iam.OwnerRole, h.roleOf(group, iam.UserSubject(u.ID)))
+	})
+	t.Run("control: a live registrar's chosen change still keeps the last owner", func(t *testing.T) {
+		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		owner := h.newAccount("p2eowner")
+		_, base := h.newOrg("p2e", owner)
+		token := h.login(owner).AccessToken
+		h.registerApp(base, token, "p2e-app", iam.OwnerRole)
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: token})
+		require.Equal(t, http.StatusConflict, resp.status, resp.String())
+		require.Equal(t, "last_owner", resp.errorCode())
+	})
+}

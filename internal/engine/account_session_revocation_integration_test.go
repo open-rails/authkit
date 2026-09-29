@@ -39,6 +39,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		cfg.Token.AccountIssuers = accountIssuers
 		cfg.Token.AccessTokenDuration = ttl
 		cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "operator", Permissions: iam.IntrinsicRootPermissions()}}}
+		// root:users:manage needs MFA while 2FA is on; this test is about issuers.
+		cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(srv.Close)

@@ -25,7 +25,9 @@ func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*userRecord,
 	return userFromByPhoneRow(r), nil
 }
 
-// RequestEmailVerification creates a verification code and dispatches an email.
+// RequestEmailVerification sends a verification code to an account or pending
+// registration whose address is unproven. An unknown or already verified
+// address gets the same nil, so the answer reveals neither.
 func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
 	email = contact.NormalizeEmail(email)
 	if err := contact.ValidateEmail(email); err != nil {
@@ -37,6 +39,9 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 			return err
 		}
 		if u != nil {
+			if u.EmailVerified {
+				return nil
+			}
 			return s.sendEmailVerificationToUser(ctx, u, ttl)
 		}
 	}
@@ -44,11 +49,7 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 	if found, err := s.ResendRegistration(ctx, email); found || err != nil {
 		return err
 	}
-
-	if s.pg == nil {
-		return s.requirePG()
-	}
-	return iam.ErrUserNotFound
+	return s.requirePG()
 }
 
 func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *userRecord, ttl time.Duration) error {
@@ -108,8 +109,7 @@ func (s *Engine) GetUserByPhone(ctx context.Context, phone string) (*userRecord,
 
 // --- Phone Verification (for existing users with unverified phones) ---
 
-// RequestPhoneVerification looks up the user by phone number and sends a verification code.
-// This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
+// RequestPhoneVerification is RequestEmailVerification for a phone number.
 func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
 	phone = contact.NormalizePhone(phone)
 	if err := contact.ValidatePhone(phone); err != nil {
@@ -121,11 +121,8 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 			return err
 		}
 		if u != nil {
-			if u.PhoneVerified {
-				return errmodel.ErrPhoneAlreadyVerified
-			}
-			if u.PhoneNumber == nil {
-				return iam.ErrUserNotFound
+			if u.PhoneVerified || u.PhoneNumber == nil {
+				return nil
 			}
 			return s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
 		}
@@ -134,11 +131,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 	if found, err := s.ResendRegistration(ctx, phone); found || err != nil {
 		return err
 	}
-
-	if s.pg == nil {
-		return s.requirePG()
-	}
-	return iam.ErrUserNotFound
+	return s.requirePG()
 }
 
 // sendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.

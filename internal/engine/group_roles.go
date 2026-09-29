@@ -174,6 +174,9 @@ func (s *Engine) groupRoleBatch(ctx context.Context, a iam.Actor, ref iam.GroupR
 				if err := validSubject(subject); err != nil {
 					return err
 				}
+				// Ids are compared as text downstream (self rules, the sweep's
+				// issuer filter): only the canonical form may travel (P4).
+				subject.ID, _ = canonicalUUID(subject.ID)
 				return item(st, g, subject)
 			})
 		}

@@ -61,6 +61,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 			if err := validSubject(o); err != nil {
 				return iam.Group{}, false, err
 			}
+			o.ID, _ = canonicalUUID(o.ID)
 			owner = &o
 		}
 	case iam.ActorUser:

@@ -33,8 +33,9 @@ type challenge struct {
 	} `json:"error"`
 }
 
-// enrollEmail2FA turns on the email second factor through the public routes.
-func (h *host) enrollEmail2FA(a account) {
+// enrollEmail2FA turns on the email second factor through the public routes
+// and returns the backup codes it issued.
+func (h *host) enrollEmail2FA(a account) []string {
 	h.t.Helper()
 	h.verifyEmail(a.id)
 	token := h.login(a).AccessToken
@@ -43,6 +44,11 @@ func (h *host) enrollEmail2FA(a account) {
 	code := h.mail.last(h.t, `^verification to=`+a.email+` code=(\S+)`)
 	resp = h.post("/user/2fa", map[string]string{"method": "email", "code": code}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var out struct {
+		BackupCodes []string `json:"backup_codes"`
+	}
+	resp.json(h.t, &out)
+	return out.BackupCodes
 }
 
 func (h *host) passwordStep(a account, ip string) challenge {

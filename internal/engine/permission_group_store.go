@@ -40,6 +40,9 @@ type permissionGroupStore struct {
 	// touched records authority reductions for the enclosing authority
 	// mutation, which revokes credentials their creators no longer cover.
 	touched []authorityTouch
+	// reconcile marks the boot sweep: it retires what it must and logs,
+	// never refuses, so no stored state can keep AuthKit from starting.
+	reconcile bool
 }
 
 // authorityTouch names a group whose grants changed, and the user whose
@@ -47,9 +50,14 @@ type permissionGroupStore struct {
 type authorityTouch struct{ groupID, userID string }
 
 func (st *permissionGroupStore) touch(groupID string, subject iam.Subject) {
-	if subject.Kind == iam.SubjectKindUser {
-		st.touched = append(st.touched, authorityTouch{groupID, subject.ID})
+	if subject.Kind != iam.SubjectKindUser {
+		return
 	}
+	id := subject.ID
+	if canonical, ok := canonicalUUID(id); ok {
+		id = canonical
+	}
+	st.touched = append(st.touched, authorityTouch{groupID, id})
 }
 
 // NewPermissionGroupStore wraps a db.DBTX (pool or transaction).

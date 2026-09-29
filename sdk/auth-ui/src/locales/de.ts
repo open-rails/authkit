@@ -584,6 +584,8 @@ export const de: AuthUiMessageBundle = {
     oidc_exchange_failed:
       "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden.",
     passkey_not_found: "Der Passkey wurde nicht gefunden.",
+    passkey_required:
+      "Dieses Konto meldet sich mit einem Passkey an. Verwenden Sie Ihren Passkey, um fortzufahren.",
     password_change_failed: "Das Passwort konnte nicht geändert werden.",
     password_contains_identifier:
       "Das Passwort darf Ihren Benutzernamen oder Ihre E-Mail-Adresse nicht enthalten.",

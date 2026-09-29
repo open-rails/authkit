@@ -39,8 +39,9 @@ Roles: authkit.RoleConfig{
 - `Persona.RequireMFA` lists permissions that need a second factor. A role
   whose grants reach one (directly, through `Includes`, or as a root role)
   can be held only by a user with MFA enrolled; applications and API keys never
-  hold it. `root:members:manage` always needs MFA, so root's owner does. With
-  2FA disabled deployment-wide the rule is inert.
+  hold it. `root:members:manage` and `root:users:manage` always need MFA, so
+  root's owner, and any role editing other people's accounts, does. With 2FA
+  disabled deployment-wide the rule is inert.
 - Reserved slugs of persona p are creatable only by actors holding `p:*` on root.
 
 ## Built-in permissions

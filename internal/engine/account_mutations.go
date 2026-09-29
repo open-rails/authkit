@@ -191,13 +191,16 @@ func selfEditable(u iam.UserUpdate) bool {
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
 // change its own Username, AvatarURL and PreferredLanguage (rename policy
-// applies); PasswordHash and the verified flags are operator-only. Setting a
-// verified flag is the proof transition: on an account with no proven contact
-// it first retires every pre-proof credential. A contact change never leaves
-// an account that holds MFA-required roles without a proven contact, since
-// the next proof would retire its MFA. Nothing is sent to the new address.
+// applies); Password, PasswordHash and the verified flags are operator-only
+// (staff send a reset to the proven address instead). Setting a verified flag
+// is the proof transition: on an account with no proven contact it first
+// retires every pre-proof credential. A contact change never leaves an
+// account with a second factor or MFA-required roles without a proven
+// contact, since the next proof would retire its MFA, and never moves its
+// email factor, which stays bound to the address it was proven for. Nothing
+// is sent to the new address.
 func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
-	if a.Kind() != iam.ActorOperator && (u.EmailVerified != nil || u.PhoneVerified != nil || u.PasswordHash != nil) {
+	if a.Kind() != iam.ActorOperator && (u.EmailVerified != nil || u.PhoneVerified != nil || u.Password != nil || u.PasswordHash != nil) {
 		return iam.User{}, iam.ErrInsufficientAuthority
 	}
 	if u.Password != nil && u.PasswordHash != nil {
@@ -515,7 +518,13 @@ func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.C
 		return nil, err
 	}
 	if user.DeletedAt != nil {
-		return nil, nil // a repeat request must not extend the recovery window
+		// A repeat keeps the recovery window; a repeat by anyone but the
+		// account records their deletion, which signing in never undoes (P6).
+		if !at.self {
+			_, err := at.tx.Exec(ctx, `UPDATE account_deletions SET deleted_by=$2::uuid WHERE user_id=$1::uuid AND state='deleted'`, userID, at.by)
+			return nil, err
+		}
+		return nil, nil
 	}
 	revoked, err := s.revokeCredentialsTx(ctx, at.tx, userID)
 	if err != nil {

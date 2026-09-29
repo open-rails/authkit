@@ -262,14 +262,19 @@ func (h *host) verifyEmail(id string) {
 	require.NoError(h.t, err)
 }
 
+// login signs a in with its password and, when the account has one, the
+// email second factor.
 func (h *host) login(a account) tokens {
 	h.t.Helper()
 	resp := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
+	if resp.status == http.StatusForbidden && resp.errorCode() == "2fa_required" {
+		var ch challenge
+		resp.json(h.t, &ch)
+		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
+			"code": h.mail.last(h.t, `^login to=`+a.email+` code=(\S+)`)}, "")
+	}
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
-	var out tokens
-	resp.json(h.t, &out)
-	require.NotEmpty(h.t, out.AccessToken)
-	return out
+	return session(h.t, resp)
 }
 
 func (h *host) refresh(refreshToken string) response {
@@ -288,6 +293,19 @@ func (o *outbox) add(s string) error {
 	defer o.mu.Unlock()
 	o.msgs = append(o.msgs, s)
 	return nil
+}
+
+func (o *outbox) count(pattern string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	re := regexp.MustCompile(pattern)
+	n := 0
+	for _, m := range o.msgs {
+		if re.MatchString(m) {
+			n++
+		}
+	}
+	return n
 }
 
 func (o *outbox) last(t *testing.T, pattern string) string {

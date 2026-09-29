@@ -18,10 +18,13 @@ type TwoFactorSettings struct {
 }
 
 type TwoFactorFactor struct {
-	ID           string
-	UserID       string
-	Method       string
-	PhoneNumber  *string
+	ID          string
+	UserID      string
+	Method      string
+	PhoneNumber *string
+	// Email is the address an email factor was proven for; its codes go
+	// there, never to the account's current address.
+	Email        *string
 	TOTPSecret   []byte
 	LastTOTPStep *int64
 	IsDefault    bool

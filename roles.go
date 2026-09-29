@@ -28,7 +28,8 @@ type Persona struct {
 	// RequireMFA lists catalog permissions (or patterns over the catalog)
 	// that need a second factor. A subject holding a grant that reaches one,
 	// through any role, include or root role, must have MFA enrolled, and no
-	// API key may hold it. root:members:manage always needs MFA.
+	// API key may hold it. root:members:manage and root:users:manage always need
+	// MFA.
 	RequireMFA []string
 	// Creation opts the persona into POST /<persona>.
 	Creation GroupCreation

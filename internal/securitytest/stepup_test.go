@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -163,5 +165,101 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 		allowed, err := verify.Allow(ctx, h.auth, cl, iam.PermRootUsersBan, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, allowed)
+	})
+}
+
+func withPasskeys(c *authkit.Config) {
+	c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
+}
+
+// registerPasskey adds a software passkey to the account behind token.
+func (h *host) registerPasskey(token string) *passkeytest.Authenticator {
+	h.t.Helper()
+	authn := passkeytest.New(h.t, "http://localhost")
+	resp := h.post("/passkeys/register/begin", map[string]any{}, token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var creation protocol.CredentialCreation
+	resp.json(h.t, &creation)
+	resp = h.post("/passkeys/register/finish", authn.Register(h.t, &creation), token)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	return authn
+}
+
+// passkeyLogin signs in with authn; signCount must grow on every use.
+func (h *host) passkeyLogin(authn *passkeytest.Authenticator, signCount uint32) response {
+	h.t.Helper()
+	resp := h.post("/passkeys/login/begin", map[string]any{}, "")
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var assertion protocol.CredentialAssertion
+	resp.json(h.t, &assertion)
+	return h.post("/passkeys/login/finish", authn.Assert(h.t, &assertion, signCount), "")
+}
+
+// TestSecurityPasswordStepUpOnPasskeySession (P5): a token claims MFA only as
+// of its session's last MFA proof. A password step-up on a stolen passkey
+// session of an account with no enrolled factor is fresh, but never acr=mfa.
+func TestSecurityPasswordStepUpOnPasskeySession(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withPasskeys))
+	ctx := context.Background()
+	victim := h.newAccount("p5victim")
+	authn := h.registerPasskey(h.login(victim).AccessToken)
+	resp := h.passkeyLogin(authn, 1)
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	_, claims := splitToken(t, session(t, resp).AccessToken)
+	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: a passkey sign-in is MFA")
+	sid, _ := claims["sid"].(string)
+	require.NotEmpty(t, sid)
+	// The attacker's copy of the session is older than the fresh-auth window.
+	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '20 minutes', mfa_authenticated_at=now()-interval '20 minutes' WHERE id=$1::uuid`, sid)
+	require.NoError(t, err)
+	resp = h.post("/step-up/password", map[string]string{"password": password}, h.sessionToken(victim.id, sid))
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	stepped := session(t, resp).AccessToken
+	_, claims = splitToken(t, stepped)
+	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"], "a password re-auth made a passkey session MFA-fresh")
+	require.NotContains(t, claims["amr"], "mfa")
+	require.Nil(t, claims["mfa_enrolled"])
+
+	gate := func(opts verify.SensitiveOptions, token string) int {
+		route := h.auth.Require(verify.Sensitive(opts)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+		r := httptest.NewRequest(http.MethodPost, "https://host.security.test/payout-address", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		route.ServeHTTP(w, r)
+		return w.Code
+	}
+	require.Equal(t, http.StatusForbidden, gate(verify.SensitiveOptions{ACR: iam.AssuranceLevelMFA}, stepped))
+	require.Equal(t, http.StatusForbidden, gate(verify.SensitiveOptions{AMR: []string{"mfa"}}, stepped))
+	require.Equal(t, http.StatusNoContent, gate(verify.SensitiveOptions{}, stepped), "a password is this account's step-up")
+
+	t.Run("control: a fresh passkey sign-in clears the MFA gate", func(t *testing.T) {
+		resp := h.passkeyLogin(authn, 2)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		require.Equal(t, http.StatusNoContent, gate(verify.SensitiveOptions{ACR: iam.AssuranceLevelMFA}, session(t, resp).AccessToken))
+	})
+}
+
+// TestSecurityPasskeyHolderNeedsPasskey (P7): a holder of an MFA-required role
+// whose only strong credential is a passkey signs in with it. A password never
+// yields an enrollment token that would let whoever typed it enroll a factor
+// of their own.
+func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withPasskeys))
+	ctx := context.Background()
+	holder := h.newAccount("p7holder")
+	authn := h.registerPasskey(h.login(holder).AccessToken)
+	// The role came while 2FA was off, or was made MFA-required later.
+	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+	require.NoError(t, err)
+	resp := h.post("/password/login", map[string]string{"identifier": holder.email, "password": password}, "")
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "passkey_required", resp.errorCode(), "a password yielded something other than a passkey demand")
+	require.NotContains(t, resp.String(), "access_token")
+
+	t.Run("control: the passkey signs in with MFA", func(t *testing.T) {
+		resp := h.passkeyLogin(authn, 1)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		_, claims := splitToken(t, session(t, resp).AccessToken)
+		require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 	})
 }
