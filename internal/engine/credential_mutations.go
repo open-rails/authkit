@@ -41,9 +41,11 @@ func (s *Engine) mutateCredentials(ctx context.Context, userID string, keepSessi
 }
 
 // mutateCredentialsTx is shared by credential flows and transactional host bootstrap.
-// Credentials are account-wide, so sessions on every account issuer are revoked.
-// The caller owns commit/rollback and logs returned sessions only after commit.
-func (s *Engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepSessionID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]revokedSession, error) {
+// Credentials are account-wide, so sessions on every account issuer and every
+// device key are revoked, except keepID: the session or device key presenting
+// the change. The caller owns commit/rollback and logs returned sessions only
+// after commit.
+func (s *Engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID string, keepID *string, apply func(*db.Queries, db.UserCredentialVersionForUpdateRow) error) ([]revokedSession, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -54,7 +56,10 @@ func (s *Engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID 
 	if err := q.UserAdvanceCredentialVersion(ctx, userID); err != nil {
 		return nil, err
 	}
-	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
+	if err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: keepID}); err != nil {
+		return nil, err
+	}
+	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepID)
 }
 
 func (s *Engine) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason authflow.SessionRevokeReason) error {

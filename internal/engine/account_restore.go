@@ -53,6 +53,9 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 	if record.state != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
+	if generation != "" && !record.selfDelete {
+		return errmodel.E(errmodel.CodeAccountDisabled)
+	}
 	// Clearing deleted_at uses the same credential-version invalidation trigger
 	// as deletion; no proof from the deleted state becomes a normal login proof.
 	if _, err := tx.Exec(ctx, "UPDATE users SET deleted_at=NULL,updated_at=statement_timestamp() WHERE id=$1::uuid", userID); err != nil {

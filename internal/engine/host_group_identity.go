@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -325,23 +324,6 @@ func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 		return nil
 	}
 	return err
-}
-
-// MemberUserIDByEmail returns the account an email may add to a group: its
-// email is verified and it is neither deleted nor reserved. Any other holder
-// is ok=false, so an unproven or retired account never receives a role by
-// email; the caller invites the address instead.
-func (s *Engine) MemberUserIDByEmail(ctx context.Context, email string) (string, bool, error) {
-	if err := s.requirePG(); err != nil {
-		return "", false, err
-	}
-	var id string
-	err := s.pg.QueryRow(ctx, `SELECT id::text FROM users WHERE email=lower($1::text)::public.citext AND email_verified
- AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb`, email).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
-	}
-	return id, err == nil, err
 }
 
 // validateGroupSlug checks the slug of a by-slug reference.

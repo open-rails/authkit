@@ -367,6 +367,11 @@ permissions ([roles](roles.md)). Every persona but root gets the group's own
 Root's roles are managed under `/admin`. Every generated route checks `Can`
 live for the calling actor and refuses delegated tokens.
 
+`POST /<persona>/<slug>/members` with `email` never adds an account: every
+address gets the same `202` role-carrying invitation, accepted by registering
+with it or by redeeming it at `POST /invites/redeem` signed in to the account
+that verified that address.
+
 ---
 
 ## API keys (opaque machine credentials)
@@ -394,7 +399,10 @@ human login path).
 `<persona>:credentials:manage` permission. The request body supplies one `role`;
 AuthKit validates that the role exists in the target group and enforces
 no-escalation. Permissions resolve from that role at verify time rather than
-being frozen into the key. No key may hold a role that needs MFA. Only a user
+being frozen into the key. No key may hold a role that needs MFA; a role that
+comes to need it (a `RequireMFA` change) confers nothing and the key is revoked
+at the next boot. A persona without `APIKeys` has no keys, even from the
+operator. Only a user
 (or the host's operator actor, whose keys have no creator) issues keys and
 invite links; machine actors never do. The JSON field for the public id is
 `lookup_id`, and lists use the standard list envelope.
@@ -456,6 +464,15 @@ code a miss is `401 invalid_code` and, on the fifth miss or with no live code,
 `401 code_expired`. Every factor is
 proven before it is stored. A full session must be fresh
 (`step_up_required` otherwise; MFA-fresh once any factor exists).
+
+For an account with a second factor, fresh means that factor within the
+window: `POST /step-up/password`, a provider step-up and an inline password all
+answer `step_up_required` with `mfa_required`, and the token's `auth_time` is
+when the session last proved the factor. Device keys pass the same session MFA
+gate as every login: a key counts as a second factor only when its enrollment
+proved one (`code_2fa`), so a key enrolled before the account had a factor is
+refused (`2fa_required`) until re-enrolled with it. A password change or reset
+revokes every device key but the one making the change.
 
 The confirming session becomes 2FA-verified: its refresh session gains
 `<method>, otp, mfa` and a fresh authentication time, exactly as

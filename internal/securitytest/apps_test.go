@@ -208,6 +208,120 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)})
 	require.NoError(t, err)
 	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(owner.id)])
+	// Whatever path left the row, the role confers nothing on the application.
+	authority, err := h.auth.RemoteApplicationAuthority(ctx, app.ID)
+	require.NoError(t, err)
+	require.Empty(t, authority.Permissions)
+	can, err := h.auth.Can(ctx, iam.RemoteApplicationActor(app.ID), iam.RootGroup(), iam.PermRootUsersRead)
+	require.NoError(t, err)
+	require.False(t, can)
+
+	t.Run("bootstrap hands an application no MFA-required root role", func(t *testing.T) {
+		enabled := true
+		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
+			Slug: "boot-app", Issuer: "https://boot-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "boot-app")), Enabled: &enabled, RootRole: iam.OwnerRole,
+		}}}, iam.BootstrapOptions{})
+		require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
+		_, err = h.auth.RemoteApplication(ctx, "https://boot-app.security.test")
+		require.Error(t, err, "the refused manifest left its application behind")
+	})
+}
+
+// TestSecurityApplicationRegistrar (N3): a group-registered application is a
+// credential of the user who supplied its keys. A machine actor cannot
+// register one, it holds only roles its registrar could issue, and its roles
+// end when the registrar is removed from the group or banned.
+func TestSecurityApplicationRegistrar(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	ctx := context.Background()
+	owner := h.newAccount("regowner")
+	group, base := h.newOrg("registrar", owner)
+	ownerToken := h.login(owner).AccessToken
+	type registered struct {
+		registrar account
+		slug      string
+		signer    *jwtkit.RSASigner
+		app       iam.RemoteApplication
+	}
+	// register has registrar (a manager, or the owner) register an application
+	// holding member. Every application is registered before the first token
+	// is verified: the verifier refreshes its application set on a timer.
+	register := func(registrar account, token string) registered {
+		t.Helper()
+		r := registered{registrar: registrar, slug: unique("regapp")}
+		r.signer = newSigner(t, r.slug)
+		resp := h.post(base+"/remote-applications", map[string]any{"slug": r.slug, "issuer": "https://" + r.slug + ".security.test",
+			"public_keys": []map[string]string{{"kid": r.signer.KID(), "public_key_pem": pemOf(t, r.signer.PublicKey())}}}, token)
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+		var err error
+		r.app, err = h.auth.RemoteApplication(ctx, "https://"+r.slug+".security.test")
+		require.NoError(t, err)
+		resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + r.slug + "/roles/member", token: token})
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		return r
+	}
+	manager := func(prefix string) (account, string) {
+		m := h.newAccount(prefix)
+		h.grant(group, m, "manager")
+		return m, h.login(m).AccessToken
+	}
+	removedManager, removedToken := manager("regremoved")
+	bannedManager, bannedToken := manager("regbanned")
+	bystander, _ := manager("regbystander")
+	removedApp, bannedApp := register(removedManager, removedToken), register(bannedManager, bannedToken)
+	ownerApp := register(owner, ownerToken)
+
+	gate := h.auth.RequirePermission(group, "org:catalog:read")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	hostRoute := func(r registered) int {
+		req := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
+		req.Header.Set("Authorization", "Bearer "+appToken(t, r.signer, r.app.Issuer))
+		w := httptest.NewRecorder()
+		gate.ServeHTTP(w, req)
+		return w.Code
+	}
+	for _, r := range []registered{removedApp, bannedApp, ownerApp} {
+		require.Equal(t, http.StatusNoContent, hostRoute(r), "control: an application works while its registrar does")
+	}
+
+	t.Run("an API key registers no application", func(t *testing.T) {
+		key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "manager"})
+		resp := h.post(base+"/remote-applications", map[string]any{"slug": unique("keyapp"), "issuer": "https://" + unique("keyapp") + ".security.test",
+			"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}}, key.Secret)
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	})
+	t.Run("an application never outranks its registrar", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + removedApp.slug + "/roles/owner", token: ownerToken})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(removedApp.app.ID)})
+		require.NoError(t, err)
+		require.Equal(t, iam.Role("member"), roles[iam.RemoteApplicationSubject(removedApp.app.ID)])
+	})
+	for _, tc := range []struct {
+		name string
+		app  registered
+		end  func(a account)
+	}{
+		{"the registrar is removed from the group", removedApp, func(a account) {
+			resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + a.id, token: ownerToken})
+			require.Less(t, resp.status, 300, resp.String())
+		}},
+		{"the registrar is banned", bannedApp, func(a account) {
+			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{Reason: "abuse"}))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.end(tc.app.registrar)
+			roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(tc.app.app.ID)})
+			require.NoError(t, err)
+			require.Empty(t, roles, "the application kept its role past its registrar's authority")
+			require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, hostRoute(tc.app))
+		})
+	}
+	t.Run("control: another registrar's application survives a manager's removal", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + bystander.id, token: ownerToken})
+		require.Less(t, resp.status, 300, resp.String())
+		require.Equal(t, http.StatusNoContent, hostRoute(ownerApp))
+	})
 }
 
 // TestSecurityDelegatedPrincipalManagementPlane (L3): with overlapping
@@ -293,8 +407,12 @@ func TestSecurityIssuerSquatLastOwner(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.status, resp.String())
 	resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/squat-app/roles/owner", token: token})
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	// The registrar cannot leave its application as the last owner (the
+	// application's roles go with the registrar's), so shape that state here.
 	resp = h.do(request{method: http.MethodDelete, path: base + "/members/" + squatter.id, token: token})
-	require.Less(t, resp.status, 300, resp.String())
+	require.Equal(t, http.StatusConflict, resp.status, resp.String())
+	_, err := h.pool.Exec(ctx, `DELETE FROM profiles.group_user_roles WHERE user_id=$1::uuid`, squatter.id)
+	require.NoError(t, err)
 
 	doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("lastvictim"), Issuer: victimIssuer,
 		PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})

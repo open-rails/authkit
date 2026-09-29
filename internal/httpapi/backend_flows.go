@@ -46,8 +46,6 @@ type flowsBackend interface {
 	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (authflow.Passkey, error)
 	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)
-	GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*authflow.PendingRegistration, error)
-	GetPendingRegistrationByEmail(ctx context.Context, email string) (*authflow.PendingRegistration, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
 	HasEmailSender() bool
 	HasPassword(ctx context.Context, userID string) (bool, error)

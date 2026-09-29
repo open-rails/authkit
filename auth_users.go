@@ -78,8 +78,9 @@ func (a *Auth) Unban(ctx context.Context, actor iam.Actor, userID string) error 
 }
 
 // DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
-// the 30-day recovery window; an account may delete itself. Results are per
-// item; the error is a whole-call failure.
+// the 30-day recovery window; an account may delete itself. Only a
+// self-deletion is undone by signing in; any other comes back through
+// RestoreUsers. Results are per item; the error is a whole-call failure.
 func (a *Auth) DeleteUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
 	return a.engine.DeleteUsers(ctx, actor, ids)
 }

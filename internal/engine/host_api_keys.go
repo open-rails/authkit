@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -71,6 +72,10 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	var out iam.APIKey
 	var token string
 	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		// A persona without API keys has none, whoever asks (the operator too).
+		if p, ok := s.groupSchemaOrDefault().Persona(g.Persona); !ok || !p.APIKeys {
+			return fmt.Errorf("persona %q does not enable API keys: %w", g.Persona, iam.ErrInsufficientAuthority)
+		}
 		if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
 			return err
 		}
@@ -229,6 +234,11 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		p.Permissions = custom
 	default:
 		p.Permissions = []string{}
+	}
+	// A key can present no second factor: a role that came to need MFA (a
+	// changed RequireMFA) confers nothing even before the boot sweep revokes it.
+	if s.TwoFactorEnabled() && sch.RequiresMFA(p.Permissions) {
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
 	}
 	p.LookupID = lookupID
 	p.Issuer = s.cfg.Token.Issuer

@@ -103,10 +103,15 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(recoveryUser.ID)])
 
 	enabled := true
+	// An application can present no second factor: the MFA-required root
+	// owner role is refused for it, like on every other assignment path.
 	app := iam.BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled, RootRole: iam.OwnerRole}
+	_, err = svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{app}}, iam.BootstrapOptions{})
+	require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
+	app.RootRole = ""
 	result, err = svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{app}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
-	require.Equal(t, iam.BootstrapResult{RemoteApplications: 1, RemoteApplicationRootRoles: 1}, result)
+	require.Equal(t, iam.BootstrapResult{RemoteApplications: 1}, result)
 	stored, err := svc.GetRemoteApplication(ctx, app.Issuer)
 	require.NoError(t, err)
 	require.Equal(t, app.Slug, stored.Slug)
@@ -115,8 +120,5 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.True(t, stored.Enabled)
 	appRoles, err := svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.RemoteApplicationSubject(stored.ID)})
 	require.NoError(t, err)
-	require.Equal(t, iam.OwnerRole, appRoles[iam.RemoteApplicationSubject(stored.ID)])
-	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, stored.ID)
-	require.NoError(t, err)
-	require.Contains(t, authority.Permissions, string(iam.Persona(iam.RootPersona).OwnerGrant()))
+	require.Empty(t, appRoles)
 }

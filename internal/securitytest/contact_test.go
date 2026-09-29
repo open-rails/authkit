@@ -3,8 +3,11 @@ package securitytest
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/open-rails/authkit"
@@ -295,5 +298,72 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 		u, err := h.auth.User(ctx, iam.UserByEmail(fresh))
 		require.NoError(t, err)
 		require.True(t, u.EmailVerified)
+	})
+}
+
+// TestSecurityMemberEmailIsAnInvitation (N9): adding a member by email never
+// reveals whether an account holds the address, and never adds the account
+// without its consent: every address gets the same invitation, which only the
+// account that proved the address accepts. A failed verification link says
+// nothing about the address either.
+func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	ctx := context.Background()
+	owner := h.newAccount("n9owner")
+	group, base := h.newOrg("n9", owner)
+	ownerToken := h.login(owner).AccessToken
+	verified := h.newAccount("n9verified")
+	unverified := unique("n9unverified") + "@security.test"
+	h.register(unverified)
+	nobody := unique("n9nobody") + "@security.test"
+
+	shape := func(r response) map[string]any {
+		var body map[string]any
+		r.json(t, &body)
+		invite, _ := body["invite"].(map[string]any)
+		out := map[string]any{"status": r.status, "keys": slices.Sorted(maps.Keys(body)), "invite": slices.Sorted(maps.Keys(invite))}
+		return out
+	}
+	var shapes []map[string]any
+	var code string
+	for _, email := range []string{verified.email, unverified, nobody} {
+		resp := h.post(base+"/members", map[string]string{"email": email, "role": "member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.NotContains(t, resp.String(), `"user_id"`)
+		shapes = append(shapes, shape(resp))
+		if email == verified.email {
+			var body struct {
+				Invite struct {
+					Code string `json:"code"`
+				} `json:"invite"`
+			}
+			resp.json(t, &body)
+			code = body.Invite.Code
+		}
+	}
+	require.Equal(t, shapes[0], shapes[1])
+	require.Equal(t, shapes[0], shapes[2])
+	roleOf := func(id string) iam.Role {
+		roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.UserSubject(id)})
+		require.NoError(t, err)
+		return roles[iam.UserSubject(id)]
+	}
+	require.Empty(t, roleOf(verified.id), "a verified address was added without consent")
+
+	stranger := h.newAccount("n9stranger")
+	resp := h.post("/invites/redeem", map[string]string{"code": code}, h.login(stranger).AccessToken)
+	require.Equal(t, http.StatusNotFound, resp.status, "another account accepted the invitation: %s", resp)
+	require.Empty(t, roleOf(stranger.id))
+	resp = h.post("/invites/redeem", map[string]string{"code": code}, h.login(verified).AccessToken)
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	require.Equal(t, iam.Role("member"), roleOf(verified.id), "control: the invited account accepts")
+
+	t.Run("a failed verification link is one answer", func(t *testing.T) {
+		var answers []string
+		for _, email := range []string{verified.email, unverified, nobody} {
+			resp := h.post("/verify/confirm", map[string]string{"identifier": email, "token": unique("bogus-link-token-000000000000000")}, "")
+			answers = append(answers, fmt.Sprintf("%d %s", resp.status, resp.errorCode()))
+		}
+		require.Equal(t, []string{"400 invalid_link", "400 invalid_link", "400 invalid_link"}, answers)
 	})
 }

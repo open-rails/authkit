@@ -3,6 +3,7 @@ package securitytest
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit"
@@ -225,7 +226,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 		require.NotEmpty(t, sid)
 		// A stolen session whose authentication is old: the password branch
 		// of the fresh-auth gate is the only way through.
-		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
+		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day', mfa_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
 		require.NoError(t, err)
 		tok, err := h.auth.MintAccessToken(ctx, iam.OperatorActor(), a.id, iam.AccessTokenOptions{SessionID: sid})
 		require.NoError(t, err)
@@ -298,5 +299,140 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 	}
 	t.Run("control: other issuers' credentials survive", func(t *testing.T) {
 		require.True(t, liveKey(t, h, group, founderKey.ID))
+	})
+}
+
+// TestSecurityDeletionRecoveryIsSelfOnly (N5): signing in inside the recovery
+// window restores only an account that deleted itself. An account staff
+// deleted comes back only through RestoreUsers, with its authority re-checked.
+func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	moderator, target := h.newAccount("n5moderator"), h.newAccount("n5target")
+	h.grant(iam.RootGroup(), moderator, "moderator")
+	resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id, token: h.login(moderator).AccessToken})
+	require.Less(t, resp.status, 300, resp.String())
+	login := h.post("/password/login", map[string]string{"identifier": target.email, "password": password}, "")
+	require.Equal(t, http.StatusUnauthorized, login.status, "an admin-deleted account started its own recovery: %s", login)
+	require.Equal(t, "account_disabled", login.errorCode())
+	require.NotContains(t, login.String(), "recovery")
+	u, err := h.auth.User(ctx, iam.UserByID(target.id), iam.IncludeDeleted())
+	require.NoError(t, err)
+	require.NotNil(t, u.DeletedAt)
+
+	t.Run("control: a self-deletion is recovered by signing in", func(t *testing.T) {
+		self := h.newAccount("n5self")
+		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(self).AccessToken})
+		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
+		require.Equal(t, http.StatusConflict, login.status, login.String())
+		var body struct {
+			Error struct {
+				Metadata struct {
+					Recovery struct {
+						Token string `json:"token"`
+					} `json:"recovery"`
+				} `json:"metadata"`
+			} `json:"error"`
+		}
+		login.json(t, &body)
+		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
+		resp = h.post("/account/recovery/confirm", map[string]string{"token": body.Error.Metadata.Recovery.Token}, "")
+		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+		h.login(self)
+	})
+}
+
+// TestSecuritySelfRulesUseCanonicalIDs (N6): a differently cased id is the
+// same account. It never slips a self-edit, self-ban or self-unban past the
+// self rule.
+func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	staff, other := h.newAccount("n6staff"), h.newAccount("n6other")
+	h.grant(iam.RootGroup(), staff, "siteadmin")
+	email := unique("n6self") + "@security.test"
+	selfOps := map[string]func(a iam.Actor, id string) error{
+		"PatchUserMetadata": func(a iam.Actor, id string) error {
+			return h.auth.PatchUserMetadata(ctx, a, id, map[string]any{"plan": "enterprise"})
+		},
+		"UpdateUser": func(a iam.Actor, id string) error {
+			_, err := h.auth.UpdateUser(ctx, a, id, iam.UserUpdate{Email: &email})
+			return err
+		},
+		"Ban":   func(a iam.Actor, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
+		"Unban": func(a iam.Actor, id string) error { return h.auth.Unban(ctx, a, id) },
+	}
+	upper := strings.ToUpper(staff.id)
+	for name, op := range selfOps {
+		require.ErrorIs(t, op(iam.UserActor(staff.id), upper), iam.ErrCannotTargetSelf, name+": upper-case target")
+		require.ErrorIs(t, op(iam.UserActor(upper), staff.id), iam.ErrCannotTargetSelf, name+": upper-case actor")
+	}
+	meta, err := h.auth.UserMetadata(ctx, staff.id)
+	require.NoError(t, err)
+	require.NotContains(t, meta, "plan")
+	u, err := h.auth.User(ctx, iam.UserByID(staff.id))
+	require.NoError(t, err)
+	require.Equal(t, staff.email, u.Email)
+
+	t.Run("control: an upper-case id names another account", func(t *testing.T) {
+		require.NoError(t, selfOps["PatchUserMetadata"](iam.UserActor(staff.id), strings.ToUpper(other.id)))
+		meta, err := h.auth.UserMetadata(ctx, other.id)
+		require.NoError(t, err)
+		require.Equal(t, "enterprise", meta["plan"])
+	})
+}
+
+// TestSecurityContactChangeKeepsEnrolledMFA (N10): a staff email change must
+// not leave any account with a second factor unproven, role or not: the next
+// reset to the new address would retire that factor and hand the account over.
+func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	support, target := h.newAccount("n10support"), h.newAccount("n10target")
+	h.grant(iam.RootGroup(), support, "staff")
+	h.enrollEmail2FA(target)
+	attacker := unique("n10evil") + "@security.test"
+	_, err := h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &attacker})
+	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
+	u, err := h.auth.User(ctx, iam.UserByID(target.id))
+	require.NoError(t, err)
+	require.Equal(t, target.email, u.Email)
+	require.True(t, u.EmailVerified)
+	var enabled bool
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT enabled FROM profiles.mfa_settings WHERE user_id=$1::uuid`, target.id).Scan(&enabled))
+	require.True(t, enabled)
+
+	t.Run("control: an account without a second factor may be moved", func(t *testing.T) {
+		plain := h.newAccount("n10plain")
+		moved := unique("n10moved") + "@security.test"
+		u, err := h.auth.UpdateUser(ctx, iam.UserActor(support.id), plain.id, iam.UserUpdate{Email: &moved})
+		require.NoError(t, err)
+		require.Equal(t, moved, u.Email)
+	})
+}
+
+// TestSecurityBannedTokenCreatesNoGroup: a banned account's still-valid access
+// token creates no group.
+func TestSecurityBannedTokenCreatesNoGroup(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+		org := c.Roles.Personas[string(orgPersona)]
+		org.Creation = authkit.GroupCreation{Enabled: true}
+		c.Roles.Personas[string(orgPersona)] = org
+	}))
+	ctx := context.Background()
+	banned := h.newAccount("bannedcreator")
+	token := h.login(banned).AccessToken
+	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), banned.id, iam.Ban{Reason: "abuse"}))
+	slug := unique("bannedorg")
+	resp := h.post("/"+string(orgPersona), map[string]string{"slug": slug}, token)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	_, err := h.auth.Group(ctx, iam.GroupBySlug(orgPersona, slug))
+	require.ErrorIs(t, err, iam.ErrGroupNotFound)
+
+	t.Run("control: a live account creates one", func(t *testing.T) {
+		live := h.newAccount("livecreator")
+		resp := h.post("/"+string(orgPersona), map[string]string{"slug": unique("liveorg")}, h.login(live).AccessToken)
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
 	})
 }

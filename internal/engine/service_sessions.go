@@ -284,7 +284,7 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *u
 	if err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
 	}
-	authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: fresh.FreshSince, AuthMethods: fresh.AuthMethods}).AssuranceClaims()
+	authTime, amr, acr := sessionFreshness(fresh.FreshSince, fresh.AuthMethods, fresh.MfaAuthenticatedAt).AssuranceClaims(mfa.Satisfied)
 	extra := make(map[string]any, len(in.Extra)+1)
 	for k, v := range in.Extra {
 		extra[k] = v
@@ -382,12 +382,17 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 	if remaining < 0 {
 		remaining = 0
 	}
-	return authflow.SessionFreshness{
-		LastAuthenticatedAt:           fresh.FreshSince,
-		TimeUntilStepUpRequired:       remaining,
-		StepUpRequiredForSensitiveOps: remaining <= 0,
-		AuthMethods:                   authflow.NormalizeAuthMethods(fresh.AuthMethods),
-	}, nil
+	out := sessionFreshness(fresh.FreshSince, fresh.AuthMethods, fresh.MfaAuthenticatedAt)
+	out.TimeUntilStepUpRequired, out.StepUpRequiredForSensitiveOps = remaining, remaining <= 0
+	return out, nil
+}
+
+func sessionFreshness(since time.Time, methods []string, mfaAt *time.Time) authflow.SessionFreshness {
+	out := authflow.SessionFreshness{LastAuthenticatedAt: since, AuthMethods: authflow.NormalizeAuthMethods(methods)}
+	if mfaAt != nil {
+		out.MFAAuthenticatedAt = *mfaAt
+	}
+	return out
 }
 
 func (s *Engine) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {

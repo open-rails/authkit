@@ -29,7 +29,8 @@ credentials such as device-key tokens need not carry a `SessionID`.
 
 `AMR` describes authentication methods used, `ACR` the issuer's assurance class,
 and `AuthTime` when authentication occurred rather than when a token was
-refreshed. `MFAEnrolled` is enrollment information at token issuance, not proof
+refreshed. For an account with a second factor, AuthKit's `AuthTime` is when the
+session last proved that factor, so a password re-auth never makes it fresh. `MFAEnrolled` is enrollment information at token issuance, not proof
 that this authentication performed MFA; use the assurance/step-up checks.
 
 A snapshot can become stale: revoking an entitlement after a token was issued
@@ -52,6 +53,7 @@ operations take. It never yields an operator.
 | Remote-application token | `iam.RemoteApplicationActor(id).Within(token permissions)` |
 | Delegated access token | `iam.DelegatedActor(grant)` |
 | External user token (`Subject`, no `UserID`) | none |
+| 2FA-enrollment-only token | none; `Verify` refuses it |
 
 Checks resolve the actor live: a banned or deleted user, a revoked key or a
 disabled application covers nothing. API keys and applications act only in

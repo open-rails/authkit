@@ -57,20 +57,29 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	if err != nil {
 		return Claims{}, unauthorizedError(err)
 	}
-	if cl.TwoFAEnrollment && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, errmodel.E(errmodel.CodeForbidden)
+	if err := v.enrollmentGate(cl, v.mfaEnrollmentExemptPath(r.Method, r.URL.Path)); err != nil {
+		return Claims{}, err
 	}
-	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
-	// native user whose token shows they are not yet enrolled (mfa_enrolled absent)
-	// is blocked from everything except the 2FA enroll/challenge routes — so an
-	// existing un-enrolled user is challenged on their NEXT authenticated request,
-	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
-	// principals can't enroll TOTP and bypass (note d).
-	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
-	}
-
 	return cl, nil
+}
+
+// enrollmentGate confines 2FA enrollment to the exempt enrollment routes. An
+// enrollment-only token reaches nothing else. #148: when 2FA policy is
+// Required, a native user whose token shows they are not yet enrolled
+// (mfa_enrolled absent) is blocked from everything except the 2FA
+// enroll/challenge routes, so an existing un-enrolled user is challenged on
+// their next request. Gated on IsUser: API-key/delegated/service principals
+// can't enroll TOTP and bypass (note d).
+func (v *Verifier) enrollmentGate(cl Claims, exempt bool) error {
+	switch {
+	case exempt:
+		return nil
+	case cl.TwoFAEnrollment:
+		return errmodel.E(errmodel.CodeForbidden)
+	case v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled:
+		return errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
+	}
+	return nil
 }
 
 func writeRequestError(w http.ResponseWriter, r *http.Request, err error) {

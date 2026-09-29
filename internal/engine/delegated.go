@@ -32,12 +32,14 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 			return iam.Token{}, fmt.Errorf("%w: delegated subject required", errmodel.E(errmodel.CodeInvalidRequest))
 		}
 	case iam.ActorUser:
+		self, _ := canonicalUUID(actor.ID())
 		if d.Subject == "" {
-			d.Subject = actor.ID()
+			d.Subject = self
 		}
-		if d.Subject != actor.ID() {
+		if subject, _ := canonicalUUID(d.Subject); self == "" || subject != self {
 			return iam.Token{}, iam.ErrInsufficientAuthority
 		}
+		d.Subject = self
 		if err := s.checkDelegatedGrant(ctx, d.Subject, d.Permissions); err != nil {
 			return iam.Token{}, err
 		}

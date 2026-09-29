@@ -22,8 +22,10 @@ stranger to that address (ak#393).
   unaffected.
 - **The first proof retires everything before it.** In the proof's transaction,
   AuthKit deletes provider links (including wallets), passkeys, device keys,
-  2FA factors and backup codes. It revokes API keys the account created and
-  every refresh session on every account issuer. The session presenting the
+  2FA factors and backup codes. It revokes the API keys, invite links and
+  account invitations the account issued, the applications it registered lose
+  their registrar (and with it every role), and every refresh session on every
+  account issuer ends. The session presenting the
   proof is the only exception, when there is one.
 - **The password survives only if the prover holds it.** A proof presented by a
   live session of the account that signed in with the password keeps the

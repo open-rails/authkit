@@ -1,15 +1,19 @@
 package engine
 
-// Rule CRED: a credential (API key, invite link, registration invite) records
-// who issued it, and never outlives that issuer's authority. The issuer is a
-// user, or the operator (NULL, never auto-revoked); machine actors cannot
-// issue credentials. Three layers hold it:
+// Rule CRED: a credential (API key, invite link, registration invite, and the
+// roles of a group-registered application) records who issued it, and never
+// outlives that issuer's authority. The issuer is a user, or the operator
+// (NULL, never auto-revoked); machine actors cannot issue credentials. An
+// application's issuer is its registrar, the user who supplied its keys.
+// Three layers hold it:
 //   - the sweep (revokeUncoveredCredentials) revokes what a creator no longer
 //     covers after any authority change, including a changed role catalog at
 //     boot (reconcileRoleCatalog);
-//   - every use re-checks the creator is live (issuerLive), so a banned or
-//     deleted creator's credentials fail even where no sweep ran;
+//   - every use re-checks the creator is live (issuerLive, registrarLive), so
+//     a banned or deleted creator's credentials fail even where no sweep ran;
 //   - a purge deletes the creator's keys and links with the account.
+// An API key or application can present no second factor, so neither ever
+// holds a role that needs one, whoever issued it.
 
 import (
 	"context"
@@ -47,6 +51,13 @@ func issuerLive(col string) string {
  AND ((issuer.banned_at IS NULL AND issuer.banned_until IS NULL AND issuer.ban_reason IS NULL AND issuer.banned_by IS NULL) OR issuer.banned_until<=statement_timestamp())))`
 }
 
+// registrarLive is a SQL predicate on the remote_applications alias app: a
+// group registration confers authority only while its registrar is live.
+// Operator and domain registrations have no registrar.
+func registrarLive(app string) string {
+	return `(` + app + `.trust_root<>'user' OR ` + app + `.registered_by IS NOT NULL AND ` + issuerLive(app+".registered_by") + `)`
+}
+
 // requireCredentialRevoke is the authority to take back a credential of role:
 // CAP(capability) plus COVER(role). A role that no longer exists confers
 // nothing, so it needs only CAP.
@@ -74,7 +85,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 		return nil
 	}
 	sch := s.groupSchemaOrDefault()
-	fingerprint := roleCatalogFingerprint(sch)
+	fingerprint := s.roleCatalogFingerprint()
 	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if err := refuseShadowedCustomRoles(ctx, st, sch); err != nil {
 			return err
@@ -127,9 +138,16 @@ func refuseShadowedCustomRoles(ctx context.Context, st *permissionGroupStore, sc
 }
 
 // roleCatalogFingerprint identifies everything the credential sweep reads from
-// the catalog: each persona's custom-role switch and every role's grants.
-func roleCatalogFingerprint(sch *rbac.Schema) string {
+// the configuration: each persona's custom-role switch, every role's grants,
+// and which permissions need MFA (no key or application holds one of those
+// once 2FA is on).
+func (s *Engine) roleCatalogFingerprint() string {
+	sch := s.groupSchemaOrDefault()
 	h := sha256.New()
+	fmt.Fprintf(h, "twofactor=%t\n", s.TwoFactorEnabled())
+	for _, p := range sch.MFAPermissions() {
+		fmt.Fprintf(h, "mfa %s\n", p)
+	}
 	for _, name := range sch.Personas() {
 		p, _ := sch.Persona(name)
 		fmt.Fprintf(h, "persona %s custom=%t\n", name, p.CustomRoles)

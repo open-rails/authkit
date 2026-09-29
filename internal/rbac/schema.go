@@ -337,6 +337,11 @@ func (s *Schema) RequiresMFA(grants []string) bool {
 	return false
 }
 
+// MFAPermissions lists, sorted, the catalog permissions that need MFA.
+func (s *Schema) MFAPermissions() []iam.Perm {
+	return slices.Sorted(slices.Values(s.mfa))
+}
+
 // CustomRoleGrantsValid checks the grants of a runtime-defined role: each must
 // match the persona's catalog, and none may be the owner grant.
 func (s *Schema) CustomRoleGrantsValid(persona iam.Persona, grants []string) error {
@@ -460,4 +465,3 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom C
 	}
 	return out
 }
-

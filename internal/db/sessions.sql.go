@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+const deviceKeysRevokeAllExcept = `-- name: DeviceKeysRevokeAllExcept :exec
+UPDATE user_device_keys SET revoked_at = now()
+WHERE user_id = $1::uuid AND revoked_at IS NULL
+  AND ($2::uuid IS NULL OR id <> $2::uuid)
+`
+
+type DeviceKeysRevokeAllExceptParams struct {
+	UserID string
+	KeepID *string
+}
+
+// A credential change ends every device key of the account but keep_id, the
+// one presenting the change.
+func (q *Queries) DeviceKeysRevokeAllExcept(ctx context.Context, arg DeviceKeysRevokeAllExceptParams) error {
+	_, err := q.db.Exec(ctx, deviceKeysRevokeAllExcept, arg.UserID, arg.KeepID)
+	return err
+}
+
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
 FROM refresh_sessions
@@ -102,7 +120,7 @@ func (q *Queries) SessionCreateLock(ctx context.Context, key string) error {
 
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       auth_methods
+       auth_methods, mfa_authenticated_at
 FROM refresh_sessions
 WHERE id = $1::uuid
   AND user_id = $2::uuid
@@ -118,19 +136,20 @@ type SessionFreshSinceParams struct {
 }
 
 type SessionFreshSinceRow struct {
-	FreshSince  time.Time
-	AuthMethods []string
+	FreshSince         time.Time
+	AuthMethods        []string
+	MfaAuthenticatedAt *time.Time
 }
 
 func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSinceParams) (SessionFreshSinceRow, error) {
 	row := q.db.QueryRow(ctx, sessionFreshSince, arg.SessionID, arg.UserID, arg.Issuer)
 	var i SessionFreshSinceRow
-	err := row.Scan(&i.FreshSince, &i.AuthMethods)
+	err := row.Scan(&i.FreshSince, &i.AuthMethods, &i.MfaAuthenticatedAt)
 	return i, err
 }
 
 const sessionFreshSinceForUpdate = `-- name: SessionFreshSinceForUpdate :one
-SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since, auth_methods, mfa_authenticated_at
 FROM refresh_sessions
 WHERE id = $1::uuid AND user_id = $2::uuid
   AND issuer = $3 AND revoked_at IS NULL
@@ -145,20 +164,21 @@ type SessionFreshSinceForUpdateParams struct {
 }
 
 type SessionFreshSinceForUpdateRow struct {
-	FreshSince  time.Time
-	AuthMethods []string
+	FreshSince         time.Time
+	AuthMethods        []string
+	MfaAuthenticatedAt *time.Time
 }
 
 func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFreshSinceForUpdateParams) (SessionFreshSinceForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, sessionFreshSinceForUpdate, arg.SessionID, arg.UserID, arg.Issuer)
 	var i SessionFreshSinceForUpdateRow
-	err := row.Scan(&i.FreshSince, &i.AuthMethods)
+	err := row.Scan(&i.FreshSince, &i.AuthMethods, &i.MfaAuthenticatedAt)
 	return i, err
 }
 
 const sessionInsert = `-- name: SessionInsert :one
-INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
+INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
 RETURNING id::text, family_id::text
 `
 
@@ -201,7 +221,8 @@ UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
       SELECT DISTINCT unnest(auth_methods || $1::text[])
-    )
+    ),
+    mfa_authenticated_at = CASE WHEN 'mfa' = ANY($1::text[]) THEN now() ELSE mfa_authenticated_at END
 WHERE id = $2::uuid
   AND user_id = $3::uuid
   AND issuer = $4
@@ -217,9 +238,8 @@ type SessionMarkAuthenticatedParams struct {
 }
 
 // Re-proving identity refreshes the freshness window and UNIONS the methods
-// just used into whatever the session already proved — it never downgrades
-// assurance. A password-only re-auth on an MFA session keeps its otp/mfa AMR,
-// so a later RequireMFA gate still passes.
+// just used into what the session proved, so its refresh assurance never
+// drops. MFA freshness moves only when these methods include the second factor.
 func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkAuthenticatedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionMarkAuthenticated,
 		arg.AuthMethods,

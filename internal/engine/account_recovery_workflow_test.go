@@ -46,7 +46,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &old))
 	remove := func() {
 		t.Helper()
-		results, err := core.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+		results, err := core.DeleteUsers(t.Context(), iam.UserActor(user.ID), []string{user.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}

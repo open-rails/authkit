@@ -89,8 +89,10 @@ revoked or expired key, or a disabled application covers nothing. `Within`
 narrows an actor to a permission ceiling. The operator skips the permission
 rules but not the invariants: the last usable owner and MFA-required roles
 bind it too. Only users and the operator issue credentials (API keys, invite
-links, account invites); a user's credentials die with the user's authority,
-the operator's never. `verify.ActorFromClaims` derives the actor of a request
+links, account invites, group-registered applications); a user's credentials
+die with the user's authority, the operator's never. The user who supplies a
+group application's keys is its registrar: the application holds only roles
+the registrar could issue, and loses them with the registrar's authority. `verify.ActorFromClaims` derives the actor of a request
 ([verification](verification.md)).
 
 Assigning or removing a role needs `<p>:members:manage` for a user subject and

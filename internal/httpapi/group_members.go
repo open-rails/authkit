@@ -21,10 +21,12 @@ type memberRequest struct {
 	Role   string `json:"role"`
 }
 
-// groupMemberAdd assigns a user a role in the group. An email adds only the
-// live account that has verified it; any other address, including one an
-// unverified or deleted account holds, gets a role-carrying registration
-// invite instead, so an unproven email never receives a role.
+// groupMemberAdd assigns a user a role in the group by user_id. An email is an
+// invitation, whoever holds the address: a role-carrying account invitation
+// is emailed there, and the role lands only when its recipient accepts it (by
+// registering with it, or by redeeming it signed in to the account that has
+// verified the address). The answer is the same for every address, so it
+// never reveals whether an account holds it.
 func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil {
@@ -47,45 +49,30 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			writeError(w, err)
 			return
 		}
-	}
-	if email != "" {
-		id, found, err := s.svc.MemberUserIDByEmail(r.Context(), email)
+		if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
+			return
+		}
+		// Authorized by THIS group's members:manage plus COVER(role), not
+		// root:users:invite. Machine actors cannot issue invitations.
+		invite, err := s.svc.CreateAccountInvite(r.Context(), actor, iam.NewAccountInvite{Email: email, Group: group, Role: role})
 		if err != nil {
-			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
-			serverErr(w, "database_error", nil)
+			s.writeGroupOpError(w, err)
 			return
 		}
-		if !found {
-			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
-				return
-			}
-			// #147 register+join: mint ONE role-carrying account-registration invite.
-			// Consuming the code authorizes the stranger's registration AND grants this
-			// role on consume — one link covers register + join. Authorized by THIS
-			// group's members:manage (the role-carrying create path), which does not
-			// grant general root:users:invite authority. Machine actors cannot
-			// issue invitations.
-			invite, err := s.svc.CreateAccountInvite(r.Context(), actor, iam.NewAccountInvite{Email: email, Group: group, Role: role})
-			if err != nil {
-				s.writeGroupOpError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusAccepted, map[string]any{
-				"ok":            true,
-				"persona":       group.Persona(),
-				"instance_slug": group.Slug(),
-				"email":         email,
-				"role":          role,
-				"invited":       true,
-				"invite": map[string]any{
-					"id":   invite.ID,
-					"code": invite.Code,
-					"url":  invite.URL,
-				},
-			})
-			return
-		}
-		userID = id
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"ok":            true,
+			"persona":       group.Persona(),
+			"instance_slug": group.Slug(),
+			"email":         email,
+			"role":          role,
+			"invited":       true,
+			"invite": map[string]any{
+				"id":   invite.ID,
+				"code": invite.Code,
+				"url":  invite.URL,
+			},
+		})
+		return
 	}
 	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)}, role)
 	if !s.writeOpResult(w, res, err) {

@@ -196,6 +196,14 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 			}
 			mfaProof = true
 		}
+		// The session MFA gate every login passes: a holder of an MFA-required
+		// role without a second factor, or any account when enrollment is
+		// mandatory, enrolls one before it may hold a standing credential.
+		if err := s.requireSessionMFAStateOn(ctx, s.pg, user.ID, deviceKeyEnrollmentMethods(mfaProof), status, nil); err != nil {
+			return authflow.DeviceKeyAuthResult{}, err
+		}
+	} else if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
+		return authflow.DeviceKeyAuthResult{}, iam.ErrTwoFAEnrollmentRequired
 	}
 
 	var consumed deviceKeyEnrollment
@@ -205,18 +213,27 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	}
 	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+strings.TrimSpace(enrollmentID))
 
-	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey)
+	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey, mfaProof)
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
 	if user != nil && created {
 		s.notifyDeviceKeyEnrolled(ctx, user, deviceKey)
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, true, mfaProof)
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, deviceKeyEnrollmentMethods(mfaProof))
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
 	return authflow.DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+}
+
+// deviceKeyEnrollmentMethods is what an enrollment proves: the key, the
+// emailed code and, on an account with a second factor, that factor.
+func deviceKeyEnrollmentMethods(mfaProof bool) []string {
+	if mfaProof {
+		return []string{"device_key", "email", "otp", "mfa"}
+	}
+	return []string{"device_key", "email"}
 }
 
 // verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
@@ -248,8 +265,10 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *userRecord, key
 }
 
 // enrollDeviceKey inserts the key (created=true) or returns the identical key
-// already enrolled on the same account (created=false).
-func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (authflow.DeviceKey, string, bool, error) {
+// already enrolled on the same account (created=false). A second-factor proof
+// binds the key to it (mfa_proven_at), including a re-enrollment of a key
+// enrolled before the account had one.
+func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte, mfaProof bool) (authflow.DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKey{}, "", false, err
@@ -308,6 +327,11 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 		if existingUserID != userID || revokedAt != nil {
 			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
+		if mfaProof {
+			if _, err := q.Exec(ctx, `UPDATE user_device_keys SET mfa_proven_at=now() WHERE id=$1`, existing.ID); err != nil {
+				return authflow.DeviceKey{}, "", false, err
+			}
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return authflow.DeviceKey{}, "", false, err
 		}
@@ -322,8 +346,8 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 	if record.Label != "" {
 		label = &record.Label
 	}
-	if err := q.QueryRow(ctx, `INSERT INTO user_device_keys (user_id, public_key, label)
-VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`, userID, publicKey, label).
+	if err := q.QueryRow(ctx, `INSERT INTO user_device_keys (user_id, public_key, label, mfa_proven_at)
+VALUES ($1, $2, $3, CASE WHEN $4 THEN now() END) RETURNING id, COALESCE(label, ''), created_at, last_used_at`, userID, publicKey, label, mfaProof).
 		Scan(&existing.ID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -411,14 +435,21 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	}
 
 	var deviceKey authflow.DeviceKey
+	var mfaBound bool
 	err = s.pg.QueryRow(ctx, `UPDATE user_device_keys
 SET last_used_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
-RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID, record.UserID).
-		Scan(&deviceKey.ID, &deviceKey.Label, &deviceKey.CreatedAt, &deviceKey.LastUsedAt)
+RETURNING id, COALESCE(label, ''), created_at, last_used_at, mfa_proven_at IS NOT NULL`, record.DeviceKeyID, record.UserID).
+		Scan(&deviceKey.ID, &deviceKey.Label, &deviceKey.CreatedAt, &deviceKey.LastUsedAt, &mfaBound)
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, false, false)
+	// A key counts as a second factor only when its enrollment proved one; any
+	// other key signs in only where a password alone would.
+	methods := []string{"device_key"}
+	if mfaBound {
+		methods = append(methods, "mfa")
+	}
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, methods)
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}

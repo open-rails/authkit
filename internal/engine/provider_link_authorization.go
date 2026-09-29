@@ -57,7 +57,9 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if s.TwoFactorEnabled() && settings.Enabled && !hasAuthMethod(session.AuthMethods, "mfa") && !hasAuthMethod(session.AuthMethods, "otp") {
+	// The second factor must be fresh too: a password re-auth refreshes the
+	// session but never its MFA.
+	if s.TwoFactorEnabled() && settings.Enabled && (session.MfaAuthenticatedAt == nil || now.Sub(*session.MfaAuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow) {
 		return errmodel.ErrStepUpRequired
 	}
 	if _, err := linkProviderByIssuer(ctx, q, link.UserID, id.Issuer, id.Provider, id.Subject, email); err != nil {

@@ -50,6 +50,7 @@ test("TOTP 2FA, step-up, delete and recover", async ({ page, request }) => {
   expect(session.status, JSON.stringify(session.body)).toBe(200)
   const access2 = session.body!.access_token as string
 
+  // A password never re-proves an account with a second factor.
   const stepUp = await api(
     page,
     "POST",
@@ -57,9 +58,10 @@ test("TOTP 2FA, step-up, delete and recover", async ({ page, request }) => {
     { password },
     access2
   )
-  expect(stepUp.status).toBe(200)
-  expect(stepUp.body).toHaveProperty("token_set.access_token")
-  expect(stepUp.body).toHaveProperty("fresh_auth.auth_methods")
+  expect(stepUp.status).toBe(403)
+  const stepUpError = (stepUp.body as ErrorBody).error
+  expect(stepUpError.code).toBe("step_up_required")
+  expect(stepUpError.metadata).toMatchObject({ mfa_required: true })
 
   expect((await api(page, "DELETE", "/user", undefined, access2)).status).toBe(
     204

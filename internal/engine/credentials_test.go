@@ -462,7 +462,7 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 		return fp, swept
 	}
 	fp, swept := fingerprint()
-	require.Equal(t, roleCatalogFingerprint(f.e.groupSchemaOrDefault()), fp)
+	require.Equal(t, f.e.roleCatalogFingerprint(), fp)
 	_, err := boot(credentialRoles())
 	require.NoError(t, err)
 	_, again := fingerprint()
@@ -473,7 +473,7 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	e, err := boot(narrowed)
 	require.NoError(t, err)
 	fp, _ = fingerprint()
-	require.Equal(t, roleCatalogFingerprint(e.groupSchemaOrDefault()), fp)
+	require.Equal(t, e.roleCatalogFingerprint(), fp)
 	requireCredentialsCovered(t, e)
 	f.requireDead(t, c)
 	_, err = e.ResolveAPIKey(ctx, control.token)

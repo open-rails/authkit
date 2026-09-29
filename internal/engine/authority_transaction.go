@@ -47,20 +47,16 @@ func (s *Engine) withAuthorityMutation(ctx context.Context, apply func(*permissi
 }
 
 // revokeUncoveredCredentials revokes live invite links, account invitations and
-// API keys whose creator could no longer issue them, after grants in the
-// touched groups changed (root grants apply in every group, so a root touch
-// sweeps the whole site). A credential never outlives the authority that
-// issued it; otherwise a demoted creator could redeem their own link, or keep
-// using their own key, to regain the role. Operator-issued credentials (no
-// creator) are never swept.
+// API keys, and deletes the roles of group-registered applications, whose
+// issuer could no longer issue them, after grants in the touched groups
+// changed (root grants apply in every group, so a root touch sweeps the whole
+// site). A credential never outlives the authority that issued it; otherwise a
+// demoted creator could redeem their own link, or keep using their own key or
+// application, to regain the role. Operator-issued credentials (no creator)
+// are swept only for MFA: no key or application holds a role that needs it.
 func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
-	type credential struct {
-		table, id, groupID, creator string
-		persona                     iam.Persona
-		role                        iam.Role
-	}
 	seen := map[authorityTouch]bool{}
-	var creds []credential
+	var creds []sweptCredential
 	for _, t := range touched {
 		if seen[t] {
 			continue
@@ -70,31 +66,36 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
   SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
     ON g.id=t.id OR (t.persona='root' AND g.deleted_at IS NULL)
    WHERE t.id=$1::uuid)
-SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text
+SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text, false
   FROM group_invite_links l JOIN scope t ON t.id=l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
    AND l.invited_by IS NOT NULL AND ($2='' OR l.invited_by::text=$2)
 UNION ALL
-SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text
+SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.id=a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
    AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
 UNION ALL
-SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text
+SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.persona='root'
  WHERE a.permission_group_id IS NULL AND a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
    AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
 UNION ALL
-SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k.created_by::text
+SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, COALESCE(k.created_by::text,''), false
   FROM api_keys k JOIN scope t ON t.id=k.permission_group_id
- WHERE k.revoked_at IS NULL AND k.created_by IS NOT NULL AND (k.expires_at IS NULL OR k.expires_at>now())
-   AND ($2='' OR k.created_by::text=$2)`, t.groupID, t.userID)
+ WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
+   AND ($2='' OR k.created_by::text=$2)
+UNION ALL
+SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text, t.persona, r.role, COALESCE(a.registered_by::text,''), a.trust_root='user'
+  FROM group_remote_application_roles r JOIN scope t ON t.id=r.permission_group_id
+  JOIN remote_applications a ON a.id=r.remote_application_id
+ WHERE ($2='' OR a.registered_by::text=$2)`, t.groupID, t.userID)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
-			var c credential
-			if err := rows.Scan(&c.table, &c.id, &c.groupID, &c.persona, &c.role, &c.creator); err != nil {
+			var c sweptCredential
+			if err := rows.Scan(&c.table, &c.id, &c.group.ID, &c.group.Persona, &c.role, &c.creator, &c.needsCreator); err != nil {
 				rows.Close()
 				return err
 			}
@@ -107,33 +108,79 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 	}
 	revoked := map[string]bool{}
 	for _, c := range creds {
-		if revoked[c.id] {
+		key := c.table + " " + c.group.ID + " " + c.id
+		if revoked[key] {
 			continue
 		}
-		capability := iam.PermMembersManage(c.persona)
-		switch {
-		case c.table == "api_keys":
-			capability = iam.PermCredentialsManage(c.persona)
-		case c.role == "":
-			capability = iam.PermRootUsersInvite
-		}
-		err := s.creatorCovers(ctx, st, c.creator, groupTarget{ID: c.groupID, Persona: c.persona}, capability, c.role)
-		if err == nil {
+		stands, err := s.credentialStands(ctx, st, c)
+		if err != nil || stands {
+			if err != nil {
+				return err
+			}
 			continue
 		}
-		if !errors.Is(err, iam.ErrInsufficientAuthority) && !errors.Is(err, iam.ErrRoleAssignmentEscalation) && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		if err := s.retireCredential(ctx, st, c); err != nil {
 			return err
 		}
-		stamp := "revoked_at=now()"
-		if c.table != "api_keys" {
-			stamp += ", updated_at=now()"
-		}
-		if _, err := st.q.Exec(ctx, "UPDATE "+c.table+" SET "+stamp+" WHERE id=$1::uuid", c.id); err != nil {
-			return err
-		}
-		revoked[c.id] = true
+		revoked[key] = true
 	}
 	return nil
+}
+
+// sweptCredential is one credential the sweep re-checks. For an application
+// role, id is the application and group the group of the role.
+type sweptCredential struct {
+	table, id, creator string
+	group              groupTarget
+	role               iam.Role
+	needsCreator       bool // a group registration: no registrar confers nothing
+}
+
+// credentialStands is rule CRED for c: its creator still issues it, and a key
+// or application role never needs MFA.
+func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore, c sweptCredential) (bool, error) {
+	machine := c.table == "api_keys" || c.table == "group_remote_application_roles"
+	if machine && s.TwoFactorEnabled() {
+		needsMFA, err := s.roleRequiresMFA(ctx, st.q, c.group.ID, c.group.Persona, c.role)
+		if err != nil || needsMFA {
+			return false, err
+		}
+	}
+	if c.creator == "" {
+		return !c.needsCreator, nil
+	}
+	capability := iam.PermMembersManage(c.group.Persona)
+	switch {
+	case machine:
+		capability = iam.PermCredentialsManage(c.group.Persona)
+	case c.role == "":
+		capability = iam.PermRootUsersInvite
+	}
+	err := s.creatorCovers(ctx, st, c.creator, c.group, capability, c.role)
+	if errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrRoleNotAssignable) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// retireCredential revokes c, or deletes an application's role. Removing the
+// last usable owner of a group this way is refused like any other removal.
+func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore, c sweptCredential) error {
+	if c.table == "group_remote_application_roles" {
+		if c.role == iam.OwnerRole {
+			if err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.RemoteApplicationSubject(c.id)); err != nil {
+				return err
+			}
+		}
+		_, err := st.q.Exec(ctx, `DELETE FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND remote_application_id=$2::uuid`, c.group.ID, c.id)
+		return err
+	}
+	stamp := "revoked_at=now()"
+	if c.table != "api_keys" {
+		stamp += ", updated_at=now()"
+	}
+	_, err := st.q.Exec(ctx, "UPDATE "+c.table+" SET "+stamp+" WHERE id=$1::uuid", c.id)
+	return err
 }
 
 // creatorCovers is rule CRED: the creator is still a live account (not
@@ -182,7 +229,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 	case iam.SubjectKindUser:
 		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
 	case iam.SubjectKindRemoteApplication:
-		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL)`
+		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL AND ` + registrarLive("a") + `)`
 	default:
 		return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
 	}
@@ -229,7 +276,7 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
  UNION ALL
  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE NOT $4 AND r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
+ WHERE NOT $4 AND r.permission_group_id=$1::uuid AND r.role='owner' AND NOT ($2='remote_application' AND a.id=$3::uuid) AND a.enabled AND a.permission_group_id=r.permission_group_id AND `+registrarLive("a")+` AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`, gid, excluding.Kind, nullable(excluding.ID), needsMFA).Scan(&remains)
 	if err != nil {
 		return err
 	}
