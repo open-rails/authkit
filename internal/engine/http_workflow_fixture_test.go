@@ -327,7 +327,9 @@ func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) str
 		}},
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = core.DeleteRemoteApplication(context.Background(), iam.OperatorActor(), iam.RootGroup(), slug) })
+	t.Cleanup(func() {
+		_ = core.DeleteRemoteApplication(context.Background(), iam.OperatorActor(), iam.RootGroup(), slug)
+	})
 
 	// A remote application addresses its token to THIS platform (ak#324: the
 	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
