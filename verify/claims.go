@@ -384,6 +384,16 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	return cl, ok
 }
 
+// IdentityFromContext is the verified caller's provider-neutral identity
+// (user, device key, API key, remote application or delegated principal).
+func IdentityFromContext(ctx context.Context) (auth.Identity, bool) {
+	cl, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return auth.Identity{}, false
+	}
+	return cl.Identity()
+}
+
 func GetClaims(ctx context.Context) (Claims, error) {
 	if cl, ok := ClaimsFromContext(ctx); ok {
 		return cl, nil

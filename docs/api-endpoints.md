@@ -64,8 +64,9 @@ response is:
 - `code` is the stable machine code; every 500 is `internal_error`. Match on
   `error.code`. In Go, `iam.AsError(err)` returns the `iam.Error` (`Code`,
   `Status`, `Param`, `Metadata`) and `errors.Is` matches the `iam.Err*`
-  sentinels; `iam.WriteError`, `authkitgin.Error` and `authkitfiber.Error`
-  write the envelope, and a Go client reads it back with
+  sentinels; `iam.WriteError(w, err)` writes the envelope, and
+  `iam.ErrorResponse(err)` returns its status and body for any router (Gin
+  `c.JSON(iam.ErrorResponse(err))`). A Go client reads it back with
   `iam.DecodeError(resp)`.
 - `type` is derived from the HTTP status: `invalid_request_error` (400/404/409),
   `authentication_error` (401), `authorization_error` (403),
@@ -201,7 +202,7 @@ token mint (login + refresh).
 **LIVE is the opt-in stateful twin** (ak#267, v0.92.0).
 `authkit.New` supplies the engine as its verifier's liveness source.
 Standalone `verify.NewVerifier()` users wire `verifier.WithLiveness(auth)`
-explicitly. Mount `verify.RequiredLive` (or `authkitgin.RequiredLive`,
+explicitly. Mount `verify.RequiredLive` (or `authkitgin.RequiredLive(auth)`,
 `auth.RequireLive`) instead of `Required`. It denies
 banned, deleted, reserved and unknown accounts on the user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
 FRESH as of that lookup — **do not read the account per request to refresh

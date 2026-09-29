@@ -2,6 +2,8 @@ package authkit_test
 
 import (
 	"bufio"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,7 +111,37 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.NoError(t, err, "a root permission asked of a channel is false, not an error")
 	require.False(t, can(sAdmin, golang, channelsDelete), "root:channels:delete counts only on root")
 
-	require.NotPanics(t, func() { auth.RequirePermission(golang, selfDelete) })
-	require.NotPanics(t, func() { auth.RequirePermission(iam.RootGroup(), channelsDelete) })
-	require.Panics(t, func() { auth.RequirePermission(iam.RootGroup(), rbac.Root.Roles.Manage) }, "root:roles:manage needs CustomRoles")
+	require.Panics(t, func() { auth.RequirePermissionOn(iam.RootGroup(), rbac.Root.Roles.Manage) }, "root:roles:manage needs CustomRoles")
+
+	// Each model gates a route: the per-channel one on the group the route's
+	// loader attaches, the global one on root.
+	token := func(userID string) string {
+		tok, err := auth.MintAccessToken(ctx, userID, iam.AccessTokenOptions{})
+		require.NoError(t, err)
+		return tok.Value
+	}
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	load := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(verify.WithGroup(r.Context(), golang)))
+		})
+	}
+	mux := http.NewServeMux()
+	mux.Handle("DELETE /c/golang", load(auth.RequirePermission(selfDelete)(ok)))
+	mux.Handle("DELETE /c/unloaded", auth.RequirePermission(selfDelete)(ok))
+	mux.Handle("DELETE /channels/golang", auth.RequirePermissionOn(iam.RootGroup(), channelsDelete)(ok))
+	status := func(path, userID string) int {
+		r := httptest.NewRequest(http.MethodDelete, path, nil)
+		r.Header.Set("Authorization", "Bearer "+token(userID))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w.Code
+	}
+	require.Equal(t, http.StatusNoContent, status("/c/golang", owner))
+	require.Equal(t, http.StatusForbidden, status("/c/golang", mod))
+	require.Equal(t, http.StatusNoContent, status("/c/golang", chAdmin))
+	require.Equal(t, http.StatusForbidden, status("/c/golang", sAdmin))
+	require.Equal(t, http.StatusInternalServerError, status("/c/unloaded", owner), "no group attached fails closed")
+	require.Equal(t, http.StatusForbidden, status("/channels/golang", owner))
+	require.Equal(t, http.StatusNoContent, status("/channels/golang", sAdmin))
 }

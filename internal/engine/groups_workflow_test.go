@@ -421,10 +421,10 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	grantRole(t, client, acme, iam.UserSubject(member), "member")
 
 	r := gin.New()
-	r.GET("/orgs/:org", authkitgin.RequirePermission(client, ident.Perm("org:catalog:read"), func(c *gin.Context) iam.GroupRef {
-		return iam.GroupByID(c.Param("org"))
-	}), func(c *gin.Context) { c.Status(http.StatusNoContent) })
-	r.GET("/admin", authkitgin.RequirePermission(client, iam.PermRootUsersRead, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	org := r.Group("/orgs/:org", func(c *gin.Context) { authkitgin.SetGroup(c, iam.GroupByID(c.Param("org"))) })
+	org.GET("", authkitgin.RequirePermission(client, ident.Perm("org:catalog:read")), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	r.GET("/unloaded/:org", authkitgin.RequirePermission(client, ident.Perm("org:catalog:read")), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	r.GET("/admin", authkitgin.RequirePermissionOn(client, iam.RootGroup(), iam.PermRootUsersRead), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	get := func(path, token string) int {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		if token != "" {
@@ -439,9 +439,10 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+otherID, token))
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+uuid.NewString(), token))
 	require.Equal(t, http.StatusForbidden, get("/admin", token))
+	require.Equal(t, http.StatusInternalServerError, get("/unloaded/"+acmeID, token), "no group attached fails closed, never falls back to root")
 	revokeRole(t, client, acme, iam.UserSubject(member), "member")
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+acmeID, token), "a removed role stops working at once")
-	require.Panics(t, func() { authkitgin.RequirePermission(client, ident.Perm("org:catalog:write"), nil) })
+	require.Panics(t, func() { authkitgin.RequirePermission(client, ident.Perm("org:catalog:write")) })
 }
 
 // Groups have no route of their own: no request creates, reads, renames or

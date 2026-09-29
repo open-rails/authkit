@@ -1,6 +1,8 @@
 // Package authkitfiber bridges AuthKit's net/http middleware to Fiber v3.
 // Mount registers AuthKit's routes directly on the application. Verification
-// policy stays in verify.
+// policy stays in verify. Handlers read the verified caller from c.Context()
+// (verify.ActorFromContext, verify.ClaimsFromContext) and write AuthKit errors
+// with status, body := iam.ErrorResponse(err); c.Status(status).JSON(body).
 package authkitfiber
 
 import (
@@ -10,7 +12,6 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 func httpHandler(h http.Handler) fiber.Handler {
@@ -33,17 +34,21 @@ func httpHandler(h http.Handler) fiber.Handler {
 
 // Required validates a credential and stores verified claims in c.Context().
 // Like Gin's Required, it accepts every principal the verifier supports.
-// A user-only handler must also check UserClaims.
-func Required(v *verify.Verifier) fiber.Handler { return Use(verify.Required(v)) }
+// A user-only handler must also check verify.UserClaimsFromContext.
+func Required(src verify.VerifierSource) fiber.Handler {
+	return Use(verify.Required(verifierOf(src)))
+}
 
 // Optional passes requests without Authorization through anonymously.
 // A present but invalid credential is rejected, just as in verify.Optional.
-func Optional(v *verify.Verifier) fiber.Handler { return Use(verify.Optional(v)) }
+func Optional(src verify.VerifierSource) fiber.Handler {
+	return Use(verify.Optional(verifierOf(src)))
+}
 
 // RequiredLive adds an account-liveness check and fresh identity claims.
 // It returns verify.ErrLivenessUnconfigured if no liveness source is wired.
-func RequiredLive(v *verify.Verifier) (fiber.Handler, error) {
-	mw, err := verify.RequiredLive(v)
+func RequiredLive(src verify.VerifierSource) (fiber.Handler, error) {
+	mw, err := verify.RequiredLive(verifierOf(src))
 	if err != nil {
 		return nil, err
 	}
@@ -53,12 +58,19 @@ func RequiredLive(v *verify.Verifier) (fiber.Handler, error) {
 // OptionalLive admits anonymous requests and checks the liveness of presented
 // native-user credentials. It returns verify.ErrLivenessUnconfigured at startup
 // when no source is wired. Use on routes, groups, or as application middleware.
-func OptionalLive(v *verify.Verifier) (fiber.Handler, error) {
-	mw, err := verify.OptionalLive(v)
+func OptionalLive(src verify.VerifierSource) (fiber.Handler, error) {
+	mw, err := verify.OptionalLive(verifierOf(src))
 	if err != nil {
 		return nil, err
 	}
 	return Use(mw), nil
+}
+
+func verifierOf(src verify.VerifierSource) *verify.Verifier {
+	if src == nil {
+		return nil
+	}
+	return src.Verifier()
 }
 
 // Use runs synchronous net/http authentication middleware around Fiber's
@@ -94,56 +106,24 @@ func Use(mw ...func(http.Handler) http.Handler) fiber.Handler {
 	}
 }
 
-// Claims returns the claims verified by authentication middleware.
-func Claims(c fiber.Ctx) (verify.Claims, bool) {
-	if c == nil {
-		return verify.Claims{}, false
-	}
-	return verify.ClaimsFromContext(c.Context())
-}
-
-// Identity returns the verified caller's provider-neutral identity (user,
-// device key, API key, remote application or delegated principal).
-func Identity(c fiber.Ctx) (auth.Identity, bool) {
-	cl, ok := Claims(c)
-	if !ok {
-		return auth.Identity{}, false
-	}
-	return cl.Identity()
-}
-
-// Actor returns the actor the verified caller acts as, for passing to *authkit.Client
-// operations. ok is false when the caller carries no AuthKit authority.
-func Actor(c fiber.Ctx) (iam.Actor, bool) {
-	if c == nil {
-		return iam.Actor{}, false
-	}
-	return verify.ActorFromContext(c.Context())
-}
-
-// UserClaims returns only a verified local user, never a machine principal or
-// an external issuer's subject. It performs no database lookup; profile
-// availability depends on Required/Optional versus RequiredLive.
-func UserClaims(c fiber.Ctx) (verify.UserClaimsData, bool) {
-	if c == nil {
-		return verify.UserClaimsData{}, false
-	}
-	return verify.UserClaimsFromContext(c.Context())
+// SetGroup attaches the permission group the request acts in, for
+// RequirePermission: call it from the handler that resolves the route's entity.
+func SetGroup(c fiber.Ctx, ref iam.GroupRef) {
+	c.SetContext(verify.WithGroup(c.Context(), ref))
 }
 
 // RequirePermission authenticates the request (it includes Required) and
-// requires perm, checked live, in the group resolve returns; a nil resolve
-// means the root group. It panics at construction on a perm the authority
-// does not register.
-func RequirePermission(a verify.Authority, perm iam.Perm, resolve func(fiber.Ctx) iam.GroupRef) fiber.Handler {
-	verify.MustKnowPermission(a, perm)
-	return func(c fiber.Ctx) error {
-		var r func(*http.Request) iam.GroupRef
-		if resolve != nil {
-			r = func(*http.Request) iam.GroupRef { return resolve(c) }
-		}
-		return Use(verify.RequirePermission(a, perm, r))(c)
-	}
+// requires perm, checked live, in the group SetGroup attached. A request with
+// no group fails closed (500). It panics at construction on a perm the
+// authority does not register.
+func RequirePermission(a verify.Authority, perm iam.Perm) fiber.Handler {
+	return Use(verify.RequirePermission(a, perm))
+}
+
+// RequirePermissionOn is RequirePermission in one fixed group, such as
+// iam.RootGroup().
+func RequirePermissionOn(a verify.Authority, ref iam.GroupRef, perm iam.Perm) fiber.Handler {
+	return Use(verify.RequirePermissionOn(a, ref, perm))
 }
 
 // responseWriter writes directly into Fiber's response, so a downstream Fiber

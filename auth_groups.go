@@ -200,9 +200,15 @@ func (a *Client) Role(persona iam.Persona, name string) (iam.Role, error) {
 }
 
 // RequirePermission authenticates the request (it includes Require) and
-// requires perm in group, checked live. For a group taken from the request,
-// use verify.RequirePermission or an adapter's RequirePermission with a
-// resolver. It panics at construction on an unregistered perm.
-func (a *Client) RequirePermission(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
-	return verify.RequirePermission(a, perm, func(*http.Request) iam.GroupRef { return group })
+// requires perm, checked live, in the group the route's loader attached with
+// verify.WithGroup (an adapter's SetGroup). A request with no group fails
+// closed (500). It panics at construction on an unregistered perm.
+func (a *Client) RequirePermission(perm iam.Perm) func(http.Handler) http.Handler {
+	return verify.RequirePermission(a, perm)
+}
+
+// RequirePermissionOn is RequirePermission in one fixed group, such as
+// iam.RootGroup().
+func (a *Client) RequirePermissionOn(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
+	return verify.RequirePermissionOn(a, group, perm)
 }

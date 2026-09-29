@@ -30,7 +30,7 @@ func TestIdentifierText(t *testing.T) {
 	for _, bad := range []string{
 		`{"Persona":"Channel"}`, `{"Persona":"a:b"}`,
 		`{"Role":"moderator"}`, `{"Role":"channel:"}`, `{"Role":"channel:mod:x"}`,
-		`{"Perm":"*"}`, `{"Perm":"channel"}`, `{"Perm":"channel:posts"}`, `{"Perm":"*:posts:edit"}`, `{"Perm":"a:b:c:d"}`,
+		`{"Perm":"*"}`, `{"Perm":"channel"}`, `{"Perm":"channel:"}`, `{"Perm":"*:posts:edit"}`, `{"Perm":"Channel:posts:edit"}`, `{"Perm":"a::b"}`,
 	} {
 		if err := json.Unmarshal([]byte(bad), &out); err == nil {
 			t.Errorf("%s decoded", bad)

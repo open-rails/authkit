@@ -127,14 +127,16 @@ err = tx.Commit(ctx)
 
 Two models, both app permissions:
 
-- Per channel: `SelfDelete = Channel.Permission("self", "delete")`, checked in
-  the channel's own group (`RequirePermission(auth, SelfDelete, …)` with the
-  channel's group). Its owner holds it through `Owner`, and a root role holding
-  `Channel.All()` holds it in every channel. Owners can delete their own
-  channel.
+- Per channel: `ChannelDelete = Channel.Permission("self", "delete")`, checked
+  in the channel's own group: the route's loader attaches it
+  (`authkitgin.SetGroup(c, iam.GroupByID(id))`) and
+  `authkitgin.RequirePermission(auth, ChannelDelete)` gates the route. Its owner
+  holds it through `Owner`, and a root role holding `Channel.All()` holds it in
+  every channel. Owners can delete their own channel.
 - Global: `ChannelsDelete = rbac.Root.Permission("channels", "delete")`,
-  checked on `iam.RootGroup()`. Only root roles hold it; a channel owner never
-  does, since `root:` permissions count only on root. Only site admins delete.
+  checked on root: `authkitgin.RequirePermissionOn(auth, iam.RootGroup(),
+  ChannelsDelete)`. Only root roles hold it; a channel owner never does, since
+  `root:` permissions count only on root. Only site admins delete.
 
 ## Actors
 
@@ -175,6 +177,14 @@ in every group it holds a role in.
 `Can` considers the actor's roles on the group and on root; a `root:`
 permission counts only on root and never stands in for a persona permission. An
 unregistered permission returns `iam.ErrUnknownPermission`, never a silent
-false. `RequirePermission` (on `*authkit.Client`, `verify`, and the gin and fiber
-adapters) authenticates the request and panics when the route is built with an
-unregistered permission. AuthKit's own routes refuse delegated tokens.
+false.
+
+`RequirePermission(auth, perm)` (on `*authkit.Client`, in `verify`, and in the
+gin and fiber adapters) authenticates the request and checks perm in the group
+the route's loader attached: `verify.WithGroup(ctx, ref)`, or the adapters'
+`SetGroup`. A request with no group fails closed (500 `internal_error`, logged
+with its route); it never falls back to root. `RequirePermissionOn(auth, ref,
+perm)` checks one fixed group, such as `iam.RootGroup()`. Both panic when the
+route is built with an unregistered permission. The adapters' `Required`,
+`Optional`, `RequiredLive` and `OptionalLive` take the client (or a
+`*verify.Verifier`). AuthKit's own routes refuse delegated tokens.

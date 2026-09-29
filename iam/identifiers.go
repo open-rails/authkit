@@ -105,9 +105,9 @@ func (p Perm) IsZero() bool { return p.s == "" }
 
 func (p Perm) MarshalText() ([]byte, error) { return []byte(p.s), nil }
 
-// UnmarshalText reads a permission or pattern: a persona, then a resource
-// and an action, where `*` may stand for either, or `<persona>:*`. Empty is
-// the zero Perm.
+// UnmarshalText reads a permission or pattern: a persona, then one or more
+// segments, each a name or `*` (catalogs use `<persona>:<resource>:<action>`;
+// tokens from other platforms may not). Empty is the zero Perm.
 func (p *Perm) UnmarshalText(b []byte) error {
 	s := string(b)
 	if s != "" && !validPermText(s) {
@@ -119,21 +119,15 @@ func (p *Perm) UnmarshalText(b []byte) error {
 
 func validPermText(s string) bool {
 	segs := strings.Split(s, ":")
-	if !ValidPermissionSegment(segs[0]) {
+	if len(segs) < 2 || !ValidPermissionSegment(segs[0]) {
 		return false
 	}
-	switch len(segs) {
-	case 2:
-		return segs[1] == PermWildcard
-	case 3:
-		for _, seg := range segs[1:] {
-			if seg != PermWildcard && !ValidPermissionSegment(seg) {
-				return false
-			}
+	for _, seg := range segs[1:] {
+		if seg != PermWildcard && !ValidPermissionSegment(seg) {
+			return false
 		}
-		return true
 	}
-	return false
+	return true
 }
 
 // Grant is what a role holds: a permission or pattern, or another role of the

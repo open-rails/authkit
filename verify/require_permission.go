@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
@@ -19,11 +20,35 @@ type PermissionChecker interface {
 	KnownPermission(perm iam.Perm) bool
 }
 
+// VerifierSource is what request middleware authenticates with: an
+// *authkit.Client, or a *Verifier itself.
+type VerifierSource interface {
+	Verifier() *Verifier
+}
+
+// Verifier is v, so a bare Verifier is a VerifierSource.
+func (v *Verifier) Verifier() *Verifier { return v }
+
 // Authority authenticates requests and checks permissions: what
 // RequirePermission needs. *authkit.Client is one.
 type Authority interface {
 	PermissionChecker
-	Verifier() *Verifier
+	VerifierSource
+}
+
+type groupCtxKey struct{}
+
+// WithGroup attaches the permission group a request acts in, for
+// RequirePermission: the app's route loader sets it once it has resolved the
+// URL to its entity (a channel's group).
+func WithGroup(ctx context.Context, ref iam.GroupRef) context.Context {
+	return context.WithValue(ctx, groupCtxKey{}, ref)
+}
+
+// GroupFromContext is the group WithGroup attached.
+func GroupFromContext(ctx context.Context) (iam.GroupRef, bool) {
+	ref, ok := ctx.Value(groupCtxKey{}).(iam.GroupRef)
+	return ref, ok && !ref.IsZero()
 }
 
 // PermissionScope is a credential's permission-group binding: the group id,
@@ -56,23 +81,48 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.P
 
 // RequirePermission authenticates the request (it includes Required; do not
 // stack Required in front of it) and requires perm, checked live, in the group
-// resolve returns for the request. A nil resolve means the root group. It
+// attached to the request (WithGroup, or an adapter's SetGroup). A request
+// with no group fails closed: 500 internal_error, logged with its route. It
 // panics at construction on a perm the authority does not register.
-func RequirePermission(a Authority, perm iam.Perm, resolve func(*http.Request) iam.GroupRef) func(http.Handler) http.Handler {
-	MustKnowPermission(a, perm)
-	if resolve == nil {
-		resolve = func(*http.Request) iam.GroupRef { return iam.RootGroup() }
+func RequirePermission(a Authority, perm iam.Perm) func(http.Handler) http.Handler {
+	return requirePermission(a, perm, iam.GroupRef{})
+}
+
+// RequirePermissionOn is RequirePermission in one fixed group, such as
+// iam.RootGroup().
+func RequirePermissionOn(a Authority, ref iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
+	if ref.IsZero() {
+		panic("authkit: RequirePermissionOn: the zero GroupRef addresses no group")
 	}
+	return requirePermission(a, perm, ref)
+}
+
+func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http.Handler) http.Handler {
+	MustKnowPermission(a, perm)
 	authenticate := Required(a.Verifier())
 	return func(next http.Handler) http.Handler {
 		gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ref, ok := fixed, !fixed.IsZero()
+			if !ok {
+				ref, ok = GroupFromContext(r.Context())
+			}
+			if !ok {
+				route := r.Pattern
+				if route == "" {
+					route = r.Method + " " + r.URL.Path
+				}
+				slog.ErrorContext(r.Context(), "authkit: RequirePermission found no group on the request; attach one with verify.WithGroup or the adapter's SetGroup before it, or use RequirePermissionOn",
+					"permission", perm.String(), "route", route)
+				fail(w, errmodel.CodeInternalError)
+				return
+			}
 			cl, err := GetClaims(r.Context())
 			if err != nil {
 				fail(w, errmodel.CodeForbidden)
 				return
 			}
-			ok, err := Allow(r.Context(), a, cl, perm, resolve(r))
-			if err != nil || !ok {
+			allowed, err := Allow(r.Context(), a, cl, perm, ref)
+			if err != nil || !allowed {
 				fail(w, errmodel.CodeForbidden)
 				return
 			}

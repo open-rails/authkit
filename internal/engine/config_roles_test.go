@@ -169,6 +169,6 @@ func TestRolesWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
 	require.True(t, a.KnownPermission(ident.Perm("channel:posts:edit")))
 	require.False(t, a.KnownPermission(ident.Perm("channel:posts:pin")))
-	require.NotPanics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:edit"), nil) })
-	require.Panics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:pin"), nil) })
+	require.NotPanics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:edit")) })
+	require.Panics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:pin")) })
 }

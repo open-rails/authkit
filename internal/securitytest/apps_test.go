@@ -271,7 +271,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	removedApp, bannedApp := register(removedManager, removedToken), register(bannedManager, bannedToken)
 	ownerApp := register(owner, ownerToken)
 
-	gate := h.auth.RequirePermission(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	gate := h.auth.RequirePermissionOn(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	hostRoute := func(r registered) int {
 		req := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
 		req.Header.Set("Authorization", "Bearer "+appToken(t, r.signer, r.app.Issuer))

@@ -115,7 +115,7 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	app, err := h.auth.RemoteApplication(ctx, appIssuer)
 	require.NoError(t, err)
 	hostRoute := func(auth *authkit.Client, bearer string) int {
-		gate := auth.RequirePermission(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+		gate := auth.RequirePermissionOn(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
 		r.Header.Set("Authorization", "Bearer "+bearer)
 		w := httptest.NewRecorder()

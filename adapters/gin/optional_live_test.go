@@ -38,7 +38,7 @@ func TestOptionalLive(t *testing.T) {
 	router := gin.New()
 	router.Use(middleware)
 	router.GET("/", func(c *gin.Context) {
-		user, ok := authkitgin.UserClaims(c)
+		user, ok := verify.UserClaimsFromContext(c.Request.Context())
 		if !ok {
 			c.String(http.StatusOK, "anonymous")
 			return
