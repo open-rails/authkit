@@ -18,7 +18,7 @@ func TestAuthPublicSurface(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		"ActiveDeviceKeys", "AdminGetUser", "AdminListUsers", "AdminRevokeAccountSessions",
 		"AdminSetPassword", "AssignGroupRoleAs", "AssignRolesBySlugAs", "BanUser", "Can", "CanOnGroup",
-		"CheckSMSHealth", "Close", "CreateGroupInviteLink", "CreatePermissionGroup", "CreateUser",
+		"CheckSMSHealth", "ClaimDPoPProof", "Close", "CreateGroupInviteLink", "CreatePermissionGroup", "CreateUser",
 		"DelegatedPermissionLive", "DeleteGroupInstanceByID", "EffectivePermissionsForGroups",
 		"GetRemoteApplication", "GetUserByEmail", "GetUserByPhone", "GetUserByUsername",
 		"GetUserMetadata", "GroupInstanceByID", "GroupInstanceForSlug", "GroupInstancesByIDs", "Handler",

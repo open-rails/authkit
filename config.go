@@ -9,7 +9,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Config is the host-provided configuration for an AuthKit Runtime. Fields are
+// Config is the host-provided configuration for an AuthKit engine. Fields are
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, senders) are Deps.
 type Config struct {
@@ -86,7 +86,7 @@ type Config struct {
 	Schema string
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
-	// Empty defaults to mainnet. Solana Name Runtime (SNS)
+	// Empty defaults to mainnet. Solana Name Service (SNS)
 	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
 	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
 	SolanaNetwork string
@@ -315,7 +315,7 @@ type KeysConfig struct {
 	// instead of silently minting dev keys (#231). This flag is deliberately
 	// NOT derived from Environment.
 	AllowEphemeralDevKeys bool
-	// VerifyOnly constructs the Runtime with NO active signer (#87): token
+	// VerifyOnly constructs AuthKit with NO active signer (#87): token
 	// MINTING returns ErrMissingSigner, while VERIFICATION and all RBAC reads
 	// work fully and the JWKS endpoint serves an empty key set. When true, key
 	// resolution is SKIPPED. Ignored when Source is non-nil. Use it for a

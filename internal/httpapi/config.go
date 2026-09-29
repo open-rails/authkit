@@ -18,8 +18,8 @@ import (
 // the transport itself decides: client-IP posture, rate limiting, languages,
 // published documents.
 type Config struct {
-	// Mount configures the complete HTTP inventory once on the local runtime.
-	// It is consumed by Runtime.ConfigureHTTP; framework mounting adds no policy.
+	// Mount configures the route inventory NewMount builds; framework
+	// adapters add no policy.
 	Mount MountOptions
 
 	// DPoPRequestURL returns the externally visible delegation endpoint URL when

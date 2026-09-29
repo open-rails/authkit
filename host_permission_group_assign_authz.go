@@ -145,7 +145,7 @@ func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGr
 }
 
 // AssignGroupRoleAs is the actor-aware AssignGroupRole: it enforces the #136
-// capability + no-escalation rules against actorUserID before assigning. Runtime
+// capability + no-escalation rules against actorUserID before assigning. engine
 // callers (HTTP role-management endpoints) use this; genesis paths (bootstrap,
 // migration) keep using the unchecked AssignGroupRole.
 func (s *engine) AssignGroupRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, subject iam.Subject, role iam.Role) error {

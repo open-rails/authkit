@@ -16,7 +16,7 @@ import (
 )
 
 // Construction and Config validation. There is ONE config type (Config, #237)
-// and ONE normalization pass (normalizeConfig): the Runtime reads the
+// and ONE normalization pass (normalizeConfig): the engine reads the
 // normalized Config directly, so a knob cannot exist internally without being
 // settable by hosts. New is THE host construction path (key/TOTP
 // resolution + required-field checks); NewWithKeys is the module-internal
@@ -30,7 +30,7 @@ const (
 	defaultFrontendInvitePath        = "/accept-invite"
 )
 
-// normalizeConfig is the single defaulting/validation pass every Runtime's
+// normalizeConfig is the single defaulting/validation pass every the engine's
 // Config goes through, exactly once, at construction. It returns a normalized
 // COPY: trimmed strings, defaulted paths/TTLs/limits, canonical enum values.
 // Required-field presence (Issuer, audiences) is New's job — sparse
@@ -164,7 +164,7 @@ func normalizeConfig(cfg Config) (Config, error) {
 
 // NewWithKeys is the low-level constructor: explicit Keyset, no key/TOTP
 // resolution, no required-field checks. The Keyset
-// is fixed for the lifetime of the Runtime — hosts that need hot-reloaded
+// is fixed for the lifetime of the engine — hosts that need hot-reloaded
 // signing keys construct via New with a live jwtkit.KeySource (#238).
 func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*engine, error) {
 	norm, err := normalizeConfig(cfg)
@@ -181,10 +181,10 @@ func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*engine, error) {
 	return newClient(norm, src, gs, deps)
 }
 
-// newService assembles a Runtime from an already-normalized Config. keys is
+// newService assembles an engine from an already-normalized Config. keys is
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
-// the Runtime exists.
+// the engine exists.
 func newClient(norm Config, keys jwtkit.KeySource, gs *iam.GroupSchema, deps Deps) (*engine, error) {
 	s := &engine{
 		cfg:               norm,
@@ -246,7 +246,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	}
 	// keySource is held live, NOT snapshotted into a Keyset: a reloadable file
 	// source hot-swaps its active signer/public keys behind an atomic pointer
-	// as keys.json rotates, and the Runtime must keep observing it for the
+	// as keys.json rotates, and the engine must keep observing it for the
 	// rest of the process lifetime (#238) rather than freezing the keys seen
 	// at construction time.
 
@@ -271,7 +271,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 
 	// #232: TOTP secret-encryption key — explicit override (validated) or
 	// <Keys.Path>/totp.key; nil (no key configured) fails closed at enrollment.
-	// The resolved key is written back into the normalized Config: the Runtime
+	// The resolved key is written back into the normalized Config: the engine
 	// reads Config, so what it reads IS what was resolved.
 	totpSecretKey, err := resolveTOTPSecretKey(norm)
 	if err != nil {
@@ -304,7 +304,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	}
 
 	// Deps.Postgres MAY be nil at the core layer (verify-only construction or
-	// config-only unit tests need no store): a nil pool yields a Runtime with
+	// config-only unit tests need no store): a nil pool yields an engine with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
 	// HTTP surface, not here.
 	svc, err := newClient(norm, keySource, gs, deps)
@@ -403,7 +403,7 @@ func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 }
 
 // Registration-policy reads. The stored Config is normalized at construction,
-// but these re-normalize defensively: some tests build a zero Runtime{}.
+// but these re-normalize defensively: some tests build a zero engine{}.
 
 // RegistrationVerificationPolicy returns the effective registration
 // verification policy ("none" when unset/invalid).

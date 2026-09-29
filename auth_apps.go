@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
@@ -40,4 +41,11 @@ func (a *Auth) MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAcce
 // verify.DelegatedAuthority for verify.RequirePermission.
 func (a *Auth) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm iam.Perm) (bool, error) {
 	return a.engine.DelegatedPermissionLive(ctx, cl, perm)
+}
+
+// ClaimDPoPProof atomically claims a DPoP proof key until ttl elapses in
+// AuthKit's shared store: the replay guard for verify.WithDPoP on a host's
+// resource server.
+func (a *Auth) ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return a.engine.ClaimDPoPProof(ctx, key, ttl)
 }

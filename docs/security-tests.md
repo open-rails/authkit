@@ -47,7 +47,7 @@ Add a row and a test for every new attack class.
 | Registration marks an address verified without proof | `TestSecurityRegistrationNeverSelfVerifies` |
 | Untrusted provider's `email_verified` stores or matches an address | `TestSecurityProviderEmailTrust` |
 
-The cookie compatibility guard `TestCookieRegistry` (authhttp) pins the cookies
+The cookie compatibility guard `TestCookieRegistry` (package `authkit`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).
 
 Covered by the workflow suites (see [testing](testing.md)): OIDC state

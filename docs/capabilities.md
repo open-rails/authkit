@@ -4,7 +4,7 @@
 
 ## Password policy
 
-`embedded.Config.Password` (`password.Policy`) is enforced by every password write: registration, reset, change, fresh-auth set, admin set and bootstrap plaintext. The zero value is the default, following NIST SP 800-63B: 8..128 characters (Unicode code points, ceiling 1024), no composition rules, and the embedded common-password blocklist (about 550k breach-frequency entries from SecLists, case-insensitive; regenerate with `go generate ./password`). A password may never contain the account's username or email local-part when that identifier has at least 4 characters. Hosts may opt into `RequireUppercase`, `RequireLowercase`, `RequireDigit` and `RequireSymbol` (a symbol is any rune that is neither a Unicode letter nor digit, including spaces) and may set `AllowCommon` to disable the blocklist.
+`authkit.Config.Password` (`authkit.PasswordPolicy`) is enforced by every password write: registration, reset, change, fresh-auth set, admin set and bootstrap plaintext. The zero value is the default, following NIST SP 800-63B: 8..128 characters (Unicode code points, ceiling 1024), no composition rules, and the embedded common-password blocklist (about 550k breach-frequency entries from SecLists, case-insensitive; regenerate with `go generate ./internal/password`). A password may never contain the account's username or email local-part when that identifier has at least 4 characters. Hosts may opt into `RequireUppercase`, `RequireLowercase`, `RequireDigit` and `RequireSymbol` (a symbol is any rune that is neither a Unicode letter nor digit, including spaces) and may set `AllowCommon` to disable the blocklist.
 
 ```json
 "password": {"login": true, "min_length": 8, "max_length": 128, "require_uppercase": false,
@@ -15,7 +15,7 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Username policy
 
-`embedded.Config.Username` (`authkit.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `authkit.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Operator imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
+`authkit.Config.Username` (`iam.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `iam.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Operator imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
 
 ```json
 "username": {"min_length": 4, "max_length": 30, "pattern": "^[A-Za-z][A-Za-z0-9_]*$"}

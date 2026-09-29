@@ -4,7 +4,7 @@ package authkit
 // to the account surface. An actor may ban, delete, or revoke the sessions of a
 // target only if the actor's effective root grants cover the target's, so a
 // bounded root:users:* operator can never lock out or seize a more privileged
-// account (the root owner). Runtime callers (HTTP admin routes, hosts acting
+// account (the root owner). engine callers (HTTP admin routes, hosts acting
 // for a signed-in operator) use the actor-aware methods; system paths (purge
 // worker, self-delete) keep the unchecked ones.
 

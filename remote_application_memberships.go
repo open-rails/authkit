@@ -36,7 +36,7 @@ func (s *engine) remoteApplicationGroupID(ctx context.Context, appID string) (st
 
 // AssignRemoteApplicationRole grants a remote_application a role in its own
 // controlling permission-group with NO actor check (#308): reachable only via
-// bootstrap and authkit.Runtime.Genesis(). Runtime callers use
+// bootstrap and authkit.engine.Genesis(). engine callers use
 // AssignRemoteApplicationRoleAs.
 func (s *engine) AssignRemoteApplicationRole(ctx context.Context, appID string, role iam.Role) error {
 	if err := s.requirePG(); err != nil {

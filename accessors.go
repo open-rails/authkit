@@ -18,7 +18,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Plain accessors and small setters on Runtime: keys/JWKS, config, the DB pool
+// Plain accessors and small setters on engine: keys/JWKS, config, the DB pool
 // and schema, and the verify-time Keyfunc.
 
 // JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
@@ -123,7 +123,7 @@ func (s *engine) close() {
 func (s *engine) Schema() string { return s.dbSchema() }
 
 // dbSchema returns the validated schema name, defaulting for zero-value
-// Services (some tests construct Runtime{} directly).
+// Services (some tests construct engine{} directly).
 func (s *engine) dbSchema() string {
 	if s == nil || s.schema == "" {
 		return db.DefaultSchema

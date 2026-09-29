@@ -31,7 +31,7 @@ func (s *engine) OperatorUnassignGroupRole(ctx context.Context, group iam.GroupR
 }
 
 // OperatorApplyBootstrapManifest is the explicit operator reconciliation operation.
-// Runtime construction never invokes it or restores user role assignments.
+// engine construction never invokes it or restores user role assignments.
 func (s *engine) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
 	return s.ApplyBootstrapManifest(ctx, manifest, opts)
 }

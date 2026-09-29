@@ -30,7 +30,7 @@ import (
 // not remove it.
 
 // MintRemoteApplicationAccessToken signs a remote application access token using the
-// Runtime's internal signer. When p.Issuer is empty it defaults to the Runtime's
+// the engine's internal signer. When p.Issuer is empty it defaults to the engine's
 // configured Issuer.
 func (s *engine) MintRemoteApplicationAccessToken(ctx context.Context, p iam.RemoteApplicationAccessParams) (string, error) {
 	signer := s.keys.ActiveSigner()

@@ -13,7 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Deps are the runtime dependencies a Runtime is built with. Config carries
+// Deps are the runtime dependencies New builds Auth with. Config carries
 // data and policy; everything that reaches outside the process is here.
 type Deps struct {
 	// River is nil for managed maintenance, or RiverFromHost for a shared fleet.

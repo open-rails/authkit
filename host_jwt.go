@@ -30,7 +30,7 @@ func (s *engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWTMintOpti
 }
 
 // MintServiceJWT signs a service JWT with an explicit signer and issuer. Hosts
-// can use this helper when they manage the signing key outside core.Service.
+// can use this helper when they manage the signing key outside AuthKit.
 func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWTMintOptions) (string, iam.ServiceJWTClaims, error) {
 	if signer == nil {
 		return "", iam.ServiceJWTClaims{}, iam.ErrMissingSigner

@@ -403,7 +403,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	case err != nil:
 		return nil, err
 	}
-	// Runtime-owned org: the application principal owns its own group. Zero
+	// Engine-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
 	if err := st.AssignRole(ctx, gid, iam.RemoteAppSubject(row.ID), iam.OwnerRole); err != nil {
 		return nil, err

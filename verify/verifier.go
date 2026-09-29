@@ -181,7 +181,7 @@ func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (b
 // Default: 60s.
 // WithRemoteApplicationAudiences sets the audiences a lazily-loaded remote
 // application issuer is registered with on the resolveIssuer miss path when the
-// host never calls LoadRemoteApplications (which overrides it). NewServer passes
+// host never calls LoadRemoteApplications (which overrides it). authkit.New passes
 // Config.Token.ExpectedAudiences so both load paths enforce the same audience
 // (ak#324).
 func WithRemoteApplicationAudiences(audiences ...string) VerifierOption {

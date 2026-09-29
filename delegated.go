@@ -15,8 +15,8 @@ import (
 )
 
 // MintDelegatedAccessToken signs a canonical delegated access token using the
-// Runtime's internal signer. The host passes claims/params only and NEVER
-// touches the private key. When p.Issuer is empty it defaults to the Runtime's
+// the engine's internal signer. The host passes claims/params only and NEVER
+// touches the private key. When p.Issuer is empty it defaults to the engine's
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
 // claim contract.
 func (s *engine) MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAccessParams) (string, error) {

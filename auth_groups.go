@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // Permission groups, roles and group invitations.
@@ -129,4 +130,12 @@ func (a *Auth) ListGroupInviteLinks(ctx context.Context, group iam.GroupRef) ([]
 
 func (a *Auth) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, linkID string) error {
 	return a.engine.RevokeGroupInviteLink(ctx, group, linkID)
+}
+
+// WithResolvedGroup binds a group address the host already resolved and
+// authorized to its immutable target, so later name-addressed operations in
+// ctx act on the same group even if the name is reclaimed. It confers no
+// permission; every use rechecks the group is live.
+func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, reference string) context.Context {
+	return authflow.WithResolvedGroup(ctx, instance, reference)
 }

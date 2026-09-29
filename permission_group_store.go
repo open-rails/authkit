@@ -3,7 +3,7 @@ package authkit
 // DB-backed engine for the permission-group model (#111): the store loads a
 // target group's parent chain + the subject's assignments and feeds the tested
 // pure decision core (GroupSchema.Can). Hand-written over db.DBTX (pool or tx)
-// so it composes with the Runtime's schema-bound pool exactly like the
+// so it composes with the engine's schema-bound pool exactly like the
 // generated queries; unqualified table names resolve through the
 // schema-bound AuthKit pool (authkit #69).
 
@@ -452,7 +452,7 @@ func (st *permissionGroupStore) UnassignSubject(ctx context.Context, groupID str
 
 // OwnerCount returns the count of live, unbanned, unreserved user owners and
 // enabled application owners. Lifecycle safety uses the transaction-bound
-// Runtime guard, which also checks the deployment's MFA policy.
+// engine guard, which also checks the deployment's MFA policy.
 func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
 	var n int
 	err := st.q.QueryRow(ctx, `SELECT

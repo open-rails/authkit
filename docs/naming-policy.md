@@ -19,7 +19,7 @@ validation and lookup.
 
 ## Configuration
 
-`embedded.Config.Naming` accepts `authkit.NamingConfig`. Omitted fields mean
+`authkit.Config.Naming` accepts `iam.NamingConfig`. Omitted fields mean
 renames enabled, a 72-hour interval between successful renames, and finite
 former-name retention of 2160 hours (90 × 24 hours, independent of DST).
 
@@ -131,14 +131,14 @@ forwarding or claim eligibility.
 
 
 Trusted embedded hosts can retain a previously authorized group through
-`embedded.WithResolvedGroup(ctx, instance, originalReference)`. Pass that context
+`authkit.WithResolvedGroup(ctx, instance, originalReference)`. Pass that context
 to subsequent name-addressed group operations. The binding checks the captured
 UUID is still live and belongs to the original persona; it never substitutes a
 new owner when a name is reclaimed. Explicit UUID lifecycle APIs remain preferred
 for deferred work and retries.
 
 CLI/import/catalog callers needing only identity lookup can construct
-`embedded.NewGroupDirectory(pool, schema)` and use `GroupInstanceForSlug` or
+`authkit.NewGroupDirectory(pool, schema)` and use `GroupInstanceForSlug` or
 `GroupInstanceByID`. This read-only directory validates the schema and reuses the
 same alias queries, without constructing an issuer, loading keys, migrating,
 writing state, or starting workers. Empty schema uses `profiles`.

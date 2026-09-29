@@ -1,6 +1,6 @@
 package authkit
 
-// Runtime-level permission-group API (#111): the consumer entry points that wrap
+// Engine-level permission-group API (#111): the consumer entry points that wrap
 // the store with the declared GroupSchema (catalog + containment validation),
 // owner seeding, and transaction scoping. Group ids stay INTERNAL — callers
 // address groups by (persona, instance_slug).
@@ -19,7 +19,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// PermissionGroupSchema returns the validated schema this Runtime was built with
+// PermissionGroupSchema returns the validated schema this engine was built with
 // (the intrinsic root-only schema if constructed without Config groups).
 func (s *engine) PermissionGroupSchema() *iam.GroupSchema {
 	return s.groupSchemaOrDefault()
@@ -33,7 +33,7 @@ func (s *engine) groupSchemaOrDefault() *iam.GroupSchema {
 	return gs
 }
 
-// groupStore binds a PermissionGroupStore to the Runtime's schema-bound pool
+// groupStore binds a PermissionGroupStore to the engine's schema-bound pool
 // handle, so unqualified SQL resolves to the configured namespace (authkit #69).
 func (s *engine) groupStore() *permissionGroupStore {
 	return s.groupStoreFor(s.pg)
@@ -438,7 +438,7 @@ func (s *engine) DeletePermissionGroup(ctx context.Context, group iam.GroupRef, 
 	return tx.Commit(ctx)
 }
 
-// Can is the Runtime-level authorization check: resolve the group addressed by
+// Can is the engine-level authorization check: resolve the group addressed by
 // (persona, instanceSlug), then test perm coverage via the additive walk-up.
 // The caller constructs perm per the two-persona rule (LT:RT:action).
 func (s *engine) Can(ctx context.Context, subject iam.Subject, group iam.GroupRef, perm iam.Perm) (bool, error) {

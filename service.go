@@ -65,7 +65,7 @@ const HashAlgoLegacyResetRequired = "legacy-reset-required"
 
 // (storage layer collapsed into direct Postgres helpers)
 
-// engine owns local business logic and resources behind Runtime and Client.
+// engine owns local business logic and resources behind Auth.
 type engine struct {
 	closeOnce sync.Once
 
@@ -76,7 +76,7 @@ type engine struct {
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
-	// behind an atomic pointer, and the Runtime must observe every swap (#238).
+	// behind an atomic pointer, and the engine must observe every swap (#238).
 	keys jwtkit.KeySource
 
 	// Only resources allocated by New are closed with the client.

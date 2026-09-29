@@ -8,7 +8,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// SignDocument signs through the Runtime's live key source, so normal AuthKit
+// SignDocument signs through the engine's live key source, so normal AuthKit
 // key rotation applies without exposing private key material to the host.
 func (s *engine) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
 	signer := s.keys.ActiveSigner()

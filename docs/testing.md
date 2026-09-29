@@ -29,7 +29,7 @@ are released through Git tags; this change adds no publishing machinery.
 | Delegation | Host-authorized DPoP and certificate-bound grants, audience/key policy, exact sender and request binding, signed documents, key rotation, issuer withdrawal and proof replay. |
 | Persistence and recovery | Fresh/custom schema migration, host bootstrap, 30-day recovery and cross-application River callbacks, backend failure without partial enrollment, configured memory/Redis limits and fail-closed limiter outage. |
 
-The main account journeys share the public `MountHandler`, real PostgreSQL and
+The main account journeys share the one mounted handler, real PostgreSQL and
 real configured memory/Redis limiters. Their high per-IP allowance permits a
 long legitimate lifecycle; `TestWorkflowRateLimits` separately proves a small
 limit with wrong passwords, a correct password after exhaustion, forged

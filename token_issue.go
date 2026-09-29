@@ -86,7 +86,7 @@ func (s *engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 		}
 		return s.mintAccessTokenForUser(ctx, u, mfa, extra, ttl)
 	}
-	// Verify-only / pg-less Runtime: no live-user gate, no MFA lookup — mint from
+	// Verify-only / pg-less engine: no live-user gate, no MFA lookup — mint from
 	// the userID alone (matches the historical s.pg == nil behavior). The synthetic
 	// row carries only the ID; mintAccessTokenForUser reads no other user field and
 	// its sid/freshness + mfa branches are already guarded by s.pg != nil / mfa != nil.
@@ -194,7 +194,7 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *iam
 	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return "", time.Time{}, iam.ErrMissingSigner // #87: verify-only Runtime cannot mint
+		return "", time.Time{}, iam.ErrMissingSigner // #87: a verify-only engine cannot mint
 	}
 	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err
