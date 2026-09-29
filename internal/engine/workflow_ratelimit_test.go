@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -144,14 +143,15 @@ func TestServiceOwnsBackgroundWorkers(t *testing.T) {
 }
 
 func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
-	client := newServerClient(t, newServerTestConfig(), testdb.Pool(t))
+	pool := testdb.Pool(t)
+	client := newServerClient(t, newServerTestConfig(), pool)
 	workerLabel := "authhttp-service"
 	hasWorkers := func() bool {
 		var profile bytes.Buffer
 		require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
 		return strings.Contains(profile.String(), strconv.Quote(workerLabel)+":"+strconv.Quote(t.Name()))
 	}
-	construct := func(cfg httpapi.Config) (*httpapi.Service, error) {
+	construct := func(client *Engine, cfg httpapi.Config) (*httpapi.Service, error) {
 		var svc *httpapi.Service
 		var err error
 		pprof.Do(t.Context(), pprof.Labels(workerLabel, t.Name()), func(context.Context) {
@@ -160,10 +160,13 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 		return svc, err
 	}
 
-	// A valid HTTP config can still fail the cross-layer document policy.
-	// Failed construction must not strand workers the caller cannot close.
-	svc, err := construct(httpapi.Config{DirectPeerIP: true, Documents: []documents.Provider{&documents.Service{}}})
-	require.ErrorContains(t, err, "Readers is empty")
+	// A valid HTTP config can still fail a cross-layer policy (a delegated
+	// route without its authorizer). Failed construction must not strand
+	// workers the caller cannot close.
+	noAuthorizer := newServerTestConfig()
+	noAuthorizer.Delegated = DelegatedConfig{Audiences: []string{"resource.example"}}
+	svc, err := construct(newServerClient(t, noAuthorizer, pool), httpapi.Config{DirectPeerIP: true})
+	require.ErrorContains(t, err, "Deps.DelegatedAuthorization")
 	require.Nil(t, svc)
 	require.False(t, hasWorkers(), "failed construction leaked background workers")
 
@@ -171,7 +174,7 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 	if rdb != nil {
 		cfg.Redis = rdb
 	}
-	svc, err = construct(cfg)
+	svc, err = construct(client, cfg)
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
 	require.Equal(t, rdb == nil, hasWorkers(), "only the memory limiter should start a sweep worker")

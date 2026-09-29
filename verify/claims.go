@@ -113,8 +113,8 @@ type Claims struct {
 	// an unclaimable identity (id, proven domain, root-registered issuer),
 	// never on the slug.
 	RemoteApplicationDomain    string
-	RemoteApplicationTier      string
-	RemoteApplicationTrustRoot string
+	RemoteApplicationTier      iam.ApplicationTier
+	RemoteApplicationTrustRoot iam.ApplicationTrustRoot
 
 	// Machine authority is resolved live from the receiving AuthKit deployment.
 	// Names are presentation only; UUID and authority issuer fence ownership.

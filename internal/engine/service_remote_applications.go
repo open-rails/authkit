@@ -10,13 +10,11 @@ import (
 	"net"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
@@ -43,19 +41,19 @@ func (s *Engine) trustSourcePolicy() trustSourcePolicy {
 	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
-func normalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.RemoteApplicationKey, policy trustSourcePolicy) (string, error) {
+func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMode, keys []iam.RemoteApplicationKey, policy trustSourcePolicy) (iam.RemoteApplicationMode, error) {
 	allowInsecureJWKS := policy.AllowPrivateNetworkJWKS
-	mode = strings.ToLower(strings.TrimSpace(mode))
+	mode = iam.RemoteApplicationMode(strings.ToLower(strings.TrimSpace(string(mode))))
 	jwksURI = strings.TrimSpace(jwksURI)
 	if mode == "" {
 		if len(keys) > 0 {
-			mode = iam.RemoteAppModeStatic
+			mode = iam.RemoteApplicationModeStatic
 		} else {
-			mode = iam.RemoteAppModeJWKS
+			mode = iam.RemoteApplicationModeJWKS
 		}
 	}
 	switch mode {
-	case iam.RemoteAppModeJWKS:
+	case iam.RemoteApplicationModeJWKS:
 		if jwksURI == "" {
 			return "", fmt.Errorf("%w: jwks mode requires jwks_uri", iam.ErrInvalidRemoteApplication)
 		}
@@ -65,7 +63,7 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.Remot
 		if err := validateJWKSURI(jwksURI, allowInsecureJWKS); err != nil {
 			return "", fmt.Errorf("%w: %v", iam.ErrInvalidRemoteApplication, err)
 		}
-	case iam.RemoteAppModeStatic:
+	case iam.RemoteApplicationModeStatic:
 		if len(keys) == 0 {
 			return "", fmt.Errorf("%w: static mode requires a non-empty public_keys list", iam.ErrInvalidRemoteApplication)
 		}
@@ -164,9 +162,9 @@ type remoteAppRow = db.RemoteApplicationBySlugRow
 func remoteAppFromRow(row remoteAppRow) *iam.RemoteApplication {
 	ra := &iam.RemoteApplication{
 		ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID,
-		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode,
+		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: iam.RemoteApplicationMode(row.Mode),
 		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
-		DisplayName: row.DisplayName, Tier: row.Tier, TrustRoot: row.TrustRoot,
+		DisplayName: row.DisplayName, Tier: iam.ApplicationTier(row.Tier), TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
 		Domain:           row.Domain,
 		DocumentEndpoint: row.DocumentEndpoint,
 		CreatedAt:        row.CreatedAt, UpdatedAt: row.UpdatedAt,
@@ -177,21 +175,10 @@ func remoteAppFromRow(row remoteAppRow) *iam.RemoteApplication {
 	return ra
 }
 
-// UpsertRemoteApplication registers or updates a remote_application keyed by its
-// issuer. An existing issuer can only be updated by its controlling group.
-func (s *Engine) UpsertRemoteApplication(ctx context.Context, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	var out *iam.RemoteApplication
-	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		var err error
-		out, err = s.upsertRemoteApplication(ctx, st, in)
-		return err
-	})
-	return out, err
-}
-
+// upsertRemoteApplication writes in under the authority transaction st, keyed
+// by issuer, in the group in.PermissionGroupID. A set Tier or TrustRoot is
+// stored; unset, a new row is manual and approved and an existing one keeps its
+// own. Callers authorize.
 func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
@@ -220,7 +207,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		return nil, err
 	}
 	var keysJSON []byte
-	if mode == iam.RemoteAppModeStatic {
+	if mode == iam.RemoteApplicationModeStatic {
 		keysJSON, err = json.Marshal(in.PublicKeys)
 		if err != nil {
 			return nil, iam.ErrInvalidRemoteApplication
@@ -255,7 +242,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		PermissionGroupID: groupID,
 		Issuer:            issuer,
 		JwksUri:           jwksURI,
-		Mode:              mode,
+		Mode:              string(mode),
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
 	})
@@ -266,7 +253,19 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	if err != nil {
 		return nil, err
 	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
+	out := remoteAppFromRow(remoteAppRow(row))
+	if in.Tier != "" || in.TrustRoot != "" {
+		if in.Tier != "" {
+			out.Tier = in.Tier
+		}
+		if in.TrustRoot != "" {
+			out.TrustRoot = in.TrustRoot
+		}
+		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET tier=$2, trust_root=$3 WHERE id=$1::uuid`, out.ID, out.Tier, out.TrustRoot); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // reservedIssuer reports whether issuer names this deployment's own accounts or
@@ -307,21 +306,17 @@ func issuerKey(issuer string) string {
 }
 
 // evictSessionBoundIssuer lets a domain proof reclaim an issuer that a group
-// bound through a member's session (trust root "user"): naming an unregistered
-// issuer URL first must not keep it from the domain that controls it. An
-// issuer held by a manual or domain-rooted application still conflicts.
+// bound through a member's session (trust root user): naming an unregistered
+// issuer URL first must not keep it from the domain that controls it. The
+// squatter goes even when it is the last owner of its group, which is left
+// without one. An issuer held by a manual or domain-rooted application still
+// conflicts.
 func (s *Engine) evictSessionBoundIssuer(ctx context.Context, st *permissionGroupStore, issuer string) error {
 	holder, err := db.New(st.q).RemoteApplicationByIssuer(ctx, issuer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
-	if err != nil || holder.TrustRoot != iam.ApplicationTrustRootUser {
-		return err
-	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(holder.ID)); err != nil {
-		if errors.Is(err, iam.ErrCannotRemoveLastAdminRole) {
-			return errmodel.ErrApplicationIssuerConflict
-		}
+	if err != nil || iam.ApplicationTrustRoot(holder.TrustRoot) != iam.ApplicationTrustRootUser {
 		return err
 	}
 	_, err = st.q.Exec(ctx, `DELETE FROM remote_applications WHERE id=$1::uuid`, holder.ID)
@@ -360,6 +355,22 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	return remoteAppFromRow(remoteAppRow(row)), nil
 }
 
+// RemoteApplicationByIssuer is the management read of the application
+// registered for issuer, disabled or in a retired group included.
+func (s *Engine) RemoteApplicationByIssuer(ctx context.Context, issuer string) (*iam.RemoteApplication, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	row, err := s.q.RemoteApplicationByIssuer(ctx, strings.TrimSpace(issuer))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, iam.ErrRemoteApplicationNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return remoteAppFromRow(remoteAppRow(row)), nil
+}
+
 // GetRemoteApplicationBySlug returns a remote_application by slug.
 func (s *Engine) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*iam.RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
@@ -394,77 +405,4 @@ func (s *Engine) ListEnabledRemoteApplications(ctx context.Context) ([]iam.Remot
 		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
 	}
 	return out, nil
-}
-
-// ListRemoteApplicationsForGroup returns the remote_applications whose
-// controlling permission_group_id is the group addressed by (persona,
-// instanceSlug) (#111). It resolves the group via the store, then filters
-// remote_applications by permission_group_id so a per-persona management caller
-// sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *Engine) ListRemoteApplicationsForGroup(ctx context.Context, group iam.GroupRef) ([]iam.RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
-	if err != nil {
-		return nil, err
-	}
-	q := s.pg
-	rows, err := q.Query(ctx,
-		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
-		        mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint,
-		        root_verified_at, created_at, updated_at
-		 FROM remote_applications
-		 WHERE permission_group_id = $1::uuid
-		 ORDER BY created_at DESC`, gid)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]iam.RemoteApplication, 0)
-	for rows.Next() {
-		var (
-			ra         iam.RemoteApplication
-			rawKeys    []byte
-			verifiedAt *time.Time
-		)
-		if err := rows.Scan(&ra.ID, &ra.Slug, &ra.PermissionGroupID, &ra.Issuer, &ra.JWKSURI,
-			&ra.Mode, &rawKeys, &ra.Enabled, &ra.DisplayName, &ra.Tier, &ra.TrustRoot,
-			&ra.Domain, &ra.DocumentEndpoint, &verifiedAt,
-			&ra.CreatedAt, &ra.UpdatedAt); err != nil {
-			return nil, err
-		}
-		ra.PublicKeys = decodeRemoteAppKeys(rawKeys)
-		if verifiedAt != nil {
-			ra.RootVerifiedAt = *verifiedAt
-		}
-		out = append(out, ra)
-	}
-	return out, rows.Err()
-}
-
-// DeleteRemoteApplication removes a remote_application by OIDC issuer URL.
-func (s *Engine) DeleteRemoteApplication(ctx context.Context, issuer string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	issuer = strings.TrimSpace(issuer)
-	if issuer == "" {
-		return iam.ErrInvalidRemoteApplication
-	}
-	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		q := db.New(st.q)
-		app, err := q.RemoteApplicationByIssuer(ctx, issuer)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrRemoteApplicationNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(app.ID)); err != nil {
-			return err
-		}
-		_, err = q.RemoteApplicationDelete(ctx, issuer)
-		return err
-	})
 }

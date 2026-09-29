@@ -1,11 +1,11 @@
 package httpapi
 
-// ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic —
+// ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic:
 // audience-subset clamp, TTL clamp, RFC 8705 certificate or RFC 9449 DPoP
-// sender binding, document stamping from the wired
-// DocumentProviders, and post-mint signing-KID reconciliation. The host owns
-// exactly one decision: the DelegationAuthorizer's grant, which is the
-// complete authority signed. Client input never becomes authority directly.
+// sender binding here; the grant check against the user's live authority and
+// published-document stamping in the engine's mint. The host owns exactly one
+// decision: the DelegationAuthorizer's grant, which is the complete authority
+// signed. Client input never becomes authority directly.
 
 import (
 	"bytes"
@@ -57,7 +57,8 @@ type DelegatedTokenResponse struct {
 
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
+	actor, isActor := verify.ActorFromClaims(claims)
+	if !ok || !isActor || actor.Kind() != iam.ActorUser {
 		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
@@ -155,71 +156,30 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// The grant is host policy, but never more AuthKit authority than the
-	// user holds (ak#394).
-	if err := s.svc.CheckDelegatedGrant(r.Context(), claims.UserID, grant.Permissions); err != nil {
-		writeError(w, fallback(err, errmodel.CodeDelegationAuthorizerUnavailable))
-		return
-	}
-
-	references := make(map[string]string, len(grant.Documents)+len(s.documentProviders))
-	for documentType, digest := range grant.Documents {
-		references[documentType] = digest
-	}
-	// Registered providers are authoritative for their document types; a host
-	// document colliding with a provider's type on a different digest is a
-	// wiring bug and fails loudly.
-	for _, p := range s.documentProviders {
-		ref := p.Reference()
-		if existing, dup := references[ref.Type]; dup && existing != ref.Digest {
-			fail(w, errmodel.CodeDelegatedDocumentUnavailable)
-			return
-		}
-		references[ref.Type] = ref.Digest
-	}
-
-	token, err := s.svc.MintDelegatedAccessToken(r.Context(), iam.DelegatedAccessParams{
+	// user holds (ak#394): the engine's mint checks it.
+	token, err := s.svc.MintDelegatedAccessToken(r.Context(), actor, iam.DelegatedAccess{
 		Audiences:                       audiences,
-		DelegatedSubject:                claims.UserID,
 		Permissions:                     grant.Permissions,
-		Documents:                       references,
+		Documents:                       grant.Documents,
 		Attributes:                      grant.Attributes,
 		TTL:                             ttl,
 		ConfirmationCertificateSHA256:   certificateBinding,
 		ConfirmationJWKThumbprintSHA256: jwkBinding,
 	})
 	if err != nil {
-		serverErr(w, "delegated_mint_failed", err)
+		if e := errmodel.As(err); e != nil && (e.Status() < 500 || errors.Is(err, errmodel.E(errmodel.CodeDelegatedDocumentUnavailable))) {
+			writeError(w, err)
+		} else {
+			serverErr(w, "delegated_mint_failed", err)
+		}
 		return
 	}
-	if len(token) > MaxDelegatedTokenBytes {
+	if len(token.Value) > MaxDelegatedTokenBytes {
 		serverErr(w, "delegated_token_too_large", nil)
 		return
 	}
 
-	// #260/#261 pairing: every stamped provider document must be verifiable by
-	// a reader that trusts the token's signing key — re-sign the persisted
-	// artifact if key rotation left it behind, then prove the digest is still
-	// the one this token carries.
-	if len(s.documentProviders) > 0 {
-		kid, err := DelegatedTokenSigningKID(token)
-		if err != nil {
-			fail(w, errmodel.CodeDelegatedDocumentUnavailable)
-			return
-		}
-		for _, p := range s.documentProviders {
-			if err := p.EnsureSigningKID(r.Context(), kid); err != nil {
-				fail(w, errmodel.CodeDelegatedDocumentUnavailable)
-				return
-			}
-			digest, err := p.CurrentDigest(r.Context())
-			if err != nil || digest != references[p.Reference().Type] {
-				fail(w, errmodel.CodeDelegatedDocumentUnavailable)
-				return
-			}
-		}
-	}
-
-	writeJSON(w, http.StatusOK, DelegatedTokenResponse{Token: token, ExpiresAt: expiresAt, TokenType: tokenType})
+	writeJSON(w, http.StatusOK, DelegatedTokenResponse{Token: token.Value, ExpiresAt: token.ExpiresAt, TokenType: tokenType})
 }
 
 // parseDelegateCertificate accepts exactly one currently valid, non-CA X.509
@@ -303,28 +263,4 @@ func clampDelegatedTTL(cfg authflow.DelegatedSettings, requestedSeconds int) tim
 		return cfg.TTLCeiling
 	}
 	return ttl
-}
-
-// delegatedTokenSigningKID extracts the `kid` protected header of the minted
-// compact JWT without re-verifying it (we just minted it).
-func DelegatedTokenSigningKID(token string) (string, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "", errors.New("delegated token is not a compact JWT")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", errors.New("delegated token has a malformed protected header")
-	}
-	var header struct {
-		KeyID string `json:"kid"`
-	}
-	if err := json.Unmarshal(raw, &header); err != nil {
-		return "", errors.New("delegated token has a malformed protected header")
-	}
-	header.KeyID = strings.TrimSpace(header.KeyID)
-	if header.KeyID == "" {
-		return "", errors.New("delegated token signing key id is unavailable")
-	}
-	return header.KeyID, nil
 }

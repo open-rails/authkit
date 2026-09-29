@@ -195,19 +195,18 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	}
 	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(authorizer))
 
-	docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
+	docRef, err := client.PublishDocument(ctx, documents.Publication{
 		Type:      documentsTestType,
 		Payload:   json.RawMessage(`{"entitlements":{"pro":{}}}`),
-		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
-		Signer:    client,
-		Store:     client.documentStore(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, docRef.Digest)
 	})
-	srv, err := newServer(client, WithDocuments(docSvc))
+	_, err = client.PublishDocument(ctx, documents.Publication{Type: documentsTestType, Payload: json.RawMessage(`{}`), Audiences: cfg.Delegated.Audiences})
+	require.ErrorContains(t, err, "already published")
+	srv, err := newServer(client)
 	require.NoError(t, err)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
@@ -256,7 +255,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, "pro", attributes["entitlement"])
 	stamped, ok := claims["documents"].(map[string]any)
 	require.True(t, ok, "documents claim missing: %v", claims)
-	require.Equal(t, docSvc.Reference().Digest, stamped[documentsTestType])
+	require.Equal(t, docRef.Digest, stamped[documentsTestType])
 	require.Equal(t, hostDocument, stamped["example.host-doc/v1"], "authorizer documents ride alongside registered providers")
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
 	require.Equal(t, int64(defaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
@@ -270,7 +269,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 
 	// The stamped document is resolvable end-to-end by the configured reader.
 	readerToken := registerDocumentReader(t, client, "tensorhub-"+suffix, "https://tensorhub-"+suffix+".example")
-	require.Equal(t, http.StatusOK, getDocument(h, http.MethodGet, docSvc.Reference().Digest, readerToken, nil).Code)
+	require.Equal(t, http.StatusOK, getDocument(h, http.MethodGet, docRef.Digest, readerToken, nil).Code)
 
 	// ---- Resource server: real mTLS round trip with the real verifier. ----
 	signer := keySource.ActiveSigner().(*jwtkit.RSASigner)
@@ -280,7 +279,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, `"bound":true`)
 	require.Contains(t, body, user.ID)
-	require.Contains(t, body, docSvc.Reference().Digest)
+	require.Contains(t, body, docRef.Digest)
 
 	// A stolen token is useless without the certificate's private key.
 	other := newDelegateCertificate(t, nil)
@@ -322,11 +321,12 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NotContains(t, body, `"bound"`)
 
 	// Trusted in-process minting stays unbound: a plain bearer over plain HTTP.
-	unbound, err := client.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{
-		Audiences: []string{"tensorhub.net"}, DelegatedSubject: user.ID, TTL: time.Minute,
+	unbound, err := client.MintDelegatedAccessToken(ctx, iam.UserActor(user.ID), iam.DelegatedAccess{
+		Audiences: []string{"tensorhub.net"}, TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	status, body = callResource(t, plain.Client(), plain.URL, unbound, nil)
+	require.Equal(t, docRef.Digest, unverifiedClaims(t, unbound.Value)["documents"].(map[string]any)[documentsTestType], "the Go mint stamps published documents too")
+	status, body = callResource(t, plain.Client(), plain.URL, unbound.Value, nil)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, `"bound":false`)
 
@@ -459,20 +459,17 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 			return iam.DelegationGrant{}, nil
 		}))
 
-	docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
+	docRef, err := client.PublishDocument(ctx, documents.Publication{
 		Type:      documentsTestType,
 		Payload:   json.RawMessage(fmt.Sprintf(`{"rotation":%q}`, suffix)),
-		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
-		Signer:    client,
-		Store:     client.documentStore(),
 	})
 	require.NoError(t, err)
-	digest := docSvc.Reference().Digest
+	digest := docRef.Digest
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, digest)
 	})
-	srv, err := newServer(client, WithDocuments(docSvc))
+	srv, err := newServer(client)
 	require.NoError(t, err)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
@@ -486,7 +483,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 
 	storedKID := func() string {
 		t.Helper()
-		document, err := docSvc.Lookup(ctx, digest)
+		document, err := client.LookupDocument(ctx, digest)
 		require.NoError(t, err)
 		header, _, err := documents.DecodeCompact(document.CompactJWS)
 		require.NoError(t, err)
@@ -506,7 +503,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	// document with the SAME digest.
 	keySource.rotate(t, "rotate-kid-2")
 	resp := mintOK(t, h, mintBody(delegate, ""), userToken)
-	kid, err := httpapi.DelegatedTokenSigningKID(resp.Token)
+	kid, err := signingKID(resp.Token)
 	require.NoError(t, err)
 	require.Equal(t, "rotate-kid-2", kid)
 	require.Equal(t, digest, unverifiedClaims(t, resp.Token)["documents"].(map[string]any)[documentsTestType], "digest is stable across rotation repair")

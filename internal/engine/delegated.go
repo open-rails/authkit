@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,80 +12,154 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/verify"
 )
 
-// MintDelegatedAccessToken signs a canonical delegated access token using the
-// the engine's internal signer. The host passes claims/params only and NEVER
-// touches the private key. When p.Issuer is empty it defaults to the engine's
-// configured Issuer. See the package-level MintDelegatedAccessToken for the
-// claim contract.
-func (s *Engine) MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAccessParams) (string, error) {
+// MintDelegatedAccessToken signs a delegated access token as this deployment.
+// A user actor mints for itself only, and every AuthKit-namespace permission
+// in the grant must be held live on the root group (checkDelegatedGrant); the
+// operator may mint for any subject; machine actors may not mint. Published
+// documents are stamped into every token.
+func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
+	if err := requireActor(actor); err != nil {
+		return iam.Token{}, err
+	}
+	d.Subject = strings.TrimSpace(d.Subject)
+	switch actor.Kind() {
+	case iam.ActorOperator:
+		if d.Subject == "" {
+			return iam.Token{}, fmt.Errorf("%w: delegated subject required", errmodel.E(errmodel.CodeInvalidRequest))
+		}
+	case iam.ActorUser:
+		if d.Subject == "" {
+			d.Subject = actor.ID()
+		}
+		if d.Subject != actor.ID() {
+			return iam.Token{}, iam.ErrInsufficientRoleAuthority
+		}
+		if err := s.checkDelegatedGrant(ctx, d.Subject, d.Permissions); err != nil {
+			return iam.Token{}, err
+		}
+	default:
+		return iam.Token{}, iam.ErrInsufficientRoleAuthority
+	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return "", iam.ErrMissingSigner
+		return iam.Token{}, iam.ErrMissingSigner
 	}
-	if strings.TrimSpace(p.Issuer) == "" {
-		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
+	refs, providers, err := s.delegatedDocuments(d.Documents)
+	if err != nil {
+		return iam.Token{}, err
 	}
-	return mintDelegatedAccessToken(ctx, signer, p)
+	d.Documents = refs
+	d.TTL = s.delegatedTTL(d.TTL)
+	now := time.Now()
+	token, err := mintDelegatedAccessToken(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), d, now)
+	if err != nil {
+		return iam.Token{}, err
+	}
+	if len(providers) > 0 {
+		kid, err := signingKID(token)
+		if err != nil {
+			return iam.Token{}, errmodel.E(errmodel.CodeDelegatedDocumentUnavailable, errmodel.WithCause(err))
+		}
+		if err := reconcileDocumentKeys(ctx, providers, refs, kid); err != nil {
+			return iam.Token{}, err
+		}
+	}
+	return iam.Token{Value: token, ExpiresAt: now.Add(d.TTL)}, nil
 }
 
-// CheckDelegatedGrant refuses a delegated grant carrying AuthKit authority the
+// delegatedTTL clamps a requested lifetime into the Config.Delegated bounds,
+// or the default bounds when the mint route is off.
+func (s *Engine) delegatedTTL(ttl time.Duration) time.Duration {
+	c := s.cfg.Delegated
+	if c.TTLDefault == 0 {
+		c.TTLFloor, c.TTLDefault, c.TTLCeiling = defaultDelegatedTTLFloor, defaultDelegatedTTLDefault, defaultDelegatedTTLCeiling
+	}
+	switch {
+	case ttl <= 0:
+		return c.TTLDefault
+	case ttl < c.TTLFloor:
+		return c.TTLFloor
+	case ttl > c.TTLCeiling:
+		return c.TTLCeiling
+	}
+	return ttl
+}
+
+// checkDelegatedGrant refuses a delegated grant carrying AuthKit authority the
 // user does not hold now. Delegated permissions are scope-free, so one in an
-// AuthKit persona's namespace must be held at the root group; permissions in
-// the host's own vocabulary remain the DelegationAuthorizer's decision.
-func (s *Engine) CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
+// AuthKit persona's namespace must be held on the root group by a live user;
+// the host's own vocabulary is the host's decision.
+func (s *Engine) checkDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
+	auth, err := s.rootUserAuthority(ctx, userID)
+	if err != nil {
+		return err
+	}
 	for _, perm := range permissions {
-		held, err := s.delegatedPermissionHeld(ctx, userID, iam.Perm(strings.TrimSpace(perm)))
-		if err != nil {
-			return err
-		}
-		if !held {
+		if !s.delegatedPermissionHeld(auth, iam.Perm(strings.TrimSpace(perm))) {
 			return iam.ErrDelegationRefused
 		}
 	}
 	return nil
 }
 
-// DelegatedPermissionLive re-checks, on use, a delegated token this deployment
-// minted: its delegated subject must still hold any AuthKit permission it
-// carries. Tokens from other issuers keep their issuer-trust contract.
-func (s *Engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm iam.Perm) (bool, error) {
-	if !cl.IsDelegatedAccessToken() || strings.TrimSpace(cl.Issuer) != strings.TrimSpace(s.cfg.Token.Issuer) {
-		return true, nil
+// rootUserAuthority is a live user's authority on the root group. A deleted,
+// reserved or banned user is ErrInsufficientRoleAuthority.
+func (s *Engine) rootUserAuthority(ctx context.Context, userID string) (authority, error) {
+	if err := s.requirePG(); err != nil {
+		return authority{}, err
 	}
-	return s.delegatedPermissionHeld(ctx, cl.DelegatedSubject, perm)
+	st := s.groupStore()
+	rootID, err := s.rootGroup(ctx, st)
+	if err != nil {
+		return authority{}, err
+	}
+	return s.actorAuthority(ctx, st, iam.UserActor(userID), groupTarget{ID: rootID, Persona: iam.RootPersona})
 }
 
-func (s *Engine) delegatedPermissionHeld(ctx context.Context, userID string, perm iam.Perm) (bool, error) {
+func (s *Engine) delegatedPermissionHeld(auth authority, perm iam.Perm) bool {
 	namespace, _, _ := strings.Cut(string(perm), ":")
 	sch := s.groupSchemaOrDefault()
 	if _, ok := sch.Persona(iam.Persona(namespace)); !ok && namespace != "*" {
-		return true, nil
+		return true
 	}
-	if strings.TrimSpace(userID) == "" || !sch.KnownPermission(perm) {
-		return false, nil
-	}
-	return s.Can(ctx, iam.UserActor(userID), iam.RootGroup(), perm)
+	return sch.KnownPermission(perm) && auth.covers(perm)
 }
 
-// mintDelegatedAccessToken signs a canonical delegated access token with an
-// explicit signer. It stamps the `typ=delegated-access+jwt` JOSE header, writes
-// the canonical `delegated_sub`/`permissions`/`attributes` claims, and NEVER
-// sets `sub` — the sub-XOR-delegated_sub invariant is enforced by construction.
-// Receiving services authorize by issuer/resource-account trust plus
-// `permissions`. A top-level `roles` claim is never minted; delegated-subject
-// role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
-func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.DelegatedAccessParams) (string, error) {
+// signingKID is the kid protected header of a compact JWS this engine signed.
+func signingKID(token string) (string, error) {
+	header, _, ok := strings.Cut(token, ".")
+	if !ok {
+		return "", errors.New("token is not a compact JWS")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(header)
+	if err != nil {
+		return "", errors.New("token has a malformed protected header")
+	}
+	var h struct {
+		KeyID string `json:"kid"`
+	}
+	if err := json.Unmarshal(raw, &h); err != nil || strings.TrimSpace(h.KeyID) == "" {
+		return "", errors.New("token signing key id is unavailable")
+	}
+	return strings.TrimSpace(h.KeyID), nil
+}
+
+// mintDelegatedAccessToken signs a canonical delegated access token: typ
+// delegated-access+jwt, delegated_sub and never sub, permissions, documents,
+// attributes (roles ride under attributes.roles), a jti and at most one sender
+// binding. The caller has authorized the grant and clamped p.TTL.
+func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer string, p iam.DelegatedAccess, now time.Time) (string, error) {
 	if signer == nil {
 		return "", errors.New("signer required")
 	}
-	if strings.TrimSpace(p.Issuer) == "" {
+	if issuer == "" {
 		return "", errors.New("issuer required")
 	}
-	if strings.TrimSpace(p.DelegatedSubject) == "" {
+	if p.Subject == "" {
 		return "", errors.New("delegated_sub required")
 	}
 	references, err := documents.NormalizeReferences(p.Documents)
@@ -94,17 +170,11 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.D
 		return "", fmt.Errorf("%w: attributes.documents is reserved", documents.ErrReservedAttribute)
 	}
 
-	ttl := p.TTL
-	if ttl <= 0 {
-		ttl = 15 * time.Minute
-	}
-	now := time.Now()
-
 	claims := jwt.MapClaims{
-		"iss":           strings.TrimSpace(p.Issuer),
+		"iss":           issuer,
 		"iat":           now.Unix(),
-		"exp":           now.Add(ttl).Unix(),
-		"delegated_sub": strings.TrimSpace(p.DelegatedSubject),
+		"exp":           now.Add(p.TTL).Unix(),
+		"delegated_sub": p.Subject,
 	}
 	if len(p.Audiences) > 0 {
 		claims["aud"] = p.Audiences

@@ -217,20 +217,20 @@ func TestStoredApplicationTrustModeChangesReplaceKeys(t *testing.T) {
 	old, fresh := mint(first), mint(second)
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err)
-	src.app.Mode = iam.RemoteAppModeJWKS
+	src.app.Mode = iam.RemoteApplicationModeJWKS
 	src.app.JWKSURI = endpoint.URL
 	_, err = v.Verify(ctx, fresh)
 	require.NoError(t, err)
 	_, err = v.Verify(ctx, old)
 	require.Error(t, err)
-	src.app.Mode = iam.RemoteAppModeStatic
+	src.app.Mode = iam.RemoteApplicationModeStatic
 	src.app.JWKSURI = ""
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err)
 	_, err = v.Verify(ctx, fresh)
 	require.Error(t, err, "JWKS cache must not override live static keys")
 	jwks = jwtkit.JWKS{Keys: []jwtkit.JWK{jwtkit.PublicToJWK(first.PublicKey(), first.KID(), first.Algorithm())}}
-	src.app.Mode = iam.RemoteAppModeJWKS
+	src.app.Mode = iam.RemoteApplicationModeJWKS
 	src.app.JWKSURI = endpoint.URL
 	_, err = v.Verify(ctx, old)
 	require.NoError(t, err, "re-enabled JWKS must fetch its current keys")

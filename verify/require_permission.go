@@ -26,13 +26,6 @@ type Authority interface {
 	Verifier() *Verifier
 }
 
-// DelegatedAuthority is implemented by a checker that can re-check, on use, a
-// delegated token's permission against its subject's live authority (the
-// minting AuthKit deployment does).
-type DelegatedAuthority interface {
-	DelegatedPermissionLive(ctx context.Context, cl Claims, perm iam.Perm) (bool, error)
-}
-
 // PermissionScope is a credential's permission-group binding: the group id,
 // the issuer whose group it is, and the group's public name.
 type PermissionScope struct {

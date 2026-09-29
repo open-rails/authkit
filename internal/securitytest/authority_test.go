@@ -140,7 +140,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := tc.attack()
 			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-			app, err := h.auth.GetRemoteApplication(ctx, "https://owner-app.security.test")
+			app, err := h.auth.RemoteApplication(ctx, "https://owner-app.security.test")
 			require.NoError(t, err)
 			require.True(t, app.Enabled)
 			require.Len(t, app.PublicKeys, 1)
@@ -378,7 +378,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	t.Cleanup(domain.Close)
 	resp = h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
 	require.Equal(t, http.StatusCreated, resp.status, "the squatter kept the issuer from its domain: %s", resp)
-	app, err := h.auth.GetRemoteApplication(ctx, victimIssuer)
+	app, err := h.auth.RemoteApplication(ctx, victimIssuer)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootDomain, app.TrustRoot)
 	resp = register("squatted-again", victimIssuer)
@@ -424,7 +424,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		t.Cleanup(domain.Close)
 		resp := h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		_, err = h.auth.GetRemoteApplication(ctx, peerIssuer)
+		_, err = h.auth.RemoteApplication(ctx, peerIssuer)
 		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
 
@@ -480,10 +480,10 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	t.Run("the operator disables the peer", func(t *testing.T) {
-		app, err := h.auth.GetRemoteApplication(ctx, peerIssuer)
+		app, err := h.auth.RemoteApplication(ctx, peerIssuer)
 		require.NoError(t, err)
 		app.Enabled = false
-		_, err = h.auth.UpsertRemoteApplication(ctx, *app)
+		_, err = h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), app)
 		require.NoError(t, err)
 		_, err = ver.Verify(ctx, delegated)
 		require.Error(t, err)

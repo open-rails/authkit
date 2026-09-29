@@ -100,6 +100,8 @@ type Engine struct {
 	smsHealth smsHealth
 
 	verifier *verify.Verifier
+	// published are the documents PublishDocument signed and stored.
+	published publishedDocuments
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.

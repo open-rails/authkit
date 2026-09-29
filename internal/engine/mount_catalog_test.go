@@ -219,13 +219,12 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	cfg.Identity.Providers = []authprovider.Provider{testOAuth2Provider("catalog", "https://idp.example", "client", "secret")}
 	cfg.Documents.Readers = []DocumentReader{{Issuer: "https://reader.example"}}
 	client := newServerClient(t, cfg, pg.Pool)
-	doc, err := documents.NewService(t.Context(), documents.ServiceConfig{
+	doc, err := client.PublishDocument(t.Context(), documents.Publication{
 		Type: "example.mount-catalog/v1", Payload: json.RawMessage(`{"catalog":true}`),
-		Issuer: cfg.Token.Issuer, Audiences: cfg.Token.ExpectedAudiences,
-		Signer: client, Store: client.documentStore(),
+		Audiences: cfg.Token.ExpectedAudiences,
 	})
 	require.NoError(t, err)
-	svc, err := newServer(client, WithoutRateLimiter(), WithDocuments(doc))
+	svc, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
 	mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPrefix: "/auth/custom"})
@@ -234,7 +233,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		require.Equal(t, iam.Route{Method: method, Path: iam.DocumentsPath, Group: iam.RouteDocuments, Auth: iam.AuthRequired}, routes[routeKey{method, iam.DocumentsPath}])
 		require.Equal(t, iam.Route{Method: method, Path: "/oidc/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic}, routes[routeKey{method, "/oidc/{provider}/login"}])
-		rec := mountCatalogRequest(mount, method, "/.well-known/authkit/documents/"+doc.Reference().Digest, "", "")
+		rec := mountCatalogRequest(mount, method, "/.well-known/authkit/documents/"+doc.Digest, "", "")
 		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
@@ -254,7 +253,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			require.NotContains(t, filteredRoutes, routeKey{method, iam.DocumentsPath})
 			require.NotContains(t, filteredRoutes, routeKey{method, "/oidc/{provider}/login"})
-			require.Equal(t, http.StatusNotFound, mountCatalogRequest(filtered, method, "/.well-known/authkit/documents/"+doc.Reference().Digest, "", "").Code)
+			require.Equal(t, http.StatusNotFound, mountCatalogRequest(filtered, method, "/.well-known/authkit/documents/"+doc.Digest, "", "").Code)
 			require.Equal(t, http.StatusNotFound, mountCatalogRequest(filtered, method, "/oidc/catalog/login", "", "").Code)
 		}
 	}

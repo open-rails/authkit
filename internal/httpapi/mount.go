@@ -127,9 +127,9 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 	}
 	// #260: published signed documents are root-anchored by protocol (#254 —
 	// resolvers derive the URL from the issuer), like JWKS. Mounted when
-	// providers are configured and the group is selected; the handler itself
+	// readers are configured and the group is selected; the handler itself
 	// enforces GET/HEAD and reader authorization.
-	if len(svc.documentProviders) > 0 &&
+	if len(svc.settings.Documents.Readers) > 0 &&
 		(opts.Groups == nil || routeGroupSet(opts.Groups)(iam.RouteDocuments)) &&
 		!skip(http.MethodGet, iam.DocumentsPath) {
 		register(iam.DocumentsPath, svc.documentsHandler(), iam.Route{Method: http.MethodGet, Path: iam.DocumentsPath, Group: iam.RouteDocuments, Auth: iam.AuthRequired})

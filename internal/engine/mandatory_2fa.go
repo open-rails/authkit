@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -168,15 +169,13 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
-	if subject.Kind != iam.SubjectKindUser {
-		return nil
-	}
 	needsMFA, err := s.roleRequiresMFA(ctx, q, gid, persona, role)
-	if err != nil {
+	if err != nil || !needsMFA {
 		return err
 	}
-	if !needsMFA {
-		return nil
+	// An application can never enroll a second factor.
+	if subject.Kind != iam.SubjectKindUser {
+		return fmt.Errorf("role %q requires MFA, which an application cannot hold: %w", role, iam.ErrRoleNotAssignable)
 	}
 	ok, err := userHasEnabledMFA(ctx, q, strings.TrimSpace(subject.ID))
 	if err != nil {

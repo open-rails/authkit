@@ -8,15 +8,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
 
 // Config is the HTTP layer's configuration. Engine data lives in
 // authkit.Config and engine dependencies in authkit.Deps; this is only what
-// the transport itself decides: client-IP posture, rate limiting, languages,
-// published documents.
+// the transport itself decides: client-IP posture, rate limiting, languages.
 type Config struct {
 	// Mount configures the route inventory NewMount builds; framework
 	// adapters add no policy.
@@ -70,12 +68,6 @@ type Config struct {
 	// Languages declares the supported UI languages; the zero value is
 	// English-only.
 	Languages LanguageConfig
-
-	// Documents are the published-document providers (normally
-	// *documents.Service values) served at the RouteDocuments mount and
-	// stamped by the delegated-token mint route (#260/#261). Requires
-	// authkit.Config.Documents.Readers.
-	Documents []documents.Provider
 }
 
 // Validate checks the static configuration: parseable proxy CIDRs, at most
@@ -109,11 +101,6 @@ func (c Config) Validate() error {
 	}
 	if c.ClientIP == nil && !c.DirectPeerIP && len(c.TrustedProxies) == 0 && len(c.CloudflareProxies) == 0 {
 		return errors.New("authkit: a client-IP posture is required — set HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP to assert there are none, or ClientIP; behind an undeclared proxy every client shares one rate-limit bucket")
-	}
-	for _, p := range c.Documents {
-		if p == nil {
-			return errors.New("authkit: HTTPConfig.Documents contains a nil provider")
-		}
 	}
 	return nil
 }

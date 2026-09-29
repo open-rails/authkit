@@ -605,7 +605,7 @@ func (v *Verifier) WithService(svc Enricher) *Verifier {
 // the human-managed PEM list (no URL fetching ever for static principals).
 func remoteAppOptions(ra iam.RemoteApplication) IssuerOptions {
 	opts := IssuerOptions{managed: true}
-	if ra.Mode == iam.RemoteAppModeStatic {
+	if ra.Mode == iam.RemoteApplicationModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
 		}
@@ -1340,12 +1340,12 @@ func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEnt
 		match.application = ra
 		match.jwksURL = ""
 		switch ra.Mode {
-		case iam.RemoteAppModeJWKS:
+		case iam.RemoteApplicationModeJWKS:
 			match.jwksURL = strings.TrimSpace(ra.JWKSURI)
 			if match.jwksURL == "" {
 				return nil, errmodel.E(errmodel.CodeBadIssuer)
 			}
-		case iam.RemoteAppModeStatic:
+		case iam.RemoteApplicationModeStatic:
 		default:
 			return nil, errmodel.E(errmodel.CodeBadIssuer)
 		}
@@ -1385,7 +1385,7 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 	if ie.publicKeys != nil {
 		return selectPublicKey(ie.publicKeys(), kid)
 	}
-	if ie.application != nil && ie.application.Mode == iam.RemoteAppModeStatic {
+	if ie.application != nil && ie.application.Mode == iam.RemoteApplicationModeStatic {
 		v.mu.Lock()
 		delete(v.byIss, iss)
 		v.mu.Unlock()

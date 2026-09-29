@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -35,4 +38,34 @@ func (s *Engine) newVerifier() (*verify.Verifier, error) {
 	}
 	v.WithService(s).WithLiveness(s).WithPermissionChecker(s, cfg.Token.Issuer)
 	return v, nil
+}
+
+// NewVerifier builds an extra verifier for the host's own resource routes. It
+// trusts no issuer until the host adds one (AddIssuer, LoadRemoteApplications)
+// and shares this engine's API-key resolver, stored remote applications,
+// account liveness, permission checks and DPoP replay store. DPoP proofs are
+// checked against the issuer's origin plus the request path unless an option
+// (verify.WithDPoPRequestURL) says otherwise.
+func (s *Engine) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
+	cfg := s.cfg
+	base := []verify.VerifierOption{
+		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
+		verify.WithDPoP(s.ClaimDPoPProof, s.issuerRequestURL),
+	}
+	if !cfg.Applications.AllowPrivateNetworkJWKS {
+		base = append(base, verify.WithSSRFGuard())
+	}
+	v := verify.NewVerifier(append(base, opts...)...)
+	v.WithService(s).WithLiveness(s).WithPermissionChecker(s, cfg.Token.Issuer)
+	return v
+}
+
+// issuerRequestURL is r's URL on the issuer's origin; "" (no DPoP proof can
+// match) when the issuer is not a URL.
+func (s *Engine) issuerRequestURL(r *http.Request) string {
+	issuer, err := url.Parse(strings.TrimSpace(s.cfg.Token.Issuer))
+	if err != nil || issuer.Scheme == "" || issuer.Host == "" || issuer.User != nil {
+		return ""
+	}
+	return issuer.Scheme + "://" + issuer.Host + r.URL.EscapedPath()
 }

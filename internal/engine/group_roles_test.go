@@ -166,7 +166,7 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 	manager := f.newUser("manager")
 	f.manager = manager.ID
 	grantRole(t, e, f.acme, manager, "manager")
-	app, err := e.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "acme-app", Issuer: "https://acme-app.escalation.test", JWKSURI: "https://acme-app.escalation.test/jwks", PermissionGroupID: f.acmeID, Enabled: true})
+	app, err := e.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(f.acmeID), iam.RemoteApplication{Slug: "acme-app", Issuer: "https://acme-app.escalation.test", JWKSURI: "https://acme-app.escalation.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	f.appID = app.ID
 	grantRole(t, e, f.acme, iam.RemoteApplicationSubject(app.ID), "manager")

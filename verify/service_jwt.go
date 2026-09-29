@@ -86,9 +86,6 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 	if err != nil {
 		return iam.ServiceJWTClaims{}, err
 	}
-	if len(permissions) == 0 {
-		permissions = scopeSlice(mc["scope"])
-	}
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
@@ -98,7 +95,6 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: iat, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
 		TokenUse: tokenUse, Permissions: permissions,
-		Scope: scopeSlice(mc["scope"]),
 	}
 	return claims, nil
 }
@@ -123,30 +119,6 @@ func audSlice(v any) []string {
 		for _, s := range a {
 			if strings.TrimSpace(s) != "" {
 				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-func scopeSlice(v any) []string {
-	switch s := v.(type) {
-	case string:
-		return strings.Fields(s)
-	case []any:
-		out := make([]string, 0, len(s))
-		for _, item := range s {
-			if v, ok := item.(string); ok && strings.TrimSpace(v) != "" {
-				out = append(out, strings.TrimSpace(v))
-			}
-		}
-		return out
-	case []string:
-		out := make([]string, 0, len(s))
-		for _, v := range s {
-			if strings.TrimSpace(v) != "" {
-				out = append(out, strings.TrimSpace(v))
 			}
 		}
 		return out
