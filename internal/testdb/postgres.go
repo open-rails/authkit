@@ -52,10 +52,10 @@ func requireEnv(t testing.TB, keys ...string) string {
 }
 
 // ScratchPostgres creates, migrates, and cleans up a scratch database on the
-// server named by QUERY_TEST_DATABASE_URL, AUTHKIT_TEST_DATABASE_URL, or
-// SQLC_DATABASE_URL. It skips (or fails under AUTHKIT_TEST_REQUIRE_DB=1) when
-// no URL is provided so ordinary go test runs do not start integration
-// infrastructure by accident.
+// server named by AUTHKIT_TEST_DATABASE_URL or SQLC_DATABASE_URL, kept when
+// AUTHKIT_TEST_KEEP_DB is set. It skips (or fails under
+// AUTHKIT_TEST_REQUIRE_DB=1) when no URL is provided so ordinary go test runs
+// do not start integration infrastructure by accident.
 func ScratchPostgres(t testing.TB) *Postgres {
 	t.Helper()
 	return scratchPostgres(t, true)
@@ -70,7 +70,7 @@ func EmptyScratchPostgres(t testing.TB) *Postgres {
 
 func scratchPostgres(t testing.TB, migrate bool) *Postgres {
 	t.Helper()
-	baseURL := requireEnv(t, "QUERY_TEST_DATABASE_URL", "AUTHKIT_TEST_DATABASE_URL", "SQLC_DATABASE_URL")
+	baseURL := requireEnv(t, "AUTHKIT_TEST_DATABASE_URL", "SQLC_DATABASE_URL")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
@@ -110,7 +110,7 @@ func scratchPostgres(t testing.TB, migrate bool) *Postgres {
 	pg := &Postgres{Pool: pool, URL: testURL, Database: dbName}
 	t.Cleanup(func() {
 		pool.Close()
-		if os.Getenv("QUERY_TEST_KEEP_DB") == "" {
+		if os.Getenv("AUTHKIT_TEST_KEEP_DB") == "" {
 			dropDatabase(context.Background(), adminURL, dbName)
 		} else {
 			t.Logf("kept scratch database %s", dbName)
