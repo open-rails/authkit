@@ -86,9 +86,26 @@ fi
 
 if [[ "$mode" != workflows ]]; then
   go vet ./...
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
   git diff --exit-code -- internal/db
   test -z "$(git ls-files --others --exclude-standard -- internal/db)"
-  scripts/check-compatibility.sh
+
+  # Released migrations are immutable; new ones are numbered after them.
+  migrations=internal/migrations/postgres
+  release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
+  changed=$(git diff --name-only --diff-filter=DMRT "$release" -- "$migrations/*.sql")
+  if [[ -n "$changed" ]]; then
+    printf 'migrations released in %s were changed or removed:\n%s\n' "$release" "$changed" >&2
+    exit 1
+  fi
+  last=$(git ls-tree --name-only "$release" -- "$migrations/" | sed -n 's|.*/\([0-9]*\)_.*\.sql$|\1|p' | sort -n | tail -1)
+  for added in $(git diff --name-only --diff-filter=A "$release" -- "$migrations/*.sql"); do
+    number=$(basename "$added")
+    number=${number%%_*}
+    if (( 10#$number <= 10#$last )); then
+      echo "new migration $added must be numbered after $last (released in $release)" >&2
+      exit 1
+    fi
+  done
 fi

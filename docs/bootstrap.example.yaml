@@ -1,3 +1,5 @@
+# Example bootstrap manifest: initial users, root roles and remote applications.
+
 users:
   - email: operator@example.com
     username: operator
@@ -12,8 +14,7 @@ remote_applications:
     jwks_uri: https://tensorhub.example/.well-known/jwks.json
     enabled: true
 
-# Dev-only fixtures (#266) — read at every boot (not part of the apply-once
-# seed) and honored only when AUTHKIT_ENV is a dev env; a non-dev boot with
-# this section set REFUSES to start.
+# Dev-only fixtures. AuthKit parses this section but never applies it; the
+# host reads it at boot and must honor it only in its own dev environment.
 # dev:
 #   static_entitlements: [pro, beta]

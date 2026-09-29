@@ -1,22 +1,18 @@
-# sqlc configuration (https://docs.sqlc.dev).
+# sqlc configuration (https://docs.sqlc.dev). Paths are relative to this file.
 #
-# Raw SQL lives in internal/db/queries/*.sql (one file per domain). The schema
-# source of truth is the numbered migration files in internal/migrations/postgres/.
-# Generated code is committed at internal/db (package db) and never hand-edited.
+# Raw SQL lives in queries/*.sql (one file per domain). The schema source of
+# truth is the numbered migrations in ../migrations/postgres. Generated code in
+# this directory is committed and never hand-edited. `scripts/check.sh contracts`
+# runs `sqlc generate` + `sqlc vet` and fails on drift.
 #
-# Workflow (always run as a pair; see Taskfile.yaml):
-#   task sqlc        # sqlc generate + sqlc vet
-#
-# Type mapping policy: uuid -> string (the Go API passes uuids as strings,
-# matching the pre-sqlc convention), timestamptz -> time.Time, citext -> string,
-# inet -> string via host()::text in queries. Nullable columns become pointers
-# (emit_pointers_for_null_types), matching the hand-written *string/*time.Time
-# scanning style this replaced.
+# Type mapping policy: uuid -> string, timestamptz -> time.Time, citext ->
+# string, inet -> string via host()::text in queries. Nullable columns become
+# pointers (emit_pointers_for_null_types).
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "internal/db/queries"
-    schema: "internal/migrations/postgres"
+    queries: "queries"
+    schema: "../migrations/postgres"
     database:
       uri: "${SQLC_DATABASE_URL}"
     rules:
@@ -24,7 +20,7 @@ sql:
     gen:
       go:
         package: "db"
-        out: "internal/db"
+        out: "."
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         omit_unused_structs: true
