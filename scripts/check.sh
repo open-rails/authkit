@@ -64,7 +64,7 @@ required = {
                  'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
                  'TestAccountRecoveryPasswordConfirmationBoundary',
                  'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
-    'embedded': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
+    '': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
                  'TestAccountDeletionRollsBackWhenRiverInsertFails',
@@ -77,7 +77,7 @@ required = {
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests
-           if (f'github.com/open-rails/authkit/{pkg}', name) not in passed]
+           if (f'github.com/open-rails/authkit/{pkg}'.rstrip('/'), name) not in passed]
 if missing:
     raise SystemExit(f'Missing workflow passes: {missing}')
 print(f'Workflows qualified: {sum(bool(test) for _, test in passed)} test/subtest passes, zero skips')
