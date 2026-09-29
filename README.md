@@ -101,8 +101,8 @@ var roles = authkit.RoleConfig{
 		// we'll create one permission group per reddit-channel, like /c/golang
 		"channel": {
 			// Our own permissions. Every persona also gets AuthKit's built-ins for free:
-			// channel:self:* (read, update, delete the channel), channel:members:*, channel:roles:manage
-			// and channel:credentials:* (its API keys and apps, when switched on).
+			// channel:self:* (read, update, delete the channel), channel:members:* and, when switched on,
+			// channel:roles:manage and channel:credentials:* (its API keys and apps).
 			Permissions: []string{"channel:posts:edit", "channel:posts:delete", "channel:posts:approve"},
 			// Anyone signed in may start a channel and becomes its owner. Only admins may take /c/announcements.
 			Creation: authkit.GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}},
@@ -193,7 +193,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	r := gin.Default()
-	if err := authkitgin.Mount(r, auth); err != nil { // /api/v1/*, /.well-known/jwks.json, /oidc/*
+	if err := authkitgin.Mount(r, auth); err != nil { // /api/v1/*, /.well-known/jwks.json, /oidc/* with social logins
 		return err
 	}
 	mountForum(r, auth)
