@@ -96,13 +96,6 @@ WHERE user_id = sqlc.arg(user_id) AND issuer = ANY(sqlc.arg(issuers)::text[])
   AND revoked_at IS NULL
 RETURNING id::text, issuer;
 
--- name: DeviceKeysRevokeAllExcept :exec
--- A credential change ends every device key of the account but keep_id, the
--- one presenting the change.
-UPDATE user_device_keys SET revoked_at = now()
-WHERE user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL
-  AND (sqlc.narg(keep_id)::uuid IS NULL OR id <> sqlc.narg(keep_id)::uuid);
-
 -- name: SessionsCountActiveOutsideIssuers :one
 -- Live sessions an account-wide revocation could not reach: issuers missing
 -- from the configured account issuer set.

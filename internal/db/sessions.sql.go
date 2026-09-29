@@ -10,24 +10,6 @@ import (
 	"time"
 )
 
-const deviceKeysRevokeAllExcept = `-- name: DeviceKeysRevokeAllExcept :exec
-UPDATE user_device_keys SET revoked_at = now()
-WHERE user_id = $1::uuid AND revoked_at IS NULL
-  AND ($2::uuid IS NULL OR id <> $2::uuid)
-`
-
-type DeviceKeysRevokeAllExceptParams struct {
-	UserID string
-	KeepID *string
-}
-
-// A credential change ends every device key of the account but keep_id, the
-// one presenting the change.
-func (q *Queries) DeviceKeysRevokeAllExcept(ctx context.Context, arg DeviceKeysRevokeAllExceptParams) error {
-	_, err := q.db.Exec(ctx, deviceKeysRevokeAllExcept, arg.UserID, arg.KeepID)
-	return err
-}
-
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
 FROM refresh_sessions

@@ -56,7 +56,7 @@ func (s *Engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID 
 	if err := q.UserAdvanceCredentialVersion(ctx, userID); err != nil {
 		return nil, err
 	}
-	if err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: keepID}); err != nil {
+	if _, err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: keepID}); err != nil {
 		return nil, err
 	}
 	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepID)

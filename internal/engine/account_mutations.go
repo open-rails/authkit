@@ -355,7 +355,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 	if err != nil || before.Unproven || !after.Unproven {
 		return err
 	}
-	enrolled, err := userHasEnabledMFA(ctx, tx, userID)
+	enrolled, err := db.New(tx).MFAUsable(ctx, userID)
 	if err != nil {
 		return err
 	}

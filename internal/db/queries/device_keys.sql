@@ -38,5 +38,9 @@ SELECT public_key FROM user_device_keys WHERE user_id = $1 AND revoked_at IS NUL
 -- name: DeviceKeyRevoke :execrows
 UPDATE user_device_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND user_id = $2;
 
--- name: DeviceKeysRevokeAll :execrows
-UPDATE user_device_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL;
+-- name: DeviceKeysRevokeAllExcept :execrows
+-- Ends every live device key of the account but keep_id (optional), e.g. the
+-- one presenting a credential change.
+UPDATE user_device_keys SET revoked_at = now()
+WHERE user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL
+  AND (sqlc.narg(keep_id)::uuid IS NULL OR id <> sqlc.narg(keep_id)::uuid);

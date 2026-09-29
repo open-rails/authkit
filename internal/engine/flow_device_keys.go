@@ -604,7 +604,7 @@ func (s *Engine) RevokeDeviceKey(ctx context.Context, userID, currentID, targetI
 // revokeAllDeviceKeys revokes every live key of userID on q and returns the
 // count (ban, soft delete, account emergency revoke).
 func (s *Engine) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) (int64, error) {
-	return db.New(q).DeviceKeysRevokeAll(ctx, userID)
+	return db.New(q).DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID})
 }
 
 // RevokeOtherDeviceKeys atomically revokes every key except the live key that
@@ -620,7 +620,7 @@ func (s *Engine) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID st
 	if err != nil || !active {
 		return errDeviceKeyInvalid
 	}
-	if err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: &currentID}); err != nil {
+	if _, err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: &currentID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
