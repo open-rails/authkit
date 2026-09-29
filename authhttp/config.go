@@ -26,8 +26,8 @@ type Config struct {
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 
-	// Rate limiting is an explicit choice; exactly one of Redis, Limiter,
-	// PerProcessRateLimits and DisableRateLimiting is required.
+	// Rate limits live in memory by default, counted per process; AuthKit logs
+	// a warning at startup. Set Redis when you run more than one replica.
 	//
 	// Redis shares rate-limit counters across replicas. It holds no other
 	// AuthKit state.
@@ -42,10 +42,6 @@ type Config struct {
 	// Limiter replaces AuthKit's limiter. ADVANCED: RateLimits are not applied
 	// to a custom limiter.
 	Limiter RateLimiter
-	// PerProcessRateLimits keeps counters in each process. Correct for one
-	// replica only: N replicas allow N times every limit, including password
-	// guesses.
-	PerProcessRateLimits bool
 	// DisableRateLimiting turns rate limiting off. TESTS ONLY: it removes the
 	// brute-force and spam protection.
 	DisableRateLimiting bool
@@ -80,8 +76,8 @@ type Config struct {
 	Documents []DocumentProvider
 }
 
-// Validate checks the static configuration: parseable proxy CIDRs, one
-// rate-limit choice, and a declared client-IP posture.
+// Validate checks the static configuration: parseable proxy CIDRs, at most
+// one rate-limit choice, and a declared client-IP posture.
 func (c Config) Validate() error {
 	if _, err := parseProxyCIDRs("trusted proxy", c.TrustedProxies); err != nil {
 		return err
@@ -90,13 +86,13 @@ func (c Config) Validate() error {
 		return err
 	}
 	choices := 0
-	for _, set := range []bool{c.Redis != nil, c.Limiter != nil, c.PerProcessRateLimits, c.DisableRateLimiting} {
+	for _, set := range []bool{c.Redis != nil, c.Limiter != nil, c.DisableRateLimiting} {
 		if set {
 			choices++
 		}
 	}
-	if choices != 1 {
-		return errors.New("authkit: choose exactly one rate limiter: authhttp.Config.Redis (shared by replicas), Limiter, PerProcessRateLimits (single replica only) or DisableRateLimiting (tests only)")
+	if choices > 1 {
+		return errors.New("authkit: set at most one of authhttp.Config.Redis, Limiter and DisableRateLimiting")
 	}
 	if c.Limiter == nil && !c.DisableRateLimiting {
 		if err := ratelimit.ValidateLimits(c.RateLimits); err != nil {
