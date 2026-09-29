@@ -17,7 +17,7 @@ import (
 
 func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := instanceCreateTestConfig()
+	cfg := orgTestConfig()
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
 	_, err := client.ensureRootGroup(ctx)
@@ -26,13 +26,11 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	owner, ownerToken := newInstanceTestUser(t, srv, "remoteowner")
 	peer, _ := newInstanceTestUser(t, srv, "remotepeer")
-	for _, slug := range []string{"remote-owned", "other-owned"} {
-		w := postOrg(srv, ownerToken, `{"slug":"`+slug+`"}`)
-		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	}
-	group := iam.GroupBySlug("org", "remote-owned")
-	gid, err := groupIDOf(ctx, client, group)
+	gid, err := seedGroup(ctx, client, "org", owner)
 	require.NoError(t, err)
+	otherID, err := seedGroup(ctx, client, "org", owner)
+	require.NoError(t, err)
+	group := iam.GroupByID(gid)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{
@@ -61,7 +59,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.ErrorIs(t, assignRole(ctx, client, actor, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	// Application authority is bound to its controlling group and its ceiling.
-	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupBySlug("org", "other-owned"), iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupByID(otherID), iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	require.ErrorIs(t, assignRole(ctx, client, actor.Within("org:catalog:read"), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	forged := verified
 	forged.TokenType = verify.APIKeyPrincipalType
@@ -74,12 +72,12 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 		w := serveAuthJSON(srv, method, path, body, bearer)
 		require.Equal(t, status, w.Code, w.Body.String())
 	}
-	base := "/org/remote-owned/members/"
+	base := "/groups/" + gid + "/members/"
 	// A signed app-self credential can manage existing users on its own group.
-	call(http.MethodPost, "/org/remote-owned/members", `{"user_id":"`+peer+`","role":"member"}`, token, http.StatusOK)
+	call(http.MethodPost, "/groups/"+gid+"/members", `{"user_id":"`+peer+`","role":"member"}`, token, http.StatusOK)
 	call(http.MethodPut, base+peer+"/roles/owner", "", mint([]string{"org:members:manage"}), http.StatusForbidden)
 	call(http.MethodPut, base+peer+"/roles/member", "", mint([]string{}), http.StatusForbidden)
-	call(http.MethodPut, "/org/other-owned/members/"+peer+"/roles/member", "", token, http.StatusForbidden)
+	call(http.MethodPut, "/groups/"+otherID+"/members/"+peer+"/roles/member", "", token, http.StatusForbidden)
 	// Full live authority cannot widen a downscoped credential when replacing
 	// an existing owner, even if the requested replacement is a lesser role.
 	call(http.MethodPut, base+peer+"/roles/owner", "", token, http.StatusOK)
@@ -89,8 +87,8 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	// The last native owner may leave: the remaining remote owner can restore
 	// native ownership through exactly the supported signed HTTP interface.
 	call(http.MethodPut, base+peer+"/roles/owner", "", token, http.StatusOK)
-	call(http.MethodGet, "/org/remote-owned/members", "", token, http.StatusOK)
-	call(http.MethodPost, "/org/remote-owned/members", `{"email":"unregistered@example.test","role":"member"}`, token, http.StatusForbidden)
+	call(http.MethodGet, "/groups/"+gid+"/members", "", token, http.StatusOK)
+	call(http.MethodPost, "/groups/"+gid+"/members", `{"email":"unregistered@example.test","role":"member"}`, token, http.StatusForbidden)
 	// Sender metadata on a delegated credential is never app-self authority.
 	delegated, err := signer.SignWithHeaders(ctx, map[string]any{"iss": app.Issuer, "aud": cfg.Token.ExpectedAudiences, "exp": time.Now().Add(time.Minute).Unix(), "delegated_sub": "external-customer", "permissions": []string{"org:*"}}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
 	require.NoError(t, err)
@@ -106,23 +104,18 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 
 func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
+	client := newServerClient(t, orgTestConfig(), pg.Pool)
 	ctx := context.Background()
 	_, err := client.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	owner, token := newInstanceTestUser(t, srv, "phantomowner")
-	for _, slug := range []string{"control-one", "control-two"} {
-		w := postOrg(srv, token, `{"slug":"`+slug+`"}`)
-		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	}
-	first := iam.GroupBySlug("org", "control-one")
-	second := iam.GroupBySlug("org", "control-two")
-	gid, err := groupIDOf(ctx, client, first)
+	gid, err := seedGroup(ctx, client, "org", owner)
 	require.NoError(t, err)
-	other, err := groupIDOf(ctx, client, second)
+	other, err := seedGroup(ctx, client, "org", owner)
 	require.NoError(t, err)
+	second := iam.GroupByID(other)
 	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "wrong-control", Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	require.ErrorIs(t, assignRole(ctx, client, iam.SystemActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
@@ -130,7 +123,7 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	// depart, although ordinary non-owner ancestor assignments remain valid.
 	_, err = client.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
 	require.NoError(t, err)
-	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
+	w := serveAuthJSON(srv, http.MethodDelete, "/groups/"+other+"/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	requireErrorCode(t, w.Body.String(), string(errmodel.CodeLastOwner))
 }

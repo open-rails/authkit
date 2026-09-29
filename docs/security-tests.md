@@ -100,6 +100,7 @@ Add a row and a test for every new attack class.
 | Anonymous verification request by phone reveals whether a number exists or is verified | `TestSecurityVerifyRequestByPhoneRevealsNothing` |
 | A refused or rolled-back change reaches the host's event hook, a committed one is missed or duplicated, or a failed delivery is dropped or overtaken | `TestSecurityEventsRecordOnlyCommittedChanges` |
 | An event hands the host a password, hash, token or code | `TestSecurityEventsCarryNoSecrets` |
+| A group, its roles or its events outlive a rolled-back host transaction (`InTx`), leak AuthKit's search_path into it, or break it on refusal | `TestSecurityGroupsJoinTheHostTransaction` |
 | The public `devicekey` client enrolls without an independent second factor, crosses signing domains, or revives a revoked or foreign key; a login token revokes other machines | `TestSecurityDeviceKeyClient` |
 | A route under `HTTPConfig.BasePath` escapes to the host root; an OIDC `redirect_uri` names a callback the mount doesn't serve; JWKS or documents unreachable from the issuer; BasePath disagrees with the issuer | `TestSecurityBasePathConfinesSurface` |
 

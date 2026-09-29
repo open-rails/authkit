@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,71 +31,60 @@ func newGroupsUser(t *testing.T, e *Engine, name string) string {
 	return u.ID
 }
 
-// The group operations end to end: create, read, list, update, delete and
+// The group operations end to end: host create, read, list, delete and
 // purge, members and memberships, and live checks for every actor kind.
 func TestGroupOperationsWorkflow(t *testing.T) {
 	e := groupsTestEngine(t, iam.TwoFactorDisabled, RoleConfig{
 		Personas: map[string]Persona{
-			"channel": {Permissions: []string{"channel:posts:edit"}, APIKeys: true, CustomRoles: true,
-				Creation: GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}}},
-			"org": {Permissions: []string{"org:records:read"}},
+			"channel": {Permissions: []string{"channel:posts:edit", "channel:metadata:edit"}, APIKeys: true, CustomRoles: true},
+			"org":     {Permissions: []string{"org:records:read"}},
 		},
 		Roles: []Role{
 			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*"}},
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:edit", "channel:members:read"}},
-			{Persona: "channel", Name: "janitor", Permissions: []string{"channel:self:delete"}},
+			{Persona: "channel", Name: "editor", Permissions: []string{"channel:metadata:edit"}},
 		},
 	})
 	ctx := t.Context()
 	bob, carol, dave, erin, admin := newGroupsUser(t, e, "gbob"), newGroupsUser(t, e, "gcarol"), newGroupsUser(t, e, "gdave"), newGroupsUser(t, e, "gerin"), newGroupsUser(t, e, "gadmin")
 	grantRole(t, e, iam.RootGroup(), iam.UserSubject(admin), "admin")
-
-	// A user creates a group and owns it; a re-run by the owner returns it.
-	golang, created, err := e.CreateGroup(ctx, iam.UserActor(bob), iam.NewGroup{Persona: "channel", Slug: "Golang", DisplayName: "Go"})
-	require.NoError(t, err)
-	require.True(t, created)
-	require.Equal(t, iam.Group{ID: golang.ID, Persona: "channel", Slug: "golang", DisplayName: "Go"}, golang)
-	again, created, err := e.CreateGroup(ctx, iam.UserActor(bob), iam.NewGroup{Persona: "channel", Slug: "golang"})
-	require.NoError(t, err)
-	require.False(t, created)
-	require.Equal(t, golang.ID, again.ID)
-	_, _, err = e.CreateGroup(ctx, iam.UserActor(carol), iam.NewGroup{Persona: "channel", Slug: "golang"})
-	require.ErrorIs(t, err, iam.ErrGroupSlugTaken)
-	_, _, err = e.CreateGroup(ctx, iam.UserActor(carol), iam.NewGroup{Persona: "channel", Slug: "announcements"})
-	require.ErrorIs(t, err, iam.ErrGroupSlugReserved)
-	announcements, created, err := e.CreateGroup(ctx, iam.UserActor(admin), iam.NewGroup{Persona: "channel", Slug: "announcements"})
-	require.NoError(t, err)
-	require.True(t, created, "channel:* on root takes a reserved slug")
-	_, _, err = e.CreateGroup(ctx, iam.UserActor(carol), iam.NewGroup{Persona: "org", Slug: "acme"})
-	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, "org has no user creation")
-	gift := iam.UserSubject(carol)
-	_, _, err = e.CreateGroup(ctx, iam.UserActor(bob), iam.NewGroup{Persona: "channel", Slug: "gift", Owner: &gift})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "a user cannot make someone else an owner")
-	_, _, err = e.CreateGroup(ctx, iam.Actor{}, iam.NewGroup{Persona: "channel", Slug: "anonymous"})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	acme, created, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "org", Slug: "acme"})
-	require.NoError(t, err)
-	require.True(t, created, "the system creates any persona's group, with or without an owner")
-	for _, slug := range []string{"rust", "python"} {
-		_, err := seedGroup(ctx, e, "channel", slug, "")
-		require.NoError(t, err)
+	owner := func(id string) *iam.Subject {
+		s := iam.UserSubject(id)
+		return &s
 	}
+
+	// The host creates a group of a declared persona, with an owner or none.
+	golang, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(bob)}, nil)
+	require.NoError(t, err)
+	require.Equal(t, iam.Persona("channel"), golang.Persona)
+	require.False(t, golang.CreatedAt.IsZero())
+	require.Nil(t, golang.DeletedAt)
+	announcements, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(admin)}, nil)
+	require.NoError(t, err)
+	acme, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "org"}, nil)
+	require.NoError(t, err)
+	for _, persona := range []iam.Persona{iam.RootPersona, "nope", ""} {
+		_, err := e.CreateGroup(ctx, iam.NewGroup{Persona: persona}, nil)
+		require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, persona)
+	}
+	_, err = e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner("not-a-uuid")}, nil)
+	require.ErrorIs(t, err, iam.ErrUserNotFound)
+	rust, err := seedGroup(ctx, e, "channel", "")
+	require.NoError(t, err)
+	python, err := seedGroup(ctx, e, "channel", "")
+	require.NoError(t, err)
 	golangRef := iam.GroupByID(golang.ID)
 	key, _, err := e.MintAPIKey(ctx, iam.UserActor(bob), golangRef, iam.NewAPIKey{Name: "bot", Role: "moderator"})
 	require.NoError(t, err)
-	_, _, err = e.CreateGroup(ctx, iam.APIKeyActor(key.ID), iam.NewGroup{Persona: "channel", Slug: "robots"})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "machine actors cannot create groups")
 
 	// Reads.
-	for _, ref := range []iam.GroupRef{iam.GroupBySlug("channel", "golang"), golangRef} {
-		got, err := e.Group(ctx, ref)
-		require.NoError(t, err)
-		require.Equal(t, golang, got)
-	}
+	got, err := e.Group(ctx, golangRef)
+	require.NoError(t, err)
+	require.Equal(t, golang, got)
 	root, err := e.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
 	require.Equal(t, iam.RootPersona, root.Persona)
-	for _, ref := range []iam.GroupRef{iam.GroupBySlug("channel", "missing"), iam.GroupByID("not-a-uuid"), iam.GroupByID(uuid.NewString()), {}} {
+	for _, ref := range []iam.GroupRef{iam.GroupByID("not-a-uuid"), iam.GroupByID(uuid.NewString()), {}} {
 		_, err = e.Group(ctx, ref)
 		require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	}
@@ -102,25 +92,25 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]iam.Group{golang.ID: golang, acme.ID: acme}, batch)
 
-	// Lists page by slug.
-	slugs := func(q iam.GroupQuery) []string {
+	// Lists page oldest first, by id.
+	ids := func(q iam.GroupQuery) []string {
 		t.Helper()
 		var out []string
 		for {
 			page, err := e.ListGroups(ctx, q)
 			require.NoError(t, err)
 			for _, g := range page.Items {
-				out = append(out, g.Slug)
+				out = append(out, g.ID)
 			}
 			if page.Next == "" {
+				require.True(t, slices.IsSorted(out), "groups list oldest first")
 				return out
 			}
 			q.Page.Cursor = page.Next
 		}
 	}
-	require.Equal(t, []string{"announcements", "golang", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel", Page: iam.PageRequest{Limit: 3}}))
-	require.Equal(t, []string{"acme", "announcements", "golang", "python", "rust"}, slugs(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
-	require.Equal(t, []string{"golang"}, slugs(iam.GroupQuery{Persona: "channel", Search: "GO"}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel", Page: iam.PageRequest{Limit: 3}}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, acme.ID, rust, python}, ids(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
 	_, err = e.ListGroups(ctx, iam.GroupQuery{Page: iam.PageRequest{Cursor: "garbage"}})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeInvalidRequest))
 	_, err = e.ListGroups(ctx, iam.GroupQuery{Persona: "nope"})
@@ -129,12 +119,12 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	// Members and memberships.
 	grantRole(t, e, golangRef, iam.UserSubject(carol), "moderator")
 	grantRole(t, e, golangRef, iam.UserSubject(dave), "moderator")
-	grantRole(t, e, golangRef, iam.UserSubject(erin), "janitor")
+	grantRole(t, e, golangRef, iam.UserSubject(erin), "editor")
 	members := func(q iam.MemberQuery) map[string]iam.Role {
 		t.Helper()
 		out := map[string]iam.Role{}
 		for {
-			page, err := e.ListGroupMembers(ctx, iam.GroupBySlug("channel", "golang"), q)
+			page, err := e.ListGroupMembers(ctx, golangRef, q)
 			require.NoError(t, err)
 			require.LessOrEqual(t, len(page.Items), q.Page.PageLimit())
 			for _, m := range page.Items {
@@ -147,7 +137,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 			q.Page.Cursor = page.Next
 		}
 	}
-	require.Equal(t, map[string]iam.Role{bob: iam.OwnerRole, carol: "moderator", dave: "moderator", erin: "janitor"}, members(iam.MemberQuery{Page: iam.PageRequest{Limit: 3}}))
+	require.Equal(t, map[string]iam.Role{bob: iam.OwnerRole, carol: "moderator", dave: "moderator", erin: "editor"}, members(iam.MemberQuery{Page: iam.PageRequest{Limit: 3}}))
 	require.Equal(t, map[string]iam.Role{carol: "moderator", dave: "moderator"}, members(iam.MemberQuery{Roles: []iam.Role{"moderator"}, Page: iam.PageRequest{Limit: 1}}))
 	require.Empty(t, members(iam.MemberQuery{Kinds: []iam.SubjectKind{iam.SubjectKindRemoteApplication}}))
 	first, err := e.ListSubjectGroups(ctx, iam.UserSubject(admin), iam.PageRequest{Limit: 1})
@@ -181,78 +171,64 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(iam.Actor{}, golangRef, "channel:posts:edit"))
 	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:posts:pin")
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
+	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:self:delete")
+	require.ErrorIs(t, err, iam.ErrUnknownPermission, "AuthKit registers no self permissions")
+	require.True(t, can(iam.UserActor(erin), golangRef, "channel:metadata:edit"), "an app catalog may name any resource")
 	require.NoError(t, e.Ban(ctx, iam.SystemActor(), dave, iam.Ban{}))
 	require.False(t, can(iam.UserActor(dave), golangRef, "channel:posts:edit"), "a banned user holds nothing")
 
-	perms, err := e.EffectivePermissions(ctx, iam.UserActor(carol), []iam.GroupRef{golangRef, annRef, iam.GroupBySlug("channel", "missing")})
+	perms, err := e.EffectivePermissions(ctx, iam.UserActor(carol), []iam.GroupRef{golangRef, annRef, iam.GroupByID(uuid.NewString())})
 	require.NoError(t, err)
 	require.Len(t, perms, 1)
 	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:members:read"}, perms[golang.ID])
-	perms, err = e.EffectivePermissions(ctx, iam.UserActor(admin).Within("channel:posts:edit", "channel:self:read"), []iam.GroupRef{golangRef})
+	perms, err = e.EffectivePermissions(ctx, iam.UserActor(admin).Within("channel:posts:edit", "channel:metadata:edit"), []iam.GroupRef{golangRef})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:self:read"}, perms[golang.ID], "a ceiling narrows channel:* to what it permits")
+	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:metadata:edit"}, perms[golang.ID], "a ceiling narrows channel:* to what it permits")
 	perms, err = e.EffectivePermissions(ctx, iam.APIKeyActor(key.ID), []iam.GroupRef{golangRef, annRef})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:members:read"}, perms[golang.ID])
 	require.NotContains(t, perms, announcements.ID)
 
-	// Update needs self:update; a rename passes the slug claim.
-	_, err = e.UpdateGroup(ctx, iam.UserActor(carol), golangRef, iam.GroupUpdate{DisplayName: new("Mine")})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	_, err = e.UpdateGroup(ctx, iam.UserActor(bob), golangRef, iam.GroupUpdate{Slug: new("announcements")})
-	require.ErrorIs(t, err, iam.ErrGroupSlugReserved)
-	updated, err := e.UpdateGroup(ctx, iam.UserActor(bob), golangRef, iam.GroupUpdate{Slug: new("go"), DisplayName: new("Gophers")})
-	require.NoError(t, err)
-	require.Equal(t, "go", updated.Slug)
-	require.Equal(t, "Gophers", updated.DisplayName)
-	_, err = e.UpdateGroup(ctx, iam.SystemActor(), iam.RootGroup(), iam.GroupUpdate{DisplayName: new("Site")})
-	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
-
-	// Delete is a soft delete gated by self:delete.
-	_, err = e.DeleteGroup(ctx, iam.UserActor(carol), golangRef)
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	deleted, err := e.DeleteGroup(ctx, iam.UserActor(erin), golangRef)
+	// Delete is the host's soft delete.
+	require.NoError(t, e.DeleteGroup(ctx, golangRef, nil))
+	deleted, err := e.Group(ctx, golangRef)
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
-	_, err = e.Group(ctx, iam.GroupBySlug("channel", "go"))
-	require.ErrorIs(t, err, iam.ErrGroupNotFound)
-	retained, err := e.Group(ctx, golangRef)
-	require.NoError(t, err)
-	require.Equal(t, deleted, retained)
 	require.False(t, can(iam.UserActor(bob), golangRef, "channel:posts:edit"), "a deleted group grants nothing")
-	require.Equal(t, []string{"announcements", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel"}))
-	require.Equal(t, []string{"announcements", "go", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel", IncludeDeleted: true}))
-	replay, err := e.DeleteGroup(ctx, golangRef)
+	require.ElementsMatch(t, []string{announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel"}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel", IncludeDeleted: true}))
+	require.NoError(t, e.DeleteGroup(ctx, golangRef, nil))
+	replay, err := e.Group(ctx, golangRef)
 	require.NoError(t, err)
-	require.Equal(t, deleted.DeletedAt, replay.DeletedAt)
-	_, err = e.DeleteGroup(ctx, iam.RootGroup())
-	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
+	require.Equal(t, deleted.DeletedAt, replay.DeletedAt, "deleting again keeps the first DeletedAt")
+	require.ErrorIs(t, e.DeleteGroup(ctx, iam.RootGroup(), nil), iam.ErrUnknownGroupPersona)
+	require.ErrorIs(t, e.DeleteGroup(ctx, iam.GroupByID(uuid.NewString()), nil), iam.ErrGroupNotFound)
 
-	// Purge is the system's permanent delete.
-	require.ErrorIs(t, e.PurgeGroup(ctx, iam.UserActor(bob), golangRef, iam.PurgeGroupOptions{}), iam.ErrInsufficientAuthority)
-	require.NoError(t, e.PurgeGroup(ctx, golangRef, iam.PurgeGroupOptions{}))
-	require.NoError(t, e.PurgeGroup(ctx, golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
+	// Purge is the host's permanent delete.
+	require.NoError(t, e.PurgeGroup(ctx, golangRef, nil))
+	require.NoError(t, e.PurgeGroup(ctx, golangRef, nil), "purging again is a no-op")
 	_, err = e.Group(ctx, golangRef)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
+	require.ErrorIs(t, e.PurgeGroup(ctx, iam.RootGroup(), nil), iam.ErrUnknownGroupPersona)
 }
 
 // H2, N9: adding a member by email never binds an account. Every address gets
 // the same invitation; only the account that proved the address accepts it.
 func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
+	client := newServerClient(t, orgTestConfig(), pg.Pool)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	ctx := t.Context()
 	owner, token := newInstanceTestUser(t, srv, "h2owner")
-	_, err = seedGroup(ctx, client, "org", "h2-acme", owner)
+	gid, err := seedGroup(ctx, client, "org", owner)
 	require.NoError(t, err)
 	add := func(email string) *httptest.ResponseRecorder {
-		return serveAuthJSON(srv, http.MethodPost, "/org/h2-acme/members", `{"email":"`+email+`","role":"member"}`, token)
+		return serveAuthJSON(srv, http.MethodPost, "/groups/"+gid+"/members", `{"email":"`+email+`","role":"member"}`, token)
 	}
 	roleOf := func(userID string) iam.Role {
-		roles, err := client.GroupRoles(ctx, iam.GroupBySlug("org", "h2-acme"), []iam.Subject{iam.UserSubject(userID)})
+		roles, err := client.GroupRoles(ctx, iam.GroupByID(gid), []iam.Subject{iam.UserSubject(userID)})
 		require.NoError(t, err)
 		return roles[iam.UserSubject(userID)]
 	}
@@ -307,7 +283,7 @@ func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
 	})
 	ctx := t.Context()
 	owner, designer, keeper, holder := newGroupsUser(t, e, "m2owner"), newGroupsUser(t, e, "m2designer"), newGroupsUser(t, e, "m2keeper"), newGroupsUser(t, e, "m2holder")
-	gid, err := seedGroup(ctx, e, "channel", "m2", owner)
+	gid, err := seedGroup(ctx, e, "channel", owner)
 	require.NoError(t, err)
 	ref := iam.GroupByID(gid)
 	grantRole(t, e, ref, iam.UserSubject(designer), "designer")
@@ -384,10 +360,10 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		_, err := e.enableFactor(ctx, id, "email", nil, authflow.AllowAdditionalFactors)
 		require.NoError(t, err)
 	}
-	gid, err := seedGroup(ctx, e, "channel", "m3", keeper)
+	gid, err := seedGroup(ctx, e, "channel", keeper)
 	require.NoError(t, err)
 	ref := iam.GroupByID(gid)
-	_, err = seedGroup(ctx, e, "channel", "m3-unowned", plain)
+	_, err = seedGroup(ctx, e, "channel", plain)
 	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired, "the owner role reaches the MFA permission")
 
 	op := iam.SystemActor()
@@ -429,23 +405,23 @@ func TestMFAFollowsPermissions(t *testing.T) {
 func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	pg := testdb.ScratchPostgres(t)
-	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
+	client := newServerClient(t, orgTestConfig(), pg.Pool)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	ctx := t.Context()
 	owner, _ := newInstanceTestUser(t, srv, "gateowner")
 	member, token := newInstanceTestUser(t, srv, "gatemember")
-	for _, slug := range []string{"gate-acme", "gate-other"} {
-		_, err := seedGroup(ctx, client, "org", slug, owner)
-		require.NoError(t, err)
-	}
-	acme := iam.GroupBySlug("org", "gate-acme")
+	acmeID, err := seedGroup(ctx, client, "org", owner)
+	require.NoError(t, err)
+	otherID, err := seedGroup(ctx, client, "org", owner)
+	require.NoError(t, err)
+	acme := iam.GroupByID(acmeID)
 	grantRole(t, client, acme, iam.UserSubject(member), "member")
 
 	r := gin.New()
 	r.GET("/orgs/:org", authkitgin.RequirePermission(client, "org:catalog:read", func(c *gin.Context) iam.GroupRef {
-		return iam.GroupBySlug("org", c.Param("org"))
+		return iam.GroupByID(c.Param("org"))
 	}), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	r.GET("/admin", authkitgin.RequirePermission(client, iam.PermRootUsersRead, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	get := func(path, token string) int {
@@ -457,38 +433,76 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 		r.ServeHTTP(w, req)
 		return w.Code
 	}
-	require.Equal(t, http.StatusUnauthorized, get("/orgs/gate-acme", ""))
-	require.Equal(t, http.StatusNoContent, get("/orgs/gate-acme", token))
-	require.Equal(t, http.StatusForbidden, get("/orgs/gate-other", token))
-	require.Equal(t, http.StatusForbidden, get("/orgs/missing", token))
+	require.Equal(t, http.StatusUnauthorized, get("/orgs/"+acmeID, ""))
+	require.Equal(t, http.StatusNoContent, get("/orgs/"+acmeID, token))
+	require.Equal(t, http.StatusForbidden, get("/orgs/"+otherID, token))
+	require.Equal(t, http.StatusForbidden, get("/orgs/"+uuid.NewString(), token))
 	require.Equal(t, http.StatusForbidden, get("/admin", token))
 	revokeRole(t, client, acme, iam.UserSubject(member), "member")
-	require.Equal(t, http.StatusForbidden, get("/orgs/gate-acme", token), "a removed role stops working at once")
+	require.Equal(t, http.StatusForbidden, get("/orgs/"+acmeID, token), "a removed role stops working at once")
 	require.Panics(t, func() { authkitgin.RequirePermission(client, "org:catalog:write", nil) })
 }
 
-// DELETE /<persona>/{slug} soft-deletes a group for an actor holding
-// <persona>:self:delete.
-func TestDeleteGroupRoute(t *testing.T) {
+// Groups have no route of their own: no request creates, reads, renames or
+// deletes one, and old slug-addressed routes are gone. A route of a
+// capability the group's persona lacks is refused like an unknown group.
+func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
+	cfg := orgTestConfig()
+	cfg.Roles.Personas["team"] = Persona{Permissions: []string{"team:docs:read"}}
+	client := newServerClient(t, cfg, pg.Pool)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	ctx := t.Context()
-	owner, ownerToken := newInstanceTestUser(t, srv, "delowner")
-	member, memberToken := newInstanceTestUser(t, srv, "delmember")
-	gid, err := seedGroup(ctx, client, "org", "doomed", owner)
+	owner, ownerToken := newInstanceTestUser(t, srv, "idowner")
+	member, memberToken := newInstanceTestUser(t, srv, "idmember")
+	gid, err := seedGroup(ctx, client, "org", owner)
+	require.NoError(t, err)
+	team, err := seedGroup(ctx, client, "team", owner)
 	require.NoError(t, err)
 	grantRole(t, client, iam.GroupByID(gid), iam.UserSubject(member), "member")
 
-	w := serveAuthJSON(srv, http.MethodDelete, "/org/doomed", "", memberToken)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodDelete, "/org/doomed", "", ownerToken)
-	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
-	g, err := client.Group(ctx, iam.GroupByID(gid))
-	require.NoError(t, err)
-	require.NotNil(t, g.DeletedAt)
-	w = serveAuthJSON(srv, http.MethodGet, "/org/doomed", "", ownerToken)
-	require.Equal(t, http.StatusForbidden, w.Code, "a deleted group no longer resolves")
+	w := serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/members", "", ownerToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var list struct {
+		GroupID string `json:"group_id"`
+		Persona string `json:"persona"`
+		Data    []struct {
+			SubjectID string `json:"subject_id"`
+			Role      string `json:"role"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
+	require.Equal(t, gid, list.GroupID)
+	require.Equal(t, "org", list.Persona)
+	require.Len(t, list.Data, 2)
+	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/members", "", memberToken).Code, "member lacks org:members:read")
+	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+uuid.NewString()+"/members", "", ownerToken).Code, "an unknown group is refused, not revealed")
+	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+team+"/remote-applications", "", ownerToken).Code, "team has no applications")
+	require.Equal(t, http.StatusOK, serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/remote-applications", "", ownerToken).Code)
+
+	w = serveAuthJSON(srv, http.MethodPut, "/groups/"+gid+"/members/"+member+"/roles/member", "", ownerToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	w = serveAuthJSON(srv, http.MethodGet, "/me/permissions?group_id="+gid, "", memberToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"object":"permission_set","group_id":"`+gid+`","permissions":["org:catalog:read"]}`, w.Body.String())
+	w = serveAuthJSON(srv, http.MethodGet, "/me/groups", "", memberToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"group_id":"`+gid+`"`)
+	require.NotContains(t, w.Body.String(), "instance_slug")
+
+	for _, req := range []struct{ method, path string }{
+		{http.MethodPost, "/org"},
+		{http.MethodGet, "/groups/" + gid},
+		{http.MethodPatch, "/groups/" + gid},
+		{http.MethodDelete, "/groups/" + gid},
+		{http.MethodGet, "/org/" + gid + "/members"},
+	} {
+		w := serveAuthJSON(srv, req.method, req.path, `{"slug":"x"}`, ownerToken)
+		require.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, w.Code, "%s %s: %s", req.method, req.path, w.Body.String())
+	}
+
+	require.NoError(t, client.DeleteGroup(ctx, iam.GroupByID(gid), nil))
+	require.Equal(t, http.StatusForbidden, serveAuthJSON(srv, http.MethodGet, "/groups/"+gid+"/members", "", ownerToken).Code, "a deleted group no longer resolves")
 }

@@ -100,9 +100,9 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	founder, orgAdmin, banner, siteOwner, member := newUser("founder"), newUser("orgadmin"), newUser("banner"), newUser("siteowner"), newUser("member")
 	_, err := engine.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	acme := iam.GroupBySlug("org", "acme")
-	_, err = seedGroup(ctx, engine, "org", "acme", founder.ID)
+	acmeID, err := seedGroup(ctx, engine, "org", founder.ID)
 	require.NoError(t, err)
+	acme := iam.GroupByID(acmeID)
 	root := iam.RootGroup()
 	grantRole(t, engine, root, orgAdmin, "org-admin")
 	grantRole(t, engine, root, banner, "banner")
@@ -149,7 +149,7 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 		}}, keyset{}, Deps{Postgres: pg.Pool})
 	ctx := t.Context()
 	n := 0
-	f := escalationFixture{engine: e, acme: iam.GroupBySlug("org", "acme"), other: iam.GroupBySlug("org", "other")}
+	f := escalationFixture{engine: e}
 	f.newUser = func(prefix string) iam.Subject {
 		n++
 		u, err := e.createUser(ctx, fmt.Sprintf("%s%d@escalation.test", prefix, n), fmt.Sprintf("%s%d", prefix, n))
@@ -159,10 +159,11 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 	f.founder = f.newUser("founder")
 	_, err := e.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	f.acmeID, err = seedGroup(ctx, e, "org", "acme", f.founder.ID)
+	f.acmeID, err = seedGroup(ctx, e, "org", f.founder.ID)
 	require.NoError(t, err)
-	_, err = seedGroup(ctx, e, "org", "other", f.founder.ID)
+	otherID, err := seedGroup(ctx, e, "org", f.founder.ID)
 	require.NoError(t, err)
+	f.acme, f.other = iam.GroupByID(f.acmeID), iam.GroupByID(otherID)
 	manager := f.newUser("manager")
 	f.manager = manager.ID
 	grantRole(t, e, f.acme, manager, "manager")

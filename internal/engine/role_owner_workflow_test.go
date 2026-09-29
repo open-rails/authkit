@@ -90,11 +90,10 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked)
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 	})
-	group := func(name, uid string) (iam.GroupRef, string) {
-		g := iam.GroupBySlug("org", name)
-		id, err := seedGroup(ctx, svc, g.Persona(), g.Slug(), uid)
+	group := func(uid string) (iam.GroupRef, string) {
+		id, err := seedGroup(ctx, svc, "org", uid)
 		require.NoError(t, err)
-		return g, id
+		return iam.GroupByID(id), id
 	}
 	app := func(gid string) *iam.RemoteApplication {
 		n++
@@ -104,7 +103,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	}
 	t.Run("remote_application_replacement_and_lifecycle", func(t *testing.T) {
 		human := user()
-		g, gid := group("app-life", human)
+		g, gid := group(human)
 		a := app(gid)
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.RemoteApplicationSubject(a.ID), iam.OwnerRole))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.RemoteApplicationSubject(a.ID), " owner "))
@@ -129,8 +128,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	})
 	t.Run("subtree_cascade_cannot_count_cross_control_owners", func(t *testing.T) {
 		human := user()
-		_, controllerID := group("app-controller", human)
-		survivor, survivorID := group("app-survivor", human)
+		_, controllerID := group(human)
+		survivor, survivorID := group(human)
 		for range 2 {
 			a := app(controllerID)
 			require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), survivor, iam.RemoteApplicationSubject(a.ID), iam.OwnerRole), iam.ErrRemoteApplicationNotFound)
@@ -144,7 +143,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		done := make(chan error, 2)
 		go func() {
 			<-start
-			done <- svc.PurgeGroup(ctx, iam.GroupByID(controllerID), iam.PurgeGroupOptions{})
+			done <- svc.PurgeGroup(ctx, iam.GroupByID(controllerID), nil)
 		}()
 		go func() {
 			<-start
@@ -167,7 +166,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	})
 	t.Run("account_lifecycle_and_import", func(t *testing.T) {
 		sole := user()
-		g, _ := group("account-life", sole)
+		g, _ := group(sole)
 		require.ErrorIs(t, svc.Ban(ctx, iam.SystemActor(), sole, iam.Ban{}), iam.ErrLastOwner)
 		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
 		require.ErrorIs(t, itemErr(svc.DeleteUsers(ctx, iam.UserActor(sole), []string{sole})), iam.ErrLastOwner)
@@ -197,7 +196,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	})
 	t.Run("custom_role_is_not_recovery_owner", func(t *testing.T) {
 		human := user()
-		g, gid := group("custom-life", human)
+		g, gid := group(human)
 		other := user()
 		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), g, iam.CustomRole{Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(other), "editor"))
@@ -211,7 +210,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		for _, op := range []string{"remove", "unassign", "replace", "ban", "soft-delete", "mfa", "mfa-factor"} {
 			t.Run(op, func(t *testing.T) {
 				one, two := user(), user()
-				g, gid := group("race-"+op, one)
+				g, gid := group(one)
 				require.NoError(t, assignRole(ctx, svc, iam.UserActor(one), g, iam.UserSubject(two), iam.OwnerRole))
 				raceSvc := svc
 				if strings.HasPrefix(op, "mfa") {
@@ -285,7 +284,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	t.Run("queued_mutations_read_committed_authority", func(t *testing.T) {
 		target := user()
 		human := user()
-		customGroup, customGID := group("queued-custom", human)
+		customGroup, customGID := group(human)
 		customActor, customTarget := user(), user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customActor), "manager"))
 		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), customGroup, iam.CustomRole{Name: "auditor", Permissions: []string{"org:records:read"}}))

@@ -33,8 +33,9 @@ func (tr *lifecycleReadTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ 
 	}
 }
 
-// One real-store workflow covers name reservation/release/rollback and role
-// edit/delete/recreate across members, applications, keys and deferred grants.
+// One real-store workflow covers purge, its rollback and a grant waiting on it,
+// and role edit/delete/recreate across members, applications, keys and
+// deferred grants.
 // Controlled query barriers also exercise writer and reader interleavings.
 func TestGroupLifecycleWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
@@ -56,44 +57,30 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	member, err := svc.createUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
-	create := func(name string) string {
-		id, err := seedGroup(ctx, svc, "org", name, owner.ID)
+	create := func() string {
+		id, err := seedGroup(ctx, svc, "org", owner.ID)
 		require.NoError(t, err)
 		return id
 	}
-	for _, release := range []bool{false, true} {
-		t.Run(fmt.Sprintf("delete_release_%v", release), func(t *testing.T) {
-			name := fmt.Sprintf("group-%v", release)
-			group := create(name)
-			renamed := name + "-renamed"
-			_, err := svc.UpdateGroup(ctx, iam.UserActor(owner.ID), iam.GroupByID(group), iam.GroupUpdate{Slug: &renamed})
-			require.NoError(t, err)
-			var deadline time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&deadline))
-			require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release}))
-			require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release})) // captured-ID replay
-			var remaining int
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
-			require.Zero(t, remaining)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&remaining))
-			require.Zero(t, remaining, "authority rows cascade with the group")
-			available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupBySlug("org", renamed))
-			require.NoError(t, err)
-			require.Equal(t, release, available)
-			var retained time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&retained))
-			require.True(t, deadline.Equal(retained), "old aliases keep their issued deadlines")
-		})
-	}
-	t.Run("delete_rollback_and_concurrent_rename", func(t *testing.T) {
-		group := create("fault-group")
-		_, err := pool.Exec(ctx, `CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
-  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-group') EXECUTE FUNCTION lifecycle_delete_failure()`)
+	t.Run("purge", func(t *testing.T) {
+		group := create()
+		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil))
+		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil)) // captured-ID replay
+		var remaining int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
+		require.Zero(t, remaining)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&remaining))
+		require.Zero(t, remaining, "authority rows cascade with the group")
+	})
+	t.Run("purge_rollback_and_concurrent_grant", func(t *testing.T) {
+		group := create()
+		_, err := pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
+  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.id='%s'::uuid) EXECUTE FUNCTION lifecycle_delete_failure()`, group))
 		require.NoError(t, err)
-		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.GroupByID(group), iam.PurgeGroupOptions{}), "injected lifecycle failure")
-		var canonical bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, group).Scan(&canonical))
-		require.True(t, canonical, "reservation rolls back with the failed delete")
+		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil), "injected lifecycle failure")
+		var owners int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&owners))
+		require.Equal(t, 1, owners, "the group rolls back with the failed delete")
 		_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_delete_failure ON permission_groups; DROP FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
 		blocker, err := pool.Begin(ctx)
@@ -103,35 +90,30 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
 		go func() {
-			deleted <- svc.PurgeGroup(ctx, iam.GroupByID(group), iam.PurgeGroupOptions{})
+			deleted <- svc.PurgeGroup(ctx, iam.GroupByID(group), nil)
 		}()
 		require.Eventually(t, func() bool {
 			var n int
 			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE%'`).Scan(&n)
 			return err == nil && n == 1
 		}, 5*time.Second, 10*time.Millisecond)
-		renamed := make(chan error, 1)
-		newName := "fault-group-renamed"
+		granted := make(chan error, 1)
 		go func() {
-			_, err := svc.UpdateGroup(ctx, iam.UserActor(owner.ID), iam.GroupByID(group), iam.GroupUpdate{Slug: &newName})
-			renamed <- err
+			granted <- assignRole(ctx, svc, iam.UserActor(owner.ID), iam.GroupByID(group), iam.UserSubject(member.ID), iam.OwnerRole)
 		}()
 		require.Eventually(t, func() bool {
 			var n int
-			// The rename waits for the authority lock the delete holds.
+			// The grant waits for the authority lock the delete holds.
 			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE '%permission_groups%' OR query LIKE '%pg_advisory_xact_lock%')`).Scan(&n)
 			return err == nil && n == 2
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
-		renameErr := <-renamed
-		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupBySlug("org", newName))
-		require.NoError(t, err)
-		require.Equal(t, renameErr != nil, newAvailable, "a completed concurrent rename must be reserved; a losing rename leaves no claim")
+		require.ErrorIs(t, <-granted, iam.ErrGroupNotFound, "a grant that waited on the delete finds no group")
 	})
 
-	gid := create("role-lifecycle")
-	group := iam.GroupBySlug("org", "role-lifecycle")
+	gid := create()
+	group := iam.GroupByID(gid)
 	role := iam.Role("auditor")
 	define := func(permission string) {
 		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(owner.ID), group, iam.CustomRole{Name: role, Permissions: []string{permission}}))

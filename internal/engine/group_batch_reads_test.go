@@ -68,29 +68,28 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	require.NoError(t, err)
 	subject := iam.UserSubject(member.ID)
 	actor := iam.UserActor(member.ID)
-	create := func(persona iam.Persona, slug string) (string, iam.GroupRef) {
-		id, err := seedGroup(ctx, client, persona, slug, owner.ID)
+	create := func(persona iam.Persona) (string, iam.GroupRef) {
+		id, err := seedGroup(ctx, client, persona, owner.ID)
 		require.NoError(t, err)
-		return id, iam.GroupBySlug(persona, slug)
+		return id, iam.GroupByID(id)
 	}
 	assign := func(ref iam.GroupRef, role iam.Role) {
 		grantRole(t, client, ref, subject, role)
 	}
 
-	reader, readerRef := create("channel", "batch-reader")
+	reader, readerRef := create("channel")
 	assign(readerRef, "reader")
-	moderated, moderatedRef := create("channel", "batch-moderated")
+	moderated, moderatedRef := create("channel")
 	assign(moderatedRef, "moderator")
-	section, sectionRef := create("section", "batch-section")
+	section, sectionRef := create("section")
 	assign(sectionRef, "editor")
-	curated, curatedRef := create("channel", "batch-curated")
+	curated, curatedRef := create("channel")
 	require.NoError(t, rt.DefineGroupRole(ctx, iam.UserActor(owner.ID), curatedRef, iam.CustomRole{Name: "curator", Permissions: []string{"channel:posts:write"}}))
 	assign(curatedRef, "curator")
-	retired, retiredRef := create("channel", "batch-retired")
+	retired, retiredRef := create("channel")
 	assign(retiredRef, "reader")
-	_, err = client.DeleteGroup(ctx, iam.GroupByID(retired))
-	require.NoError(t, err)
-	unassigned, unassignedRef := create("channel", "batch-unassigned")
+	require.NoError(t, client.DeleteGroup(ctx, iam.GroupByID(retired), nil))
+	unassigned, unassignedRef := create("channel")
 	unknown := uuid.NewString()
 
 	ids := []string{reader, moderated, section, curated, retired, unassigned, unknown, "not-a-uuid", reader}
@@ -134,7 +133,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	for id, ref := range refs {
 		single, err := effectivePermissions(ctx, client, actor, ref)
 		require.NoError(t, err)
-		require.ElementsMatch(t, single, perms[id], "group %s", ref.Slug())
+		require.ElementsMatch(t, single, perms[id], "group %s", ref)
 		for _, perm := range []iam.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
 			allowed, err := client.Can(ctx, actor, iam.GroupByID(id), perm)
 			require.NoError(t, err)
@@ -142,7 +141,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 			for _, grant := range perms[id] {
 				covered = covered || perm.Matches(grant)
 			}
-			require.Equal(t, covered, allowed, "%s on %s", perm, ref.Slug())
+			require.Equal(t, covered, allowed, "%s on %s", perm, ref)
 		}
 	}
 

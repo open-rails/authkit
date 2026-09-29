@@ -51,10 +51,11 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	e, err := New(context.Background(), credentialConfig(credentialRoles()), Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(e.Close)
-	f := &credentialFixture{t: t, e: e, pool: pg.Pool, acme: iam.GroupBySlug("org", "acme")}
+	f := &credentialFixture{t: t, e: e, pool: pg.Pool}
 	f.founder = f.user("founder")
-	f.acmeID, err = seedGroup(t.Context(), e, "org", "acme", f.founder.ID)
+	f.acmeID, err = seedGroup(t.Context(), e, "org", f.founder.ID)
 	require.NoError(t, err)
+	f.acme = iam.GroupByID(f.acmeID)
 	return f
 }
 
@@ -170,7 +171,8 @@ func TestCredentialIssuance(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, key.ID, principal.ID)
 	require.Equal(t, key.LookupID, principal.LookupID)
-	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", Slug: "acme", DisplayName: principal.Group.DisplayName}, principal.Group)
+	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", CreatedAt: principal.Group.CreatedAt}, principal.Group)
+	require.False(t, principal.Group.CreatedAt.IsZero())
 	require.Equal(t, "https://maintenance.test", principal.Issuer)
 	require.Equal(t, iam.Role("member"), principal.Role)
 	require.Equal(t, []string{"org:catalog:read"}, principal.Permissions)
@@ -307,7 +309,7 @@ func TestCredentialListsPage(t *testing.T) {
 	require.Equal(t, links[1], page.Items[0].ID)
 	_, err = f.e.APIKeys(ctx, f.acme, iam.PageRequest{Cursor: "not-a-cursor"})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeInvalidRequest))
-	_, err = f.e.APIKeys(ctx, iam.GroupBySlug("org", "missing"), iam.PageRequest{})
+	_, err = f.e.APIKeys(ctx, iam.GroupByID(uuid.NewString()), iam.PageRequest{})
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
 

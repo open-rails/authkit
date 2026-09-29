@@ -43,8 +43,6 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	}
 	issued := key("issued")
 
-	_, err = runtime.PurgeUsers(ctx, iam.UserActor(user.ID), []string{user.ID})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "purge is the system's")
 	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{user.ID})))
 	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
 	restore, err := runtime.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})

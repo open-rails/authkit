@@ -48,14 +48,10 @@ func withEvents(l *eventLog) hostOption {
 	return func(c *hostConfig) { c.deps.OnEvent = l.hook }
 }
 
-// withGroupCreation opts the org persona into user group creation, without
-// second factors in the way.
-func withGroupCreation(c *authkit.Config) {
+// withRBACNoMFA is withRBAC without second factors in the way.
+func withRBACNoMFA(c *authkit.Config) {
 	withRBAC(c)
 	c.TwoFactor.Mode = iam.TwoFactorDisabled
-	org := c.Roles.Personas[string(orgPersona)]
-	org.Creation = authkit.GroupCreation{Enabled: true}
-	c.Roles.Personas[string(orgPersona)] = org
 }
 
 // drained waits until every recorded event is delivered and its job done,
@@ -109,22 +105,22 @@ func sig(e iam.Event) string {
 // events.
 func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	events := newEventLog(iam.EventUserBanned)
-	h := newHost(t, withHTTP(generousLimits), withEngine(withGroupCreation), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
-	operator := iam.SystemActor()
+	system := iam.SystemActor()
 	root := iam.RootGroup()
 	rootGroup, err := h.auth.Group(ctx, root)
 	require.NoError(t, err)
 	var want []string
 	expect := func(e iam.Event) { want = append(want, sig(e)) }
-	byOperator := func(e iam.Event) iam.Event { e.ActorKind = iam.ActorSystem; return e }
+	bySystem := func(e iam.Event) iam.Event { e.ActorKind = iam.ActorSystem; return e }
 	byUser := func(id string, e iam.Event) iam.Event { e.ActorKind, e.ActorID = iam.ActorUser, id; return e }
 
 	staff := h.newAccount("staff")
-	expect(byOperator(iam.Event{Kind: iam.EventUserRegistered, UserID: staff.id}))
+	expect(bySystem(iam.Event{Kind: iam.EventUserRegistered, UserID: staff.id}))
 	h.grant(root, staff, "superadmin")
-	expect(byOperator(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "superadmin"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "superadmin"}))
 	staffToken := h.login(staff).AccessToken
 
 	aliceEmail := unique("alice") + "@security.test"
@@ -164,26 +160,24 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	before, err := h.auth.User(ctx, iam.UserByID(alice.id))
 	require.NoError(t, err)
 	invalid := "not-an-email"
-	_, err = h.auth.UpdateUser(ctx, operator, alice.id, iam.UserUpdate{Username: &username, Email: &invalid})
+	_, err = h.auth.UpdateUser(ctx, system, alice.id, iam.UserUpdate{Username: &username, Email: &invalid})
 	require.Error(t, err, "a rename in a refused update rolls back")
-	_, err = h.auth.UpdateUser(ctx, operator, alice.id, iam.UserUpdate{Username: &username, Phone: &phone})
+	_, err = h.auth.UpdateUser(ctx, system, alice.id, iam.UserUpdate{Username: &username, Phone: &phone})
 	require.NoError(t, err)
-	expect(byOperator(iam.Event{Kind: iam.EventUserPhoneChanged, UserID: alice.id, Current: phone}))
-	expect(byOperator(iam.Event{Kind: iam.EventUserUsernameChanged, UserID: alice.id, Previous: before.Username, Current: username}))
+	expect(bySystem(iam.Event{Kind: iam.EventUserPhoneChanged, UserID: alice.id, Current: phone}))
+	expect(bySystem(iam.Event{Kind: iam.EventUserUsernameChanged, UserID: alice.id, Previous: before.Username, Current: username}))
 
 	bob := h.newAccount("bob")
-	expect(byOperator(iam.Event{Kind: iam.EventUserRegistered, UserID: bob.id}))
+	expect(bySystem(iam.Event{Kind: iam.EventUserRegistered, UserID: bob.id}))
 	bobToken := h.login(bob).AccessToken
-	slug := unique("eventorg")
-	resp = h.post("/"+string(orgPersona), map[string]string{"slug": slug}, bobToken)
-	require.Equal(t, http.StatusCreated, resp.status, resp.String())
-	org := iam.GroupBySlug(orgPersona, slug)
-	group, err := h.auth.Group(ctx, org)
+	bobSubject := iam.UserSubject(bob.id)
+	group, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &bobSubject})
 	require.NoError(t, err)
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventGroupCreated, GroupID: group.ID, Persona: orgPersona}))
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: string(iam.OwnerRole)}))
+	org := iam.GroupByID(group.ID)
+	expect(bySystem(iam.Event{Kind: iam.EventGroupCreated, GroupID: group.ID, Persona: orgPersona}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: string(iam.OwnerRole)}))
 
-	resp = h.do(request{method: http.MethodPut, path: "/" + string(orgPersona) + "/" + slug + "/members/" + alice.id + "/roles/member", token: bobToken})
+	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/" + alice.id + "/roles/member", token: bobToken})
 	require.Less(t, resp.status, 300, resp.String())
 	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Current: "member"}))
 	for range 2 { // the second assignment changes nothing
@@ -208,14 +202,14 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 
 	grantRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
 	revokeRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
-	expect(byOperator(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "moderator"}))
-	expect(byOperator(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "moderator"}))
 
-	_, err = h.auth.DeleteGroup(ctx, iam.UserActor(bob.id), org)
-	require.NoError(t, err)
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventGroupDeleted, GroupID: group.ID, Persona: orgPersona}))
-	require.NoError(t, h.auth.PurgeGroup(ctx, operator, iam.GroupByID(group.ID), iam.PurgeGroupOptions{}))
-	expect(byOperator(iam.Event{Kind: iam.EventGroupPurged, GroupID: group.ID, Persona: orgPersona}))
+	require.NoError(t, h.auth.DeleteGroup(ctx, org))
+	require.NoError(t, h.auth.DeleteGroup(ctx, org), "deleting again records nothing")
+	expect(bySystem(iam.Event{Kind: iam.EventGroupDeleted, GroupID: group.ID, Persona: orgPersona}))
+	require.NoError(t, h.auth.PurgeGroup(ctx, org))
+	expect(bySystem(iam.Event{Kind: iam.EventGroupPurged, GroupID: group.ID, Persona: orgPersona}))
 
 	resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + alice.id, token: staffToken})
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
@@ -225,17 +219,17 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserRestored, UserID: alice.id}))
 
 	t.Run("a rolled-back manifest records nothing", func(t *testing.T) {
-		_, err := h.auth.ApplyBootstrapManifest(ctx, operator, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
+		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 			{Username: unique("seeded"), Email: unique("seeded") + "@security.test"},
 			{Username: bob.username, Email: unique("squat") + "@security.test"},
 		}}, iam.BootstrapOptions{})
 		require.Error(t, err)
 	})
 
-	purged, err := h.auth.PurgeUsers(ctx, operator, []string{alice.id})
+	purged, err := h.auth.PurgeUsers(ctx, []string{alice.id})
 	require.NoError(t, err)
 	require.NoError(t, purged[0].Err)
-	expect(byOperator(iam.Event{Kind: iam.EventUserDeleted, UserID: alice.id}))
+	expect(bySystem(iam.Event{Kind: iam.EventUserDeleted, UserID: alice.id}))
 	expect(iam.Event{Kind: iam.EventUserPurged, UserID: alice.id})
 	events.await(t, iam.EventUserPurged, alice.id)
 
@@ -280,7 +274,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 // event.
 func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	events := newEventLog()
-	h := newHost(t, withHTTP(generousLimits), withEngine(withGroupCreation), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	secrets := []string{password, "argon2"}
 
@@ -301,7 +295,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 
 	owner := h.newAccount("secretowner")
-	org, base := h.newOrg("secretorg", owner)
+	org, base := h.newOrg(owner)
 	link := h.issue(base+"/invites/links", h.login(owner).AccessToken, map[string]any{"role": "member"})
 	secrets = append(secrets, link.Code)
 	resp = h.post("/invites/redeem", map[string]string{"code": link.Code}, session.AccessToken)

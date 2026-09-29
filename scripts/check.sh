@@ -85,7 +85,7 @@ required = {
                      'TestSecurityImportProviders', 'TestSecurityImportedDeletionLifecycle',
                      'TestSecurityUsernameChecks', 'TestSecuritySessionEventHistory',
                      'TestSecurityBasePathConfinesSurface', 'TestSecurityEventsRecordOnlyCommittedChanges',
-                     'TestSecurityEventsCarryNoSecrets'),
+                     'TestSecurityEventsCarryNoSecrets', 'TestSecurityGroupsJoinTheHostTransaction'),
     'internal/engine': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
