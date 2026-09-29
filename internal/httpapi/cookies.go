@@ -5,7 +5,7 @@ package httpapi
 // clearing a cookie expires the historical variants, and the refresh reader
 // tolerates them, so upgrading AuthKit never strands a browser's session.
 // TestCookieRegistry pins this list against the cookies AuthKit actually sets
-// and against testdata/cookie-registry.golden: a changed cookie shape
+// and against internal/engine/testdata/cookie-registry.golden: a changed cookie shape
 // must be added here as a new variant, never edited in place, and no variant
 // may be removed. See docs/security/cookies.md.
 
@@ -210,7 +210,7 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// identity names a variant in testdata/cookie-registry.golden.
+// identity names a variant in internal/engine/testdata/cookie-registry.golden.
 func (v CookieVariant) Identity() string {
 	return fmt.Sprintf("%s name=%s path=%s domain=%q secure=%v", v.Kind, v.Name, v.Path, v.Domain, v.Secure)
 }

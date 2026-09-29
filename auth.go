@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
+	"strings"
 	"sync/atomic"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
@@ -19,7 +22,7 @@ import (
 // entitlements cycle with SetEntitlements, then Start it. Operations are
 // methods, grouped by domain in the auth_*.go files.
 type Auth struct {
-	engine      *engine
+	engine      *engine.Engine
 	verifier    *verify.Verifier
 	requireLive func(http.Handler) http.Handler
 	http        *httpapi.Service
@@ -27,48 +30,53 @@ type Auth struct {
 	started     atomic.Bool
 }
 
+// Auth is what verify's permission, liveness and delegation seams consume.
+var (
+	_ verify.LivenessSource     = (*Auth)(nil)
+	_ verify.PermissionChecker  = (*Auth)(nil)
+	_ verify.DelegatedAuthority = (*Auth)(nil)
+)
+
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
 // the pool first.
-func New(cfg Config, deps Deps) (*Auth, error) {
-	engine, err := newEngine(cfg, deps)
+func New(cfg Config, deps Deps) (_ *Auth, err error) {
+	settings := cfg.settings()
+	e, err := engine.New(settings.engine, deps.engine())
 	if err != nil {
 		return nil, err
 	}
-	return assemble(engine, cfg.HTTP)
-}
-
-// newWithKeys builds from a fixed keyset, skipping key resolution and the
-// required-field checks: sparse test configurations.
-func newWithKeys(cfg Config, keys keyset, deps Deps) (*Auth, error) {
-	engine, err := newEngineWithKeys(cfg, keys, deps)
-	if err != nil {
-		return nil, err
-	}
-	return assemble(engine, cfg.HTTP)
-}
-
-func assemble(engine *engine, httpCfg *HTTPConfig) (_ *Auth, err error) {
-	a := &Auth{engine: engine}
+	a := &Auth{engine: e, verifier: e.Verifier()}
 	defer func() {
 		if err != nil {
 			a.Close()
 		}
 	}()
-	if err := engine.initializeGroups(); err != nil {
-		return nil, err
-	}
-	if a.verifier, err = engine.newVerifier(); err != nil {
-		return nil, err
-	}
 	if a.requireLive, err = verify.RequiredLive(a.verifier); err != nil {
 		return nil, err
 	}
-	if httpCfg != nil {
-		if a.http, a.mount, err = newHTTP(engine, a.verifier, *httpCfg); err != nil {
+	if settings.http != nil {
+		if deps.Postgres == nil {
+			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
+		}
+		if a.http, a.mount, err = newHTTP(e, a.verifier, *settings.http); err != nil {
 			return nil, err
 		}
 	}
 	return a, nil
+}
+
+// newHTTP builds the HTTP layer and its one mounted handler.
+func newHTTP(e *engine.Engine, v *verify.Verifier, cfg httpapi.Config) (*httpapi.Service, *httpapi.Mount, error) {
+	svc, err := httpapi.New(e, v, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	mount, err := httpapi.NewMount(svc, cfg.Mount)
+	if err != nil {
+		svc.Close()
+		return nil, nil, err
+	}
+	return svc, mount, nil
 }
 
 // SetEntitlements installs the entitlements provider after New, for a host
@@ -79,7 +87,7 @@ func (a *Auth) SetEntitlements(provider EntitlementsProvider) error {
 	if a.started.Load() {
 		return errors.New("authkit: SetEntitlements after Start")
 	}
-	a.engine.setEntitlements(provider)
+	a.engine.SetEntitlements(provider)
 	return nil
 }
 
@@ -113,6 +121,30 @@ func (a *Auth) CheckSMSHealth(ctx context.Context) error { return a.engine.Check
 // implicitly and it has no HTTP exposure.
 func (a *Auth) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
 	return a.engine.OperatorApplyBootstrapManifest(ctx, manifest, opts)
+}
+
+// DefaultBootstrapManifestPath is where LoadBootstrapManifestFile reads when
+// given no path.
+const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
+
+// ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
+// fields, empty manifests and structurally invalid entries.
+func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
+	return engine.ParseBootstrapManifestYAML(raw)
+}
+
+// LoadBootstrapManifestFile reads and parses a bootstrap manifest; an empty
+// path reads DefaultBootstrapManifestPath.
+func LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = DefaultBootstrapManifestPath
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return iam.BootstrapManifest{}, err
+	}
+	return ParseBootstrapManifestYAML(raw)
 }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is nil.

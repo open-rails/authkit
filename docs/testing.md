@@ -3,12 +3,13 @@
 Run `scripts/check.sh` for the same checks as CI. The script starts local
 PostgreSQL/Redis through Compose when `AUTHKIT_TEST_DATABASE_URL` is unset.
 To use existing disposable services, set that variable and
-`AUTHKIT_TEST_REDIS_URL`. Tests create isolated databases and Redis keyspaces.
+`AUTHKIT_TEST_REDIS_URL`. Tests create isolated databases and Redis keyspaces;
+`AUTHKIT_TEST_KEEP_DB=1` keeps each scratch database for inspection.
 Install the browser dependency once with:
 
 ```sh
-pnpm --dir testdata install --frozen-lockfile
-pnpm --dir testdata exec playwright install chromium
+pnpm --dir internal/engine/testdata install --frozen-lockfile
+pnpm --dir internal/engine/testdata exec playwright install chromium
 ```
 
 `workflows` and `contracts` select either half of the command. CI has one

@@ -1,4 +1,4 @@
-package authkit
+package authkit_test
 
 import (
 	"go/ast"
@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 // hosts that only verify tokens must not link pgx, River or the engine (#291).
 var dblessPackages = []string{"./iam", "./documents", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
 
-const enginePackage = "github.com/open-rails/authkit"
+const rootPackage = "github.com/open-rails/authkit"
 
 var forbiddenDepPrefixes = []string{
 	"github.com/jackc/pgx",
@@ -60,7 +61,7 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 	var violations []string
 	for _, pkg := range dblessPackages {
 		for _, dep := range listDeps(t, pkg) {
-			if dep == enginePackage {
+			if dep == rootPackage {
 				violations = append(violations, pkg+" -> "+dep)
 				continue
 			}
@@ -77,6 +78,30 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("the verification surface must stay DB-less (#291) — move the dependency into the engine:\n  %s",
 			strings.Join(violations, "\n  "))
+	}
+}
+
+// The root is the public API over internal/engine: nothing below it imports
+// it back. Only binaries and test harnesses sit above the root.
+var rootImporters = map[string]bool{
+	rootPackage + "/cmd/authkit-migrate": true,
+	rootPackage + "/internal/testhttp":   true,
+}
+
+func TestNothingBelowRootImportsRoot(t *testing.T) {
+	out, err := exec.Command("go", "list", "-f", `{{.ImportPath}}{{range .Deps}} {{.}}{{end}}`, "./...").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list: %v\n%s", err, out)
+	}
+	var violations []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if pkg := fields[0]; pkg != rootPackage && !rootImporters[pkg] && slices.Contains(fields[1:], rootPackage) {
+			violations = append(violations, pkg)
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("packages below the root must not import it:\n  %s", strings.Join(violations, "\n  "))
 	}
 }
 

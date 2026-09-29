@@ -26,7 +26,7 @@ go run ./cmd/authkit-migrate \
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
-  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/testdata/node_modules/@playwright/test}
+  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/internal/engine/testdata/node_modules/@playwright/test}
   go test -race -count=1 -p 1 -tags browser -json ./... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 - <<'PY'
@@ -58,7 +58,7 @@ required = {
                      'TestSecurityProviderPKCE', 'TestSecurityFormPostCallbackIsBounded',
                      'TestSecurityOutboundAddressGuard', 'TestSecurityPurgedUsernameStaysReserved',
                      'TestSecurityRefreshCookieUpgrade'),
-    '': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
+    'internal/engine': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
                  'TestAccountDeletionRollsBackWhenRiverInsertFails',

@@ -1,16 +1,17 @@
-package authkit
+package authkit_test
 
 import (
 	"reflect"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/stretchr/testify/require"
 )
 
 // The exact method list keeps Auth's public surface a deliberate choice:
 // adding an operation means adding it here.
 func TestAuthPublicSurface(t *testing.T) {
-	typ := reflect.TypeOf((*Auth)(nil))
+	typ := reflect.TypeOf((*authkit.Auth)(nil))
 	var names []string
 	for i := 0; i < typ.NumMethod(); i++ {
 		names = append(names, typ.Method(i).Name)

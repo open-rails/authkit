@@ -12,7 +12,7 @@ authkit
 
 **/.DS_Store
 .gstack/
-/testdata/node_modules/
+/internal/engine/testdata/node_modules/
 
 plans
 agents/audits

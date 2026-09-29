@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -138,4 +140,45 @@ func (a *Auth) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, li
 // permission; every use rechecks the group is live.
 func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, reference string) context.Context {
 	return authflow.WithResolvedGroup(ctx, instance, reference)
+}
+
+// GroupDirectory reads immutable group identities and current/active alias
+// names from an already migrated schema, without an Auth: it carries no
+// signer, issuer or session state.
+type GroupDirectory struct{ d *engine.GroupDirectory }
+
+// NewGroupDirectory creates a read-only view of an already migrated schema.
+// Empty schema selects the default profiles namespace. Construction does not
+// query, migrate, write or start workers. Hosts remain responsible for
+// authorizing any subsequent action.
+func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, error) {
+	d, err := engine.NewGroupDirectory(pool, schema)
+	if err != nil {
+		return nil, err
+	}
+	return &GroupDirectory{d: d}, nil
+}
+
+// Close releases the directory's schema-bound pool. The caller's pool passed
+// to NewGroupDirectory remains host-owned.
+func (g *GroupDirectory) Close() {
+	if g != nil {
+		g.d.Close()
+	}
+}
+
+func (g *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
+	return g.d.GroupInstanceForSlug(ctx, group)
+}
+
+func (g *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (iam.GroupInstance, error) {
+	return g.d.GroupInstanceByID(ctx, id)
+}
+
+// SearchGroupInstances returns canonical slugs containing query (case
+// insensitive, literal substring), ordered by (slug,id). Empty cursor starts
+// the search; later pages use the last row's slug/id. Limit defaults to 50
+// and is capped at 200.
+func (g *GroupDirectory) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
+	return g.d.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)
 }

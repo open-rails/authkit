@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -48,4 +50,20 @@ func (a *Auth) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, pe
 // resource server.
 func (a *Auth) ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	return a.engine.ClaimDPoPProof(ctx, key, ttl)
+}
+
+// MintServiceJWT signs a service JWT with an explicit signer and issuer, for
+// hosts that manage the signing key outside AuthKit. It defaults to a
+// 15-minute lifetime, stamps token_use=service and grants no host permission
+// by itself.
+func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWTMintOptions) (string, iam.ServiceJWTClaims, error) {
+	return engine.MintServiceJWT(ctx, signer, issuer, opts)
+}
+
+// MintRemoteApplicationAccessToken signs a remote application access token
+// with an explicit signer. Identity is the validated iss; authority is
+// stored and resolved at verification. A non-nil p.Permissions only narrows
+// that stored ceiling.
+func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.RemoteApplicationAccessParams) (string, error) {
+	return engine.MintRemoteApplicationAccessToken(ctx, signer, p)
 }

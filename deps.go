@@ -2,15 +2,12 @@ package authkit
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // Deps are the runtime dependencies New builds Auth with. Config carries
@@ -60,90 +57,77 @@ type Deps struct {
 	Clock func() time.Time
 }
 
-func (s *engine) applyDeps(d Deps) error {
-	if d.Postgres != nil {
-		pool, err := schemaPool(d.Postgres, s.dbSchema())
-		if err != nil {
-			return err
-		}
-		s.pg = pool
-		s.q = db.New(pool)
-		// Flows read and claim ephemeral state while holding a transaction's
-		// connection. A separate small pool keeps those single statements from
-		// waiting on connections held by the transactions waiting on them.
-		ephemeralPool, err := schemaPool(d.Postgres, s.dbSchema(), func(c *pgxpool.Config) {
-			c.MaxConns = max(2, c.MaxConns/4)
-			c.MinConns = 0
-			c.MaxConnIdleTime = time.Minute
-		})
-		if err != nil {
-			pool.Close()
-			return err
-		}
-		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
-	}
-	s.email = d.Email
-	s.sms = d.SMS
-	s.setEntitlements(d.Entitlements)
-	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
-	s.delegationAuthorizer = d.DelegatedAuthorization
-	s.appAdmission = d.ApplicationAdmission
-	s.instanceAdmission = d.InstanceAdmission
-	s.nameAdmission = d.NameAdmission
-	if d.SolanaSNSResolver != nil {
-		s.solanaSNSResolver = d.SolanaSNSResolver
-	}
-	s.appHTTPClient = d.OutboundHTTP
-	if d.Clock != nil {
-		s.now = d.Clock
-	}
-	return nil
+// RiverOwnership declares who initializes and runs River. Nil means AuthKit
+// owns its client. Use RiverFromHost for a fleet shared with other libraries.
+// Pass the same declaration to Deps and MigrateOptions.
+type RiverOwnership struct{ fromHost bool }
+
+// RiverFromHost selects a host-owned River fleet. AuthKit never migrates,
+// starts, or stops it. Pass RiverJobs() to riverhelpers.New to register AuthKit's
+// workers and schedules in the host fleet.
+func RiverFromHost() *RiverOwnership { return &RiverOwnership{fromHost: true} }
+
+// EmailSender sends verification/login/reset/notice emails.
+type EmailSender interface {
+	SendVerification(ctx context.Context, email, username string, msg iam.VerificationMessage) error
+	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
+	SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error
+	SendLoginCode(ctx context.Context, email, username, code string) error
+	SendWelcome(ctx context.Context, email, username string) error
+	// SendContactChanged goes to the address that was just REPLACED.
+	SendContactChanged(ctx context.Context, email, username string, change iam.ContactChange) error
+	// SendDeviceKeyEnrolled tells the account's address that a new device key
+	// can now sign in as it.
+	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice iam.DeviceKeyNotice) error
 }
 
-// schemaPool creates an AuthKit-owned pool whose every connection resolves
-// unqualified AuthKit SQL against schema, followed by public. The caller's
-// pool is never modified: hosts commonly share it with unrelated queries,
-// and changing its search_path would leak AuthKit's namespace into those
-// queries. The clone preserves the host pool's connection hooks, then applies
-// the AuthKit search_path after the host's AfterConnect hook has run.
-func schemaPool(source *pgxpool.Pool, schema string, tune ...func(*pgxpool.Config)) (*pgxpool.Pool, error) {
-	if source == nil {
-		return nil, nil
-	}
-	cfg := source.Config().Copy()
-	if cfg == nil || cfg.ConnConfig == nil {
-		return nil, fmt.Errorf("authkit: Postgres pool has no connection configuration")
-	}
-	for _, t := range tune {
-		t(cfg)
-	}
-	searchPath := pgx.Identifier{schema}.Sanitize() + ", public"
-	setSearchPath := func(cc *pgx.ConnConfig) {
-		if cc.RuntimeParams == nil {
-			cc.RuntimeParams = make(map[string]string)
-		}
-		cc.RuntimeParams["search_path"] = searchPath
-	}
-	setSearchPath(cfg.ConnConfig)
-	beforeConnect := cfg.BeforeConnect
-	cfg.BeforeConnect = func(ctx context.Context, cc *pgx.ConnConfig) error {
-		if beforeConnect != nil {
-			if err := beforeConnect(ctx, cc); err != nil {
-				return err
-			}
-		}
-		setSearchPath(cc)
-		return nil
-	}
-	afterConnect := cfg.AfterConnect
-	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if afterConnect != nil {
-			if err := afterConnect(ctx, conn); err != nil {
-				return err
-			}
-		}
-		_, err := conn.Exec(ctx, "SET search_path TO "+searchPath)
-		return err
-	}
-	return pgxpool.NewWithConfig(context.Background(), cfg)
+// SMSSender sends verification/login/reset/notice SMS messages.
+type SMSSender interface {
+	SendVerification(ctx context.Context, phone string, msg iam.VerificationMessage) error
+	SendPasswordResetLink(ctx context.Context, phone, resetURL string) error
+	SendLoginCode(ctx context.Context, phone, code string) error
+	// SendContactChanged goes to the number that was just REPLACED.
+	SendContactChanged(ctx context.Context, phone string, change iam.ContactChange) error
+}
+
+// SMSHealthChecker is an optional capability for SMS senders that can verify,
+// without sending a message, that they are configured to actually deliver
+// (valid credentials, an attached sender, and a verified/registered number).
+// CheckHealth returns nil when delivery is expected to succeed, or a
+// descriptive error explaining why it will not (e.g. an unverified toll-free
+// sender that would otherwise fail silently with Twilio error 30032).
+type SMSHealthChecker interface {
+	CheckHealth(ctx context.Context) error
+}
+
+// EntitlementsProvider returns the names of users' currently active
+// application entitlements (e.g., billing tiers). Names are the ONLY shape
+// AuthKit consumes. Token.EntitlementAllowlist selects which names may appear
+// in access tokens; admin user views receive the full result. Providers return
+// active grants only; expired/revoked entitlements are the provider's concern,
+// not AuthKit's.
+//
+// One call answers many users: the map is keyed by user id and unknown or
+// entitlement-less ids are absent. A single-user read is a one-element batch.
+type EntitlementsProvider interface {
+	ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error)
+}
+
+// EntitlementFilterProvider is the REVERSE of EntitlementsProvider: given an
+// entitlement key, it returns the subject ids that currently hold it. AuthKit
+// owns the user DIRECTORY; the billing system (OpenRails) owns "who is entitled",
+// so filtering the directory BY entitlement delegates here instead of joining
+// across schemas. Subject ids ARE user ids (UUID-only payable identity). Detected
+// by type assertion on the entitlements provider; when absent, AdminListUsers
+// with an Entitlement filter fails with ErrEntitlementFilterUnavailable so the
+// misconfiguration is loud rather than silently returning everyone.
+type EntitlementFilterProvider interface {
+	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
+}
+
+// SolanaSNSResolver resolves a wallet's primary SNS name after a verified link.
+// The default talks to the public sdk-proxy; Deps.SolanaSNSResolver replaces
+// it.
+type SolanaSNSResolver interface {
+	ResolvePrimaryName(ctx context.Context, address string) (string, error)
 }

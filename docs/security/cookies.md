@@ -18,7 +18,7 @@ state cookie variant AuthKit has ever issued (name, path, domain, `Secure`):
 
 **Changing a cookie** (name, path, domain, prefix): add the new shape as a new
 registry variant marked `Current`, keep the old one as historical, and append it
-to `testdata/cookie-registry.golden`. Never edit or remove a variant
+to `internal/engine/testdata/cookie-registry.golden`. Never edit or remove a variant
 or a golden line. `TestCookieRegistry` fails when the cookies AuthKit sets
 differ from the registry's current variants or the registry differs from the
 golden list; `TestSecurityRefreshCookieUpgrade` proves an earlier release's jar

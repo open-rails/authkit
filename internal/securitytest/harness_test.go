@@ -292,7 +292,7 @@ func (o *outbox) last(t *testing.T, pattern string) string {
 	return ""
 }
 
-func (o *outbox) SendVerification(_ context.Context, email, _ string, msg authkit.VerificationMessage) error {
+func (o *outbox) SendVerification(_ context.Context, email, _ string, msg iam.VerificationMessage) error {
 	return o.add("verification to=" + email + " code=" + msg.Code + " link=" + msg.LinkURL)
 }
 
@@ -319,11 +319,11 @@ func (o *outbox) SendLoginCode(_ context.Context, email, _, code string) error {
 
 func (o *outbox) SendWelcome(context.Context, string, string) error { return nil }
 
-func (o *outbox) SendContactChanged(context.Context, string, string, authkit.ContactChange) error {
+func (o *outbox) SendContactChanged(context.Context, string, string, iam.ContactChange) error {
 	return nil
 }
 
-func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, authkit.DeviceKeyNotice) error {
+func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, iam.DeviceKeyNotice) error {
 	return nil
 }
 

@@ -1,0 +1,122 @@
+package engine
+
+import (
+	"bytes"
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"os"
+	"path/filepath"
+	"runtime/pprof"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/puddle/v2"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/jwtkit"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCloseWithPendingAPIKeyTouch(t *testing.T) {
+	// A lazy pool needs no database connection. The touch starts only after
+	// shutdown, modeling a goroutine delayed until its request has finished.
+	pool, err := pgxpool.New(context.Background(), "postgres://unused:unused@localhost/unused?pool_min_conns=0")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	client := &Engine{pg: pool, q: db.New(pool)}
+	client.Close()
+	client.Close()
+
+	_, err = pool.Exec(context.Background(), "SELECT 1")
+	require.ErrorIs(t, err, puddle.ErrClosedPool, "Close must still release the owned pool")
+
+	const label = "authkit-pending-api-key-touch"
+	pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
+		client.touchAccessTokenAsync("00000000-0000-0000-0000-000000000001")
+	})
+	require.Eventually(t, func() bool {
+		var profile bytes.Buffer
+		require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
+		return !strings.Contains(profile.String(), `"`+label+`":"`+t.Name()+`"`)
+	}, time.Second, time.Millisecond, "pending touch must exit after pool shutdown")
+}
+
+func TestClientOwnedResourceLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	signer, err := jwtkit.NewRSASigner(2048, "lifecycle")
+	require.NoError(t, err)
+	data, err := json.Marshal(map[string]any{
+		"active_key_id": "lifecycle",
+		"active_private_key_pem": string(pem.EncodeToMemory(&pem.Block{
+			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signer.PrivateKey()),
+		})),
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "keys.json"), data, 0600))
+	config := Config{
+		Token:     TokenConfig{Issuer: "https://lifecycle.test", IssuedAudiences: []string{"test"}},
+		Keys:      KeysConfig{Path: dir},
+		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+	}
+
+	// Labels are inherited by the real resource goroutines started inside Do.
+	// This observes only this subtest's resources, never global goroutine counts.
+	label := "authkit-client-lifecycle"
+	resourceCount := func(t *testing.T) int {
+		t.Helper()
+		var profile bytes.Buffer
+		require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
+		return strings.Count(profile.String(), `"`+label+`":"`+t.Name()+`"`)
+	}
+	awaitClosed := func(t *testing.T) {
+		t.Helper()
+		require.Eventually(t, func() bool { return resourceCount(t) == 0 }, time.Second, time.Millisecond,
+			"client-owned background resources survived cleanup")
+	}
+
+	t.Run("close", func(t *testing.T) {
+		var client *Engine
+		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
+			client, err = newEngine(config, Deps{})
+		})
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+		require.Eventually(t, func() bool { return resourceCount(t) == 1 }, time.Second, time.Millisecond)
+		client.Close()
+		client.Close()
+		awaitClosed(t)
+	})
+
+	t.Run("config", func(t *testing.T) {
+		cfg := config
+		cfg.Schema = "invalid schema"
+		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
+			client, err := newEngine(cfg, Deps{})
+			require.Error(t, err)
+			require.Nil(t, client)
+		})
+		awaitClosed(t)
+	})
+
+	t.Run("borrowed", func(t *testing.T) {
+		keys, err := jwtkit.NewFileKeySource(dir, time.Millisecond, nil)
+		require.NoError(t, err)
+		t.Cleanup(keys.Close)
+		cfg := config
+		cfg.Keys.Source = keys
+		client, err := newEngine(cfg, Deps{})
+		require.NoError(t, err)
+		client.Close()
+
+		// A borrowed key source keeps reloading after Close.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "keys.json"),
+			bytes.ReplaceAll(data, []byte(`"lifecycle"`), []byte(`"rotated"`)), 0600))
+		future := time.Now().Add(time.Second)
+		require.NoError(t, os.Chtimes(filepath.Join(dir, "keys.json"), future, future))
+		require.Eventually(t, func() bool { return keys.ActiveSigner().KID() == "rotated" }, time.Second, time.Millisecond)
+	})
+}
