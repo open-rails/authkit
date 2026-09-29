@@ -9,20 +9,21 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	var body struct {
 		Username string `json:"username"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Username) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 
@@ -30,10 +31,10 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, iam.ErrRenameRateLimited) {
 			state, stateErr := s.svc.UserNamingState(r.Context(), claims.UserID)
 			if stateErr != nil {
-				serverErr(w, iam.CodeDatabaseError, stateErr)
+				serverErr(w, "database_error", stateErr)
 				return
 			}
-			sendErrData(w, http.StatusTooManyRequests, iam.CodeRenameRateLimited, map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(s.svc.NamingPolicy().RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": authflow.ActionUpdateUsername})
+			fail(w, errmodel.CodeRenameRateLimited, errmodel.WithMetadata(map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(s.svc.NamingPolicy().RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": authflow.ActionUpdateUsername}))
 			return
 		}
 		writeError(w, err)
@@ -41,12 +42,12 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 	state, err := s.svc.UserNamingState(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, iam.CodeDatabaseError, err)
+		serverErr(w, "database_error", err)
 		return
 	}
 	users, err := s.svc.PublicUsersByIDs(r.Context(), []string{claims.UserID})
 	if err != nil {
-		serverErr(w, iam.CodeDatabaseError, err)
+		serverErr(w, "database_error", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"username": users[claims.UserID].Username, "naming": state})
@@ -55,7 +56,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	var body struct {
@@ -63,7 +64,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		Language          string `json:"language"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	language := strings.TrimSpace(body.PreferredLanguage)
@@ -71,25 +72,25 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		language = strings.TrimSpace(body.Language)
 	}
 	if language == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	normalized, err := authflow.NormalizePreferredLanguage(language)
 	if err != nil || !s.supportsLanguage(normalized) {
-		badRequest(w, iam.CodeInvalidPreferredLanguage)
+		fail(w, errmodel.CodeInvalidPreferredLanguage)
 		return
 	}
 	if err := s.svc.SetPreferredLanguage(r.Context(), claims.UserID, normalized); err != nil {
 		if strings.Contains(err.Error(), "invalid_preferred_language") {
-			badRequest(w, iam.CodeInvalidPreferredLanguage)
+			fail(w, errmodel.CodeInvalidPreferredLanguage)
 			return
 		}
-		badRequest(w, iam.CodeFailedToUpdatePreferredLanguage)
+		fail(w, errmodel.CodeFailedToUpdatePreferredLanguage)
 		return
 	}
 	preferred, err := s.svc.GetPreferredLanguage(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, iam.CodePreferredLanguageLookupFailed, err)
+		serverErr(w, "preferred_language_lookup_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": preferred.Language})
@@ -108,21 +109,21 @@ func (s *Service) supportsLanguage(language string) bool {
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	var body struct {
 		Password string `json:"password"`
 	}
 	if err := decodeOptionalJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
 		return
 	}
 	if err := s.svc.SoftDeleteUser(r.Context(), claims.UserID); err != nil {
-		serverErr(w, iam.CodeFailedToDelete, err)
+		serverErr(w, "failed_to_delete", err)
 		return
 	}
 	noContent(w)
@@ -131,14 +132,14 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	var body struct {
 		Password string `json:"password"`
 	}
 	if err := decodeOptionalJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
@@ -146,16 +147,16 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 	}
 	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
 	if provider == "" {
-		badRequest(w, iam.CodeInvalidProvider)
+		fail(w, errmodel.CodeInvalidProvider)
 		return
 	}
 	removed, err := s.svc.UnlinkProviderUnlessLast(r.Context(), claims.UserID, provider)
 	if err != nil {
-		serverErr(w, iam.CodeFailedToUnlink, err)
+		serverErr(w, "failed_to_unlink", err)
 		return
 	}
 	if !removed {
-		badRequest(w, iam.CodeCannotUnlinkLastLoginMethod)
+		fail(w, errmodel.CodeCannotUnlinkLastLoginMethod)
 		return
 	}
 	noContent(w)

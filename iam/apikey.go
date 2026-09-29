@@ -2,17 +2,19 @@ package iam
 
 import (
 	"strings"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 var (
 	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
 	// secret, or whose owning permission group is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
-	ErrInvalidAccessToken = E(CodeInvalidToken)
+	ErrInvalidAccessToken Error = errmodel.E(errmodel.CodeInvalidToken)
 	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.
-	ErrAccessTokenRevoked = E(CodeAccessTokenRevoked)
+	ErrAccessTokenRevoked Error = errmodel.E(errmodel.CodeAccessTokenRevoked)
 	// ErrAccessTokenExpired indicates the API key is past its expires_at.
-	ErrAccessTokenExpired = E(CodeAccessTokenExpired)
+	ErrAccessTokenExpired Error = errmodel.E(errmodel.CodeAccessTokenExpired)
 )
 
 // apiKeyTypeSegment is the FIXED, non-configurable type tag. The full marker is

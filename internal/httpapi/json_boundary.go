@@ -4,7 +4,7 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // guardJSONAPI runs before credentials, authorization or rate-limit budgets are
@@ -16,12 +16,12 @@ func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 		if r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody {
 			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mediaType != "application/json" {
-				badRequest(w, iam.CodeInvalidRequest)
+				fail(w, errmodel.CodeInvalidRequest)
 				return
 			}
 		}
 		if _, cookies := refreshCookieEnabled(r); cookies && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions && !s.cookieOriginAllowed(r) {
-			badRequest(w, iam.CodeInvalidRequest)
+			fail(w, errmodel.CodeInvalidRequest)
 			return
 		}
 		next.ServeHTTP(w, r)

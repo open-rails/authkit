@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// too — blocked: the admin doesn't even cover the role's EXISTING grant.
 	w = drive(s, t, defineGR, "m-escalate", boundedAdmin, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(iam.CodeForbidden))
+	require.Contains(t, w.Body.String(), string(errmodel.CodeForbidden))
 
 	// The role is UNCHANGED: assigning it and checking effective perms shows
 	// only billing:read, never billing:write.

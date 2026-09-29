@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -55,7 +56,7 @@ func (s *Engine) remoteApplicationRoles(ctx context.Context, appID string) ([]st
 		}
 	}
 	if len(roles) == 0 {
-		return nil, iam.ErrNotGroupMember
+		return nil, errmodel.ErrNotGroupMember
 	}
 	return roles, nil
 }

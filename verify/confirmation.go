@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -20,17 +20,17 @@ var (
 	// ErrSenderProofRequired rejects a certificate-bound token presented
 	// without its certificate: no TLS peer, a different leaf, or a token-only
 	// verification detached from its request.
-	ErrSenderProofRequired = iam.E(iam.CodeSenderProofRequired)
+	ErrSenderProofRequired = errmodel.E(errmodel.CodeSenderProofRequired)
 	errDPoPProofRequired   = fmt.Errorf("DPoP: %w", ErrSenderProofRequired)
 	// ErrSenderProofUnavailable reports that the DPoP replay store failed: the
 	// request is refused, not proven invalid.
 	ErrSenderProofUnavailable = errors.New("sender proof replay protection unavailable")
 	// ErrInvalidConfirmation rejects a `cnf` claim that is not exactly
 	// {"x5t#S256": <unpadded base64url sha256>} or {"jkt": <same format>}.
-	ErrInvalidConfirmation = iam.E(iam.CodeInvalidConfirmation)
+	ErrInvalidConfirmation = errmodel.E(errmodel.CodeInvalidConfirmation)
 	// ErrConfirmationWrongTokenType rejects `cnf` on any token type AuthKit does
 	// not bind — accepting an unenforced binding would be a silent downgrade.
-	ErrConfirmationWrongTokenType = iam.E(iam.CodeConfirmationWrongTokenType)
+	ErrConfirmationWrongTokenType = errmodel.E(errmodel.CodeConfirmationWrongTokenType)
 )
 
 // confirmationClaim parses the strict `cnf` claim into the bound thumbprint.

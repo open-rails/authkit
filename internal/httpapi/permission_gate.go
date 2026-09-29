@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -29,7 +30,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
-			unauthorized(w, iam.CodeNotAuthenticated)
+			fail(w, errmodel.CodeNotAuthenticated)
 			return
 		}
 		group, err := s.svc.GroupInstanceForSlug(r.Context(), group)
@@ -47,7 +48,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 		case strings.TrimSpace(claims.UserID) != "":
 			allowed, err := s.svc.CanOnGroup(r.Context(), iam.UserSubject(claims.UserID), group.ID, perm)
 			if err != nil {
-				serverErr(w, iam.CodeDatabaseError, err)
+				serverErr(w, "database_error", err)
 				return
 			}
 			if allowed {
@@ -57,6 +58,6 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 				return
 			}
 		}
-		forbidden(w, iam.CodeForbidden)
+		fail(w, errmodel.CodeForbidden)
 	})
 }

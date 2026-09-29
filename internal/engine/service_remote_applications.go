@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
@@ -319,7 +320,7 @@ func (s *Engine) evictSessionBoundIssuer(ctx context.Context, st *permissionGrou
 	}
 	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(holder.ID)); err != nil {
 		if errors.Is(err, iam.ErrCannotRemoveLastAdminRole) {
-			return iam.ErrApplicationIssuerConflict
+			return errmodel.ErrApplicationIssuerConflict
 		}
 		return err
 	}

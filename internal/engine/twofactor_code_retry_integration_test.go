@@ -158,14 +158,14 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	f.expect(202, enroll(""))
 	code := f.email.verificationCode(t)
 	for range 4 {
-		require.Equal(t, "invalid_code", errCode(400, enroll(wrongCode(code))))
+		require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
 	}
-	require.Equal(t, "2fa_code_expired", errCode(400, enroll(wrongCode(code))))
-	require.Equal(t, "2fa_code_expired", errCode(400, enroll(code)))
-	require.Equal(t, "2fa_code_expired", errCode(400, enroll(wrongCode(code))))
+	require.Equal(t, "2fa_code_expired", errCode(401, enroll(wrongCode(code))))
+	require.Equal(t, "2fa_code_expired", errCode(401, enroll(code)))
+	require.Equal(t, "2fa_code_expired", errCode(401, enroll(wrongCode(code))))
 	f.expect(202, enroll(""))
 	code = f.email.verificationCode(t)
-	require.Equal(t, "invalid_code", errCode(400, enroll(wrongCode(code))))
+	require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
 	f.expect(200, enroll(code))
 
 	// Login continuation.

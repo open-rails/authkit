@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // OperatorRestoreUsers restores accounts under explicit trusted host authority.
@@ -62,27 +63,27 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 	}
 	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.E(iam.CodeUserNotFound)
+		return errmodel.E(errmodel.CodeUserNotFound)
 	}
 	if err != nil {
 		return err
 	}
 	if user.DeletedAt == nil {
 		if generation != "" {
-			return iam.E(iam.CodeAccountRecoveryExpired)
+			return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 		}
 		return nil
 	}
 	var id string
 	err = tx.QueryRow(ctx, "SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state IN ('deleted','finalizing')", userID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.E(iam.CodeAccountRecoveryExpired)
+		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
 		return err
 	}
 	if generation != "" && generation != id {
-		return iam.E(iam.CodeAccountRecoveryExpired)
+		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	record, err := loadAccountDeletion(ctx, tx, id)
 	if err != nil {
@@ -93,7 +94,7 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 		return err
 	}
 	if record.state != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
-		return iam.E(iam.CodeAccountRecoveryExpired)
+		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	// Clearing deleted_at uses the same credential-version invalidation trigger
 	// as deletion; no proof from the deleted state becomes a normal login proof.

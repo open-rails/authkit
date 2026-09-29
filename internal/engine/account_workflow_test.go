@@ -261,7 +261,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					f.expect(200, f.post("/password/login", map[string]any{"identifier": identifier, "password": "Correct-horse-battery-1"}))
 					f.expect(200, f.post("/password/login", map[string]any{"identifier": body["username"], "password": "Correct-horse-battery-1"}))
 					taken := f.expect(400, f.post("/register", body))
-					require.Equal(t, "owner_slug_taken", taken.Error.Code)
+					require.Equal(t, "username_in_use", taken.Error.Code)
 				}
 			})
 		}

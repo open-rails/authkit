@@ -37,7 +37,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 					f.expect(202, start)
 				}
 				body["code"] = "not-a-code"
-				invalid := f.expect(400, f.request("POST", "/user/2fa", session, body))
+				invalid := f.expect(401, f.request("POST", "/user/2fa", session, body))
 				require.Equal(t, "invalid_code", invalid.Error.Code)
 				proof := func() {
 					if method == "totp" {

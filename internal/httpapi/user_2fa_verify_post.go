@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +19,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 
@@ -27,7 +27,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	code := strings.TrimSpace(req.Code)
 	challenge := strings.TrimSpace(req.Challenge)
 	if userID == "" || code == "" || challenge == "" {
-		badRequest(w, iam.CodeMissingFields)
+		fail(w, errmodel.CodeMissingFields)
 		return
 	}
 
@@ -41,7 +41,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	out, err := s.svc.CompleteLoginChallenge(r.Context(), authflow.LoginChallengeInput{UserID: userID, Challenge: challenge, FactorID: strings.TrimSpace(req.FactorID), Code: code, BackupCode: req.BackupCode, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
 		logLoginFailed(s, r, userID, "invalid_challenge_or_code")
-		unauthorized(w, codeRejection(err))
+		fail(w, codeRejection(err))
 		return
 	}
 	if s.writeLoginContinuation(w, r, out, nil) {
@@ -57,14 +57,14 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 		FactorID  string `json:"factor_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	userID := strings.TrimSpace(req.UserID)
 	challenge := strings.TrimSpace(req.Challenge)
 	factorID := strings.TrimSpace(req.FactorID)
 	if userID == "" || challenge == "" || factorID == "" {
-		badRequest(w, iam.CodeMissingFields)
+		fail(w, errmodel.CodeMissingFields)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, loginProofKey(userID, challenge)) {
@@ -72,10 +72,10 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 	}
 	out, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
 	if err != nil {
-		unauthorized(w, iam.CodeInvalidChallenge)
+		fail(w, errmodel.CodeInvalidChallenge)
 		return
 	}
-	sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, loginChallengeMetadata(userID, out))
+	fail(w, errmodel.CodeTwoFARequired, errmodel.WithMetadata(loginChallengeMetadata(userID, out)))
 }
 
 func loginProofKey(userID, challenge string) string {

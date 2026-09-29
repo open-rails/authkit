@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -19,7 +20,7 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 		return "", err
 	}
 	if !allowed {
-		return "", iam.ErrRegistrationDisabled
+		return "", errmodel.ErrRegistrationDisabled
 	}
 	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {
@@ -97,7 +98,7 @@ func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 		return "", err
 	}
 	if !allowed {
-		return "", iam.ErrRegistrationDisabled
+		return "", errmodel.ErrRegistrationDisabled
 	}
 	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {

@@ -12,9 +12,10 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-var errTwoFARequired = iam.E(iam.CodeTwoFARequired)
+var errTwoFARequired = errmodel.E(errmodel.CodeTwoFARequired)
 
 func (s *Engine) mfaStatus(ctx context.Context, userID string) (authflow.MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)

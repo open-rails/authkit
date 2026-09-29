@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,13 +96,13 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	provider.mode.Store("hang")
 	code, errCode, took := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 	require.Less(t, took, 2*time.Second)
 	provider.mode.Store("reset")
 	for range 5 {
 		code, errCode, took = call(peerToken)
 		require.Equal(t, http.StatusServiceUnavailable, code)
-		require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
+		require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 		require.Less(t, took, 200*time.Millisecond)
 	}
 	code, _, _ = call(localToken)
@@ -201,7 +202,7 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	offset.Store(int64(61 * time.Minute)) // past MaxStale
 	code, errCode := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 	code, _ = call(localToken)
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, status().Expired)

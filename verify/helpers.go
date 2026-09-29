@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
@@ -18,12 +19,10 @@ const DefaultOutboundTimeout = netguard.DefaultTimeout
 // services. WithSSRFGuard installs it on a Verifier.
 func NewSSRFGuardedClient() *http.Client { return netguard.Client(netguard.DefaultTimeout, false) }
 
-// forbidden writes a 403 with the given code through the one authkit writer,
-// so responses are byte-identical whether a route is mounted through AuthKit's handler
-// or the verify package directly.
-func forbidden(w http.ResponseWriter, code iam.Code) {
-	iam.WriteError(w, iam.E(code, iam.WithStatus(http.StatusForbidden)))
-}
+// fail writes code through the one AuthKit writer, so responses are
+// byte-identical whether a route is mounted through AuthKit's handler or the
+// verify package directly.
+func fail(w http.ResponseWriter, code errmodel.Code) { iam.WriteError(w, errmodel.E(code)) }
 
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS
 // fetches (the WithHTTPClient override, or the default timeout-bounded client).

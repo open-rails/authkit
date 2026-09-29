@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
@@ -49,7 +49,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			var state string
 			require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT state FROM profiles.account_deletions WHERE id=$1::uuid", generation).Scan(&state))
 			if expired {
-				require.ErrorIs(t, restoreErr, iam.E(iam.CodeAccountRecoveryExpired))
+				require.ErrorIs(t, restoreErr, errmodel.E(errmodel.CodeAccountRecoveryExpired))
 				require.NoError(t, finalizeErr)
 				require.Equal(t, "finalizing", state)
 			} else {

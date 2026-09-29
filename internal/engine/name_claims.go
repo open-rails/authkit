@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func (s *Engine) namingNow() time.Time {
@@ -74,7 +75,7 @@ func (s *Engine) admitName(ctx context.Context, request iam.NameAdmissionRequest
 		return nil
 	}
 	if err := s.nameAdmission(ctx, request); err != nil {
-		return fmt.Errorf("%w: %w", iam.ErrNameAdmissionRefused, err)
+		return fmt.Errorf("%w: %w", errmodel.ErrNameAdmissionRefused, err)
 	}
 	return nil
 }

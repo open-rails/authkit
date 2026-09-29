@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -28,7 +29,7 @@ func (s *Engine) mayCreateInstance(ctx context.Context, group iam.GroupRef, subj
 		return nil
 	}
 	if err := s.instanceAdmission(ctx, group, subject); err != nil {
-		return fmt.Errorf("%w: %w", iam.ErrGroupCreationRefused, err)
+		return fmt.Errorf("%w: %w", errmodel.ErrGroupCreationRefused, err)
 	}
 	return nil
 }

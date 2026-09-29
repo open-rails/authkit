@@ -14,8 +14,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // BeginTwoFactorEnrollment decides the enrollment scope for a caller. An
@@ -31,7 +31,7 @@ func (s *Engine) BeginTwoFactorEnrollment(ctx context.Context, userID string, en
 	if enrollmentToken {
 		scope.Mode = authflow.FirstFactorOnly
 		if sessionID != "" || scope.HasFactors {
-			return scope, iam.ErrTwoFAFactorExists
+			return scope, errmodel.ErrTwoFAFactorExists
 		}
 	}
 	return scope, nil
@@ -58,12 +58,12 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 	factorID := strings.TrimSpace(in.FactorID)
 	if method == "" && in.MakeDefault && factorID != "" {
 		if err := s.setDefault2FAFactor(ctx, in.UserID, factorID); err != nil {
-			return authflow.TwoFactorEnrollOutcome{}, stageErr("set_default_factor", fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
+			return authflow.TwoFactorEnrollOutcome{}, stageErr("set_default_factor", fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
 		}
 		return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollDefaultSet}, nil
 	}
 	if method != "email" && method != "sms" && method != "totp" || !s.twoFactorMethodAvailable(method) {
-		return authflow.TwoFactorEnrollOutcome{}, iam.ErrInvalidTwoFAMethod
+		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrInvalidTwoFAMethod
 	}
 	code := strings.TrimSpace(in.Code)
 	sessionID := ""
@@ -75,10 +75,10 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 	case "email":
 		if code == "" {
 			if err := s.sendEmail2FASetupCode(ctx, in.UserID); err != nil {
-				if errors.Is(err, iam.ErrInvalidTwoFAMethod) {
+				if errors.Is(err, errmodel.ErrInvalidTwoFAMethod) {
 					return authflow.TwoFactorEnrollOutcome{}, err
 				}
-				return authflow.TwoFactorEnrollOutcome{}, stageErr("send_email_2fa_setup", fmt.Errorf("%w: %w", iam.ErrTwoFASetupCodeSendFailed, err))
+				return authflow.TwoFactorEnrollOutcome{}, stageErr("send_email_2fa_setup", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 			}
 			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: method}, nil
 		}
@@ -87,15 +87,15 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("verify_email_setup", err)
 		}
 		if !valid {
-			return authflow.TwoFactorEnrollOutcome{}, iam.ErrInvalidCode
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrInvalidCode
 		}
 	case "sms":
 		p := strings.TrimSpace(in.PhoneNumber)
 		if p == "" {
-			return authflow.TwoFactorEnrollOutcome{}, iam.ErrPhoneNumberRequired
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrPhoneNumberRequired
 		}
 		if !strings.HasPrefix(p, "+") {
-			return authflow.TwoFactorEnrollOutcome{}, iam.ErrPhoneNumberMustBeE164
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrPhoneNumberMustBeE164
 		}
 		if code == "" {
 			return s.startPhoneTwoFactorSetup(ctx, in.UserID, p)
@@ -105,14 +105,14 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("verify_sms_setup", err)
 		}
 		if !valid {
-			return authflow.TwoFactorEnrollOutcome{}, iam.ErrInvalidCode
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrInvalidCode
 		}
 		phone = &p
 	case "totp":
 		if code == "" {
 			secret, uri, err := s.startTOTPEnrollment(ctx, in.UserID)
 			if err != nil {
-				return authflow.TwoFactorEnrollOutcome{}, stageErr("start_totp", fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
+				return authflow.TwoFactorEnrollOutcome{}, stageErr("start_totp", fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
 			}
 			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollTOTPStarted, Method: method, Secret: secret, OTPAuthURI: uri}, nil
 		}
@@ -126,10 +126,10 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		UserID: in.UserID, Method: method, Phone: phone, MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: sessionID,
 	})
 	if err != nil {
-		if errors.Is(err, iam.ErrTwoFAFactorExists) {
+		if errors.Is(err, errmodel.ErrTwoFAFactorExists) {
 			return authflow.TwoFactorEnrollOutcome{}, err
 		}
-		return authflow.TwoFactorEnrollOutcome{}, stageErr("enable_factor", fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
+		return authflow.TwoFactorEnrollOutcome{}, stageErr("enable_factor", fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
 	}
 	return s.completeFactorEnrollment(ctx, in, authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
 }
@@ -138,15 +138,15 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 // is gated up front so an undeliverable sender fails fast.
 func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone string) (authflow.TwoFactorEnrollOutcome, error) {
 	if !s.SMSAvailable() {
-		return authflow.TwoFactorEnrollOutcome{}, iam.ErrPhoneTwoFAUnavailable
+		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrPhoneTwoFAUnavailable
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(900000))
 	if err != nil {
-		return authflow.TwoFactorEnrollOutcome{}, stageErr("generate_code", fmt.Errorf("%w: %w", iam.ErrTwoFASetupCodeSendFailed, err))
+		return authflow.TwoFactorEnrollOutcome{}, stageErr("generate_code", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 	}
 	code := fmt.Sprintf("%06d", 100000+int(n.Int64()))
 	if err := s.sendPhone2FASetupCode(ctx, userID, phone, code); err != nil {
-		return authflow.TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", iam.ErrTwoFASetupCodeSendFailed, err))
+		return authflow.TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 	}
 	return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: "sms"}, nil
 }
@@ -155,10 +155,10 @@ func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone str
 // retain their cause so the transport reports and logs an operational failure.
 func enrollmentProofError(stage string, err error) error {
 	if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
-		return iam.ErrInvalidCode
+		return errmodel.ErrInvalidCode
 	}
-	if known := iam.AsError(err); known != nil && known.Status < 500 {
+	if known := errmodel.As(err); known != nil && known.Status() < 500 {
 		return err
 	}
-	return stageErr(stage, fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
+	return stageErr(stage, fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
 }

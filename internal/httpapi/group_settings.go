@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // customRoleRequest is the body for defining a per-group custom role.
@@ -31,7 +32,7 @@ type customRoleRequest struct {
 func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body customRoleRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actorID, ok := userActorID(w, actor)
@@ -57,7 +58,7 @@ func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, 
 // same actor-authz as define.
 func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, role iam.Role) {
 	if role == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actorID, ok := userActorID(w, actor)
@@ -110,7 +111,7 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.
 		DisplayName *string `json:"display_name"`
 	}
 	if err := decodeJSON(r, &req); err != nil || (req.Slug == nil && req.DisplayName == nil) {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actorID, ok := userActorID(w, actor)
@@ -125,7 +126,7 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.
 		}
 	}
 	if req.DisplayName != nil && len(*req.DisplayName) > 256 {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	inst, err := s.svc.GroupInstanceForSlug(r.Context(), group)

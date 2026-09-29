@@ -5,11 +5,13 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // ErrDelegationRefused is returned (or wrapped) by a DelegationAuthorizer to
 // refuse a mint as a policy decision; any other error is an authorizer outage.
-var ErrDelegationRefused = E(CodeDelegationRefused)
+var ErrDelegationRefused Error = errmodel.E(errmodel.CodeDelegationRefused)
 
 // DelegationRequest is what POST /delegated/token asks the host to authorize
 // (ak#277). Audiences and TTL are already clamped; the certificate or DPoP

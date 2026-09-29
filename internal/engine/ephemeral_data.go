@@ -6,8 +6,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -364,14 +364,14 @@ func (s *Engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 		return false, err
 	}
 	if !ok {
-		return false, iam.ErrTwoFACodeExpired
+		return false, errmodel.ErrTwoFACodeExpired
 	}
 	match := secret.Equal(data.CodeHash, codeHash) &&
 		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
 	if !match {
 		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {
 			_, _ = s.ephemeral.CompareAndConsume(ctx, key, raw)
-			return false, iam.ErrTwoFACodeExpired
+			return false, errmodel.ErrTwoFACodeExpired
 		}
 		return false, nil
 	}
@@ -380,7 +380,7 @@ func (s *Engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 		return false, err
 	}
 	if !claimed {
-		return false, iam.ErrTwoFACodeExpired
+		return false, errmodel.ErrTwoFACodeExpired
 	}
 	_ = s.ephemDel(ctx, keyTwoFactorCodeAttempts+key)
 	return true, nil

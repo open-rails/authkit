@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -37,17 +37,17 @@ func validatePassword(p password.Policy, value string, identifiers ...string) er
 	case err == nil:
 		return nil
 	case errors.As(err, &unmet):
-		return iam.E(iam.CodePasswordRequirementsUnmet, iam.WithMeta("missing", unmet.Missing))
+		return errmodel.E(errmodel.CodePasswordRequirementsUnmet, errmodel.WithMeta("missing", unmet.Missing))
 	case errors.Is(err, password.ErrTooCommon):
-		return iam.E(iam.CodePasswordTooCommon)
+		return errmodel.E(errmodel.CodePasswordTooCommon)
 	case errors.Is(err, password.ErrContainsIdentifier):
-		return iam.E(iam.CodePasswordContainsIdentifier)
+		return errmodel.E(errmodel.CodePasswordContainsIdentifier)
 	}
-	code := iam.CodePasswordTooShort
+	code := errmodel.CodePasswordTooShort
 	if errors.Is(err, password.ErrTooLong) {
-		code = iam.CodePasswordTooLong
+		code = errmodel.CodePasswordTooLong
 	}
-	return iam.E(code, iam.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
+	return errmodel.E(code, errmodel.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
 }
 
 // passwordIdentifiers loads the account identifiers a new password may not contain.
@@ -86,7 +86,7 @@ func (s *Engine) validateUsernameForUser(ctx context.Context, username, userID s
 		return "", "", err
 	}
 	if existing != nil && strings.TrimSpace(existing.ID) != strings.TrimSpace(userID) {
-		return "", "", iam.E(iam.CodeOwnerSlugTaken)
+		return "", "", errmodel.E(errmodel.CodeUsernameInUse)
 	}
 	return slug, "", nil
 }

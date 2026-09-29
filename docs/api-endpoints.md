@@ -23,10 +23,10 @@ shadows (`"GET /api/v1/me"`) — never a duplicated allowlist. Browser OIDC logi
 
 AuthKit is opinionated about identity validation. Host apps should not
 reimplement or customize username, password, email, or phone validation rules.
-AuthKit returns stable error codes — the `authkit.Code` catalog, enumerated by
-`authkit.Codes()` — such as `username_too_short`,
+AuthKit returns stable error codes — listed with their HTTP statuses in
+`sdk/auth-ui/src/client/generated/error-codes.ts` — such as `username_too_short`,
 `username_must_start_with_letter`, `username_invalid_characters`,
-`owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
+`username_in_use`, `username_not_allowed`, `rename_rate_limited`,
 `invalid_email`, `invalid_phone_number`, `password_too_short`, `password_too_long`,
 `password_requirements_unmet`, `password_contains_identifier` and `password_too_common`.
 Password and username policies are host-configured and published in

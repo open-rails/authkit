@@ -15,8 +15,7 @@ const CLASSES = [
 function passwordIssue(policy: PasswordPolicy | undefined, value: string) {
   const min = policy?.min_length ?? PASSWORD_MIN
   if (value.length < min) return "password_too_short"
-  if (policy?.max_length && value.length > policy.max_length)
-    return "password_too_long"
+  if (policy && value.length > policy.max_length) return "password_too_long"
   if (CLASSES.some(([key, re]) => policy?.[key] && !re.test(value)))
     return "password_requirements_unmet"
   return null

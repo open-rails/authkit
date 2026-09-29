@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // LivenessSource resolves account liveness — and the identity fields that are
@@ -103,9 +104,9 @@ func (v *Verifier) VerifyRequestLive(r *http.Request) (Claims, error) {
 	case errors.Is(err, ErrLivenessUnconfigured):
 		return Claims{}, err
 	case err != nil:
-		return Claims{}, iam.E(iam.CodeLivenessUnavailable, iam.WithStatus(http.StatusUnauthorized))
+		return Claims{}, errmodel.E(errmodel.CodeLivenessUnavailable)
 	case !live:
-		return Claims{}, iam.E(iam.CodeAccountDisabled, iam.WithStatus(http.StatusUnauthorized))
+		return Claims{}, errmodel.E(errmodel.CodeAccountDisabled)
 	}
 	// Machine and delegated principals carry no UserID and no user row; there is
 	// nothing fresh to write onto their claims.

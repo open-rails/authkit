@@ -7,17 +7,17 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // unauthorizedError is the 401 an out-of-band verification failure becomes:
-// an *iam.Error keeps its own code and status; anything else is
-// invalid_token. VerifyRequest returns it and both Required (which writes it)
+// an AuthKit error keeps its own code; anything else is invalid_token. VerifyRequest returns it and both Required (which writes it)
 // and out-of-band callers (which inspect err != nil) share one pipeline.
 func unauthorizedError(err error) error {
-	if e := iam.AsError(err); e != nil {
+	if errmodel.As(err) != nil {
 		return err
 	}
-	return iam.E(iam.CodeInvalidToken, iam.WithCause(err))
+	return errmodel.E(errmodel.CodeInvalidToken, errmodel.WithCause(err))
 }
 
 // VerifyRequest runs the full Required authentication pipeline — bearer parse,
@@ -37,7 +37,7 @@ func unauthorizedError(err error) error {
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := requestToken(r)
 	if tokenStr == "" {
-		return Claims{}, iam.E(iam.CodeMissingToken, iam.WithStatus(http.StatusUnauthorized))
+		return Claims{}, errmodel.E(errmodel.CodeMissingToken)
 	}
 
 	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is
@@ -58,7 +58,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 		return Claims{}, unauthorizedError(err)
 	}
 	if cl.TwoFAEnrollment && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, iam.E(iam.CodeForbidden, iam.WithStatus(http.StatusForbidden))
+		return Claims{}, errmodel.E(errmodel.CodeForbidden)
 	}
 	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
 	// native user whose token shows they are not yet enrolled (mfa_enrolled absent)
@@ -67,7 +67,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
 	// principals can't enroll TOTP and bypass (note d).
 	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, iam.E(iam.CodeTwoFAEnrollmentRequired, iam.WithStatus(http.StatusForbidden))
+		return Claims{}, errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
 	}
 
 	return cl, nil

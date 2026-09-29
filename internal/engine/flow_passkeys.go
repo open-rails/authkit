@@ -16,9 +16,9 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 const passkeyCeremonyTTL = 10 * time.Minute
@@ -198,7 +198,7 @@ func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, respo
 		return nil, err
 	}
 	if data.Purpose != passkeyPurposeRegister || userID == "" || data.UserID != userID {
-		return nil, iam.ErrPasskeyNotFound
+		return nil, errmodel.ErrPasskeyNotFound
 	}
 	u, err := s.passkeyUser(ctx, userID, true)
 	if err != nil {
@@ -217,7 +217,7 @@ func (s *Engine) createCredential(u passkeyUser, session webauthn.SessionData, p
 		return nil, err
 	}
 	if !cred.Flags.UserVerified {
-		return nil, iam.ErrPasskeyUserVerificationRequired
+		return nil, errmodel.ErrPasskeyUserVerificationRequired
 	}
 	return cred, nil
 }
@@ -282,10 +282,10 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 	// cred.Flags.UserVerified is the latched uvInitialized record, not this
 	// assertion's flag; the requirement is per ceremony.
 	if !parsed.Response.AuthenticatorData.Flags.UserVerified() {
-		return verifiedPasskey{}, iam.ErrPasskeyUserVerificationRequired
+		return verifiedPasskey{}, errmodel.ErrPasskeyUserVerificationRequired
 	}
 	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {
-		return verifiedPasskey{}, iam.ErrPasskeyCloneDetected
+		return verifiedPasskey{}, errmodel.ErrPasskeyCloneDetected
 	}
 	id, err := s.updatePasskeyAfterUse(ctx, user.id, cred)
 	if err != nil {
@@ -330,7 +330,7 @@ func (s *Engine) RenamePasskey(ctx context.Context, userID, id, label string) er
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return iam.ErrPasskeyNotFound
+		return errmodel.ErrPasskeyNotFound
 	}
 	return nil
 }
@@ -341,7 +341,7 @@ func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return iam.ErrPasskeyNotFound
+		return errmodel.ErrPasskeyNotFound
 	}
 	return nil
 }
@@ -510,7 +510,7 @@ SET sign_count=$1, clone_warning=$2, flags=$3, last_used_at=NOW()
 WHERE user_id=$4 AND rpid=$5 AND credential_id=$6 AND deleted_at IS NULL RETURNING id`,
 		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", iam.ErrPasskeyNotFound
+		return "", errmodel.ErrPasskeyNotFound
 	}
 	return id, err
 }

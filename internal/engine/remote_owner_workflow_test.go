@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -131,5 +132,5 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(iam.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(errmodel.CodeCannotRemoveLastOwner))
 }

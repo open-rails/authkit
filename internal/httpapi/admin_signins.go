@@ -4,19 +4,19 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	events, err := s.svc.ListSessionEvents(r.Context(), userID, authflow.SessionEventCreated, authflow.SessionEventFailed)
 	if err != nil {
-		serverErr(w, iam.CodeFailedToListSignins, err)
+		serverErr(w, "failed_to_list_signins", err)
 		return
 	}
 

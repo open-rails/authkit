@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -55,7 +56,7 @@ func (s *Engine) createAccountRegistrationInvite(ctx context.Context, req authfl
 	}
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if invitedBy == "" {
-		return authflow.AccountRegistrationInviteCreated{}, iam.ErrInvalidInvite
+		return authflow.AccountRegistrationInviteCreated{}, errmodel.ErrInvalidInvite
 	}
 
 	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
@@ -193,12 +194,12 @@ type registrationInvite struct {
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
 	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil || mode == iam.RegistrationModeClosed {
-		return nil, iam.ErrRegistrationDisabled
+		return nil, errmodel.ErrRegistrationDisabled
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
 		if mode == iam.RegistrationModeInviteOnly {
-			return nil, iam.ErrRegistrationDisabled
+			return nil, errmodel.ErrRegistrationDisabled
 		}
 		return nil, nil
 	}
@@ -209,7 +210,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 	var groupID *string
 	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrAccountRegistrationInviteNotFound
+		return nil, errmodel.ErrAccountRegistrationInviteNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -226,7 +227,7 @@ WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.ex
 AND i.permission_group_id IS NOT DISTINCT FROM $2::uuid
 FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &invite.Role, &invite.Persona)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrAccountRegistrationInviteNotFound
+		return nil, errmodel.ErrAccountRegistrationInviteNotFound
 	}
 	if err != nil {
 		return nil, err

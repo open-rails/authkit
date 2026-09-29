@@ -525,13 +525,7 @@ export const ko: AuthUiMessageBundle = {
     email_sender_unavailable:
       "현재 이메일 발송을 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     email_unavailable: "현재 이메일을 사용할 수 없습니다.",
-    email_unchanged: "새 이메일이 현재 이메일과 동일합니다.",
-    email_verification_failed: "인증 이메일을 보내지 못했습니다.",
     email_verification_unavailable: "현재 이메일 인증을 사용할 수 없습니다.",
-    enable_2fa_failed: "2단계 인증을 활성화하지 못했습니다.",
-    failed_to_request_phone_change:
-      "전화번호 변경 요청에 실패했습니다. 나중에 다시 시도하세요.",
-    failed_to_unlink: "계정 연결을 해제하지 못했습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
     internal_error: "서버에서 문제가 발생했습니다. 다시 시도해 주세요.",
     invalid_challenge: "2FA 세션이 유효하지 않거나 만료되었습니다.",
@@ -550,8 +544,6 @@ export const ko: AuthUiMessageBundle = {
     not_authenticated: "계속하려면 로그인하세요.",
     oidc_begin_failed: "제공자 로그인을 시작하지 못했습니다.",
     oidc_exchange_failed: "제공자 로그인을 완료하지 못했습니다.",
-    owner_slug_taken: "이미 사용 중인 사용자명입니다.",
-    passkey_failed: "패스키 작업에 실패했습니다.",
     passkey_not_found: "패스키를 찾을 수 없습니다.",
     password_change_failed: "비밀번호를 변경하지 못했습니다.",
     password_contains_identifier:
@@ -576,24 +568,20 @@ export const ko: AuthUiMessageBundle = {
       "현재 전화번호로 가입할 수 없습니다. 대신 이메일 주소로 가입해 주세요.",
     phone_unavailable:
       "현재 휴대폰 인증을 사용할 수 없습니다. 대신 이메일을 사용해 주세요.",
-    phone_unchanged: "새 전화번호가 현재 전화번호와 같습니다.",
-    phone_verification_failed: "인증 문자를 보내지 못했습니다.",
     phone_verification_unavailable: "현재 전화번호 인증을 사용할 수 없습니다.",
     provider_already_linked:
       "이 제공자 계정은 이미 다른 사용자에게 연결되어 있습니다.",
     provider_change_requires_unlink:
       "다른 계정을 연결하려면 먼저 현재 계정의 연결을 해제하세요.",
     provider_error: "제공자에서 오류가 발생했습니다. 다시 시도해주세요.",
-    provider_link_failed: "계정을 연결하지 못했습니다.",
     provider_not_linked: "해당 제공자는 연결되어 있지 않습니다.",
+    provider_unavailable:
+      "로그인 제공자를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.",
     rate_limited: "시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
-    regenerate_codes_failed: "백업 코드를 재생성하지 못했습니다.",
     registration_disabled: "현재 가입이 비활성화되어 있습니다.",
     rename_rate_limited:
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
     renames_disabled: "사용자명 변경이 비활성화되어 있습니다.",
-    send_code_failed: "코드를 보내지 못했습니다. 다시 시도해주세요.",
-    session_creation_failed: "세션을 만들지 못했습니다.",
     siws_challenge_expired:
       "지갑 로그인 요청이 만료되었습니다. 다시 시도해주세요.",
     siws_signature_invalid: "지갑 서명이 유효하지 않습니다.",
@@ -601,7 +589,6 @@ export const ko: AuthUiMessageBundle = {
       "인증 문자 메시지를 전송하지 못했습니다. 대신 이메일을 사용하거나 고객지원에 문의해 주세요.",
     sms_unavailable:
       "현재 SMS를 사용할 수 없습니다. 대신 이메일을 사용해 주세요.",
-    step_up_failed: "인증에 실패했습니다. 다시 시도해주세요.",
     step_up_required: "계속하려면 본인 확인을 해주세요.",
     token_expired: "세션이 만료되었습니다. 다시 로그인하세요.",
     token_revoked: "세션이 종료되었습니다. 다시 로그인하세요.",

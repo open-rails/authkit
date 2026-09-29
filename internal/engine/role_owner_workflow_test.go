@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -86,7 +87,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 		require.Empty(t, role(root, manager))
 		_, err = svc.RedeemGroupInviteLink(ctx, pending.Code, user())
-		require.ErrorIs(t, err, iam.ErrInviteLinkRevoked)
+		require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked)
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 	})
 	group := func(name, uid string) (iam.GroupRef, string) {

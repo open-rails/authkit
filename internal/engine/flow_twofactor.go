@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Two-factor authentication: enrolment (factors + backup codes), the account
@@ -87,11 +88,11 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 	}
 	firstFactor := len(factors) == 0
 	if mode == authflow.FirstFactorOnly && !firstFactor {
-		return nil, false, iam.ErrTwoFAFactorExists
+		return nil, false, errmodel.ErrTwoFAFactorExists
 	}
 	for _, factor := range factors {
 		if factor.Method == method {
-			return nil, false, iam.ErrTwoFAFactorExists
+			return nil, false, errmodel.ErrTwoFAFactorExists
 		}
 	}
 	makeDefault = makeDefault || firstFactor

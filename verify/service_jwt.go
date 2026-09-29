@@ -7,6 +7,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 type serviceJWTVerifyConfig struct {
@@ -61,25 +62,25 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 	}
 	iatUnix, ok := toUnix(mc["iat"])
 	if !ok {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingIAT)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingIAT)
 	}
 	nbfUnix, ok := toUnix(mc["nbf"])
 	if !ok {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingNBF)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingNBF)
 	}
 	expUnix, ok := toUnix(mc["exp"])
 	if !ok {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingExp)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingExp)
 	}
 	iat := time.Unix(iatUnix, 0).UTC()
 	nbf := time.Unix(nbfUnix, 0).UTC()
 	exp := time.Unix(expUnix, 0).UTC()
 	if exp.Sub(iat) > maxLifetime {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeServiceJWTLifetimeExceeded)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeServiceJWTLifetimeExceeded)
 	}
 	audiences := audSlice(mc["aud"])
 	if len(audiences) == 0 {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingAudience)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingAudience)
 	}
 	permissions, err := stringArrayClaim(mc, "permissions")
 	if err != nil {
@@ -91,7 +92,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
-		return iam.ServiceJWTClaims{}, iam.E(iam.CodeBadIssuer)
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeBadIssuer)
 	}
 	claims := iam.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
@@ -164,7 +165,7 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		for _, value := range values {
 			s, ok := value.(string)
 			if !ok {
-				return nil, iam.E(iam.CodeMalformedPermissions)
+				return nil, errmodel.E(errmodel.CodeMalformedPermissions)
 			}
 			if strings.TrimSpace(s) != "" {
 				out = append(out, strings.TrimSpace(s))
@@ -180,6 +181,6 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		}
 		return out, nil
 	default:
-		return nil, iam.E(iam.CodeMalformedPermissions)
+		return nil, errmodel.E(errmodel.CodeMalformedPermissions)
 	}
 }

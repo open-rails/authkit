@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -70,7 +71,7 @@ func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
 func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return "", false
 	}
 	return claims.UserID, true
@@ -79,7 +80,7 @@ func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	opts, ok := adminUserListOptionsFromQuery(r)
 	if !ok {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
@@ -98,7 +99,7 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	u, err := s.svc.AdminGetUser(r.Context(), id)
 	if err != nil || u == nil {
-		notFound(w, iam.CodeNotFound)
+		fail(w, errmodel.CodeNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -111,7 +112,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		Until  *string `json:"until"`
 	}
 	if err := decodeOptionalJSON(r, &req); err != nil || userID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -120,23 +121,23 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	}
 	var untilPtr *time.Time
 	if req.Until == nil {
-		badRequest(w, iam.CodeInvalidUntil)
+		fail(w, errmodel.CodeInvalidUntil)
 		return
 	}
 	untilStr := strings.TrimSpace(*req.Until)
 	if untilStr == "" {
-		badRequest(w, iam.CodeInvalidUntil)
+		fail(w, errmodel.CodeInvalidUntil)
 		return
 	}
 	if !strings.EqualFold(untilStr, "infinite") {
 		parsed, err := time.Parse(time.RFC3339, untilStr)
 		if err != nil {
-			badRequest(w, iam.CodeInvalidUntil)
+			fail(w, errmodel.CodeInvalidUntil)
 			return
 		}
 		parsed = parsed.UTC()
 		if !parsed.After(time.Now().UTC()) {
-			badRequest(w, iam.CodeInvalidUntil)
+			fail(w, errmodel.CodeInvalidUntil)
 			return
 		}
 		untilPtr = &parsed
@@ -151,7 +152,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -163,7 +164,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 			writeError(w, err)
 			return
 		}
-		serverErr(w, iam.CodeFailedToUnban, err)
+		serverErr(w, "failed_to_unban", err)
 		return
 	}
 	noContent(w)
@@ -172,7 +173,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -189,7 +190,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -207,7 +208,7 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("user_id"))
 	if id == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)

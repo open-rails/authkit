@@ -133,11 +133,11 @@ func requestAuthenticationError(err error) error {
 	case errors.Is(err, ErrLivenessUnconfigured):
 		classification = auth.ErrUnavailable
 	default:
-		if e := iam.AsError(err); e != nil {
+		if e, ok := iam.AsError(err); ok {
 			switch {
-			case e.Status == http.StatusForbidden:
+			case e.Status() == http.StatusForbidden:
 				classification = auth.ErrForbidden
-			case e.Status >= http.StatusInternalServerError:
+			case e.Status() >= http.StatusInternalServerError:
 				classification = auth.ErrUnavailable
 			}
 		}

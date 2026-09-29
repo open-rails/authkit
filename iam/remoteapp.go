@@ -3,6 +3,8 @@ package iam
 import (
 	"net/url"
 	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // MaxRemoteApplicationIssuerLen bounds a remote-application issuer identifier.
@@ -33,7 +35,7 @@ func ValidRemoteApplicationIssuer(iss string) bool {
 
 // ErrInvalidRemoteApplication indicates a malformed remote_application
 // registration payload.
-var ErrInvalidRemoteApplication = E(CodeInvalidRemoteApplication)
+var ErrInvalidRemoteApplication Error = errmodel.E(errmodel.CodeInvalidRemoteApplication)
 
 // Remote-application trust modes (#74). A remote_application is a federation
 // PRINCIPAL whose credential is a key, with exactly one trust source:

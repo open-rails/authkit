@@ -15,6 +15,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func applicationJSON(app iam.RemoteApplication) map[string]any {
@@ -55,9 +56,9 @@ func (s *Service) writeApplicationError(w http.ResponseWriter, err error) {
 }
 
 // applicationCodes: the document-shape refusals answer one code.
-var applicationCodes = map[error]iam.Code{
-	iam.ErrInvalidRemoteApplication: iam.CodeApplicationDocumentInvalid,
-	iam.ErrReservedIssuer:           iam.CodeApplicationDocumentInvalid,
+var applicationCodes = map[error]errmodel.Code{
+	iam.ErrInvalidRemoteApplication: errmodel.CodeApplicationDocumentInvalid,
+	iam.ErrReservedIssuer:           errmodel.CodeApplicationDocumentInvalid,
 }
 
 func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +66,7 @@ func (s *Service) handleApplicationRegisterPOST(w http.ResponseWriter, r *http.R
 		Domain string `json:"domain"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Domain) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Per-domain limit on top of per-IP: many IPs hammering one domain (or one

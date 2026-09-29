@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"role":"owner"`)
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(iam.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(errmodel.CodeCannotRemoveLastOwner))
 	gid, err := client.ResolveGroupIDForSlug(ctx, group)
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "owner-app", PermissionGroupID: gid, Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})

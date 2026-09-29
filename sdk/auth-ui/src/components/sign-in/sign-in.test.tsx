@@ -142,7 +142,7 @@ describe("LoginForm", () => {
     const fetch = stubFetch({
       "GET /api/v1/capabilities": capabilities,
       "POST /api/v1/password/login": [
-        authError(403, "password_reset_required"),
+        authError(401, "password_reset_required"),
       ],
       "POST /api/v1/password/reset/request": () => json(202, {}),
     })

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	authprotocol "github.com/open-rails/helpers/auth"
 )
 
@@ -101,7 +102,7 @@ func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*h
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil {
-				forbidden(w, iam.CodeForbidden)
+				fail(w, errmodel.CodeForbidden)
 				return
 			}
 			// Token-carried authority short-circuits without a scope ONLY for
@@ -110,20 +111,20 @@ func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*h
 			// check its instance binding, so it falls through to Allow.
 			if cl.IsMachine() && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
 				if ok, err := tokenPermission(r.Context(), checker, cl, perm); err != nil || !ok {
-					forbidden(w, iam.CodeForbidden)
+					fail(w, errmodel.CodeForbidden)
 					return
 				}
 				next.ServeHTTP(w, r)
 				return
 			}
 			if resolve == nil {
-				forbidden(w, iam.CodeForbidden)
+				fail(w, errmodel.CodeForbidden)
 				return
 			}
 			scope := resolve(r)
 			ok, err := Allow(r.Context(), checker, cl, perm, scope)
 			if err != nil || !ok {
-				forbidden(w, iam.CodeForbidden)
+				fail(w, errmodel.CodeForbidden)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 type registrationAvailabilityField struct {
@@ -25,7 +25,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	email := strings.TrimSpace(r.URL.Query().Get("email"))
 	phone := strings.TrimSpace(r.URL.Query().Get("phone_number"))
 	if username == "" && email == "" && phone == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 
@@ -34,13 +34,13 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	if s.publicRegistrationDisabled() {
 		resp := registrationAvailabilityResponse{}
 		if username != "" {
-			resp.Username = &registrationAvailabilityField{Available: false, Error: iam.CodeRegistrationDisabled.String()}
+			resp.Username = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
 		}
 		if email != "" {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: iam.CodeRegistrationDisabled.String()}
+			resp.Email = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
 		}
 		if phone != "" {
-			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: iam.CodeRegistrationDisabled.String()}
+			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
@@ -63,7 +63,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 			if code == "" {
 				// Not a validation error — an internal failure.
 				s.logInternalError(r, "register_availability", "username", "database_error", err)
-				serverErr(w, iam.CodeDatabaseError, nil)
+				serverErr(w, "database_error", nil)
 				return
 			}
 			resp.Username = &registrationAvailabilityField{Available: false, Error: code.String()}
@@ -85,7 +85,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), checkEmail, checkUsername)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "identifier", "database_error", err)
-			serverErr(w, iam.CodeDatabaseError, nil)
+			serverErr(w, "database_error", nil)
 			return
 		}
 		if usernameNeedsConflictCheck {
@@ -108,7 +108,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationPhoneAvailability(r, phone)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "phone_number", "database_error", err)
-			serverErr(w, iam.CodeDatabaseError, nil)
+			serverErr(w, "database_error", nil)
 			return
 		}
 		resp.PhoneNumber = field

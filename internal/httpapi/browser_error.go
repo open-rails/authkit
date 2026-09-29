@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
 )
 
@@ -43,18 +43,19 @@ import (
 // Rate-limit rejections (429) are deliberately left on the JSON path: they are
 // an abuse defense with Retry-After header semantics, not a user-flow outcome,
 // and the shared limiter helper serves every route group.
-func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, status int, code iam.Code) {
-	s.failBrowserFlowExtra(w, r, sd, provider, status, code, nil)
+func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, err error) {
+	s.failBrowserFlowExtra(w, r, sd, provider, err, nil)
 }
 
 // failBrowserFlowExtra is failBrowserFlow with additional payload fields
 // carried to the frontend (fragment params / postMessage keys) — e.g. the
 // 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, status int, code iam.Code, extra map[string]any) {
+func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, err error, extra map[string]any) {
 	if wantsJSONResponse(r) {
-		sendErr(w, status, code)
+		writeError(w, err)
 		return
 	}
+	code := browserErrorCode(err)
 	if sd != nil && strings.TrimSpace(sd.StepUpUserID) != "" {
 		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return
@@ -78,7 +79,7 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 		if targetOrigin, ok := originFromBaseURL(s.settings.FrontendBaseURL); ok {
 			payload := map[string]any{
 				"type":     "AUTHKIT_OIDC_ERROR",
-				"error":    string(code),
+				"error":    code,
 				"provider": provider,
 				"flow":     flow,
 				"nonce":    popupNonce,
@@ -95,7 +96,7 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 	}
 
 	v := url.Values{}
-	v.Set("error", string(code))
+	v.Set("error", code)
 	v.Set("flow", flow)
 	if strings.TrimSpace(provider) != "" {
 		v.Set("provider", provider)
@@ -139,28 +140,36 @@ func wantsJSONResponse(r *http.Request) bool {
 		strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
-// sanitizeProviderErrorCode clamps the IdP-echoed ?error= value — semi
-// attacker-controlled, since anyone can craft a callback URL — to a
-// conservative token charset before it is reflected into a fragment, popup
-// payload, or JSON envelope. RFC 6749 codes (access_denied, invalid_scope, …)
-// pass through unchanged; anything else collapses to provider_error.
-func sanitizeProviderErrorCode(raw string) iam.Code {
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "" || len(raw) > 64 {
-		return iam.CodeProviderError
+// providerCallbackError is the IdP-reported ?error= as provider_error. The
+// echoed value is semi attacker-controlled (anyone can craft a callback URL),
+// so it is clamped to a conservative token charset before it is reflected:
+// RFC 6749 codes (access_denied, invalid_scope, ...) pass through to the
+// browser fragment or popup payload, and the JSON envelope carries them as
+// metadata.provider_error; anything else collapses to provider_error.
+func providerCallbackError(raw string) error {
+	code := strings.ToLower(strings.TrimSpace(raw))
+	if code == "" || len(code) > 64 || strings.IndexFunc(code, func(c rune) bool {
+		return (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' && c != '.'
+	}) >= 0 {
+		code = string(errmodel.CodeProviderError)
 	}
-	for _, c := range raw {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
-			return iam.CodeProviderError
-		}
+	return errmodel.E(errmodel.CodeProviderError, errmodel.WithMeta("provider_error", code))
+}
+
+// browserErrorCode is the code a browser flow hands the SPA: the wire code, or
+// the IdP's own code for a provider callback error.
+func browserErrorCode(err error) string {
+	e := errmodel.Wire(err)
+	if raw, ok := e.Metadata()["provider_error"].(string); ok && errmodel.CodeOf(err) == errmodel.CodeProviderError {
+		return raw
 	}
-	return iam.Code(raw)
+	return e.Code()
 }
 
 // logIdPCallbackError records the raw provider-reported callback error for
 // diagnostics. The raw values are semi attacker-controlled (anyone can craft
 // a callback URL), so they are %q-quoted and truncated — logged, never
-// reflected: the wire code the user sees is sanitizeProviderErrorCode's
+// reflected: the wire code the user sees is providerCallbackError's
 // output.
 func logIdPCallbackError(provider string, r *http.Request) {
 	q := callbackParams(r)
@@ -204,15 +213,15 @@ func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var extra map[string]any
-	code := iam.CodeTwoFAEnrollmentRequired
+	code := errmodel.CodeTwoFAEnrollmentRequired
 	if out.Kind == authflow.LoginRecoveryRequired {
-		s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
+		s.failBrowserFlowExtra(w, r, &sd, provider, errmodel.E(errmodel.CodeAccountRecoveryRequired), map[string]any{"recovery": out.Recovery})
 		return
 	} else if out.Kind == authflow.LoginTwoFactorRequired {
-		code = iam.CodeTwoFARequired
+		code = errmodel.CodeTwoFARequired
 		extra = loginChallengeMetadata(out.UserID, out.Challenge)
 	} else {
 		extra = map[string]any{"user_id": out.UserID, "enrollment_token": out.Enrollment.AccessToken, "enrollment_expires_in": out.Enrollment.ExpiresIn, "allowed_methods": out.AllowedMethods}
 	}
-	s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusForbidden, code, extra)
+	s.failBrowserFlowExtra(w, r, &sd, provider, errmodel.E(code), extra)
 }

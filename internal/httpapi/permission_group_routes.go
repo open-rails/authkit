@@ -20,12 +20,13 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
 // groupScopeCodes: a group-scoped route answers an unknown group as forbidden,
 // not not_found, so it does not enumerate groups.
-var groupScopeCodes = map[error]iam.Code{iam.ErrGroupNotFound: iam.CodeForbidden}
+var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.CodeForbidden}
 
 func (s *Service) groupCan(r *http.Request, subjectID string, group iam.GroupRef, perm iam.Perm) (bool, error) {
 	return s.svc.Can(r.Context(), iam.UserSubject(subjectID), group, perm)
@@ -172,12 +173,12 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := verify.ActorFromContext(r.Context())
 		if !ok || !(actor.Kind() == iam.ActorUser || actor.Kind() == iam.ActorRemoteApplication && remoteOperation) {
-			unauthorized(w, iam.CodeNotAuthenticated)
+			fail(w, errmodel.CodeNotAuthenticated)
 			return
 		}
 		instanceSlug := pathParam(r, "instance_slug")
 		if instanceSlug == "" {
-			badRequest(w, iam.CodeInvalidRequest)
+			fail(w, errmodel.CodeInvalidRequest)
 			return
 		}
 
@@ -206,11 +207,11 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			allowed, err = check(gr.OrPerm)
 		}
 		if err != nil {
-			serverErr(w, iam.CodeDatabaseError, err)
+			serverErr(w, "database_error", err)
 			return
 		}
 		if !allowed {
-			forbidden(w, iam.CodeForbidden)
+			fail(w, errmodel.CodeForbidden)
 			return
 		}
 
@@ -257,7 +258,7 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			s.groupInstanceDescriptor(w, r, group, actor)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
-			sendErr(w, http.StatusNotImplemented, iam.CodeNotImplemented)
+			fail(w, errmodel.CodeNotImplemented)
 		}
 	}
 }
@@ -266,7 +267,7 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 // perform; any other actor gets 403.
 func userActorID(w http.ResponseWriter, actor iam.Actor) (string, bool) {
 	if actor.Kind() != iam.ActorUser {
-		forbidden(w, iam.CodeForbidden)
+		fail(w, errmodel.CodeForbidden)
 		return "", false
 	}
 	return actor.ID(), true
@@ -390,25 +391,25 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 // groupOpCodes: where a group operation's wire code differs from the catalog
 // — one forbidden and one invalid_request per family, and the last-owner
 // refusal (#193: unsafe, not unauthorised, so 409).
-var groupOpCodes = map[error]iam.Code{
-	iam.ErrCannotRemoveLastAdminRole:     iam.CodeCannotRemoveLastOwner,
-	iam.ErrExternalInvitesDisabled:       iam.CodeForbidden,
-	iam.ErrInsufficientRoleAuthority:     iam.CodeForbidden,
-	iam.ErrRoleAssignmentEscalation:      iam.CodeForbidden,
-	iam.ErrInvalidRemoteApplication:      iam.CodeInvalidRequest,
-	iam.ErrReservedIssuer:                iam.CodeInvalidRequest,
-	iam.ErrInviteLinkExpired:             iam.CodeInvalidRequest,
-	iam.ErrInviteLinkRevoked:             iam.CodeInvalidRequest,
-	iam.ErrRoleNotAssignable:             iam.CodeInvalidRequest,
-	iam.ErrInvalidRole:                   iam.CodeInvalidRequest,
-	iam.ErrUnknownRole:                   iam.CodeInvalidRequest,
-	iam.ErrMissingName:                   iam.CodeInvalidRequest,
-	iam.ErrInvalidInvite:                 iam.CodeInvalidRequest,
-	iam.ErrInvalidExpiry:                 iam.CodeInvalidRequest,
-	iam.ErrUnknownGroupPersona:           iam.CodeInvalidRequest,
-	iam.ErrCustomRolesNotSupported:       iam.CodeInvalidRequest,
-	iam.ErrCustomRoleNameInvalid:         iam.CodeInvalidRequest,
-	iam.ErrCustomRoleIsCatalogRole:       iam.CodeInvalidRequest,
-	iam.ErrCustomRoleGrantCrossPersona:   iam.CodeInvalidRequest,
-	iam.ErrCustomRoleGrantOutsideCatalog: iam.CodeInvalidRequest,
+var groupOpCodes = map[error]errmodel.Code{
+	iam.ErrCannotRemoveLastAdminRole:     errmodel.CodeCannotRemoveLastOwner,
+	iam.ErrExternalInvitesDisabled:       errmodel.CodeForbidden,
+	iam.ErrInsufficientRoleAuthority:     errmodel.CodeForbidden,
+	iam.ErrRoleAssignmentEscalation:      errmodel.CodeForbidden,
+	iam.ErrInvalidRemoteApplication:      errmodel.CodeInvalidRequest,
+	iam.ErrReservedIssuer:                errmodel.CodeInvalidRequest,
+	errmodel.ErrInviteLinkExpired:        errmodel.CodeInvalidRequest,
+	errmodel.ErrInviteLinkRevoked:        errmodel.CodeInvalidRequest,
+	iam.ErrRoleNotAssignable:             errmodel.CodeInvalidRequest,
+	errmodel.ErrInvalidRole:              errmodel.CodeInvalidRequest,
+	errmodel.ErrUnknownRole:              errmodel.CodeInvalidRequest,
+	errmodel.ErrMissingName:              errmodel.CodeInvalidRequest,
+	errmodel.ErrInvalidInvite:            errmodel.CodeInvalidRequest,
+	errmodel.ErrInvalidExpiry:            errmodel.CodeInvalidRequest,
+	iam.ErrUnknownGroupPersona:           errmodel.CodeInvalidRequest,
+	iam.ErrCustomRolesNotSupported:       errmodel.CodeInvalidRequest,
+	iam.ErrCustomRoleNameInvalid:         errmodel.CodeInvalidRequest,
+	iam.ErrCustomRoleIsCatalogRole:       errmodel.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantCrossPersona:   errmodel.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantOutsideCatalog: errmodel.CodeInvalidRequest,
 }

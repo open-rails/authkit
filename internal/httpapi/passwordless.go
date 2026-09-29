@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 )
@@ -20,12 +20,12 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLPasswordlessStart, identifier) {
@@ -53,7 +53,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		Token      string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
@@ -66,10 +66,10 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
-			badRequest(w, iam.CodeInvalidOrExpiredCode)
-		case errors.Is(err, iam.ErrRegistrationDisabled), errors.Is(err, iam.ErrPasswordlessDisabled):
+			fail(w, errmodel.CodeInvalidOrExpiredCode)
+		case errors.Is(err, errmodel.ErrRegistrationDisabled), errors.Is(err, errmodel.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
-			forbidden(w, iam.CodePasswordlessDisabled)
+			fail(w, errmodel.CodePasswordlessDisabled)
 		default:
 			logLoginFailed(s, r, "", "passwordless_failed")
 			writeError(w, err)

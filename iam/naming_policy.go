@@ -3,6 +3,8 @@ package iam
 import (
 	"fmt"
 	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // FormerNameRetentionMode controls reservation and forwarding after a rename.
@@ -89,7 +91,7 @@ func (p NamingPolicy) CheckRename(lastRenamedAt *time.Time, now time.Time) error
 	if lastRenamedAt != nil {
 		next := lastRenamedAt.Add(p.RenameInterval)
 		if now.Before(next) {
-			return E(CodeRenameRateLimited, WithMeta("next_rename_at", next))
+			return errmodel.E(errmodel.CodeRenameRateLimited, errmodel.WithMeta("next_rename_at", next))
 		}
 	}
 	return nil

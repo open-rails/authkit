@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Contact ownership (ak#393). An account whose only addresses are unproven was
@@ -39,7 +40,7 @@ func readContactState(ctx context.Context, q db.DBTX, userID string, lock bool) 
 }
 
 func contactVerificationRequired(st contactState) error {
-	return iam.E(iam.CodeVerificationRequired, iam.WithMetadata(map[string]any{
+	return errmodel.E(errmodel.CodeVerificationRequired, errmodel.WithMetadata(map[string]any{
 		"identifier": st.identifier,
 		"channel":    st.channel,
 		"reason":     "contact_unproven",

@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 var (
-	errMalformedPayload = iam.E(iam.CodeMalformedPayload)
-	errDuplicateClaim   = iam.E(iam.CodeDuplicateClaim)
+	errMalformedPayload = errmodel.E(errmodel.CodeMalformedPayload)
+	errDuplicateClaim   = errmodel.E(errmodel.CodeDuplicateClaim)
 )
 
 // rawTopLevelClaim reads one claim off the already-signature-verified JWT

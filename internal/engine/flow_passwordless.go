@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -51,7 +52,7 @@ type passwordlessChallenge struct {
 
 func (s *Engine) StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
-		return authflow.PasswordlessStartResult{}, iam.ErrPasswordlessDisabled
+		return authflow.PasswordlessStartResult{}, errmodel.ErrPasswordlessDisabled
 	}
 	if s.pg == nil {
 		return authflow.PasswordlessStartResult{}, s.requirePG()
@@ -111,7 +112,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 			return authflow.PasswordlessStartResult{}, err
 		}
 		if !allowed {
-			return authflow.PasswordlessStartResult{}, iam.ErrRegistrationDisabled
+			return authflow.PasswordlessStartResult{}, errmodel.ErrRegistrationDisabled
 		}
 		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
 	}
@@ -142,7 +143,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 
 func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
-		return authflow.LoginOutcome{}, iam.ErrPasswordlessDisabled
+		return authflow.LoginOutcome{}, errmodel.ErrPasswordlessDisabled
 	}
 	var rec passwordlessChallenge
 	var ok bool
@@ -365,14 +366,14 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 	switch rec.Channel {
 	case passwordlessChannelEmail:
 		if s.email == nil {
-			return iam.ErrEmailSenderUnavailable
+			return errmodel.ErrEmailSenderUnavailable
 		}
 		return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.email.SendVerification(sendCtx, rec.Identifier, rec.GeneratedUsername, msg)
 		}))
 	case passwordlessChannelSMS:
 		if s.sms == nil || !s.SMSAvailable() {
-			return iam.ErrSMSSenderUnavailable
+			return errmodel.ErrSMSSenderUnavailable
 		}
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.sms.SendVerification(sendCtx, rec.Identifier, msg)

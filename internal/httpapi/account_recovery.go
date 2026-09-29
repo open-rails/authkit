@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *http.Request) {
@@ -11,11 +11,11 @@ func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *htt
 		Token string `json:"token"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Token == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.ConfirmAccountRecovery(r.Context(), body.Token); err != nil {
-		writeError(w, fallback(err, iam.CodeInvalidCredentials))
+		writeError(w, fallback(err, errmodel.CodeInvalidCredentials))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

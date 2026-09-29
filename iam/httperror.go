@@ -3,24 +3,13 @@ package iam
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Stripe-style HTTP error envelope, shared by the HTTP layer and the DB-less verify
-// package so both surfaces emit an identical shape. Structurally identical to
-// openrails' pkg/api.ErrorResponse (the ecosystem-wide error contract): the
-// machine-readable `code` is stable, `type` categorizes it, `message` is human
-// readable, and `param`/`metadata` carry optional context.
-
-// Error type categories, aligned with openrails' / Stripe's taxonomy strings.
-const (
-	ErrorTypeInvalidRequest = "invalid_request_error"
-	ErrorTypeAuthentication = "authentication_error"
-	ErrorTypeAuthorization  = "authorization_error"
-	ErrorTypeRateLimit      = "rate_limit_error"
-	ErrorTypeAPI            = "api_error"
-)
-
-// ErrorObject is the nested error detail carried under the top-level "error" key.
+// ErrorObject is the error detail under the envelope's "error" key: a stable
+// code, its type category, a human-readable message, and optional param and
+// metadata. The shape matches openrails' pkg/api.ErrorResponse.
 type ErrorObject struct {
 	Type     string         `json:"type"`
 	Code     string         `json:"code"`
@@ -29,72 +18,41 @@ type ErrorObject struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// ErrorEnvelope is the top-level error response: {"error": {...}}.
+// ErrorEnvelope is every AuthKit error response: {"error": {...}}.
 type ErrorEnvelope struct {
 	Error ErrorObject `json:"error"`
 }
 
-// ErrorTypeForStatus maps an HTTP status to its error-type category (the same
-// inference openrails performs).
-func ErrorTypeForStatus(status int) string {
-	switch status {
-	case http.StatusUnauthorized:
-		return ErrorTypeAuthentication
-	case http.StatusForbidden:
-		return ErrorTypeAuthorization
-	case http.StatusTooManyRequests:
-		return ErrorTypeRateLimit
-	}
-	if status >= 500 {
-		return ErrorTypeAPI
-	}
-	return ErrorTypeInvalidRequest // 400/404/409 and other 4xx
-}
-
-// ErrorEnvelopeFor derives the wire status and envelope for err: an *Error
-// keeps its status, code, param (the catalog's default when unset) and
-// metadata; a plain 500 — and anything that is not an *Error — is emitted as
-// internal_error, so the operation name never reaches the wire.
-func ErrorEnvelopeFor(err error) (int, ErrorEnvelope) {
-	e := AsError(err)
-	if e == nil {
-		return http.StatusInternalServerError, envelope(http.StatusInternalServerError, CodeInternalError, "", nil)
-	}
-	status := e.Status
-	if status == 0 {
-		status = http.StatusInternalServerError
-	}
-	code := e.Code
-	if status == http.StatusInternalServerError {
-		code = CodeInternalError
-	}
-	param := e.Param
-	if param == "" {
-		param = defaultParam(code)
-	}
-	return status, envelope(status, code, param, e.Meta)
-}
-
-func envelope(status int, code Code, param string, metadata map[string]any) ErrorEnvelope {
-	_, message, _ := DescribeCode(code)
-	if message == "" {
-		message = "Request failed."
-	}
-	var p *string
-	if param != "" {
-		p = &param
-	}
-	if len(metadata) == 0 {
-		metadata = nil
-	}
-	return ErrorEnvelope{Error: ErrorObject{Type: ErrorTypeForStatus(status), Code: string(code), Message: message, Param: p, Metadata: metadata}}
-}
-
-// WriteError writes err as the canonical error envelope — the ONE writer
-// behind the HTTP layer and verify.
+// WriteError writes err as the error envelope with the catalog's status for
+// its code. Anything that is not an AuthKit error, and every server failure,
+// is written as 500 internal_error.
 func WriteError(w http.ResponseWriter, err error) {
-	status, env := ErrorEnvelopeFor(err)
+	e := errmodel.Wire(err)
+	var param *string
+	if p := e.Param(); p != "" {
+		param = &p
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(env)
+	w.WriteHeader(e.Status())
+	_ = json.NewEncoder(w).Encode(ErrorEnvelope{Error: ErrorObject{
+		Type:     errorType(e.Status()),
+		Code:     e.Code(),
+		Message:  e.Message(),
+		Param:    param,
+		Metadata: e.Metadata(),
+	}})
+}
+
+func errorType(status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return "authentication_error"
+	case status == http.StatusForbidden:
+		return "authorization_error"
+	case status == http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case status >= 500:
+		return "api_error"
+	}
+	return "invalid_request_error"
 }

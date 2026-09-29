@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -25,7 +26,7 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 	}
 	var body inviteLinkCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	invitedBy, ok := userActorID(w, actor)
@@ -90,7 +91,7 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
 func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, linkID string) {
 	if linkID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.RevokeGroupInviteLinkForActor(r.Context(), actor, group, linkID); err != nil {
@@ -111,12 +112,12 @@ type inviteRedeemRequest struct {
 func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 	var body inviteRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.RedeemGroupInviteLink(r.Context(), strings.TrimSpace(body.Code), claims.UserID)

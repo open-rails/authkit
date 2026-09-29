@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -32,7 +33,7 @@ type rootRoleOp func(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject
 func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootRoleOp) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 	if _, ok := userActorID(w, actor); !ok {
@@ -41,7 +42,7 @@ func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootR
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	role := iam.Role(strings.TrimSpace(r.PathValue("role")))
 	if userID == "" || role == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := op(r.Context(), actor, iam.RootGroup(), []iam.Subject{iam.UserSubject(userID)}, role)
