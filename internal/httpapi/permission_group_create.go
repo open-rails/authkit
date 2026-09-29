@@ -1,12 +1,10 @@
 package httpapi
 
 // #263: the generated persona-instance CREATION route — POST /<persona> for
-// personas whose GroupCreation opts in. An authenticated USER creates a
-// group instance and is seeded as its owner; slug pattern, reserved-slug
-// escalation, the host admission seam, and create-or-return-if-member
-// idempotency live in the core create path (CreateInstanceForSubject). AuthKit
-// owns the anti-squat velocity limits here (per-IP + per-user); host cost
-// gates plug in via WithInstanceAdmission.
+// personas whose GroupCreation opts in. An authenticated user creates a group
+// and is seeded as its owner; the slug rules, reserved slugs, the host
+// admission seam and create-or-return-if-member idempotency live in the
+// engine's CreateGroup. AuthKit owns the anti-squat velocity limits here.
 
 import (
 	"net/http"
@@ -23,10 +21,8 @@ type groupInstanceCreateRequest struct {
 }
 
 func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona iam.Persona) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		// Instance ownership needs a user subject; machine principals cannot
-		// create through this route.
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok {
 		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
@@ -35,32 +31,30 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	// Anti-squat velocity: a create IS a claim — capped per IP and per user
+	// Anti-squat velocity: a create IS a claim — capped per IP and per actor
 	// (authkit owns velocity; cost gates are the host's, via the admission seam).
 	if s.rateLimited(w, r, RLGroupCreate) {
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, claims.UserID) {
+	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, actor.String()) {
 		return
 	}
-	res, err := s.svc.CreateInstanceForSubject(r.Context(), iam.GroupBySlug(persona, body.Slug), body.DisplayName, claims.UserID)
+	g, created, err := s.svc.CreateGroup(r.Context(), actor, iam.NewGroup{Persona: persona, Slug: body.Slug, DisplayName: body.DisplayName})
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	status := http.StatusOK
-	if res.Created {
+	if created {
 		status = http.StatusCreated
 	}
-	// group_id (#269): the instance's uuid, on BOTH outcomes. A host that owns
-	// the money for an instance has to be able to address it in its own ledger,
-	// and creation is where it learns the instance exists; the idempotent
-	// member re-run reports the same id rather than nothing.
+	// group_id (#269) on both outcomes: the idempotent member re-run reports
+	// the existing group's id.
 	writeJSON(w, status, map[string]any{
 		"ok":            true,
-		"group_id":      res.GroupID,
+		"group_id":      g.ID,
 		"persona":       persona,
-		"instance_slug": res.InstanceSlug,
-		"created":       res.Created,
+		"instance_slug": g.Slug,
+		"created":       created,
 	})
 }

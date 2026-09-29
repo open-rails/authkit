@@ -146,25 +146,6 @@ func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, iam.UserLivenes
 	return true, l, nil
 }
 
-// AllowLive is Allow with the account-liveness precondition: "this account is
-// live AND holds perm", in one call.
-//
-// It exists because both consumer hosts had independently written that
-// conjunction by hand, each bolting a liveness lookup in front of
-// verify.Allow — two gates a caller could get out of order, or forget one half
-// of. A banned user who still holds a permission assignment must be denied, and
-// that ordering is now the library's to guarantee, not the host's to remember.
-//
-// Fail-closed throughout: a liveness error, a dead account, or a Can error all
-// deny (the error is returned; callers must deny on a non-nil error).
-func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm, scope PermissionScope) (bool, error) {
-	live, _, err := v.IsLive(ctx, cl)
-	if err != nil || !live {
-		return false, err
-	}
-	return Allow(ctx, checker, cl, perm, scope)
-}
-
 // RequiredLive is Required with the per-request account-liveness gate: a banned
 // or deleted user is rejected on their NEXT request instead of at token expiry,
 // and the downstream handler reads fresh identity claims.

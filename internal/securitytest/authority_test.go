@@ -109,9 +109,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
 	group := iam.GroupBySlug(orgPersona, unique("org"))
-	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: owner.id,
-	})
+	_, err := h.createOrg(ctx, group, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
@@ -170,14 +168,10 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
 	group := iam.GroupBySlug(orgPersona, unique("esc"))
-	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: owner.id,
-	})
+	_, err := h.createOrg(ctx, group, owner)
 	require.NoError(t, err)
 	other := iam.GroupBySlug(orgPersona, unique("other"))
-	_, err = h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: other.Slug(), OwnerSubjectID: owner.id,
-	})
+	_, err = h.createOrg(ctx, other, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	h.grant(group, member, "member")
@@ -216,21 +210,26 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.auth.Can(ctx, iam.UserSubject(manager.id), group, iam.PermSelfDelete(orgPersona))
+	ownerAllowed, err := h.auth.Can(ctx, iam.UserActor(manager.id), group, iam.PermSelfDelete(orgPersona))
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
-	stillOwner, err := h.auth.Can(ctx, iam.UserSubject(owner.id), group, "org:members:manage")
+	stillOwner, err := h.auth.Can(ctx, iam.UserActor(owner.id), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, stillOwner)
+}
+
+// createOrg creates group as the operator, owned by owner.
+func (h *host) createOrg(ctx context.Context, group iam.GroupRef, owner account) (iam.Group, error) {
+	o := iam.UserSubject(owner.id)
+	g, _, err := h.auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: group.Persona(), Slug: group.Slug(), Owner: &o})
+	return g, err
 }
 
 // newOrg creates an org whose founder is its owner.
 func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 	h.t.Helper()
 	group := iam.GroupBySlug(orgPersona, unique(prefix))
-	_, err := h.auth.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: founder.id,
-	})
+	_, err := h.createOrg(context.Background(), group, founder)
 	require.NoError(h.t, err)
 	return group, "/" + string(orgPersona) + "/" + group.Slug()
 }
@@ -297,7 +296,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.auth.Can(ctx, iam.UserSubject(creator.id), group, iam.PermSelfDelete(orgPersona))
+		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, iam.PermSelfDelete(orgPersona))
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))

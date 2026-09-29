@@ -114,6 +114,9 @@ func TestRoleConfigRejects(t *testing.T) {
 		"include of another persona":      {RoleConfig{Personas: channel(), Roles: []Role{{Persona: iam.RootPersona, Name: "admin"}, {Persona: "channel", Name: "mod", Includes: []iam.Role{"admin"}}}}, `includes unknown role "admin"`},
 		"include cycle":                   {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"b"}}, {Persona: iam.RootPersona, Name: "b", Includes: []iam.Role{"a"}}}}, "includes cycle"},
 		"self include":                    {RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "a", Includes: []iam.Role{"a"}}}}, "includes cycle"},
+		"MFA outside the catalog":         {RoleConfig{Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:edit"}, RequireMFA: []string{"channel:posts:pin"}}}}, "matches no permission"},
+		"MFA of another persona":          {RoleConfig{Personas: map[string]Persona{"channel": {RequireMFA: []string{"root:users:ban"}}}}, `must start with "channel:"`},
+		"MFA bare wildcard":               {RoleConfig{Personas: map[string]Persona{"channel": {RequireMFA: []string{"*"}}}}, "persona segment"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := tc.cfg.schema()
@@ -140,19 +143,22 @@ func TestRolesWorkflow(t *testing.T) {
 	grantRole(t, a, iam.RootGroup(), admin, "admin")
 
 	announcements := iam.GroupBySlug("channel", "announcements")
-	_, err = a.CreateInstanceForSubject(ctx, announcements, "", bob.ID)
+	_, _, err = a.CreateGroup(ctx, iam.UserActor(bob.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
 	require.ErrorIs(t, err, iam.ErrGroupSlugReserved)
-	created, err := a.CreateInstanceForSubject(ctx, announcements, "", admin.ID)
+	_, created, err := a.CreateGroup(ctx, iam.UserActor(admin.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
 	require.NoError(t, err)
-	require.True(t, created.Created)
+	require.True(t, created)
+	_, created, err = a.CreateGroup(ctx, iam.UserActor(admin.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
+	require.NoError(t, err)
+	require.False(t, created, "a re-run by the owner returns the group")
 	golang := iam.GroupBySlug("channel", "golang")
-	_, err = a.CreateInstanceForSubject(ctx, golang, "", bob.ID)
+	_, _, err = a.CreateGroup(ctx, iam.UserActor(bob.ID), iam.NewGroup{Persona: "channel", Slug: "golang"})
 	require.NoError(t, err)
 	grantRole(t, a, golang, carol, "moderator")
 
 	can := func(s iam.Subject, g iam.GroupRef, perm iam.Perm) bool {
 		t.Helper()
-		ok, err := a.Can(ctx, s, g, perm)
+		ok, err := a.Can(ctx, actorOf(s), g, perm)
 		require.NoError(t, err)
 		return ok
 	}
@@ -162,11 +168,11 @@ func TestRolesWorkflow(t *testing.T) {
 	require.False(t, can(carol, announcements, "channel:posts:approve"), "a channel role applies only in its group")
 	require.False(t, can(carol, golang, "channel:members:manage"))
 
-	_, err = a.Can(ctx, carol, golang, "channel:posts:pin")
+	_, err = a.Can(ctx, actorOf(carol), golang, "channel:posts:pin")
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	gid, err := a.ResolveGroupIDForSlug(ctx, golang)
+	gid, err := groupIDOf(ctx, a, golang)
 	require.NoError(t, err)
-	_, err = a.CanOnGroup(ctx, carol, gid, "root:self:read")
+	_, err = a.Can(ctx, actorOf(carol), iam.GroupByID(gid), "root:self:read")
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
 	require.True(t, a.KnownPermission("channel:posts:edit"))
 	require.False(t, a.KnownPermission("channel:posts:pin"))

@@ -100,19 +100,17 @@ func UserClaims(c *gin.Context) (verify.UserClaimsData, bool) {
 	return verify.UserClaimsFromContext(c.Request.Context())
 }
 
-// RequirePermission checks perm on the group resolve returns. It panics at
-// construction on a perm the checker does not register.
-func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
-	verify.MustKnowPermission(checker, perm)
+// RequirePermission authenticates the request (it includes Required) and
+// requires perm, checked live, in the group resolve returns; a nil resolve
+// means the root group. It panics at construction on a perm the authority
+// does not register.
+func RequirePermission(a verify.Authority, perm iam.Perm, resolve func(*gin.Context) iam.GroupRef) gin.HandlerFunc {
+	verify.MustKnowPermission(a, perm)
 	return func(c *gin.Context) {
-		var mw func(http.Handler) http.Handler
-		if resolve == nil {
-			mw = verify.RequirePermission(checker, perm, nil)
-		} else {
-			mw = verify.RequirePermission(checker, perm, func(*http.Request) verify.PermissionScope {
-				return resolve(c)
-			})
+		var r func(*http.Request) iam.GroupRef
+		if resolve != nil {
+			r = func(*http.Request) iam.GroupRef { return resolve(c) }
 		}
-		Use(mw)(c)
+		Use(verify.RequirePermission(a, perm, r))(c)
 	}
 }

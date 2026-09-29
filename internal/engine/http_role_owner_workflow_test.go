@@ -40,7 +40,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	requireErrorCode(t, w.Body.String(), string(errmodel.CodeCannotRemoveLastOwner))
-	gid, err := client.ResolveGroupIDForSlug(ctx, group)
+	gid, err := groupIDOf(ctx, client, group)
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "owner-app", PermissionGroupID: gid, Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	allowed, err := client.Can(ctx, iam.UserSubject(peer), group, "org:members:manage")
+	allowed, err := client.Can(ctx, iam.UserActor(peer), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, allowed)
 }
@@ -64,6 +64,8 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	cfg := instanceCreateTestConfig()
 	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
 	cfg.Roles.Personas["root"] = Persona{APIKeys: true}
+	// root:members:manage needs MFA; this test is about actor kinds, not MFA.
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	client := newServerClient(t, cfg, pg.Pool)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)

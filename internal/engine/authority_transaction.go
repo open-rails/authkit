@@ -342,7 +342,7 @@ func outsideApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore
 	return surviving, nil
 }
 
-func (s *Engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string, opts iam.DeletePermissionGroupOptions) error {
+func (s *Engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string, opts iam.PurgeGroupOptions) error {
 	surviving, err := outsideApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err

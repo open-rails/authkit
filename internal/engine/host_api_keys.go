@@ -78,6 +78,9 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 		if err != nil {
 			return err
 		}
+		if err := s.refuseMFACredential(role, grants); err != nil {
+			return err
+		}
 		if err := s.requireRoleGrant(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
 			return err
 		}
@@ -200,7 +203,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
  LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
  WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
 		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, &p.Group.Persona, &p.Group.InstanceSlug, &p.Group.DisplayName, &custom)
+			&p.Group.ID, &p.Group.Persona, &p.Group.Slug, &p.Group.DisplayName, &custom)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
 	}

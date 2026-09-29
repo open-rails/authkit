@@ -47,7 +47,7 @@ type NewAPIKey struct {
 type APIKeyPrincipal struct {
 	ID          string
 	LookupID    string
-	Group       GroupInstance
+	Group       Group
 	Issuer      string // the issuer of the AuthKit deployment holding the key
 	Role        Role
 	Permissions []string

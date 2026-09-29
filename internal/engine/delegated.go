@@ -66,7 +66,7 @@ func (s *Engine) delegatedPermissionHeld(ctx context.Context, userID string, per
 	if strings.TrimSpace(userID) == "" || !sch.KnownPermission(perm) {
 		return false, nil
 	}
-	return s.Can(ctx, iam.UserSubject(userID), iam.RootGroup(), perm)
+	return s.Can(ctx, iam.UserActor(userID), iam.RootGroup(), perm)
 }
 
 // mintDelegatedAccessToken signs a canonical delegated access token with an

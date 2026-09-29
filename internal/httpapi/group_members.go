@@ -4,11 +4,10 @@ package httpapi
 // the caller's own memberships and permissions.
 
 import (
-	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -22,8 +21,10 @@ type memberRequest struct {
 	Role   string `json:"role"`
 }
 
-// groupMemberAdd assigns a user a role in the group; an unknown email gets a
-// role-carrying registration invite instead.
+// groupMemberAdd assigns a user a role in the group. An email adds only the
+// live account that has verified it; any other address, including one an
+// unverified or deleted account holds, gets a role-carrying registration
+// invite instead, so an unproven email never receives a role.
 func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil {
@@ -48,15 +49,13 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 		}
 	}
 	if email != "" {
-		u, err := s.svc.GetUserByEmail(r.Context(), email)
-		if errors.Is(err, pgx.ErrNoRows) {
-			u = nil
-		} else if err != nil {
+		id, found, err := s.svc.MemberUserIDByEmail(r.Context(), email)
+		if err != nil {
 			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
 			serverErr(w, "database_error", nil)
 			return
 		}
-		if u == nil {
+		if !found {
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
 				return
 			}
@@ -86,7 +85,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			})
 			return
 		}
-		userID = u.ID
+		userID = id
 	}
 	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)}, role)
 	if !s.writeOpResult(w, res, err) {
@@ -139,23 +138,41 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group 
 	})
 }
 
-// groupMembersList lists the role assignments in a group.
+// groupMembersList lists the role assignments in a group, a page at a time
+// (?cursor=, ?limit=, and ?kind= / ?role= filters, repeatable).
 func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	members, err := s.svc.ListGroupMembers(r.Context(), group)
+	q := iam.MemberQuery{Page: groupPageRequest(r)}
+	for _, k := range r.URL.Query()["kind"] {
+		q.Kinds = append(q.Kinds, iam.SubjectKind(strings.TrimSpace(k)))
+	}
+	for _, role := range r.URL.Query()["role"] {
+		q.Roles = append(q.Roles, iam.Role(strings.TrimSpace(role)))
+	}
+	page, err := s.svc.ListGroupMembers(r.Context(), group, q)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	data := make([]map[string]any, 0, len(members))
-	for _, m := range members {
-		data = append(data, map[string]any{"subject_id": m.SubjectID, "subject_kind": m.SubjectKind, "role": m.Role})
+	data := make([]map[string]any, 0, len(page.Items))
+	for _, m := range page.Items {
+		data = append(data, map[string]any{"subject_id": m.Subject.ID, "subject_kind": m.Subject.Kind, "role": m.Role})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"object":        "list",
 		"persona":       group.Persona(),
 		"instance_slug": group.Slug(),
 		"data":          data,
-	})
+	}
+	if page.Next != "" {
+		out["next_cursor"] = page.Next
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// groupPageRequest reads ?cursor= and ?limit=.
+func groupPageRequest(r *http.Request) iam.PageRequest {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	return iam.PageRequest{Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), Limit: limit}
 }
 
 // groupRolesList returns the role catalog declared for a persona (always
@@ -183,29 +200,25 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona iam.Persona) {
 }
 
 // handleMeGroupsGET is the cross-persona discovery endpoint: the caller's group
-// memberships as {persona, instance_slug, role}.
+// memberships as {group_id, persona, instance_slug, role}, a page at a time.
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
-	groups, err := s.svc.ListSubjectGroups(r.Context(), iam.UserSubject(claims.UserID))
+	page, err := s.svc.ListSubjectGroups(r.Context(), iam.UserSubject(claims.UserID), groupPageRequest(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	data := make([]map[string]any, 0, len(groups))
-	for _, g := range groups {
-		// #269: the caller's OWN memberships carry the group uuid — they have
-		// already passed the only authorization that could gate it, and this is
-		// the discovery path a client uses to learn what it belongs to.
-		data = append(data, map[string]any{"group_id": g.GroupID, "persona": g.Persona, "instance_slug": g.InstanceSlug, "role": g.Role})
+	data := make([]map[string]any, 0, len(page.Items))
+	for _, m := range page.Items {
+		// The caller's own memberships carry the group id: the discovery path
+		// a client uses to learn what it belongs to.
+		data = append(data, map[string]any{"group_id": m.Group.ID, "persona": m.Group.Persona, "instance_slug": m.Group.Slug, "role": m.Role})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data":   data,
-	})
+	writeList(w, data, page.Next)
 }
 
 // handleMePermissionsGET is the permission-introspection endpoint (#421): it
@@ -217,8 +230,8 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 // required because perms are persona-namespaced. Globs like `root:*` (held by an
 // owner) are returned VERBATIM.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok {
 		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
@@ -227,10 +240,14 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		persona = iam.RootPersona
 	}
 	group := iam.GroupBySlug(persona, r.URL.Query().Get("instance"))
-	perms, err := s.svc.ListEffectivePermissions(r.Context(), iam.UserSubject(claims.UserID), group)
+	byGroup, err := s.svc.EffectivePermissions(r.Context(), actor, []iam.GroupRef{group})
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
+	}
+	perms := []iam.Perm{}
+	for _, p := range byGroup {
+		perms = p
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "permission_set",

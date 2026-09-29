@@ -11,14 +11,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -104,7 +102,7 @@ func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) e
 	return nil
 }
 
-func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts iam.DeletePermissionGroupOptions) error {
+func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts iam.PurgeGroupOptions) error {
 	if err := st.lockGroup(ctx, groupID); err != nil {
 		return err
 	}
@@ -401,15 +399,13 @@ func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 	return n, err
 }
 
-// UpsertCustomRole defines/updates a per-group custom role's permission set and
-// its requires_mfa flag (#247). Only meaningful for personas whose CustomRoles
-// capability is set; the caller enforces that + validates each grant pattern
-// against the group's persona.
-func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authflow.CustomRoleDef) error {
+// UpsertCustomRole defines or redefines a group's custom role. The caller
+// validates the grants and authorizes the change.
+func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, role iam.Role, grants []string) error {
 	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
- INSERT INTO group_custom_roles(permission_group_id,role,permissions,requires_mfa)
- SELECT id,$2,$3,$4 FROM locked
- ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,requires_mfa=EXCLUDED.requires_mfa,updated_at=now()`, groupID, def.Role, def.Permissions, def.RequiresMFA)
+ INSERT INTO group_custom_roles(permission_group_id,role,permissions)
+ SELECT id,$2,$3 FROM locked
+ ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,updated_at=now()`, groupID, role, grants)
 	if err == nil && tag.RowsAffected() == 0 {
 		return iam.ErrGroupNotFound
 	}
@@ -419,18 +415,31 @@ func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID st
 	return err
 }
 
-// CustomRole returns a single per-group custom role's stored permissions and
-// requires_mfa flag, or (nil, false, nil) if no such custom role is defined —
-// absence is not an error (the caller may be about to CREATE it).
-func (st *permissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (permissions []string, requiresMFA bool, err error) {
-	err = st.q.QueryRow(ctx,
-		`SELECT permissions, requires_mfa FROM group_custom_roles
-		 WHERE permission_group_id = $1::uuid AND role = $2`,
-		groupID, role).Scan(&permissions, &requiresMFA)
+// CustomRole returns a group's custom role grants; exists is false when the
+// group defines no such role.
+func (st *permissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (grants []string, exists bool, err error) {
+	err = st.q.QueryRow(ctx, `SELECT permissions FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2`, groupID, role).Scan(&grants)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
-	return permissions, requiresMFA, err
+	return grants, err == nil, err
+}
+
+// roleRefs counts the live rows in a group that carry one role name.
+type roleRefs struct{ users, applications, apiKeys, invites int }
+
+func (r roleRefs) any() bool { return r.users+r.applications+r.apiKeys+r.invites > 0 }
+
+func (st *permissionGroupStore) roleReferences(ctx context.Context, groupID string, role iam.Role) (roleRefs, error) {
+	var r roleRefs
+	err := st.q.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid AND role=$2),
+ (SELECT count(*) FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND role=$2),
+ (SELECT count(*) FROM api_keys WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())),
+ (SELECT count(*) FROM group_invite_links WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND redeemed_at IS NULL AND (expires_at IS NULL OR expires_at>now()))
+ + (SELECT count(*) FROM account_registration_invites WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now())`,
+		groupID, role).Scan(&r.users, &r.applications, &r.apiKeys, &r.invites)
+	return r, err
 }
 
 // CustomRolesFor preloads the custom roles for a set of group ids and returns a
@@ -471,17 +480,6 @@ func (st *permissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 	}, nil
 }
 
-// CanOnGroup is the end-to-end DB-backed authorization check: read the
-// subject's roles on the target group and on root, preload any custom roles,
-// and test perm coverage against the schema.
-func (st *permissionGroupStore) CanOnGroup(ctx context.Context, schema *rbac.Schema, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
-	assignments, resolver, err := st.readAssignments(ctx, groupID, subject, true, subject.Kind == iam.SubjectKindUser)
-	if err != nil {
-		return false, err
-	}
-	return schema.Can(groupID, assignments, resolver, perm), nil
-}
-
 // GrantsOnGroups returns, per live target group, the de-duplicated UNION of
 // grant PATTERNS the subject holds on that group and on root, resolved
 // against the schema's catalog + per-group custom roles, in one query. Globs
@@ -513,78 +511,22 @@ func (st *permissionGroupStore) GrantsOnGroup(ctx context.Context, schema *rbac.
 	return []string{}, nil
 }
 
-// GroupMembers lists the live role-assignments in a group.
-func (st *permissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]iam.GroupMember, error) {
-	rows, err := st.q.Query(ctx,
-		`SELECT user_id::text, 'user' AS subject_kind, role FROM group_user_roles
-		 WHERE permission_group_id = $1::uuid
-		 UNION ALL
-		 SELECT remote_application_id::text, 'remote_application' AS subject_kind, role
-		   FROM group_remote_application_roles
-		  WHERE permission_group_id = $1::uuid
-		 ORDER BY 1, 3`, groupID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []iam.GroupMember
-	for rows.Next() {
-		var m iam.GroupMember
-		if err := rows.Scan(&m.SubjectID, &m.SubjectKind, &m.Role); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-// SubjectGroups lists every group membership a subject holds (cross-persona),
-// the data behind /me/groups.
-func (st *permissionGroupStore) SubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error) {
-	table, subjectColumn, err := groupRoleTable(subject.Kind)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := st.q.Query(ctx,
-		fmt.Sprintf(`SELECT g.id::text, g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
-		 FROM %s a
-		 JOIN permission_groups g ON g.id = a.permission_group_id
-		 WHERE a.%s = $1::uuid AND g.deleted_at IS NULL
-		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subject.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []iam.SubjectGroupMembership
-	for rows.Next() {
-		var m iam.SubjectGroupMembership
-		if err := rows.Scan(&m.GroupID, &m.Persona, &m.InstanceSlug, &m.DisplayName, &m.Role); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-// GroupInstancesByIDs reads many groups' own identity rows (#269), including
-// retained soft-deleted ones (DeletedAt set), in one query. Unknown and
-// malformed ids are absent. Ids are ones the caller already resolved.
-func (st *permissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]iam.GroupInstance, error) {
-	out := map[string]iam.GroupInstance{}
+// groupsByID reads many groups by id, soft-deleted ones included, in one
+// query. Unknown and malformed ids are absent.
+func (st *permissionGroupStore) groupsByID(ctx context.Context, groupIDs []string) (map[string]iam.Group, error) {
+	out := map[string]iam.Group{}
 	ids := groupBatchIDs(groupIDs)
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := st.q.Query(ctx,
-		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, ''), deleted_at
-		   FROM permission_groups WHERE id = ANY($1::uuid[])`, ids)
+	rows, err := st.q.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups WHERE id=ANY($1::uuid[])`, ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var g iam.GroupInstance
-		if err := rows.Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName, &g.DeletedAt); err != nil {
+		g, err := scanGroup(rows)
+		if err != nil {
 			return nil, err
 		}
 		out[g.ID] = g
@@ -592,17 +534,25 @@ func (st *permissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupID
 	return out, rows.Err()
 }
 
-// GroupInstanceByID is GroupInstancesByIDs for one id; absence is ErrGroupNotFound.
-func (st *permissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
-	groups, err := st.GroupInstancesByIDs(ctx, []string{groupID})
+// groupByID is groupsByID for one id; absence is ErrGroupNotFound.
+func (st *permissionGroupStore) groupByID(ctx context.Context, groupID string) (iam.Group, error) {
+	groups, err := st.groupsByID(ctx, []string{groupID})
 	if err != nil {
-		return iam.GroupInstance{}, err
+		return iam.Group{}, err
 	}
 	g, ok := groups[groupID]
 	if !ok {
-		return iam.GroupInstance{}, iam.ErrGroupNotFound
+		return iam.Group{}, iam.ErrGroupNotFound
 	}
 	return g, nil
+}
+
+const groupColumns = `id::text, persona, COALESCE(instance_slug,''), COALESCE(display_name,''), deleted_at`
+
+func scanGroup(row pgx.Row) (iam.Group, error) {
+	var g iam.Group
+	err := row.Scan(&g.ID, &g.Persona, &g.Slug, &g.DisplayName, &g.DeletedAt)
+	return g, err
 }
 
 // DeleteCustomRole retires a definition and every reference to it. The caller
@@ -623,44 +573,4 @@ func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID st
 	}
 	st.touched = append(st.touched, authorityTouch{groupID: groupID})
 	return nil
-}
-
-// SearchGroupInstances searches canonical names only. Former names are addresses,
-// not additional directory entries. Keyset ordering keeps the host's paginated
-// binding join bounded without loading every group or performing per-row reads.
-func (st *permissionGroupStore) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
-	persona = iam.Persona(strings.TrimSpace(string(persona)))
-	query = strings.ToLower(strings.TrimSpace(query))
-	afterSlug = strings.ToLower(strings.TrimSpace(afterSlug))
-	afterID = strings.TrimSpace(afterID)
-	if persona == "" {
-		return nil, fmt.Errorf("group search requires a persona")
-	}
-	if (afterSlug == "") != (afterID == "") {
-		return nil, fmt.Errorf("group search cursor requires both slug and id")
-	}
-	if limit == 0 {
-		limit = 50
-	}
-	if limit < 1 || limit > 200 {
-		return nil, fmt.Errorf("group search limit must be between 1 and 200")
-	}
-	rows, err := st.q.Query(ctx, `SELECT id::text,persona,instance_slug,COALESCE(display_name,'')
- FROM permission_groups WHERE persona=$1 AND instance_slug IS NOT NULL AND deleted_at IS NULL
- AND strpos(instance_slug,$2)>0
- AND ($3='' OR (instance_slug,id)>($3,NULLIF($4,'')::uuid))
- ORDER BY instance_slug,id LIMIT $5`, persona, query, afterSlug, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]iam.GroupInstance, 0)
-	for rows.Next() {
-		var g iam.GroupInstance
-		if err := rows.Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName); err != nil {
-			return nil, err
-		}
-		out = append(out, g)
-	}
-	return out, rows.Err()
 }

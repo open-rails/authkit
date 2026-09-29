@@ -92,7 +92,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	})
 	group := func(name, uid string) (iam.GroupRef, string) {
 		g := iam.GroupBySlug("org", name)
-		id, err := svc.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: g.Persona(), InstanceSlug: g.Slug(), OwnerSubjectID: uid})
+		id, err := seedGroup(ctx, svc, g.Persona(), g.Slug(), uid)
 		require.NoError(t, err)
 		return g, id
 	}
@@ -144,7 +144,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		done := make(chan error, 2)
 		go func() {
 			<-start
-			done <- svc.DeleteGroupInstanceByID(ctx, controllerID, iam.DeletePermissionGroupOptions{})
+			done <- svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(controllerID), iam.PurgeGroupOptions{})
 		}()
 		go func() {
 			<-start
@@ -194,11 +194,11 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		human := user()
 		g, gid := group("custom-life", human)
 		other := user()
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, authflow.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
+		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), g, iam.CustomRole{Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(other), "editor"))
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human), "editor"), iam.ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, g, authflow.CustomRoleDef{Role: "editor", Permissions: []string{"org:records:read"}}))
-		require.NoError(t, svc.DeleteGroupCustomRole(ctx, human, g, "editor"))
+		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), g, iam.CustomRole{Name: "editor", Permissions: []string{"org:records:read"}}))
+		require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(human), g, "editor"))
 		require.Empty(t, role(gid, other))
 		require.Equal(t, iam.OwnerRole, role(gid, human))
 	})
@@ -213,8 +213,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = iam.TwoFactorOptional
 					cfg.Roles = RoleConfig{
-						Personas: map[string]Persona{"org": {}},
-						Roles:    []Role{{Persona: "org", Name: iam.OwnerRole, Permissions: []string{"org:*"}, RequiresMFA: true}},
+						Personas: map[string]Persona{"org": {RequireMFA: []string{"org:members:manage"}}},
+						Roles:    []Role{{Persona: "org", Name: iam.OwnerRole, Permissions: []string{"org:*"}}},
 					}
 					raceSvc = mustNewWithKeys(t, cfg, keyset{}, Deps{Postgres: hostPool})
 					_, err := raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
@@ -283,7 +283,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		customGroup, customGID := group("queued-custom", human)
 		customActor, customTarget := user(), user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customActor), "manager"))
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, human, customGroup, authflow.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:read"}}))
+		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(human), customGroup, iam.CustomRole{Name: "auditor", Permissions: []string{"org:records:read"}}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customTarget), "auditor"))
 		expiringActor := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(expiringActor), "manager"))
@@ -301,7 +301,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{"custom_role_redefinition", func() error {
 				return assignRole(ctx, svc, iam.UserActor(customActor), customGroup, iam.UserSubject(customTarget), "reader")
 			}, func(st *permissionGroupStore) error {
-				return st.UpsertCustomRole(ctx, customGID, authflow.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
+				return st.UpsertCustomRole(ctx, customGID, "auditor", []string{"org:records:write"})
 			}, iam.ErrRoleAssignmentEscalation},
 			{"ban_while_queued_revokes_authority", func() error {
 				return assignRole(ctx, svc, iam.UserActor(expiringActor), iam.RootGroup(), iam.UserSubject(peer), "reader")

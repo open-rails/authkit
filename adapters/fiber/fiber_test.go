@@ -447,43 +447,44 @@ func TestUseAbortAndFiberErrors(t *testing.T) {
 	})
 }
 
-type permissionChecker func(context.Context, iam.Subject, string, iam.Perm) (bool, error)
-
-func (f permissionChecker) CanOnGroup(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
-	return f(ctx, subject, group, perm)
+// authority is a verify.Authority whose Can is f.
+type authority struct {
+	v *verify.Verifier
+	f func(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 }
 
-func (permissionChecker) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
+func (a authority) Verifier() *verify.Verifier { return a.v }
+func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return a.f(ctx, actor, ref, perm)
+}
+func (authority) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
 
-func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
+func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	issuer := newIssuer(t)
-	scope := verify.PermissionScope{GroupID: "group-uuid", AuthorityIssuer: issuer.URL(), Persona: "blog", Instance: "writers"}
+	group := iam.GroupBySlug("blog", "writers")
 	for _, allow := range []bool{true, false} {
 		calls := 0
-		checker := permissionChecker(func(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
+		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 			calls++
-			if subject != iam.UserSubject("user-1") || group != scope.GroupID || perm != "blog:posts:write" {
-				t.Errorf("permission input = %v %q %q", subject, group, perm)
+			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm != "blog:posts:write" {
+				t.Errorf("permission input = %v %v %q", actor, ref, perm)
 			}
 			return allow, nil
-		})
+		}}
 		app := fiber.New()
-		app.Get("/blogs/:blog", authkitfiber.Required(newVerifier(t, issuer, true)), authkitfiber.RequirePermission(checker, "blog:posts:write", func(c fiber.Ctx) verify.PermissionScope {
-			if c.Params("blog") != "writers" {
-				t.Errorf("route param = %q", c.Params("blog"))
-			}
-			return scope
+		app.Get("/blogs/:blog", authkitfiber.RequirePermission(auth, "blog:posts:write", func(c fiber.Ctx) iam.GroupRef {
+			return iam.GroupBySlug("blog", c.Params("blog"))
 		}), func(c fiber.Ctx) error {
 			if !allow {
 				t.Error("denied permission reached handler")
 			}
-			got, ok := verify.PermissionScopeFromContext(c.Context())
-			if !ok || got != scope {
-				t.Errorf("scope = %+v, present = %v", got, ok)
-			}
 			return c.SendStatus(http.StatusNoContent)
 		})
-		status, _, body := request(t, app, http.MethodGet, "/blogs/writers", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		status, _, body := request(t, app, http.MethodGet, "/blogs/writers", "")
+		if status != http.StatusUnauthorized || calls != 0 {
+			t.Fatalf("anonymous response = %d %q, calls = %d", status, body, calls)
+		}
+		status, _, body = request(t, app, http.MethodGet, "/blogs/writers", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
 		want := http.StatusForbidden
 		if allow {
 			want = http.StatusNoContent
@@ -495,13 +496,13 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 }
 
 func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
-	checker := permissionChecker(func(context.Context, iam.Subject, string, iam.Perm) (bool, error) { return true, nil })
+	auth := authority{f: func(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error) { return true, nil }}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("an unregistered permission must panic when the route is built")
 		}
 	}()
-	authkitfiber.RequirePermission(checker, "blog:posts:delete", nil)
+	authkitfiber.RequirePermission(auth, "blog:posts:delete", nil)
 }
 
 type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)

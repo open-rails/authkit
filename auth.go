@@ -33,7 +33,7 @@ type Auth struct {
 // Auth is what verify's permission, liveness and delegation seams consume.
 var (
 	_ verify.LivenessSource     = (*Auth)(nil)
-	_ verify.PermissionChecker  = (*Auth)(nil)
+	_ verify.Authority          = (*Auth)(nil)
 	_ verify.DelegatedAuthority = (*Auth)(nil)
 )
 

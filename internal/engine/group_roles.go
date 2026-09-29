@@ -283,20 +283,3 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	}
 	return out, nil
 }
-
-// authorizeCustomRoleChange: defining or deleting a custom role is a deferred
-// grant or revoke to every holder, so the actor needs CAP(<persona>:roles:manage)
-// and COVER of both the role's current grants and the requested ones.
-func (s *Engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGroupStore, g groupTarget, actorUserID string, oldGrants, newGrants []string) error {
-	auth, err := s.actorAuthority(ctx, st, iam.UserActor(actorUserID), g)
-	if err != nil {
-		return err
-	}
-	if err := auth.requireCap(iam.PermRolesManage(g.Persona)); err != nil {
-		return err
-	}
-	if err := auth.requireCover(oldGrants); err != nil {
-		return err
-	}
-	return auth.requireCover(newGrants)
-}

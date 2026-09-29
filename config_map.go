@@ -55,6 +55,7 @@ func (c RoleConfig) engine() engine.RoleConfig {
 		for name, p := range c.Personas {
 			out.Personas[name] = engine.Persona{
 				Permissions:        p.Permissions,
+				RequireMFA:         p.RequireMFA,
 				Creation:           engine.GroupCreation(p.Creation),
 				CustomRoles:        p.CustomRoles,
 				APIKeys:            p.APIKeys,

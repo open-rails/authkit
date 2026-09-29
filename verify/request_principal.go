@@ -89,32 +89,20 @@ func (v *Verifier) requestPrincipal(cl Claims, err error) (auth.Principal, error
 
 func (p *requestPrincipal) Identity() auth.Identity { return p.identity }
 
-// Can checks authority on the captured credential without parsing the request
-// or consuming sender proof again. Native permissions remain live. Scoped
-// machine/delegated access requires an exact bound group and authority issuer;
-// unbound issuer-trusted delegation is not a scoped permission grant.
+// Can checks the captured credential's live authority in the group scope.ID
+// names, without parsing the request or consuming sender proof again. The
+// scope's authority must be the checker's own issuer.
 func (p *requestPrincipal) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
-	perm := iam.Perm(permission)
-	if scope.ID == "" || scope.Authority == "" || permission == "" || perm.Persona() == "" {
+	if scope.ID == "" || scope.Authority == "" || permission == "" {
 		return false, nil
 	}
-	if p.identity.Kind == auth.KindDeviceKey {
+	if p.checker == nil || p.authority == "" {
+		return false, auth.ErrUnavailable
+	}
+	if scope.Authority != p.authority {
 		return false, nil
 	}
-	if p.identity.Kind == auth.KindUser {
-		if p.claims.UserID == "" {
-			return false, nil // external subjects are never local user IDs
-		}
-		if p.checker == nil || p.authority == "" {
-			return false, auth.ErrUnavailable
-		}
-		if scope.Authority != p.authority {
-			return false, nil
-		}
-	} else if !p.claims.BoundToPermissionGroup() {
-		return false, nil
-	}
-	allowed, err := Allow(ctx, p.checker, p.claims, perm, PermissionScope{GroupID: scope.ID, AuthorityIssuer: scope.Authority, Persona: perm.Persona()})
+	allowed, err := Allow(ctx, p.checker, p.claims, iam.Perm(permission), iam.GroupByID(scope.ID))
 	if err != nil {
 		return false, errors.Join(auth.ErrUnavailable, err)
 	}

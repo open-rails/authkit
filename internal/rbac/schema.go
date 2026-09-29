@@ -21,6 +21,7 @@ import (
 // PersonaSpec is one declared persona, as the host configured it.
 type PersonaSpec struct {
 	Permissions        []string // app-defined catalog; AuthKit adds its built-ins
+	RequireMFA         []string // permissions or patterns of the catalog that need MFA
 	Creation           Creation
 	CustomRoles        bool
 	APIKeys            bool
@@ -33,7 +34,6 @@ type RoleSpec struct {
 	Name        iam.Role
 	Permissions []string
 	Includes    []iam.Role
-	RequiresMFA bool
 }
 
 // Creation configures the generated POST /<persona> route. ReservedSlugs are
@@ -57,6 +57,7 @@ type Persona struct {
 }
 
 // Role is a compiled role: its grant patterns with includes flattened.
+// RequiresMFA is derived: the grants reach an MFA permission.
 type Role struct {
 	Name        iam.Role
 	Permissions []string
@@ -68,6 +69,7 @@ type Schema struct {
 	personas map[iam.Persona]Persona
 	order    []iam.Persona
 	known    map[iam.Perm]struct{}
+	mfa      []iam.Perm // concrete permissions that need MFA, every persona
 	patterns map[iam.Persona]*regexp.Regexp
 }
 
@@ -145,6 +147,32 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		s.known[perm] = struct{}{}
 	}
 	slices.Sort(p.Permissions)
+	mfa := spec.RequireMFA
+	if name == iam.RootPersona {
+		// Handing out site-wide roles always needs MFA, so the root owner does.
+		mfa = append([]string{string(iam.PermMembersManage(name))}, mfa...)
+	}
+	for _, raw := range mfa {
+		pattern := iam.Perm(strings.TrimSpace(raw))
+		if err := iam.ValidateGrantPattern(string(pattern)); err != nil {
+			return Persona{}, fmt.Errorf("RequireMFA: %w", err)
+		}
+		if pattern.Persona() != name {
+			return Persona{}, fmt.Errorf("RequireMFA %q must start with %q", pattern, name+":")
+		}
+		matched := false
+		for _, perm := range p.Permissions {
+			if perm.Matches(pattern) {
+				matched = true
+				if !slices.Contains(s.mfa, perm) {
+					s.mfa = append(s.mfa, perm)
+				}
+			}
+		}
+		if !matched {
+			return Persona{}, fmt.Errorf("RequireMFA %q matches no permission in the catalog", pattern)
+		}
+	}
 
 	c := spec.Creation
 	if c.Enabled && name == iam.RootPersona {
@@ -227,8 +255,7 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 				return fmt.Errorf("persona %q: the %q role must hold exactly [%q]", name, iam.OwnerRole, owner)
 			}
 		} else {
-			// The apex root:* role must never be the one role that forgot 2FA.
-			roles[iam.OwnerRole] = RoleSpec{Persona: name, Name: iam.OwnerRole, Permissions: []string{owner}, RequiresMFA: name == iam.RootPersona}
+			roles[iam.OwnerRole] = RoleSpec{Persona: name, Name: iam.OwnerRole, Permissions: []string{owner}}
 			order[name] = append(order[name], iam.OwnerRole)
 		}
 		p := s.personas[name]
@@ -237,7 +264,7 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 			if err != nil {
 				return fmt.Errorf("persona %q role %q: %w", name, role, err)
 			}
-			p.Roles = append(p.Roles, Role{Name: role, Permissions: grants, RequiresMFA: roles[role].RequiresMFA})
+			p.Roles = append(p.Roles, Role{Name: role, Permissions: grants, RequiresMFA: s.RequiresMFA(grants)})
 		}
 		s.personas[name] = p
 	}
@@ -297,6 +324,18 @@ func (s *Schema) validRoleGrant(persona iam.Persona, grant string) error {
 // persona role holds only its own persona's. A root role may hold any
 // persona's, since a role held on root applies in every group.
 func mayHold(role, perm iam.Persona) bool { return role == iam.RootPersona || role == perm }
+
+// RequiresMFA reports whether grants reach a permission that needs MFA. MFA
+// follows permissions, not role names: a clone, an include or a root role
+// holding such a permission needs MFA as much as the role that first held it.
+func (s *Schema) RequiresMFA(grants []string) bool {
+	for _, perm := range s.mfa {
+		if iam.AnyGrantCovers(grants, perm) {
+			return true
+		}
+	}
+	return false
+}
 
 // CustomRoleGrantsValid checks the grants of a runtime-defined role: each must
 // match the persona's catalog, and none may be the owner grant.

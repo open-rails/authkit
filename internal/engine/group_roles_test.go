@@ -69,10 +69,9 @@ func TestGroupRoleOperations(t *testing.T) {
 	_, err = engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor}, "editor")
 	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
 
-	// MFA-required roles bind the operator too.
+	// MFA follows permissions and binds the operator too.
 	engine.cfg.TwoFactor.Mode = iam.TwoFactorOptional
-	roles.Roles = append([]Role(nil), roles.Roles...)
-	roles.Roles[0].RequiresMFA = true
+	roles.Personas = map[string]Persona{"root": {Permissions: []string{"root:posts:edit"}, RequireMFA: []string{"root:posts:edit"}}}
 	engine.groupSchema, err = roles.schema()
 	require.NoError(t, err)
 	require.ErrorIs(t, assignRole(ctx, engine, iam.OperatorActor(), root, editor, "editor"), iam.ErrTwoFAEnrollmentRequired)
@@ -102,7 +101,7 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	_, err := engine.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	acme := iam.GroupBySlug("org", "acme")
-	_, err = engine.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: founder.ID})
+	_, err = seedGroup(ctx, engine, "org", "acme", founder.ID)
 	require.NoError(t, err)
 	root := iam.RootGroup()
 	grantRole(t, engine, root, orgAdmin, "org-admin")
@@ -110,7 +109,7 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	grantRole(t, engine, root, siteOwner, iam.OwnerRole)
 	can := func(s iam.Subject, g iam.GroupRef, p iam.Perm) bool {
 		t.Helper()
-		ok, err := engine.Can(ctx, s, g, p)
+		ok, err := engine.Can(ctx, actorOf(s), g, p)
 		require.NoError(t, err)
 		return ok
 	}
@@ -160,9 +159,9 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 	f.founder = f.newUser("founder")
 	_, err := e.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	f.acmeID, err = e.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: f.founder.ID})
+	f.acmeID, err = seedGroup(ctx, e, "org", "acme", f.founder.ID)
 	require.NoError(t, err)
-	_, err = e.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "other", OwnerSubjectID: f.founder.ID})
+	_, err = seedGroup(ctx, e, "org", "other", f.founder.ID)
 	require.NoError(t, err)
 	manager := f.newUser("manager")
 	f.manager = manager.ID

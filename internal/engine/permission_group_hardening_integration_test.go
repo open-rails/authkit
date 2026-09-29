@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"strings"
@@ -40,11 +39,15 @@ func hardeningTestConfig() Config {
 }
 
 func newHardeningTestService(t *testing.T) (*httpapi.Service, *pgxpool.Pool, string) {
+	return newHardeningTestServiceWith(t, hardeningTestConfig())
+}
+
+func newHardeningTestServiceWith(t *testing.T, cfg Config) (*httpapi.Service, *pgxpool.Pool, string) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
+	coreSvc, err := coreFromConfig(cfg, pool)
 	require.NoError(t, err)
 	t.Cleanup(coreSvc.Close)
 	_, err = coreSvc.ensureRootGroup(ctx)
@@ -80,7 +83,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	s, pool, owner := newHardeningTestService(t)
 	ctx := context.Background()
 
-	_, err := fixtureBackend(s.Backend()).CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-escalate", OwnerSubjectID: owner})
+	_, err := seedGroup(ctx, fixtureBackend(s.Backend()), "merchant", "m-escalate", owner)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-escalate'`)
@@ -111,14 +114,14 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
 	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(subject), "auditor")
-	perms, err := s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	perms, err := effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
 	w = drive(s, t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read", "merchant:billing:write"}, perms)
 
@@ -132,29 +135,38 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// Owner CAN delete it.
 	dw = driveSub(s, t, delGR, delRepl, owner)
 	require.Equal(t, http.StatusOK, dw.Code, dw.Body.String())
-	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.Empty(t, perms, "after delete, the auditor grant must be gone")
 }
 
-// TestCustomRoleRequiresMFA_HTTP: #247 — a custom role can declare
-// requires_mfa, honored by the SAME assignment-time MFA gate as catalog roles.
+// TestCustomRoleRequiresMFA_HTTP: MFA follows permissions. A custom role
+// holding a permission the persona marks RequireMFA needs MFA of its holder,
+// on the same assignment gate as catalog roles, with no flag to forget.
 func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
-	s, pool, owner := newHardeningTestService(t)
+	cfg := hardeningTestConfig()
+	merchant := cfg.Roles.Personas["merchant"]
+	merchant.Permissions = append(merchant.Permissions, "merchant:payouts:send")
+	merchant.RequireMFA = []string{"merchant:payouts:send"}
+	cfg.Roles.Personas = map[string]Persona{"merchant": merchant}
+	s, pool, owner := newHardeningTestServiceWith(t, cfg)
 	ctx := context.Background()
+	backend := fixtureBackend(s.Backend())
 
-	_, err := fixtureBackend(s.Backend()).CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-mfa-role", OwnerSubjectID: owner})
+	// The owner holds merchant:*, which reaches the MFA permission.
+	_, err := seedGroup(ctx, backend, "merchant", "m-mfa-role", owner)
+	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
+	_, err = backend.enableFactor(ctx, owner, "email", nil, authflow.AllowAdditionalFactors)
+	require.NoError(t, err)
+	_, err = seedGroup(ctx, backend, "merchant", "m-mfa-role", owner)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-mfa-role'`)
 	})
 
 	defineGR := defineRoleGR("merchant")
-	w := drive(s, t, defineGR, "m-mfa-role", owner, `{"role":"sensitive","permissions":["merchant:billing:read"],"requires_mfa":true}`)
+	w := drive(s, t, defineGR, "m-mfa-role", owner, `{"role":"sensitive","permissions":["merchant:payouts:send","merchant:billing:read"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	var created map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
-	require.Equal(t, true, created["requires_mfa"])
 
 	var subject string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
@@ -168,7 +180,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = fixtureBackend(s.Backend()).enableFactor(ctx, subject, "email", nil, authflow.AllowAdditionalFactors)
+	_, err = backend.enableFactor(ctx, subject, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = driveSub(s, t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

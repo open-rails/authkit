@@ -4,14 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/verify"
 )
 
-// Permission groups, roles and group invitations.
+// Permission groups, roles and permission checks.
 
 // Roles. Every mutation takes an iam.Actor and is checked by the engine: a
 // user subject needs <persona>:members:manage, an application subject
@@ -42,131 +39,107 @@ func (a *Auth) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.
 	return a.engine.GroupRoles(ctx, ref, subjects)
 }
 
-func (a *Auth) CreatePermissionGroup(ctx context.Context, req iam.CreatePermissionGroupRequest) (string, error) {
-	return a.engine.CreatePermissionGroup(ctx, req)
+// Groups. A persona is a type of permission group (channel, org, merchant); a
+// group is one instance of it (/c/golang); root is the persona with exactly
+// one group, the whole site. Reads take no actor: the host is the trust
+// boundary.
+
+// Group reads one group. A slug resolves only a live group; an id also
+// returns a soft-deleted one, with DeletedAt set. Absence is
+// iam.ErrGroupNotFound.
+func (a *Auth) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
+	return a.engine.Group(ctx, ref)
 }
 
-func (a *Auth) ResolveGroupIDForSlug(ctx context.Context, group iam.GroupRef) (string, error) {
-	return a.engine.ResolveGroupIDForSlug(ctx, group)
+// Groups reads many groups by id in one query, soft-deleted ones included.
+// Unknown ids are absent. At most iam.MaxBatch ids.
+func (a *Auth) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
+	return a.engine.Groups(ctx, ids)
 }
 
-func (a *Auth) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
-	return a.engine.GroupInstanceForSlug(ctx, group)
+// ListGroups lists and searches groups, ordered by slug, a page at a time.
+func (a *Auth) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
+	return a.engine.ListGroups(ctx, q)
 }
 
-func (a *Auth) UpdateGroupInstanceAs(ctx context.Context, actorUserID string, groupID string, update iam.GroupInstanceUpdate) (iam.GroupInstance, error) {
-	return a.engine.UpdateGroupInstanceAs(ctx, actorUserID, groupID, update)
+// ListGroupMembers lists the subjects holding a role in a group, a page at a
+// time.
+func (a *Auth) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
+	return a.engine.ListGroupMembers(ctx, ref, q)
 }
 
-// SoftDeleteGroupInstanceByID retires a non-root group without removing its
-// rows or name reservations. Repeated calls retain the original DeletedAt.
-// The trusted host owns admission, retention and eventual hard deletion.
-func (a *Auth) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
-	return a.engine.SoftDeleteGroupInstanceByID(ctx, groupID)
+// ListSubjectGroups lists the live groups a subject holds a role in, a page at
+// a time.
+func (a *Auth) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
+	return a.engine.ListSubjectGroups(ctx, s, p)
 }
 
-// DeleteGroupInstanceByID is a trusted host-operator mutation.
-func (a *Auth) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts iam.DeletePermissionGroupOptions) error {
-	return a.engine.DeleteGroupInstanceByID(ctx, groupID, opts)
+// CreateGroup creates a group. A user actor creates a group of a persona
+// whose GroupCreation is enabled and becomes its owner; a reserved slug needs
+// `<persona>:*` held on root, and the host's admission hooks apply. An
+// operator may create a group of any persona, with NewGroup.Owner or no
+// owner. created is false when the slug already exists and the owner is a
+// member: a re-run returns the existing group.
+func (a *Auth) CreateGroup(ctx context.Context, actor iam.Actor, g iam.NewGroup) (group iam.Group, created bool, err error) {
+	return a.engine.CreateGroup(ctx, actor, g)
 }
 
-// GroupInstancesByIDs reads many resolved groups in ONE query, retained
-// soft-deleted ones included (DeletedAt set); unknown ids are absent. At
-// most MaxBatch distinct ids. GroupInstanceByID is its length-1 form.
-func (a *Auth) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]iam.GroupInstance, error) {
-	return a.engine.GroupInstancesByIDs(ctx, groupIDs)
+// UpdateGroup renames a group or changes its display name. It needs
+// `<persona>:self:update`.
+func (a *Auth) UpdateGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, u iam.GroupUpdate) (iam.Group, error) {
+	return a.engine.UpdateGroup(ctx, actor, ref, u)
 }
 
-func (a *Auth) GroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
-	return a.engine.GroupInstanceByID(ctx, groupID)
+// DeleteGroup soft-deletes a group: it stops resolving and granting, while its
+// rows and slug stay reserved. It needs `<persona>:self:delete`.
+func (a *Auth) DeleteGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef) (iam.Group, error) {
+	return a.engine.DeleteGroup(ctx, actor, ref)
 }
 
-func (a *Auth) ListGroupMembers(ctx context.Context, group iam.GroupRef) ([]iam.GroupMember, error) {
-	return a.engine.ListGroupMembers(ctx, group)
+// PurgeGroup permanently deletes a group, live or soft-deleted (address it by
+// id), with everything in it. Only iam.OperatorActor() may purge.
+func (a *Auth) PurgeGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, o iam.PurgeGroupOptions) error {
+	return a.engine.PurgeGroup(ctx, actor, ref, o)
 }
 
-func (a *Auth) ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error) {
-	return a.engine.ListSubjectGroups(ctx, subject)
+// DefineGroupRole creates or redefines a custom role in a group whose persona
+// has CustomRoles. It needs `<persona>:roles:manage` and must cover the old
+// and new permissions; redefining a role users hold also needs
+// `<persona>:members:manage`, and one API keys or applications hold
+// `<persona>:credentials:manage`.
+func (a *Auth) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, r iam.CustomRole) error {
+	return a.engine.DefineGroupRole(ctx, actor, ref, r)
 }
 
-// Can reports whether subject holds perm in group. An unregistered perm is
-// iam.ErrUnknownPermission, never a silent false.
-func (a *Auth) Can(ctx context.Context, subject iam.Subject, group iam.GroupRef, perm iam.Perm) (bool, error) {
-	return a.engine.Can(ctx, subject, group, perm)
+// DeleteGroupRole deletes a custom role and every reference to it, under
+// DefineGroupRole's rule.
+func (a *Auth) DeleteGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, role iam.Role) error {
+	return a.engine.DeleteGroupRole(ctx, actor, ref, role)
 }
 
-func (a *Auth) CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
-	return a.engine.CanOnGroup(ctx, subject, groupID, perm)
+// Can reports whether actor holds perm in the group, checked live: a banned
+// or deleted user, a revoked key, an unknown group or an actor bound to
+// another group is false. An unregistered perm is iam.ErrUnknownPermission,
+// never a silent false.
+func (a *Auth) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return a.engine.Can(ctx, actor, ref, perm)
+}
+
+// EffectivePermissions returns actor's effective grant patterns per group id
+// (globs verbatim, glob-match with iam.Perm.Matches). Groups granting nothing
+// are absent. At most iam.MaxBatch groups.
+func (a *Auth) EffectivePermissions(ctx context.Context, actor iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
+	return a.engine.EffectivePermissions(ctx, actor, refs)
 }
 
 // KnownPermission reports whether perm is registered in a persona catalog of
 // Config.Roles, AuthKit's built-ins included.
 func (a *Auth) KnownPermission(perm iam.Perm) bool { return a.engine.KnownPermission(perm) }
 
-// RequirePermission authenticates the request and requires perm on the group
-// resolve returns. It panics at construction on an unregistered perm.
-func (a *Auth) RequirePermission(perm iam.Perm, resolve func(*http.Request) verify.PermissionScope) func(http.Handler) http.Handler {
-	gate := verify.RequirePermission(a, perm, resolve)
-	return func(next http.Handler) http.Handler { return a.Require(gate(next)) }
-}
-
-// EffectivePermissionsForGroups returns one subject's effective grant
-// patterns on many resolved groups in ONE query, with ListEffectivePermissions
-// semantics per group; groups granting nothing (unknown, soft-deleted, no
-// assignment) are absent. At most MaxBatch distinct ids.
-func (a *Auth) EffectivePermissionsForGroups(ctx context.Context, subject iam.Subject, groupIDs []string) (map[string][]iam.Perm, error) {
-	return a.engine.EffectivePermissionsForGroups(ctx, subject, groupIDs)
-}
-
-func (a *Auth) ListEffectivePermissions(ctx context.Context, subject iam.Subject, group iam.GroupRef) ([]iam.Perm, error) {
-	return a.engine.ListEffectivePermissions(ctx, subject, group)
-}
-
-// WithResolvedGroup binds a group address the host already resolved and
-// authorized to its immutable target, so later name-addressed operations in
-// ctx act on the same group even if the name is reclaimed. It confers no
-// permission; every use rechecks the group is live.
-func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, reference string) context.Context {
-	return authflow.WithResolvedGroup(ctx, instance, reference)
-}
-
-// GroupDirectory reads immutable group identities and current/active alias
-// names from an already migrated schema, without an Auth: it carries no
-// signer, issuer or session state.
-type GroupDirectory struct{ d *engine.GroupDirectory }
-
-// NewGroupDirectory creates a read-only view of an already migrated schema.
-// Empty schema selects the default profiles namespace. Construction does not
-// query, migrate, write or start workers. Hosts remain responsible for
-// authorizing any subsequent action.
-func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, error) {
-	d, err := engine.NewGroupDirectory(pool, schema)
-	if err != nil {
-		return nil, err
-	}
-	return &GroupDirectory{d: d}, nil
-}
-
-// Close releases the directory's schema-bound pool. The caller's pool passed
-// to NewGroupDirectory remains host-owned.
-func (g *GroupDirectory) Close() {
-	if g != nil {
-		g.d.Close()
-	}
-}
-
-func (g *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
-	return g.d.GroupInstanceForSlug(ctx, group)
-}
-
-func (g *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (iam.GroupInstance, error) {
-	return g.d.GroupInstanceByID(ctx, id)
-}
-
-// SearchGroupInstances returns canonical slugs containing query (case
-// insensitive, literal substring), ordered by (slug,id). Empty cursor starts
-// the search; later pages use the last row's slug/id. Limit defaults to 50
-// and is capped at 200.
-func (g *GroupDirectory) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
-	return g.d.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)
+// RequirePermission authenticates the request (it includes Require) and
+// requires perm in group, checked live. For a group taken from the request,
+// use verify.RequirePermission or an adapter's RequirePermission with a
+// resolver. It panics at construction on an unregistered perm.
+func (a *Auth) RequirePermission(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
+	return verify.RequirePermission(a, perm, func(*http.Request) iam.GroupRef { return group })
 }

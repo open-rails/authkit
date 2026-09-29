@@ -31,7 +31,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	}
 	group := iam.GroupBySlug("org", "remote-owned")
-	gid, err := client.ResolveGroupIDForSlug(ctx, group)
+	gid, err := groupIDOf(ctx, client, group)
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
@@ -119,9 +119,9 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	}
 	first := iam.GroupBySlug("org", "control-one")
 	second := iam.GroupBySlug("org", "control-two")
-	gid, err := client.ResolveGroupIDForSlug(ctx, first)
+	gid, err := groupIDOf(ctx, client, first)
 	require.NoError(t, err)
-	other, err := client.ResolveGroupIDForSlug(ctx, second)
+	other, err := groupIDOf(ctx, client, second)
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "wrong-control", PermissionGroupID: gid, Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
