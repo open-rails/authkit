@@ -123,11 +123,18 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
 			const label = "authkit-runtime-http"
-			hasWorkers := func() bool {
+			// labelled reports a goroutine New started whose stack names frame.
+			labelled := func(frame string) bool {
 				var profile bytes.Buffer
 				require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
-				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
+				for _, record := range strings.Split(profile.String(), "\n\n") {
+					if strings.Contains(record, strconv.Quote(label)+":"+strconv.Quote(t.Name())) && strings.Contains(record, frame) {
+						return true
+					}
+				}
+				return false
 			}
+			hasWorkers := func() bool { return labelled("") }
 			cfg := testConfig(t)
 			cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
 			var rdb *redis.Client
@@ -148,7 +155,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				require.Nil(t, runtime)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, !tc.redis, hasWorkers(), "only the memory limiter starts a sweep worker")
+				require.Equal(t, !tc.redis, labelled("internal/ratelimit/memory."), "only the memory limiter starts a sweep worker")
 				runtime.Close()
 				runtime.Close()
 			}
