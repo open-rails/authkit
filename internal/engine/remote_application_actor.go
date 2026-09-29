@@ -59,7 +59,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 		case row.PermissionGroupID != g.ID:
 			return iam.ErrRemoteApplicationIssuerConflict
 		default:
-			existing = remoteAppFromRow(remoteAppRow(row))
+			existing = remoteAppFromRow(row)
 		}
 		rekey := false
 		if !system {
@@ -70,8 +70,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil || !rekey {
 			return err
 		}
-		_, err = st.q.Exec(ctx, `UPDATE remote_applications SET registered_by=$2::uuid WHERE id=$1::uuid`, out.ID, actor.ID())
-		return err
+		return db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: actor.ID()})
 	})
 	return out, err
 }
@@ -155,39 +154,19 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 	if err := auth.requireCap(iam.PermCredentialsManage(g.Persona)); err != nil || appID == "" {
 		return err
 	}
-	type held struct {
-		group groupTarget
-		role  iam.Role
-	}
-	rows, err := st.q.Query(ctx, `SELECT g.id::text, g.persona, r.role FROM group_remote_application_roles r
- JOIN permission_groups g ON g.id=r.permission_group_id
- WHERE r.remote_application_id=$1::uuid AND g.deleted_at IS NULL ORDER BY g.id`, appID)
+	held, err := db.New(st.q).RemoteApplicationControlRoles(ctx, appID)
 	if err != nil {
 		return err
 	}
-	var roles []held
-	for rows.Next() {
-		var h held
-		var role string
-		if err := rows.Scan(&h.group.ID, scanPersona(&h.group.Persona), &role); err != nil {
-			rows.Close()
-			return err
-		}
-		h.role = ident.Role(h.group.Persona, role)
-		roles = append(roles, h)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, h := range roles {
+	for _, h := range held {
+		group := groupTarget{ID: h.GroupID, Persona: ident.Persona(h.Persona)}
 		in := auth
-		if h.group.ID != g.ID {
-			if in, err = s.actorAuthority(ctx, st, actor, h.group); err != nil {
+		if group.ID != g.ID {
+			if in, err = s.actorAuthority(ctx, st, actor, group); err != nil {
 				return err
 			}
 		}
-		if err := s.requireRoleCover(ctx, st, in, h.group, h.role); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		if err := s.requireRoleCover(ctx, st, in, group, ident.Role(group.Persona, h.Role)); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
 			return err
 		}
 	}
@@ -219,27 +198,13 @@ func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page 
 		return out, err
 	}
 	limit := page.PageLimit()
-	rows, err := s.pg.Query(ctx,
-		`SELECT id::text, slug, permission_group_id::text, issuer, jwks_uri, mode, public_keys, enabled,
-		        trust_root, created_at, updated_at
-		 FROM remote_applications
-		 WHERE permission_group_id = $1::uuid AND ($2::uuid IS NULL OR id < $2::uuid)
-		 ORDER BY id DESC LIMIT $3`, g.ID, after, limit+1)
+	rows, err := s.q.RemoteApplicationsByGroup(ctx, db.RemoteApplicationsByGroupParams{PermissionGroupID: g.ID, AfterID: after, MaxRows: int64(limit + 1)})
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
 	out.Items = make([]iam.RemoteApplication, 0, limit)
-	for rows.Next() {
-		var row remoteAppRow
-		if err := rows.Scan(&row.ID, &row.Slug, &row.PermissionGroupID, &row.Issuer, &row.JwksUri, &row.Mode,
-			&row.PublicKeys, &row.Enabled, &row.TrustRoot, &row.CreatedAt, &row.UpdatedAt); err != nil {
-			return out, err
-		}
+	for _, row := range rows {
 		out.Items = append(out.Items, *remoteAppFromRow(row))
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]

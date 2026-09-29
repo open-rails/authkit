@@ -114,8 +114,7 @@ func schemaPool(source *pgxpool.Pool, schema string, tune ...func(*pgxpool.Confi
 				return err
 			}
 		}
-		_, err := conn.Exec(ctx, "SET search_path TO "+searchPath)
-		return err
+		return db.New(conn).SetSearchPath(ctx, db.SetSearchPathParams{SearchPath: searchPath})
 	}
 	return pgxpool.NewWithConfig(context.Background(), cfg)
 }

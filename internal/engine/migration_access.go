@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // Resolve the actual session identity before changing the database. Pool
@@ -14,17 +15,18 @@ func migrationRuntimeUser(ctx context.Context, admin, runtime *pgxpool.Pool) (st
 	if runtime == nil {
 		return "", nil
 	}
-	var user, runtimeDB, adminDB string
-	if err := runtime.QueryRow(ctx, "SELECT current_user, current_database()").Scan(&user, &runtimeDB); err != nil {
+	id, err := db.New(runtime).RuntimeIdentity(ctx)
+	if err != nil {
 		return "", fmt.Errorf("authkit: identify runtime database user: %w", err)
 	}
-	if err := admin.QueryRow(ctx, "SELECT current_database()").Scan(&adminDB); err != nil {
+	adminDB, err := db.New(admin).CurrentDatabase(ctx)
+	if err != nil {
 		return "", fmt.Errorf("authkit: identify migration database: %w", err)
 	}
-	if runtimeDB != adminDB {
+	if id.DatabaseName != adminDB {
 		return "", fmt.Errorf("authkit: migration and runtime pools must use the same database")
 	}
-	return user, nil
+	return id.UserName, nil
 }
 
 func grantMigrationRuntimeAccess(ctx context.Context, pool *pgxpool.Pool, user, schema, riverSchema string) error {
@@ -38,7 +40,7 @@ func grantMigrationRuntimeAccess(ctx context.Context, pool *pgxpool.Pool, user, 
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	// AuthKit and OpenRails use the same lock because ACL writes can share
 	// public schema objects even when their application schemas differ.
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('open-rails:runtime-access',0))"); err != nil {
+	if err := db.New(tx).RuntimeAccessLock(ctx); err != nil {
 		return fmt.Errorf("authkit: lock runtime access provisioning: %w", err)
 	}
 	role := pgx.Identifier{user}.Sanitize()

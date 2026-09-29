@@ -154,11 +154,7 @@ func decodeRemoteAppKeys(raw []byte) []iam.RemoteApplicationKey {
 	return keys
 }
 
-// remoteAppRow is the canonical remote_application projection every sqlc query
-// returns; the per-query row structs are field-identical and convert directly.
-type remoteAppRow = db.RemoteApplicationByIssuerRow
-
-func remoteAppFromRow(row remoteAppRow) *iam.RemoteApplication {
+func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 	ra := &iam.RemoteApplication{
 		ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID,
 		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: iam.RemoteApplicationMode(row.Mode),
@@ -216,7 +212,6 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	if err := lockPermissionGroup(ctx, st.q, t); err != nil {
 		return nil, err
 	}
-	groupID := &t
 	existing, err := q.RemoteApplicationByIssuer(ctx, issuer)
 	if err == nil && existing.PermissionGroupID != t {
 		return nil, iam.ErrRemoteApplicationIssuerConflict
@@ -233,7 +228,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	}
 	row, err := q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:              slug,
-		PermissionGroupID: groupID,
+		PermissionGroupID: t,
 		Issuer:            issuer,
 		JwksUri:           jwksURI,
 		Mode:              string(mode),
@@ -247,10 +242,10 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	if err != nil {
 		return nil, err
 	}
-	out := remoteAppFromRow(remoteAppRow(row))
+	out := remoteAppFromRow(row)
 	if in.TrustRoot != "" && in.TrustRoot != out.TrustRoot {
 		out.TrustRoot = in.TrustRoot
-		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET trust_root=$2 WHERE id=$1::uuid`, out.ID, out.TrustRoot); err != nil {
+		if err := q.RemoteApplicationSetTrustRoot(ctx, db.RemoteApplicationSetTrustRootParams{ID: out.ID, TrustRoot: string(out.TrustRoot)}); err != nil {
 			return nil, err
 		}
 	}
@@ -323,7 +318,7 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	if group.DeletedAt != nil {
 		return nil, iam.ErrRemoteApplicationNotFound
 	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
+	return remoteAppFromRow(row), nil
 }
 
 // RemoteApplicationByIssuer is the management read of the application
@@ -339,7 +334,7 @@ func (s *Engine) RemoteApplicationByIssuer(ctx context.Context, issuer string) (
 	if err != nil {
 		return nil, err
 	}
-	return remoteAppFromRow(remoteAppRow(row)), nil
+	return remoteAppFromRow(row), nil
 }
 
 // ListEnabledRemoteApplications returns only the enabled remote_applications:
@@ -354,7 +349,7 @@ func (s *Engine) ListEnabledRemoteApplications(ctx context.Context) ([]iam.Remot
 	}
 	var out []iam.RemoteApplication
 	for _, r := range rows {
-		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
+		out = append(out, *remoteAppFromRow(r))
 	}
 	return out, nil
 }

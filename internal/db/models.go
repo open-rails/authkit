@@ -33,6 +33,25 @@ type MfaSetting struct {
 	UpdatedAt   time.Time
 }
 
+// Federation principals: external systems that authenticate by signing JWTs verified against configured keys.
+type RemoteApplication struct {
+	ID         string
+	Slug       string
+	Issuer     string
+	JwksUri    string
+	Mode       string
+	PublicKeys []byte
+	Enabled    bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	// Required controlling permission-group. Authority comes from group_remote_application_roles on it and on root.
+	PermissionGroupID string
+	// What changes the keys: manual (the system) | user (a credentials manager of the controlling group). Never the keypair alone.
+	TrustRoot string
+	// The user who supplied the keys of a group registration; NULL = the operator.
+	RegisteredBy *string
+}
+
 type User struct {
 	ID            string
 	Email         *string
