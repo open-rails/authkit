@@ -1,4 +1,5 @@
 # Example bootstrap manifest: initial users, root roles and remote applications.
+# An existing account is used only through a verified email or phone named here.
 
 users:
   - email: operator@example.com
@@ -13,8 +14,3 @@ remote_applications:
     issuer: https://tensorhub.example
     jwks_uri: https://tensorhub.example/.well-known/jwks.json
     enabled: true
-
-# Dev-only fixtures. AuthKit parses this section but never applies it; the
-# host reads it at boot and must honor it only in its own dev environment.
-# dev:
-#   static_entitlements: [pro, beta]

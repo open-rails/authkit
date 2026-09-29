@@ -47,6 +47,11 @@ Add a row and a test for every new attack class.
 | Pre-registration takeover: attacker's sessions, password, links, device keys or factors survive the owner's first proof (reset, email code, verification on another device) | `TestSecurityPreRegistrationTakeover` |
 | Registration marks an address verified without proof | `TestSecurityRegistrationNeverSelfVerifies` |
 | Untrusted provider's `email_verified` stores or matches an address | `TestSecurityProviderEmailTrust` |
+| Bootstrap manifest adopts a squatted username, alias (live or expired) or unverified address, or marks its contacts verified | `TestSecurityBootstrapNeverAdoptsSquatters` |
+| First-admin seed adopts a pre-registered account, binds by username, or lets its unproven account sign in without proof | `TestSecurityEnsureUserRole` |
+| Import reports a row without its account, stores an invalid hash, or merges into an account bound by username or unverified address | `TestSecurityImportUsers` |
+| Imported wallet becomes a login method or moves between accounts | `TestSecurityImportSolanaLinks` |
+| Non-operator links a provider identity; an operator link reaches another account | `TestSecurityLinkProvider` |
 
 The cookie compatibility guard `TestCookieRegistry` (package `authkit`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).

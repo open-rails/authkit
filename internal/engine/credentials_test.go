@@ -422,10 +422,10 @@ func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms 
 func TestBootstrapDemotionRevokesCredentials(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
-	apply := func(role string) {
-		_, err := f.e.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
+	apply := func(role iam.Role) {
+		_, err := f.e.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 			{Email: "ops@credentials.test", Username: "siteops", EmailVerified: true, RootRole: role},
-		}}, iam.BootstrapReconcileOptions{})
+		}}, iam.BootstrapOptions{})
 		require.NoError(t, err)
 	}
 	apply("org-admin")

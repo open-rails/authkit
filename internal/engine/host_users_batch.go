@@ -18,8 +18,8 @@ import (
 // NOT exposed here on purpose: username/email writes go through UpdateUsername/
 // UpdateEmail, which enforce the rename cooldown + validation that raw table
 // writes (the old identity.Store) silently skipped.
-func (s *Engine) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserRef, error) {
-	out := map[string]iam.UserRef{}
+func (s *Engine) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserSummary, error) {
+	out := map[string]iam.UserSummary{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
@@ -29,7 +29,7 @@ func (s *Engine) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.U
 		return nil, err
 	}
 	for _, r := range rows {
-		ref := iam.UserRef{ID: r.ID}
+		ref := iam.UserSummary{ID: r.ID}
 		if r.Username != nil {
 			ref.Username = *r.Username
 		}

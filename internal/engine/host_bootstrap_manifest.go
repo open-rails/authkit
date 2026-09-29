@@ -1,15 +1,15 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
-
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
@@ -23,12 +23,12 @@ const defaultBootstrapApplyName = "default"
 // ParseBootstrapManifestYAML parses and structurally validates a manifest.
 func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	var manifest iam.BootstrapManifest
-	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&manifest); err != nil {
 		return iam.BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 && len(manifest.Dev.StaticEntitlements) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
 	}
 	// Parse is env-less and structural-only; the https/private jwks_uri policy
@@ -39,171 +39,262 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	return manifest, nil
 }
 
-// applyBootstrapManifest commits seed data and its StartupOnly completion claim
-// together. All manifests in one schema serialize, regardless of their names.
-func (s *Engine) applyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (result iam.BootstrapManifestResult, err error) {
-	if err = s.requirePG(); err != nil {
-		return result, err
+// ApplyBootstrapManifest applies seed data and its StartupOnly receipt in one
+// authority transaction, under the operator. It never adopts an account
+// through a username, an alias or an unverified contact, and never changes an
+// existing account's identity or marks its contacts verified (see
+// iam.BootstrapManifestUser). Role changes run the credential sweep.
+func (s *Engine) ApplyBootstrapManifest(ctx context.Context, a iam.Actor, manifest iam.BootstrapManifest, opts iam.BootstrapOptions) (iam.BootstrapResult, error) {
+	if err := requireOperator(a); err != nil {
+		return iam.BootstrapResult{}, err
 	}
-	if err = validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
-		return result, err
+	if err := s.requirePG(); err != nil {
+		return iam.BootstrapResult{}, err
 	}
-	for _, user := range manifest.Users {
-		if user.Password != nil && strings.TrimSpace(user.Password.Plaintext) != "" {
-			if err = s.ValidatePassword(strings.TrimSpace(user.Password.Plaintext), user.Username, user.Email); err != nil {
-				return result, err
-			}
-		}
+	if err := validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
+		return iam.BootstrapResult{}, err
 	}
 	schema := s.groupSchemaOrDefault()
-	checkRole := func(raw string) error {
-		role := normalizeRootRoleSlug(iam.Role(raw))
+	checkRole := func(raw iam.Role) error {
+		role := normalizeRootRoleSlug(raw)
 		if role != "" && !s.validRoleForPersona(schema, iam.RootPersona, role) {
 			return fmt.Errorf("bootstrap root role %q: %w", role, iam.ErrRoleNotAssignable)
 		}
 		return nil
 	}
-	for _, user := range manifest.Users {
-		if _, _, _, _, _, _, _, err = s.normalizeImportUserInput(bootstrapImportUserInput(user)); err != nil {
-			return result, err
+	accounts := make([]newAccount, len(manifest.Users))
+	for i, user := range manifest.Users {
+		if user.Password != nil && strings.TrimSpace(user.Password.Plaintext) != "" {
+			if err := s.ValidatePassword(strings.TrimSpace(user.Password.Plaintext), user.Username, user.Email); err != nil {
+				return iam.BootstrapResult{}, err
+			}
 		}
-		if err = checkRole(user.RootRole); err != nil {
-			return result, err
+		accounts[i] = bootstrapAccount(user)
+		if _, _, _, _, _, _, _, err := s.normalizeImportUserInput(accounts[i]); err != nil {
+			return iam.BootstrapResult{}, err
+		}
+		if err := checkRole(user.RootRole); err != nil {
+			return iam.BootstrapResult{}, err
 		}
 	}
 	for _, app := range manifest.RemoteApplications {
-		if err = checkRole(app.RootRole); err != nil {
-			return result, err
+		if err := checkRole(app.RootRole); err != nil {
+			return iam.BootstrapResult{}, err
 		}
 	}
-	result.DryRun = opts.DryRun
 	if opts.DryRun {
-		result.UsersCreated = len(manifest.Users)
+		result := iam.BootstrapResult{DryRun: true, UsersCreated: len(manifest.Users), RemoteApplications: len(manifest.RemoteApplications)}
 		for _, user := range manifest.Users {
 			result.PasswordsSet += boolToInt(user.Password != nil)
-			result.RootRoleAssignments += boolToInt(strings.TrimSpace(user.RootRole) != "")
+			result.RootRoleAssignments += boolToInt(normalizeRootRoleSlug(user.RootRole) != "")
 		}
-		result.RemoteApplications = len(manifest.RemoteApplications)
 		for _, app := range manifest.RemoteApplications {
-			result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
+			result.RemoteApplicationRootRoles += boolToInt(normalizeRootRoleSlug(app.RootRole) != "")
 		}
 		return result, nil
 	}
-	// Do password hashing before holding database locks. Equality is checked
-	// against the current stored credential under its account lock below.
+	// Hash before taking locks. Equality is checked against the stored
+	// credential under its account lock.
 	passwords := make([]db.UserPasswordUpsertParams, len(manifest.Users))
 	for i, user := range manifest.Users {
 		if user.Password != nil {
+			var err error
 			if passwords[i], err = prepareBootstrapPassword(*user.Password); err != nil {
-				return result, err
+				return iam.BootstrapResult{}, err
 			}
 		}
 	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return result, err
+	type revocation struct {
+		userID   string
+		sessions []revokedSession
 	}
-	defer tx.Rollback(ctx)
-	defer func() {
+	var result iam.BootstrapResult
+	var revocations []revocation
+	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+		result, revocations = iam.BootstrapResult{}, nil
+		if opts.StartupOnly {
+			already, err := s.claimBootstrapApply(ctx, st.q, opts.Name)
+			if err != nil || already {
+				result.AlreadyApplied = already
+				return err
+			}
+		}
+		rootID, err := s.rootGroup(ctx, st)
 		if err != nil {
-			result = iam.BootstrapManifestResult{}
+			return err
 		}
-	}()
-	raw := tx
-	if err = s.lockAuthority(ctx, raw); err != nil {
-		return result, err
-	}
-	if _, err = raw.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.bootstrap."+s.dbSchema()); err != nil {
-		return result, err
-	}
-	if opts.StartupOnly {
-		if result.AlreadyApplied, err = s.claimBootstrapApply(ctx, raw, opts.Name); err != nil {
-			return result, err
+		for _, app := range manifest.RemoteApplications {
+			if err := s.applyBootstrapRemoteApplication(ctx, st, rootID, app); err != nil {
+				return err
+			}
+			result.RemoteApplications++
+			result.RemoteApplicationRootRoles += boolToInt(normalizeRootRoleSlug(app.RootRole) != "")
 		}
-		if result.AlreadyApplied {
-			return result, tx.Commit(ctx)
+		owners, err := st.OwnerCount(ctx, rootID)
+		if err != nil {
+			return err
 		}
-	}
-	q := s.qtx(tx)
-	groups := s.groupStoreFor(raw)
-	rootID, err := groups.ensureRootGroup(ctx)
+		for i, user := range manifest.Users {
+			id, sessions, err := s.applyBootstrapUser(ctx, st, rootID, owners, user, accounts[i], passwords[i], &result)
+			if err != nil {
+				return err
+			}
+			if len(sessions) > 0 {
+				revocations = append(revocations, revocation{id, sessions})
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return result, err
+		return iam.BootstrapResult{}, err
 	}
-	for _, app := range manifest.RemoteApplications {
-		if err = s.applyBootstrapRemoteApplication(ctx, groups, rootID, app); err != nil {
-			return result, err
-		}
-		result.RemoteApplications++
-		result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
-	}
-	owners, err := groups.OwnerCount(ctx, rootID)
-	if err != nil {
-		return result, err
-	}
-	type revokedSessions struct {
-		userID string
-		ids    []revokedSession
-	}
-	var revocations []revokedSessions
-	for i, user := range manifest.Users {
-		applied, created, applyErr := s.applyBootstrapUser(ctx, tx, user)
-		if applyErr != nil {
-			return result, applyErr
-		}
-		if created {
-			result.UsersCreated++
-		} else {
-			result.UsersUpdated++
-		}
-		if user.Password != nil {
-			if created || user.Password.Enforce {
-				set, revoked, passwordErr := s.applyBootstrapUserPassword(ctx, q, applied.ID, *user.Password, passwords[i])
-				if passwordErr != nil {
-					return result, passwordErr
-				}
-				if set {
-					result.PasswordsSet++
-				} else {
-					result.PasswordsKept++
-				}
-				if len(revoked) > 0 {
-					revocations = append(revocations, revokedSessions{applied.ID, revoked})
-				}
-			} else {
-				result.PasswordsKept++
-			}
-		}
-		role := normalizeRootRoleSlug(iam.Role(user.RootRole))
-		if role == "" {
-			continue
-		}
-		// Existing owners are never displaced by seed-if-absent owner entries.
-		// Bootstrap is the one role seed that bypasses MFA enrollment.
-		if role != iam.OwnerRole || owners == 0 {
-			if role != iam.OwnerRole {
-				if err = s.refuseOwnerLoss(ctx, groups, rootID, iam.UserSubject(applied.ID)); err != nil {
-					return result, err
-				}
-			}
-			if err = groups.AssignRole(ctx, rootID, iam.UserSubject(applied.ID), role); err != nil {
-				return result, err
-			}
-		}
-		result.RootRoleAssignments++
-	}
-	// A demoted user's credentials go with the authority that issued them.
-	if err = s.revokeUncoveredCredentials(ctx, groups, groups.touched...); err != nil {
-		return result, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return result, err
-	}
-	for _, revoke := range revocations {
-		s.logRevokedSessions(ctx, revoke.userID, revoke.ids, string(authflow.SessionRevokeReasonAdminSetPassword))
+	for _, r := range revocations {
+		s.logRevokedSessions(ctx, r.userID, r.sessions, string(authflow.SessionRevokeReasonAdminSetPassword))
 	}
 	s.logRBACDrift(ctx)
 	return result, nil
+}
+
+// bootstrapMatch is the existing account a manifest user names, if any.
+type bootstrapMatch struct {
+	id         string
+	bound      bool // found through a contact verified on the account
+	deleted    bool
+	channel    string // email, phone or username: how it was found
+	identifier string
+}
+
+// refusal is the error for an apply that would write to an account it may
+// not adopt.
+func (m bootstrapMatch) refusal(username string) error {
+	if m.deleted {
+		return fmt.Errorf("bootstrap user %q: the account with its %s is deleted: %w", username, m.channel, iam.ErrUserNotFound)
+	}
+	reason := "contact_unproven"
+	if m.channel == "username" {
+		reason = "no_contact"
+	}
+	return fmt.Errorf("bootstrap user %q: an existing account is used only through a verified email or phone the manifest names: %w", username,
+		errmodel.E(errmodel.CodeEmailNotVerified, errmodel.WithMetadata(map[string]any{"identifier": m.identifier, "channel": m.channel, "reason": reason})))
+}
+
+// findBootstrapAccount locks the account the user's email or phone names.
+// With neither, it looks up the canonical username only, which never binds;
+// an alias is never followed.
+func (s *Engine) findBootstrapAccount(ctx context.Context, q db.DBTX, user iam.BootstrapManifestUser) (bootstrapMatch, error) {
+	var m bootstrapMatch
+	find := func(channel, identifier, sql string) error {
+		var id string
+		var verified, deleted bool
+		err := q.QueryRow(ctx, sql, identifier).Scan(&id, &verified, &deleted)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if m.id != "" && m.id != id {
+			return fmt.Errorf("bootstrap user %q: its email and phone belong to different accounts: %w", user.Username, iam.ErrPhoneInUse)
+		}
+		if m.id == "" {
+			m.channel, m.identifier = channel, identifier
+		}
+		m.id, m.deleted, m.bound = id, deleted, m.bound || verified
+		return nil
+	}
+	email, phone := strings.TrimSpace(user.Email), strings.TrimSpace(user.Phone)
+	if email != "" {
+		if err := find("email", contact.NormalizeEmail(email), `SELECT id::text, email_verified, deleted_at IS NOT NULL FROM users WHERE email=$1::text::public.citext FOR UPDATE`); err != nil {
+			return m, err
+		}
+	}
+	if phone != "" {
+		if err := find("phone", contact.NormalizePhone(phone), `SELECT id::text, phone_verified, deleted_at IS NOT NULL FROM users WHERE phone_number=$1 FOR UPDATE`); err != nil {
+			return m, err
+		}
+	}
+	if email != "" || phone != "" {
+		return m, nil
+	}
+	username := strings.TrimSpace(user.Username)
+	err := q.QueryRow(ctx, `SELECT u.id::text, u.deleted_at IS NOT NULL FROM name_claims c JOIN users u ON u.id=c.owner_id
+ WHERE c.owner_kind='user' AND c.persona='' AND c.name=lower($1) AND c.canonical FOR UPDATE OF u`, username).Scan(&m.id, &m.deleted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return bootstrapMatch{}, nil
+	}
+	m.channel, m.identifier = "username", username
+	return m, err
+}
+
+// applyBootstrapUser applies one manifest user and returns its account id and
+// any sessions a password change revoked. A new account is created as
+// declared and gets its role without an MFA check (it cannot be enrolled yet;
+// its first session must enroll). An existing account gets only its password
+// (when enforced) and root role, and only when bound; an unbound one is
+// refused unless nothing would change.
+func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStore, rootID string, owners int, user iam.BootstrapManifestUser, acct newAccount, prepared db.UserPasswordUpsertParams, result *iam.BootstrapResult) (string, []revokedSession, error) {
+	q := db.New(st.q)
+	role := normalizeRootRoleSlug(user.RootRole)
+	// Existing owners are never displaced by a seed-if-absent owner entry.
+	seedsRole := role != "" && (role != iam.OwnerRole || owners == 0)
+	if role != "" {
+		result.RootRoleAssignments++
+	}
+	m, err := s.findBootstrapAccount(ctx, st.q, user)
+	if err != nil {
+		return "", nil, err
+	}
+	created := m.id == ""
+	current := iam.Role("")
+	if created {
+		u, err := s.importUser(ctx, q, acct)
+		if err != nil {
+			return "", nil, fmt.Errorf("bootstrap user %q: %w", user.Username, mapUserUniqueViolation(err))
+		}
+		m.id = u.ID
+		result.UsersCreated++
+	} else {
+		if current, err = st.directRole(ctx, rootID, iam.UserSubject(m.id)); err != nil {
+			return "", nil, err
+		}
+		enforce := user.Password != nil && user.Password.Enforce
+		if (!m.bound || m.deleted) && (enforce || seedsRole && current != role) {
+			return "", nil, m.refusal(user.Username)
+		}
+		result.UsersMatched++
+	}
+	subject := iam.UserSubject(m.id)
+	var revoked []revokedSession
+	if user.Password != nil {
+		if created || user.Password.Enforce {
+			set, r, err := s.applyBootstrapUserPassword(ctx, q, m.id, *user.Password, prepared)
+			if err != nil {
+				return "", nil, err
+			}
+			result.PasswordsSet += boolToInt(set)
+			result.PasswordsKept += boolToInt(!set)
+			revoked = r
+		} else {
+			result.PasswordsKept++
+		}
+	}
+	if !seedsRole || current == role {
+		return m.id, revoked, nil
+	}
+	if err := s.requireDefinedGroupRole(ctx, st, rootID, iam.RootPersona, role); err != nil {
+		return "", nil, err
+	}
+	if current != "" {
+		if err := s.refuseOwnerLoss(ctx, st, rootID, subject); err != nil {
+			return "", nil, err
+		}
+	}
+	if !created {
+		if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona, subject, role); err != nil {
+			return "", nil, err
+		}
+	}
+	return m.id, revoked, st.AssignRole(ctx, rootID, subject, role)
 }
 
 func (s *Engine) bootstrapApplyName(name string) string {
@@ -243,8 +334,10 @@ func (s *Engine) claimBootstrapApply(ctx context.Context, q db.DBTX, name string
 
 func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS bool) error {
 	for _, user := range manifest.Users {
-		username := strings.TrimSpace(user.Username)
-		if username == "" {
+		if strings.TrimSpace(user.Username) == "" {
+			return errmodel.ErrInvalidBootstrapManifest
+		}
+		if !user.Banned && (user.BannedUntil != nil || strings.TrimSpace(user.BanReason) != "") {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if user.Password != nil {
@@ -264,8 +357,8 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 	return nil
 }
 
-func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, groups *permissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
-	ra, err := s.upsertRemoteApplication(ctx, groups, iam.RemoteApplication{
+func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
+	ra, err := s.upsertRemoteApplication(ctx, st, iam.RemoteApplication{
 		Slug:              strings.TrimSpace(app.Slug),
 		PermissionGroupID: rootID,
 		Issuer:            strings.TrimSpace(app.Issuer),
@@ -276,16 +369,16 @@ func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, groups *pe
 	if err != nil {
 		return err
 	}
-	role := normalizeRootRoleSlug(iam.Role(app.RootRole))
+	role := normalizeRootRoleSlug(app.RootRole)
 	if role == "" {
 		return nil
 	}
 	if role != iam.OwnerRole {
-		if err := s.refuseOwnerLoss(ctx, groups, rootID, iam.RemoteApplicationSubject(ra.ID)); err != nil {
+		if err := s.refuseOwnerLoss(ctx, st, rootID, iam.RemoteApplicationSubject(ra.ID)); err != nil {
 			return err
 		}
 	}
-	return groups.AssignRole(ctx, rootID, iam.RemoteApplicationSubject(ra.ID), role)
+	return st.AssignRole(ctx, rootID, iam.RemoteApplicationSubject(ra.ID), role)
 }
 
 func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
@@ -316,75 +409,21 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 	return nil
 }
 
-func (s *Engine) applyBootstrapUser(ctx context.Context, tx pgx.Tx, user iam.BootstrapManifestUser) (*iam.User, bool, error) {
-	q := s.qtx(tx)
-	existing, err := s.findBootstrapUser(ctx, q, user)
-	if err != nil {
-		return nil, false, err
-	}
-	input := bootstrapImportUserInput(user)
-	if existing == nil {
-		applied, err := s.importUser(ctx, q, input)
-		return applied, true, err
-	}
-	applied, err := s.updateImportedUserTx(ctx, tx, existing.ID, input)
-	return applied, false, err
-}
-
-func (s *Engine) findBootstrapUser(ctx context.Context, q *db.Queries, user iam.BootstrapManifestUser) (*iam.User, error) {
-	if username := strings.TrimSpace(user.Username); username != "" {
-		resolution, err := q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: username, AtTime: s.namingNow()})
-		if err == nil {
-			row, err := q.UserByID(ctx, resolution.ID)
-			if err != nil {
-				return nil, err
-			}
-			return userFromByIDRow(row), nil
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
-		}
-	}
-	if email := strings.TrimSpace(user.Email); email != "" {
-		row, err := q.UserByEmail(ctx, contact.NormalizeEmail(email))
-		if err == nil {
-			return userFromByEmailRow(row), nil
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
-		}
-	}
-	if phone := strings.TrimSpace(user.PhoneNumber); phone != "" {
-		normalized := contact.NormalizePhone(phone)
-		row, err := q.UserByPhone(ctx, &normalized)
-		if err == nil {
-			return userFromByPhoneRow(row), nil
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
-		}
-	}
-	return nil, nil
-}
-
-func bootstrapImportUserInput(user iam.BootstrapManifestUser) iam.ImportUserInput {
-	input := iam.ImportUserInput{
+// bootstrapAccount is the account a manifest user creates.
+func bootstrapAccount(user iam.BootstrapManifestUser) newAccount {
+	acct := newAccount{
 		Email:         user.Email,
-		PhoneNumber:   user.PhoneNumber,
+		PhoneNumber:   user.Phone,
 		Username:      user.Username,
 		EmailVerified: user.EmailVerified,
 		PhoneVerified: user.PhoneVerified,
-		BannedAt:      user.BannedAt,
-		BannedUntil:   user.BannedUntil,
-		BanReason:     user.BanReason,
-		BannedBy:      user.BannedBy,
 		Metadata:      user.Metadata,
 	}
-	if user.Banned && input.BannedAt == nil {
+	if user.Banned {
 		now := time.Now().UTC()
-		input.BannedAt = &now
+		acct.BannedAt, acct.BannedUntil, acct.BanReason = &now, user.BannedUntil, nullable(strings.TrimSpace(user.BanReason))
 	}
-	return input
+	return acct
 }
 
 func prepareBootstrapPassword(p iam.BootstrapUserPassword) (out db.UserPasswordUpsertParams, err error) {
@@ -426,10 +465,4 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
-}
-
-// OperatorApplyBootstrapManifest is the explicit operator reconciliation operation.
-// engine construction never invokes it or restores user role assignments.
-func (s *Engine) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
-	return s.applyBootstrapManifest(ctx, manifest, opts)
 }

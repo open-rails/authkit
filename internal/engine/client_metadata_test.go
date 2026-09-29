@@ -15,10 +15,10 @@ func TestClientReadsUserMetadata(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
-	imported, err := client.ImportUsers(t.Context(), []iam.ImportUserInput{{Email: "metadata-client@example.test", Username: "metadata-client", Metadata: map[string]any{"biography": "Public bio", "host_private": "not automatically public"}}})
+	imported, err := client.ImportUsers(t.Context(), iam.OperatorActor(), []iam.ImportUser{{Email: "metadata-client@example.test", Username: "metadata-client", Metadata: map[string]any{"biography": "Public bio", "host_private": "not automatically public"}}}, iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, imported.Inserted)
-	id := imported.Results[0].UserID
+	id := imported.Rows[0].UserID
 	data, err := client.GetUserMetadata(t.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "Public bio", data["biography"])

@@ -12,7 +12,7 @@ import (
 // accountRegistration is the one database operation behind public signup. The
 // caller has verified any contact/provider proof and supplies no existing user.
 type accountRegistration struct {
-	User        iam.ImportUserInput
+	User        newAccount
 	Language    string
 	InviteToken string
 	Provider    *authflow.ExternalIdentity

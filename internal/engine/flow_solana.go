@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -169,7 +170,7 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		created = true
 
 		// Link wallet to user
-		if err := s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), solanaProviderSlug, output.Account.Address, nil); err != nil {
+		if err := s.linkProvider(ctx, userID, iam.ProviderLink{Issuer: s.solanaIssuer(), Provider: solanaProviderSlug, Subject: output.Account.Address}); err != nil {
 			return authflow.LoginOutcome{}, fmt.Errorf("failed to link wallet: %w", err)
 		}
 	}

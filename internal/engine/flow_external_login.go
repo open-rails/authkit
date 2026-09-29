@@ -90,7 +90,7 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 		return "", false, errmodel.ErrRegistrationDisabled
 	}
 	username := s.deriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
-	u, err := s.registerAccount(ctx, accountRegistration{User: iam.ImportUserInput{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})
+	u, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})
 	if err != nil {
 		return "", false, err
 	}

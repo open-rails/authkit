@@ -63,9 +63,11 @@ v0.52.0).** Every error response is:
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
 `authkit.LoadBootstrapManifestFile`, `authkit.ParseBootstrapManifestYAML`, and
-`(*authkit.Auth).OperatorApplyBootstrapManifest(ctx, manifest, opts)`. Host applications layer their
-own domain bootstrap after AuthKit has applied users, root role assignments,
-remote applications, and group role assignments.
+`(*authkit.Auth).ApplyBootstrapManifest(ctx, iam.OperatorActor(), manifest, opts)`, or
+`EnsureUserRole` for a single first admin. Bootstrap uses an existing account only through a
+verified email or phone the manifest names; it never adopts one by username, alias or unverified
+contact. Host applications layer their own domain bootstrap after AuthKit has applied users,
+root role assignments and remote applications.
 
 ## Route table
 
