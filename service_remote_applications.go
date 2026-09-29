@@ -42,7 +42,7 @@ func (s *engine) trustSourcePolicy() trustSourcePolicy {
 	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
-func normalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.RemoteAppKey, policy trustSourcePolicy) (string, error) {
+func normalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.RemoteApplicationKey, policy trustSourcePolicy) (string, error) {
 	allowInsecureJWKS := policy.AllowPrivateNetworkJWKS
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	jwksURI = strings.TrimSpace(jwksURI)
@@ -145,11 +145,11 @@ func validatePublicKeyPEM(raw string) error {
 	return nil
 }
 
-func decodeRemoteAppKeys(raw []byte) []iam.RemoteAppKey {
+func decodeRemoteAppKeys(raw []byte) []iam.RemoteApplicationKey {
 	if len(raw) == 0 {
 		return nil
 	}
-	var keys []iam.RemoteAppKey
+	var keys []iam.RemoteApplicationKey
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 
 	if err == nil && existing.Enabled && !in.Enabled {
 		// q is transaction-bound both here and during bootstrap reconciliation.
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(existing.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(existing.ID)); err != nil {
 			return nil, err
 		}
 	}
@@ -317,7 +317,7 @@ func (s *engine) evictSessionBoundIssuer(ctx context.Context, st *permissionGrou
 	if err != nil || holder.TrustRoot != iam.ApplicationTrustRootUser {
 		return err
 	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(holder.ID)); err != nil {
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(holder.ID)); err != nil {
 		if errors.Is(err, iam.ErrCannotRemoveLastAdminRole) {
 			return iam.ErrApplicationIssuerConflict
 		}
@@ -477,7 +477,7 @@ func (s *engine) DeleteRemoteApplication(ctx context.Context, issuer string) err
 		if err != nil {
 			return err
 		}
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(app.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(app.ID)); err != nil {
 			return err
 		}
 		_, err = q.RemoteApplicationDelete(ctx, issuer)

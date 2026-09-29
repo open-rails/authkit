@@ -387,17 +387,21 @@ type Assignment struct {
 // group defines no such role.
 type CustomRoleResolver func(groupID string, role iam.Role) ([]string, bool)
 
-// ResolveGrants returns the de-duplicated union of grant patterns across
-// assignments. Unknown personas and roles contribute nothing (fail closed).
-func (s *Schema) ResolveGrants(assignments []Assignment, custom CustomRoleResolver) []string {
+// ResolveGrants returns the de-duplicated union of grant patterns a subject
+// holds in the group with id target, across its assignments on that group and
+// on root. Root is the widest scope: a root role's persona permissions apply in
+// every group, but root's own `root:` permissions count only in root itself.
+// Unknown personas and roles contribute nothing (fail closed).
+func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom CustomRoleResolver) []string {
 	seen := map[string]bool{}
 	var out []string
-	add := func(grants []string) {
+	add := func(a Assignment, grants []string) {
 		for _, g := range grants {
-			if g != "" && !seen[g] {
-				seen[g] = true
-				out = append(out, g)
+			if g == "" || seen[g] || a.PermissionGroupID != target && iam.Perm(g).Persona() == iam.RootPersona {
+				continue
 			}
+			seen[g] = true
+			out = append(out, g)
 		}
 	}
 	for _, a := range assignments {
@@ -406,19 +410,19 @@ func (s *Schema) ResolveGrants(assignments []Assignment, custom CustomRoleResolv
 			continue
 		}
 		if r, ok := s.Role(a.Persona, a.Role); ok {
-			add(r.Permissions)
+			add(a, r.Permissions)
 			continue
 		}
 		if p.CustomRoles && custom != nil {
 			if grants, ok := custom(a.PermissionGroupID, a.Role); ok {
-				add(grants)
+				add(a, grants)
 			}
 		}
 	}
 	return out
 }
 
-// Can reports whether any grant resolved from assignments covers perm.
-func (s *Schema) Can(assignments []Assignment, custom CustomRoleResolver, perm iam.Perm) bool {
-	return iam.AnyGrantCovers(s.ResolveGrants(assignments, custom), perm)
+// Can reports whether any grant the subject holds in the group target covers perm.
+func (s *Schema) Can(target string, assignments []Assignment, custom CustomRoleResolver, perm iam.Perm) bool {
+	return iam.AnyGrantCovers(s.ResolveGrants(target, assignments, custom), perm)
 }

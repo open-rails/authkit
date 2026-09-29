@@ -99,7 +99,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	victimID, victimEmail, victimPass := user("victim")
 	_, bystanderEmail, bystanderPass := user("bystander")
 	operatorID, operatorEmail, operatorPass := user("operator")
-	require.NoError(t, fixtureBackend(siteA.Backend()).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
+	grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 
 	bystanderA, bystanderB := login(siteA, bystanderEmail, bystanderPass), login(siteB, bystanderEmail, bystanderPass)
 	key := make([]byte, 32)
@@ -268,10 +268,10 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &elevated), "ban prevents issuing another access token")
 		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+operatorEmail+`","password":"`+operatorPass+`"}`)
 		require.Equal(t, http.StatusUnauthorized, relogin.Code, relogin.Body.String())
-		require.NoError(t, fixtureBackend(siteA.Backend()).OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
+		revokeRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 		revoked := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, revoked.Code, revoked.Body.String())
-		require.NoError(t, fixtureBackend(siteA.Backend()).OperatorAssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
+		grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 		// The same credential remains valid on ordinary application routes.
 		before := queries.count.Load()
 		request := httptest.NewRequest(http.MethodGet, "/ordinary", nil)

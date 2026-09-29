@@ -48,7 +48,6 @@ func (d *GroupDirectory) Close() {
 }
 
 func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
-	group = group.Canonical()
 	var id string
 	var err error
 	if group.IsRoot() {

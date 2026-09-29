@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -30,6 +31,9 @@ func TestUserClaimsReadsRequestContext(t *testing.T) {
 	if !ok || got.UserID != "writer" || got.Email != "writer@example.com" {
 		t.Fatalf("user claims = %+v, %v", got, ok)
 	}
+	if a, ok := authkitgin.Actor(c); !ok || a.Kind() != iam.ActorUser || a.ID() != "writer" {
+		t.Fatalf("actor = %v, %v", a, ok)
+	}
 	got.Entitlements[0], got.AMR[0] = "changed", "changed"
 	stored, _ := verify.ClaimsFromContext(c.Request.Context())
 	if stored.Entitlements[0] != "premium" || stored.AMR[0] != "pwd" {
@@ -40,5 +44,11 @@ func TestUserClaimsReadsRequestContext(t *testing.T) {
 	}))
 	if _, ok := authkitgin.UserClaims(c); ok {
 		t.Fatal("machine principal returned a user")
+	}
+	if _, ok := authkitgin.Actor(c); ok {
+		t.Fatal("API key claims without a key id returned an actor")
+	}
+	if _, ok := authkitgin.Actor(nil); ok {
+		t.Fatal("nil Gin context returned an actor")
 	}
 }

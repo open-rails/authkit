@@ -102,8 +102,8 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 // (atomically) seeds the owner assignment. Returns the INTERNAL group id (for
 // the caller's own bookkeeping; never exposed over the wire).
 func (s *engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermissionGroupRequest) (string, error) {
-	group := iam.GroupRef{Persona: req.Persona, Instance: req.InstanceSlug}.Canonical()
-	req.Persona, req.InstanceSlug = group.Persona, group.Instance
+	group := iam.GroupBySlug(req.Persona, req.InstanceSlug)
+	req.Persona, req.InstanceSlug = group.Persona(), group.Slug()
 	if _, ok := s.groupSchemaOrDefault().Persona(req.Persona); !ok || group.IsRoot() {
 		return "", fmt.Errorf("unknown group persona %q: %w", req.Persona, iam.ErrUnknownGroupPersona)
 	}
@@ -197,7 +197,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 			return out, iam.ErrUnknownGroupPersona
 		}
 		if newSlug != current {
-			if err := s.authorizeSlugClaim(ctx, s.groupSchemaOrDefault(), iam.GroupRef{Persona: persona, Instance: newSlug}, actorUserID); err != nil {
+			if err := s.authorizeSlugClaim(ctx, s.groupSchemaOrDefault(), iam.GroupBySlug(persona, newSlug), actorUserID); err != nil {
 				return out, err
 			}
 			var managed bool
@@ -230,17 +230,10 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 	return out, tx.Commit(ctx)
 }
 
-// resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
-// the singleton and ignores instance_slug.
+// resolveGroupID is resolveGroup's id.
 func (s *engine) resolveGroupID(ctx context.Context, st *permissionGroupStore, g iam.GroupRef) (string, error) {
-	g = g.Canonical()
-	if g.IsRoot() {
-		return st.RootGroupID(ctx)
-	}
-	if err := iam.ValidateGroupInstanceSlug(g); err != nil {
-		return "", err
-	}
-	return st.GroupByInstanceSlug(ctx, g)
+	t, err := s.resolveGroup(ctx, st, g)
+	return t.ID, err
 }
 
 // ResolveGroupIDForSlug maps the API addressing key (persona, instanceSlug) to
@@ -287,80 +280,6 @@ func (s *engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role
 	return ok && td.CustomRoles
 }
 
-// AssignGroupRole grants a subject a role in the group addressed by (persona,
-// instanceSlug). The role must be a catalog role (or any role for custom-enabled
-// types). Gated by the MFA-required-role rule (#148/root-owner-MFA); genesis
-// callers that must run before any policy can apply use AssignGroupRoleGenesis.
-func (s *engine) AssignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return s.assignGroupRole(ctx, group, subject, role, true)
-}
-
-// AssignGroupRoleGenesis grants a role with NEITHER actor-authz (#136) NOR the
-// MFA-required-role gate (#148/root-owner-MFA). Reserved for genesis/bootstrap
-// callers (GenesisClient, the bootstrap manifest) — the deploy-time trust root
-// that runs before any actor-authorized request path (or any chance to enroll
-// MFA) exists, so no runtime policy can apply yet. Never call this from a
-// runtime request handler; use AssignGroupRole or AssignGroupRoleAs there.
-func (s *engine) AssignGroupRoleGenesis(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return s.assignGroupRole(ctx, group, subject, role, false)
-}
-
-func (s *engine) assignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role, checkMFA bool) error {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	sch := s.groupSchemaOrDefault()
-	if !s.validRoleForPersona(sch, group.Persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, iam.ErrRoleNotAssignable)
-	}
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
-	if err != nil {
-		return err
-	}
-	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-		if err := s.requireDefinedGroupRole(ctx, st, gid, group.Persona, role); err != nil {
-			return err
-		}
-		if checkMFA {
-			if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, group.Persona, subject, role); err != nil {
-				return err
-			}
-		}
-		old, err := st.directRole(ctx, gid, subject)
-		if err != nil {
-			return err
-		}
-		if old != role {
-			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
-				return err
-			}
-		}
-		return st.AssignRole(ctx, gid, subject, role)
-	})
-}
-
-// UnassignGroupRole revokes a subject's role in a group.
-func (s *engine) UnassignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
-	if err != nil {
-		return err
-	}
-	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-		current, err := st.directRole(ctx, gid, subject)
-		if err != nil {
-			return err
-		}
-		if current != role {
-			return nil
-		}
-		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
-			return err
-		}
-		return st.UnassignRole(ctx, gid, subject, role)
-	})
-}
-
 // DeletePermissionGroup deletes a group instance (role assignments, api keys,
 // and remote applications cascade). Delete-time naming rule (#264
 // ruling 5): by DEFAULT the slug is TOMBSTONED to the group uuid forever —
@@ -372,7 +291,6 @@ func (s *engine) DeletePermissionGroup(ctx context.Context, group iam.GroupRef, 
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	group = group.Canonical()
 	if group.IsRoot() {
 		return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 	}
@@ -480,7 +398,7 @@ func (s *engine) ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]
 // BOTH the role's current grants (if it exists) and the requested ones.
 func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def authflow.CustomRoleDef) error {
 	sch := s.groupSchemaOrDefault()
-	persona, role, permissions := group.Persona, def.Role, def.Permissions
+	persona, role, permissions := group.Persona(), def.Role, def.Permissions
 	td, ok := sch.Persona(persona)
 	if !ok {
 		return fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
@@ -507,7 +425,7 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeCustomRoleChange(ctx, st, sch, persona, gid, actorUserID, oldGrants, permissions); err != nil {
+		if err := s.authorizeCustomRoleChange(ctx, st, groupTarget{ID: gid, Persona: persona}, actorUserID, oldGrants, permissions); err != nil {
 			return err
 		}
 		return st.UpsertCustomRole(ctx, gid, def)
@@ -521,7 +439,6 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 // not-yet-defined role has nothing to revoke, so only the capability check
 // applies).
 func (s *engine) DeleteGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, role iam.Role) error {
-	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
@@ -532,7 +449,7 @@ func (s *engine) DeleteGroupCustomRole(ctx context.Context, actorUserID string, 
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeCustomRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, oldGrants, nil); err != nil {
+		if err := s.authorizeCustomRoleChange(ctx, st, groupTarget{ID: gid, Persona: group.Persona()}, actorUserID, oldGrants, nil); err != nil {
 			return err
 		}
 		return st.DeleteCustomRole(ctx, gid, role)

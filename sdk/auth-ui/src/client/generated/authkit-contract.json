@@ -129,6 +129,10 @@
       "status": 409
     },
     {
+      "code": "cannot_target_self",
+      "status": 403
+    },
+    {
       "code": "cannot_unlink_last_login_method",
       "status": 400
     },
@@ -1090,6 +1094,20 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/roles",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:members:read"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/admin/roles",
+      "group": "admin",
+      "auth": "permission",
+      "permission": "root:members:read"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/users",
       "group": "admin",
       "auth": "permission",
@@ -1136,6 +1154,18 @@
       "group": "admin",
       "auth": "permission",
       "permission": "root:users:delete"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/{user_id}/roles/{role}",
+      "group": "admin",
+      "auth": "required"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/users/{user_id}/roles/{role}",
+      "group": "admin",
+      "auth": "required"
     },
     {
       "method": "POST",

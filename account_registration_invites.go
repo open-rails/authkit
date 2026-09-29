@@ -77,8 +77,8 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req authfl
 	//     same mint gate as CreateGroupInviteLink). A member-manager may attach a
 	//     registration credential scoped to THIS invite without gaining general
 	//     root:users:invite authority.
-	group := iam.GroupRef{Persona: iam.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
-	persona := group.Persona
+	group := iam.GroupBySlug(req.Persona, req.InstanceSlug)
+	persona := group.Persona()
 	role := iam.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	carriesRole := persona != "" && role != ""
 
@@ -130,7 +130,8 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req authfl
 	var err error
 	if groupID != nil {
 		err = s.withLockedGroup(ctx, *groupID, func(st *permissionGroupStore) error {
-			if err := s.authorizeRoleChange(ctx, st, s.groupSchemaOrDefault(), persona, *groupID, invitedBy, role); err != nil {
+			g := groupTarget{ID: *groupID, Persona: persona}
+			if err := s.requireRoleGrant(ctx, st, iam.UserActor(invitedBy), g, iam.PermMembersManage(persona), role); err != nil {
 				return err
 			}
 			return insert(st.q)
@@ -150,7 +151,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req authfl
 	}
 	if carriesRole {
 		created.Persona = persona
-		created.InstanceSlug = group.Instance
+		created.InstanceSlug = group.Slug()
 		created.Role = role
 	}
 	s.sendAccountRegistrationInviteEmail(ctx, email, created.URL)

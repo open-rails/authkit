@@ -44,7 +44,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	client := runtime
 	user, err := client.CreateUser(t.Context(), "finalize-fk@example.test", "finalizefk")
 	require.NoError(t, err)
-	require.NoError(t, client.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "member"))
+	grantRole(t, client, iam.RootGroup(), iam.UserSubject(user.ID), "member")
 	_, err = pg.Pool.Exec(t.Context(), "CREATE TABLE public.host_reference(user_id uuid REFERENCES profiles.users(id))")
 	require.NoError(t, err)
 	_, err = pg.Pool.Exec(t.Context(), "INSERT INTO public.host_reference VALUES ($1::uuid)", user.ID)

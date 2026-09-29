@@ -44,8 +44,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 		return out, err
 	}
 	sch := s.groupSchemaOrDefault()
-	group = group.Canonical()
-	persona, slug := group.Persona, group.Instance
+	persona, slug := group.Persona(), group.Slug()
 	ownerUserID = strings.TrimSpace(ownerUserID)
 	out.InstanceSlug = slug
 
@@ -104,7 +103,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 // SlugPattern, and reserved slugs, which only a holder of `<persona>:*` on root
 // may take.
 func (s *engine) authorizeSlugClaim(ctx context.Context, sch *rbac.Schema, group iam.GroupRef, actorUserID string) error {
-	persona, slug := group.Persona, group.Instance
+	persona, slug := group.Persona(), group.Slug()
 	if err := iam.ValidateGroupInstanceSlug(group); err != nil {
 		return fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
 	}
@@ -141,62 +140,9 @@ func (s *engine) subjectMemberOfGroup(ctx context.Context, userID string, group 
 		return "", false, err
 	}
 	for _, g := range groups {
-		if g.Persona == group.Persona && g.InstanceSlug == group.Instance {
+		if g.Persona == group.Persona() && g.InstanceSlug == group.Slug() {
 			return g.GroupID, true, nil
 		}
 	}
 	return "", false, nil
-}
-
-// AssignRemoteApplicationRoleAs is the actor-aware remote-application role
-// assignment behind PUT /<persona>/:instance_slug/remote-applications/:app/
-// roles/:role (#263) — the SubjectKindRemoteApp symmetric of the member-role
-// route. The :app slug must resolve to a remote application CONTROLLED BY the
-// addressed group (same scope rule as the remote-app delete route), and the
-// actor must hold the persona's credentials:manage capability plus every
-// permission the role confers (no-escalation), so nobody can grant an
-// application authority above their own.
-func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, appSlug string, role iam.Role) error {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	sch := s.groupSchemaOrDefault()
-	persona := group.Persona
-	if !s.validRoleForPersona(sch, persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
-	}
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
-	if err != nil {
-		return err
-	}
-	ra, err := s.GetRemoteApplicationBySlug(ctx, appSlug)
-	if err != nil {
-		return err
-	}
-	// Scope: the application must belong to the addressed group — a
-	// credentials manager cannot attach another group's issuer.
-	if strings.TrimSpace(ra.PermissionGroupID) != strings.TrimSpace(gid) {
-		return iam.ErrRemoteApplicationNotFound
-	}
-	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermCredentialsManage(persona), role); err != nil {
-			return err
-		}
-		subject := iam.RemoteAppSubject(ra.ID)
-		old, err := st.directRole(ctx, gid, subject)
-		if err != nil {
-			return err
-		}
-		if old != "" && old != role {
-			if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermCredentialsManage(persona), old); err != nil {
-				return err
-			}
-			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
-				return err
-			}
-		}
-		return st.AssignRole(ctx, gid, iam.RemoteAppSubject(ra.ID), role)
-	})
 }

@@ -19,23 +19,3 @@ func (s *engine) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]iam.O
 	}
 	return out, nil
 }
-
-// AssignRolesBySlugAs / RemoveRolesBySlugAs run the actor-checked no-escalation
-// authority path (#136) PER ITEM: the actor may hold authority over some targets
-// and not others, so each item carries its own authz outcome.
-
-func (s *engine) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role iam.Role) ([]iam.OpResult, error) {
-	out := make([]iam.OpResult, 0, len(userIDs))
-	for _, id := range userIDs {
-		out = append(out, iam.OpResult{ID: id, Err: s.AssignRoleBySlugAs(ctx, actorUserID, id, role)})
-	}
-	return out, nil
-}
-
-func (s *engine) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role iam.Role) ([]iam.OpResult, error) {
-	out := make([]iam.OpResult, 0, len(userIDs))
-	for _, id := range userIDs {
-		out = append(out, iam.OpResult{ID: id, Err: s.RemoveRoleBySlugAs(ctx, actorUserID, id, role)})
-	}
-	return out, nil
-}

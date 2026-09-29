@@ -290,11 +290,11 @@ func (s *engine) applyBootstrapRemoteApplication(ctx context.Context, groups *pe
 		return nil
 	}
 	if role != iam.OwnerRole {
-		if err := s.refuseOwnerLoss(ctx, groups, rootID, iam.RemoteAppSubject(ra.ID)); err != nil {
+		if err := s.refuseOwnerLoss(ctx, groups, rootID, iam.RemoteApplicationSubject(ra.ID)); err != nil {
 			return err
 		}
 	}
-	return groups.AssignRole(ctx, rootID, iam.RemoteAppSubject(ra.ID), role)
+	return groups.AssignRole(ctx, rootID, iam.RemoteApplicationSubject(ra.ID), role)
 }
 
 func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
@@ -435,4 +435,10 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+// OperatorApplyBootstrapManifest is the explicit operator reconciliation operation.
+// engine construction never invokes it or restores user role assignments.
+func (s *engine) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
+	return s.ApplyBootstrapManifest(ctx, manifest, opts)
 }

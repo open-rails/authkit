@@ -64,8 +64,8 @@ func groupBatch(groupIDs []string) ([]string, error) {
 			ids = append(ids, id)
 		}
 	}
-	if len(ids) > iam.MaxGroupBatch {
-		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), iam.MaxGroupBatch)
+	if len(ids) > iam.MaxBatch {
+		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), iam.MaxBatch)
 	}
 	return ids, nil
 }

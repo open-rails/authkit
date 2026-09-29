@@ -48,8 +48,8 @@ func (s *Service) documentsHandler() http.Handler {
 		}
 	}
 	authorize := func(r *http.Request) error {
-		claims, ok := verify.ClaimsFromContext(r.Context())
-		if !ok || claims.PrincipalKind() != iam.PrincipalKindRemoteApplication {
+		claims, _ := verify.ClaimsFromContext(r.Context())
+		if actor, ok := verify.ActorFromClaims(claims); !ok || actor.Kind() != iam.ActorRemoteApplication {
 			return documents.ErrUnauthorized
 		}
 		if claims.RemoteApplicationTier != iam.ApplicationTierApproved && !cfg.AllowRegisteredTier {

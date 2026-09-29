@@ -40,7 +40,7 @@ type DelegatedAuthority interface {
 // tokenPermission reports whether an unbound, non-user token grants perm,
 // re-checking delegated authority live when the checker can.
 func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm) (bool, error) {
-	if cl.PrincipalKind() == iam.PrincipalKindUser || !cl.HasPermission(perm) {
+	if !cl.IsMachine() || !cl.HasPermission(perm) {
 		return false, nil
 	}
 	if live, ok := checker.(DelegatedAuthority); ok && cl.IsDelegatedAccessToken() {
@@ -82,7 +82,7 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.P
 		}
 		return group.ID == scope.GroupID && group.DeletedAt == nil, nil
 	}
-	if cl.PrincipalKind() != iam.PrincipalKindUser && cl.HasPermission(perm) {
+	if cl.IsMachine() && cl.HasPermission(perm) {
 		return tokenPermission(ctx, checker, cl, perm)
 	}
 	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
@@ -108,7 +108,7 @@ func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*h
 			// unbound principals (delegated access — issuer trust + permissions).
 			// A group-bound machine principal (#248) needs the resolved scope to
 			// check its instance binding, so it falls through to Allow.
-			if cl.PrincipalKind() != iam.PrincipalKindUser && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
+			if cl.IsMachine() && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
 				if ok, err := tokenPermission(r.Context(), checker, cl, perm); err != nil || !ok {
 					forbidden(w, iam.CodeForbidden)
 					return

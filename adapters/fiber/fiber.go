@@ -112,6 +112,15 @@ func Identity(c fiber.Ctx) (auth.Identity, bool) {
 	return cl.Identity()
 }
 
+// Actor returns the actor the verified caller acts as, for passing to *authkit.Auth
+// operations. ok is false when the caller carries no AuthKit authority.
+func Actor(c fiber.Ctx) (iam.Actor, bool) {
+	if c == nil {
+		return iam.Actor{}, false
+	}
+	return verify.ActorFromContext(c.Context())
+}
+
 // UserClaims returns only a verified local user, never a machine principal or
 // an external issuer's subject. It performs no database lookup; profile
 // availability depends on Required/Optional versus RequiredLive.

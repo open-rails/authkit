@@ -354,7 +354,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		ok, err := verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.NoError(t, h.auth.OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator"))
+		revokeRole(t, h.auth, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator")
 		ok, err = verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)
 		require.False(t, ok, "a delegated token kept root authority its user lost")

@@ -136,18 +136,18 @@ func TestRolesWorkflow(t *testing.T) {
 		return iam.UserSubject(u.ID)
 	}
 	admin, bob, carol := user("rolesadmin"), user("rolesbob"), user("rolescarol")
-	require.NoError(t, a.OperatorAssignGroupRole(ctx, iam.RootGroup(), admin, "admin"))
+	grantRole(t, a, iam.RootGroup(), admin, "admin")
 
-	announcements := iam.GroupRef{Persona: "channel", Instance: "announcements"}
+	announcements := iam.GroupBySlug("channel", "announcements")
 	_, err = a.engine.CreateInstanceForSubject(ctx, announcements, "", bob.ID)
 	require.ErrorIs(t, err, iam.ErrGroupSlugReserved)
 	created, err := a.engine.CreateInstanceForSubject(ctx, announcements, "", admin.ID)
 	require.NoError(t, err)
 	require.True(t, created.Created)
-	golang := iam.GroupRef{Persona: "channel", Instance: "golang"}
+	golang := iam.GroupBySlug("channel", "golang")
 	_, err = a.engine.CreateInstanceForSubject(ctx, golang, "", bob.ID)
 	require.NoError(t, err)
-	require.NoError(t, a.OperatorAssignGroupRole(ctx, golang, carol, "moderator"))
+	grantRole(t, a, golang, carol, "moderator")
 
 	can := func(s iam.Subject, g iam.GroupRef, perm iam.Perm) bool {
 		t.Helper()

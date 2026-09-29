@@ -1,7 +1,13 @@
 package authkit
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -71,5 +77,59 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("the verification surface must stay DB-less (#291) — move the dependency into the engine:\n  %s",
 			strings.Join(violations, "\n  "))
+	}
+}
+
+// Request-facing code never builds an actor from path or body fields: the only
+// actor derivation is verify.ActorFromClaims, and nothing there may name the
+// operator or call an Operator* operation.
+func TestRequestSurfaceCannotBuildActors(t *testing.T) {
+	constructors := map[string]bool{"OperatorActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+	derivation := filepath.Join("verify", "actor.go")
+	var violations []string
+	for _, root := range []string{"internal/httpapi", "verify", "adapters"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+			if err != nil {
+				return err
+			}
+			iamName := ""
+			for _, imp := range file.Imports {
+				if p, _ := strconv.Unquote(imp.Path.Value); p == "github.com/open-rails/authkit/iam" {
+					iamName = "iam"
+					if imp.Name != nil {
+						iamName = imp.Name.Name
+					}
+				}
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if strings.HasPrefix(sel.Sel.Name, "Operator") {
+					violations = append(violations, path+": "+sel.Sel.Name)
+				}
+				if iamName == "" {
+					return true
+				}
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "OperatorActor" {
+					if path != derivation {
+						violations = append(violations, path+": iam."+sel.Sel.Name)
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("request-facing code must derive actors only through verify.ActorFromClaims:\n  %s", strings.Join(violations, "\n  "))
 	}
 }

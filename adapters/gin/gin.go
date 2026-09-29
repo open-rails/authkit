@@ -82,6 +82,15 @@ func Identity(c *gin.Context) (auth.Identity, bool) {
 	return cl.Identity()
 }
 
+// Actor returns the actor the verified caller acts as, for passing to *authkit.Auth
+// operations. ok is false when the caller carries no AuthKit authority.
+func Actor(c *gin.Context) (iam.Actor, bool) {
+	if c == nil || c.Request == nil {
+		return iam.Actor{}, false
+	}
+	return verify.ActorFromContext(c.Request.Context())
+}
+
 // UserClaims reads a verified local user without performing a database lookup.
 // Profile availability depends on Required/Optional versus RequiredLive.
 func UserClaims(c *gin.Context) (verify.UserClaimsData, bool) {

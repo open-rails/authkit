@@ -44,9 +44,9 @@ func TestBootstrapWorkflow(t *testing.T) {
 	user, err := svc.GetUserByUsername(ctx, "bootstrap-admin")
 	require.NoError(t, err)
 	require.NoError(t, svc.CheckUserPassword(ctx, user.ID, seeded))
-	roles, err := svc.RoleSlugsByUsers(ctx, []string{user.ID})
+	roles, err := svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(user.ID)})
 	require.NoError(t, err)
-	require.Contains(t, roles[user.ID], string(iam.OwnerRole))
+	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(user.ID)])
 	require.NoError(t, svc.AdminSetPassword(ctx, user.ID, rotated))
 
 	// Neither the original name nor a different name can replay genesis, even
@@ -86,18 +86,18 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	recoveryUser, err := svc.GetUserByUsername(ctx, "recovery-owner")
 	require.NoError(t, err)
-	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
+	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)
-	require.NotContains(t, roles[recoveryUser.ID], string(iam.OwnerRole))
-	require.ErrorIs(t, svc.UnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(user.ID), iam.OwnerRole), iam.ErrCannotRemoveLastAdminRole)
+	require.NotEqual(t, iam.OwnerRole, roles[iam.UserSubject(recoveryUser.ID)])
+	require.ErrorIs(t, unassignRole(ctx, svc, iam.OperatorActor(), iam.RootGroup(), iam.UserSubject(user.ID), iam.OwnerRole), iam.ErrCannotRemoveLastAdminRole)
 	// Only explicit out-of-band database repair can create this recovery state.
 	_, err = pg.Pool.Exec(ctx, `DELETE FROM group_user_roles WHERE user_id=$1::uuid`, user.ID)
 	require.NoError(t, err)
 	_, err = svc.OperatorApplyBootstrapManifest(ctx, recovery, iam.BootstrapReconcileOptions{})
 	require.NoError(t, err)
-	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
+	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)
-	require.Contains(t, roles[recoveryUser.ID], string(iam.OwnerRole))
+	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(recoveryUser.ID)])
 
 	enabled := true
 	app := iam.BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled, RootRole: string(iam.OwnerRole)}

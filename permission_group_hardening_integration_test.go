@@ -90,7 +90,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, boundedAdmin) })
 	// Genesis-style unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
-	require.NoError(t, fixtureBackend(s.Backend()).AssignGroupRole(ctx, iam.GroupRef{Persona: "merchant", Instance: "m-escalate"}, iam.UserSubject(boundedAdmin), "roles-admin"))
+	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(boundedAdmin), "roles-admin")
 
 	// Owner defines "auditor" (billing:read only) — this establishes a role
 	// someone else (in principle) could hold.
@@ -109,15 +109,15 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	var subject string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
-	require.NoError(t, fixtureBackend(s.Backend()).AssignGroupRole(ctx, iam.GroupRef{Persona: "merchant", Instance: "m-escalate"}, iam.UserSubject(subject), "auditor"))
-	perms, err := s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupRef{Persona: "merchant", Instance: "m-escalate"})
+	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(subject), "auditor")
+	perms, err := s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
 	w = drive(s, t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupRef{Persona: "merchant", Instance: "m-escalate"})
+	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read", "merchant:billing:write"}, perms)
 
@@ -131,7 +131,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	// Owner CAN delete it.
 	dw = driveSub(s, t, delGR, delRepl, owner)
 	require.Equal(t, http.StatusOK, dw.Code, dw.Body.String())
-	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupRef{Persona: "merchant", Instance: "m-escalate"})
+	perms, err = s.Backend().ListEffectivePermissions(ctx, iam.UserSubject(subject), iam.GroupBySlug("merchant", "m-escalate"))
 	require.NoError(t, err)
 	require.Empty(t, perms, "after delete, the auditor grant must be gone")
 }
