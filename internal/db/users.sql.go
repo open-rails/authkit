@@ -141,7 +141,7 @@ type UserByIDRow struct {
 	AvatarUrl         *string
 }
 
-// User-row queries (core/service.go).
+// User-row queries.
 // preferred_language is included in this projection (a widening; no existing
 // caller breaks) so callers that already load the user row — e.g. GET /me — read
 // the language off this row instead of issuing a separate UserPreferredLanguage
@@ -556,37 +556,6 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 	return language, err
 }
 
-const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
-UPDATE users SET avatar_url = $2, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetAvatarURLParams struct {
-	ID        string
-	AvatarUrl *string
-}
-
-func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLParams) (int64, error) {
-	result, err := q.db.Exec(ctx, userSetAvatarURL, arg.ID, arg.AvatarUrl)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const userSetEmailAndUnverify = `-- name: UserSetEmailAndUnverify :exec
-UPDATE users SET email = lower($2::text), email_verified = false, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetEmailAndUnverifyParams struct {
-	ID    string
-	Email string
-}
-
-func (q *Queries) UserSetEmailAndUnverify(ctx context.Context, arg UserSetEmailAndUnverifyParams) error {
-	_, err := q.db.Exec(ctx, userSetEmailAndUnverify, arg.ID, arg.Email)
-	return err
-}
-
 const userSetEmailVerified = `-- name: UserSetEmailVerified :exec
 UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1
 `
@@ -612,37 +581,6 @@ type UserSetLastLoginParams struct {
 
 func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginParams) error {
 	_, err := q.db.Exec(ctx, userSetLastLogin, arg.ID, arg.LastLogin)
-	return err
-}
-
-const userSetPhoneAndVerified = `-- name: UserSetPhoneAndVerified :exec
-UPDATE users
-SET phone_number = $2, phone_verified = $3, updated_at = NOW()
-WHERE id = $1
-`
-
-type UserSetPhoneAndVerifiedParams struct {
-	ID            string
-	PhoneNumber   *string
-	PhoneVerified bool
-}
-
-func (q *Queries) UserSetPhoneAndVerified(ctx context.Context, arg UserSetPhoneAndVerifiedParams) error {
-	_, err := q.db.Exec(ctx, userSetPhoneAndVerified, arg.ID, arg.PhoneNumber, arg.PhoneVerified)
-	return err
-}
-
-const userSetPhoneVerifiedByID = `-- name: UserSetPhoneVerifiedByID :exec
-UPDATE users SET phone_verified = $2, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetPhoneVerifiedByIDParams struct {
-	ID            string
-	PhoneVerified bool
-}
-
-func (q *Queries) UserSetPhoneVerifiedByID(ctx context.Context, arg UserSetPhoneVerifiedByIDParams) error {
-	_, err := q.db.Exec(ctx, userSetPhoneVerifiedByID, arg.ID, arg.PhoneVerified)
 	return err
 }
 

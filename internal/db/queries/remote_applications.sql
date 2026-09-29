@@ -1,4 +1,4 @@
--- Remote application registry (core/service_remote_applications.go). A
+-- Remote application registry. A
 -- remote_application is the federation PRINCIPAL: it authenticates by signing
 -- JWTs verified against its JWKS/public keys (#74).
 --
@@ -26,11 +26,6 @@ WHERE issuer = $1;
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
 FROM remote_applications
 WHERE slug = $1;
-
--- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM remote_applications
-ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at

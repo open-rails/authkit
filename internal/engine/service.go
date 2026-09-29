@@ -21,11 +21,9 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Keyset is a fixed active signer + public-key set for the low-level
-// NewService constructor (explicit-key tests). It is converted to a
-// jwtkit.KeySource at construction and never read again directly — hosts that
-// need rotation should provide a live jwtkit.KeySource via
-// Config.Keys.Source / NewFromConfig instead. See #238.
+// keyset is a fixed active signer + public-key set for explicit-key tests. It
+// is converted to a jwtkit.KeySource at construction and never read again;
+// hosts provide a live jwtkit.KeySource via Config.Keys.Source (#238).
 type keyset struct {
 	Active     jwtkit.Signer
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
@@ -208,12 +206,6 @@ func (s *Engine) VerifyPendingPhonePassword(ctx context.Context, phone, pass str
 	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
 	return err == nil && ok
 }
-
-// --- Two-Factor Authentication (2FA) ---
-
-// TwoFactorSettings represents a user's 2FA configuration
-
-// (SetUserActive removed; use BanUser/UnbanUser or SoftDeleteUser.)
 
 // requirePG returns an error when no Postgres pool is configured (verify-only /
 // config-only construction). Store-backed methods guard on it.

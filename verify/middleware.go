@@ -97,11 +97,9 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 }
 
 // AddMFAEnrollmentExemptRoutes registers ANCHORED exempt paths (mount prefix +
-// route path), matched exactly. httpapi.MountHandler calls it with the prefix
-// it mounted under; once any anchored route is registered the suffix match of
-// SetMFAEnrollmentExemptPaths is no longer consulted, so a host route that
-// merely ends in "/user/2fa" cannot be reached with an enrollment-only token
-// (ak#324). The suffix form remains for verify-only consumers that never mount.
+// route path), matched exactly; AuthKit's mount registers its own. A host
+// route that merely ends in "/user/2fa" cannot be reached with an
+// enrollment-only token (ak#324).
 func (v *Verifier) AddMFAEnrollmentExemptRoutes(paths []string) *Verifier {
 	v.mu.Lock()
 	defer v.mu.Unlock()

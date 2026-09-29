@@ -33,7 +33,7 @@ func variantName(v CookieVariant) string { return v.Name }
 
 type refreshCookieCtxKey struct{}
 
-// withRefreshCookiePolicy is applied by MountHandler when the host opts in.
+// withRefreshCookiePolicy is applied by NewMount when the host opts in.
 func withRefreshCookiePolicy(next http.Handler, policy refreshCookiePolicy) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), refreshCookieCtxKey{}, policy)))

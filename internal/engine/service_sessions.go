@@ -200,7 +200,7 @@ func (s *Engine) graceSuccessorFor(presented string, prev db.SessionByHistorical
 // The user row and MFAStatus are read exactly ONCE (#227): the gate, the mint and
 // the former trailing IsUserAllowed recheck used to re-read the same row 3×+. That
 // recheck is deliberately gone — it applied identical allow/deny logic to a SECOND
-// read and could only diverge on a ban landing mid-refresh (BanUser already revokes
+// read and could only diverge on a ban landing mid-refresh (Ban already revokes
 // the sessions) or on a transient DB error, where it would have wrongly revoked
 // everything. ensureUserAccess still rejects banned/deleted/reserved users with
 // ErrUserBanned at exactly this point.

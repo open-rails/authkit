@@ -118,8 +118,8 @@ type EntitlementsProvider interface {
 // owns the user DIRECTORY; the billing system (OpenRails) owns "who is entitled",
 // so filtering the directory BY entitlement delegates here instead of joining
 // across schemas. Subject ids ARE user ids (UUID-only payable identity). Detected
-// by type assertion on the entitlements provider; when absent, AdminListUsers
-// with an Entitlement filter fails with ErrEntitlementFilterUnavailable so the
+// by type assertion on the entitlements provider; when absent, ListUsers with
+// an Entitlement filter fails with ErrEntitlementFilterUnavailable so the
 // misconfiguration is loud rather than silently returning everyone.
 type EntitlementFilterProvider interface {
 	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)

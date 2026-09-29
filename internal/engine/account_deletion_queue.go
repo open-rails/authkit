@@ -263,7 +263,7 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		return fmt.Errorf("authkit: unsupported account lifecycle stage %q", stage)
 	}
 	// No pool connection or database transaction is held while application
-	// code runs. A hook may safely call the Client with a one-slot pool.
+	// code runs. A hook may safely call Auth with a one-slot pool.
 	if hook != nil {
 		if err := invokeAccountHook(ctx, hook, deletion); err != nil {
 			return err

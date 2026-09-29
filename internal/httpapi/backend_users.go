@@ -10,7 +10,6 @@ import (
 // usersBackend is the account directory and account administration.
 type usersBackend interface {
 	User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOption) (iam.User, error)
-	PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error)
 	ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.User], error)
 	UserDirectoryDetails(ctx context.Context, ids []string) map[string]authflow.UserDirectoryDetail
 	UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error)

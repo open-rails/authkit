@@ -92,7 +92,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	var boundedAdmin string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&boundedAdmin))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, boundedAdmin) })
-	// Genesis-style unchecked seed of the bounded admin's OWN role — holds
+	// Unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
 	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(boundedAdmin), "roles-admin")
 

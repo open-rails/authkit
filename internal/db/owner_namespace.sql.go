@@ -20,7 +20,7 @@ FROM users
 WHERE id = $1::uuid
 `
 
-// Owner-namespace queries (core/service_owner_namespace*.go, core/owner_namespace_lookup.go).
+// Owner-namespace queries.
 //
 // Permission groups own group-scoped routing now. The reserved-account guard is
 // users.metadata->>'reserved' (UserIsReserved); rename history is not authority.

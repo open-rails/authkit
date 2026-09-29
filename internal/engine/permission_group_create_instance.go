@@ -46,7 +46,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 	if _, ok := sch.Persona(ref.Persona()); !ok || ref.IsRoot() {
 		return iam.Group{}, false, fmt.Errorf("unknown group persona %q: %w", ref.Persona(), iam.ErrUnknownGroupPersona)
 	}
-	if err := iam.ValidateGroupInstanceSlug(ref); err != nil {
+	if err := validateGroupSlug(ref); err != nil {
 		return iam.Group{}, false, fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
 	}
 	displayName := strings.TrimSpace(ng.DisplayName)
@@ -200,7 +200,7 @@ func (s *Engine) renameGroup(ctx context.Context, st *permissionGroupStore, a ia
 	if next.Slug() == g.Slug {
 		return nil
 	}
-	if err := iam.ValidateGroupInstanceSlug(next); err != nil {
+	if err := validateGroupSlug(next); err != nil {
 		return fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
 	}
 	if err := s.authorizeSlugClaim(ctx, st, a, next); err != nil {

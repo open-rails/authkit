@@ -233,32 +233,6 @@ func (q *Queries) UserProviderSetUsername(ctx context.Context, arg UserProviderS
 	return err
 }
 
-const userProviderSlugs = `-- name: UserProviderSlugs :many
-SELECT provider_slug::text AS provider_slug
-FROM user_providers
-WHERE user_id = $1 AND provider_slug IS NOT NULL AND verified_at IS NOT NULL
-`
-
-func (q *Queries) UserProviderSlugs(ctx context.Context, userID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, userProviderSlugs, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var provider_slug string
-		if err := rows.Scan(&provider_slug); err != nil {
-			return nil, err
-		}
-		items = append(items, provider_slug)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const userProviderSlugsDistinct = `-- name: UserProviderSlugsDistinct :many
 SELECT DISTINCT provider_slug::text AS provider_slug
 FROM user_providers
@@ -396,17 +370,4 @@ func (q *Queries) UserProviderVerifyImported(ctx context.Context, arg UserProvid
 	var verified_at *time.Time
 	err := row.Scan(&verified_at)
 	return verified_at, err
-}
-
-const userProvidersCount = `-- name: UserProvidersCount :one
-
-SELECT count(*) FROM user_providers WHERE user_id = $1 AND verified_at IS NOT NULL
-`
-
-// Provider-link queries (core/service.go).
-func (q *Queries) UserProvidersCount(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRow(ctx, userProvidersCount, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
 }

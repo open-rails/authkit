@@ -418,7 +418,7 @@ type RemoteApplicationUpsertRow struct {
 	UpdatedAt         time.Time
 }
 
-// Remote application registry (core/service_remote_applications.go). A
+// Remote application registry. A
 // remote_application is the federation PRINCIPAL: it authenticates by signing
 // JWTs verified against its JWKS/public keys (#74).
 //
@@ -453,68 +453,6 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const remoteApplicationsAll = `-- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
-FROM remote_applications
-ORDER BY slug ASC
-`
-
-type RemoteApplicationsAllRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	DisplayName       string
-	Tier              string
-	TrustRoot         string
-	Domain            string
-	DocumentEndpoint  string
-	RootVerifiedAt    *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicationsAllRow, error) {
-	rows, err := q.db.Query(ctx, remoteApplicationsAll)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RemoteApplicationsAllRow
-	for rows.Next() {
-		var i RemoteApplicationsAllRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Slug,
-			&i.PermissionGroupID,
-			&i.Issuer,
-			&i.JwksUri,
-			&i.Mode,
-			&i.PublicKeys,
-			&i.Enabled,
-			&i.DisplayName,
-			&i.Tier,
-			&i.TrustRoot,
-			&i.Domain,
-			&i.DocumentEndpoint,
-			&i.RootVerifiedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many

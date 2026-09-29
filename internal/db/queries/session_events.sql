@@ -1,4 +1,4 @@
--- Session-event history queries (authcore/session_events.go, #245). Best-effort
+-- Session-event history queries (#245). Best-effort
 -- append-only log: sign-ins, revocations, password changes. Retention-pruned.
 
 -- name: SessionEventInsert :exec

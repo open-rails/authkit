@@ -1,4 +1,4 @@
-// Package testhttp constructs isolated local runtimes for HTTP adapter tests.
+// Package testhttp constructs isolated AuthKit instances for HTTP adapter tests.
 package testhttp
 
 import (
@@ -13,9 +13,9 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Runtime builds a runtime serving httpCfg (zero: headless) on a scratch
-// database, with one Google provider so provider routes exist.
-func Runtime(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
+// Auth builds an Auth serving httpCfg (zero: headless) on a scratch database,
+// with one Google provider so provider routes exist.
+func Auth(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	signer, err := jwtkit.NewRSASigner(2048, "runtime-http-test")

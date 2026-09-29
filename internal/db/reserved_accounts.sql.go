@@ -15,30 +15,10 @@ SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
 FROM users WHERE id = $1::uuid
 `
 
-// Reserved-account + metadata queries (core/service_reserved_accounts.go).
+// Reserved-account + metadata queries.
 func (q *Queries) UserMetadata(ctx context.Context, id string) ([]byte, error) {
 	row := q.db.QueryRow(ctx, userMetadata, id)
 	var metadata []byte
 	err := row.Scan(&metadata)
 	return metadata, err
-}
-
-const userMetadataPatch = `-- name: UserMetadataPatch :execrows
-UPDATE users
-SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
-    updated_at = now()
-WHERE id = $2::uuid
-`
-
-type UserMetadataPatchParams struct {
-	Patch []byte
-	ID    string
-}
-
-func (q *Queries) UserMetadataPatch(ctx context.Context, arg UserMetadataPatchParams) (int64, error) {
-	result, err := q.db.Exec(ctx, userMetadataPatch, arg.Patch, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

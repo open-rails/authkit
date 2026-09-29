@@ -1,8 +1,3 @@
--- Provider-link queries (core/service.go).
-
--- name: UserProvidersCount :one
-SELECT count(*) FROM user_providers WHERE user_id = $1 AND verified_at IS NOT NULL;
-
 -- name: UserProviderCountForUpdate :one
 -- Locks the user's provider rows (FOR UPDATE in the inner query) and returns the
 -- count, so a concurrent unlink for the same user serializes behind this lock —
@@ -66,11 +61,6 @@ WHERE user_id = sqlc.arg(user_id)::uuid
   AND provider_slug IS NOT NULL
   AND verified_at IS NOT NULL
 ORDER BY provider_slug;
-
--- name: UserProviderSlugs :many
-SELECT provider_slug::text AS provider_slug
-FROM user_providers
-WHERE user_id = $1 AND provider_slug IS NOT NULL AND verified_at IS NOT NULL;
 
 -- name: UserProviderUnverifiedForUpdate :one
 SELECT id

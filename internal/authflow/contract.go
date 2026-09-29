@@ -29,7 +29,3 @@ type PasswordlessStartResult struct {
 	Code    string
 	LinkURL string
 }
-
-type PreferredLanguage struct {
-	Language string
-}

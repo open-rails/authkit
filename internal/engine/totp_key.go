@@ -18,9 +18,9 @@ import (
 // defaults to /vault/auth — identical resolution to keys.json; no env fallback,
 // #231). The file holds the AES key encoded as base64 or hex (raw bytes also
 // accepted), decoding to exactly 16, 24, or 32 bytes (AES-128/192/256). Hosts do
-// not load or pass the secret manually on the normal embedded path; the explicit
+// not load or pass the secret manually on the normal path; the explicit
 // TwoFactorConfig.TOTPSecretKey []byte is an override for tests/custom key
-// management and wins over the file. Wired into NewFromConfig (#232).
+// management and wins over the file (#232).
 const totpKeyFilename = "totp.key"
 
 func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }

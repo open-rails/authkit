@@ -1,4 +1,4 @@
--- Refresh-session queries (core/service_sessions.go).
+-- Refresh-session queries.
 
 -- name: SessionCreateLock :exec
 -- Transaction-scoped advisory lock that serializes concurrent session creation for
@@ -81,17 +81,6 @@ WHERE id = sqlc.arg(session_id)::uuid
   AND issuer = sqlc.arg(issuer)
   AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
-
--- name: SessionIDByCurrentTokenHash :one
-SELECT id::text
-FROM refresh_sessions
-WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > now());
-
--- name: SessionRevokeByID :one
-UPDATE refresh_sessions SET revoked_at = now()
-WHERE id = $1 AND issuer = $2 AND revoked_at IS NULL
-RETURNING user_id::text;
 
 -- name: SessionRevokeByIDForUser :one
 UPDATE refresh_sessions SET revoked_at = now()
