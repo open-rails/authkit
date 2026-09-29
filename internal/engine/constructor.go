@@ -107,10 +107,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 		cfg.Token.RefreshRotationGrace = 30 * time.Second
 	}
 	if cfg.Token.AccessTokenDuration == 0 {
-		// Short default bounds revocation lag (logout / ban / password-change)
-		// to one TTL window; refresh-token rotation re-issues silently. See
-		// authkit #90 — we deliberately rely on this bound instead of a
-		// per-request jti/liveness lookup.
+		// Short default bounds how long a revoked session's token still passes
+		// stateless verification; the session check at permission and
+		// sensitive gates refuses it at once (#412). Refresh-token rotation
+		// re-issues silently.
 		cfg.Token.AccessTokenDuration = 15 * time.Minute
 	}
 	// RefreshTokenDuration: 0 or less => indefinite sessions.

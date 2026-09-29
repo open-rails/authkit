@@ -126,8 +126,10 @@ func InTx(tx pgx.Tx) Option { return func(o *operationOptions) { o.tx = tx } }
 
 // Can reports whether actor holds perm in the group, checked live: a banned
 // or deleted user, a revoked key, an unknown group or an actor bound to
-// another group is false. An unregistered perm is iam.ErrUnknownPermission,
-// never a silent false.
+// another group is false. An actor built from a token
+// (verify.ActorFromClaims) is bound to its session: once that session or
+// device key is revoked, Can is iam.ErrSessionRevoked. An unregistered perm is
+// iam.ErrUnknownPermission, never a silent false.
 func (a *Client) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.engine.Can(ctx, actor, ref, perm)
 }

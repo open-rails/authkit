@@ -155,6 +155,7 @@ export type LinkFragment = {
 const STALE_BEARER = new Set<AuthErrorCode>([
   "token_expired",
   "invalid_token",
+  "session_revoked",
   "unauthenticated",
   "unknown_kid",
 ])

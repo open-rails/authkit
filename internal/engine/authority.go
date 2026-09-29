@@ -131,16 +131,18 @@ func requireActor(a iam.Actor) error {
 
 // actorAuthority resolves a's live authority in g (rule ACTOR). A zero, deleted,
 // reserved, banned, revoked, expired or disabled actor is
-// ErrInsufficientAuthority. An actor bound to another group resolves with
-// no grants, as does a delegation from a foreign issuer.
+// ErrInsufficientAuthority; one whose bound session or device key is revoked
+// (Actor.InSession) is ErrSessionRevoked. An actor bound to another group
+// resolves with no grants, as does a delegation from a foreign issuer.
 func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget) (authority, error) {
 	out := authority{actor: a}
+	session, _ := a.Session()
 	switch a.Kind() {
 	case iam.ActorSystem:
 		out.system = true
 		return out, nil
 	case iam.ActorUser:
-		return s.userAuthority(ctx, st, out, a.ID(), g)
+		return s.userAuthority(ctx, st, out, a.ID(), session, g)
 	case iam.ActorRemoteApplication:
 		return s.applicationAuthority(ctx, st, out, a.ID(), "", g)
 	case iam.ActorAPIKey:
@@ -151,26 +153,26 @@ func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a
 		case grant.RemoteApplicationID != "":
 			return s.applicationAuthority(ctx, st, out, grant.RemoteApplicationID, grant.GroupID, g)
 		case grant.Issuer == strings.TrimSpace(s.cfg.Token.Issuer):
-			return s.userAuthority(ctx, st, out, grant.Subject, g)
+			return s.userAuthority(ctx, st, out, grant.Subject, session, g)
 		}
 		return out, nil
 	}
 	return authority{}, iam.ErrInsufficientAuthority
 }
 
-func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, g groupTarget) (authority, error) {
-	subject := iam.UserSubject(userID)
-	if !isUUID(userID) {
-		return authority{}, iam.ErrInsufficientAuthority
-	}
-	live, err := subjectUsable(ctx, st.q, subject)
-	if err != nil {
+// userAuthority is a usable user's grants in g, refused when the sign-in the
+// actor is bound to no longer stands.
+func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, session iam.SessionRef, g groupTarget) (authority, error) {
+	usable, signedIn, err := userLive(ctx, st.q, userID, session)
+	switch {
+	case err != nil:
 		return authority{}, err
-	}
-	if !live {
+	case !signedIn:
+		return authority{}, iam.ErrSessionRevoked
+	case !usable:
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	out.grants, err = s.subjectGrants(ctx, st, subject, g.ID)
+	out.grants, err = s.subjectGrants(ctx, st, iam.UserSubject(userID), g.ID)
 	return out, err
 }
 

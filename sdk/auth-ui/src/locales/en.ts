@@ -586,6 +586,7 @@ export const en = {
     registration_disabled: "Registration is currently disabled.",
     rename_rate_limited: "Too many username changes. Please try again later.",
     renames_disabled: "Username changes are disabled.",
+    session_revoked: "Your session has ended. Please sign in again.",
     sms_delivery_failed:
       "We couldn't deliver the verification text message. Please try email instead, or contact support.",
     sms_unavailable: "SMS is currently unavailable. Please use email instead.",

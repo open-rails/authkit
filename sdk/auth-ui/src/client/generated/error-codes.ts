@@ -85,7 +85,6 @@ export type AuthErrorCode =
   | "invite_link_revoked"
   | "issuer_keys_unavailable"
   | "last_owner"
-  | "liveness_unavailable"
   | "malformed_permissions"
   | "missing_audience"
   | "missing_delegated_sub"
@@ -140,6 +139,7 @@ export type AuthErrorCode =
   | "role_not_assignable"
   | "sender_proof_required"
   | "service_jwt_lifetime_exceeded"
+  | "session_revoked"
   | "sms_delivery_failed"
   | "sms_unavailable"
   | "step_up_required"
@@ -251,7 +251,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invite_link_revoked": 400,
   "issuer_keys_unavailable": 503,
   "last_owner": 409,
-  "liveness_unavailable": 401,
   "malformed_permissions": 401,
   "missing_audience": 401,
   "missing_delegated_sub": 401,
@@ -306,6 +305,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "role_not_assignable": 400,
   "sender_proof_required": 401,
   "service_jwt_lifetime_exceeded": 401,
+  "session_revoked": 401,
   "sms_delivery_failed": 502,
   "sms_unavailable": 503,
   "step_up_required": 403,

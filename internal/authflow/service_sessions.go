@@ -10,6 +10,20 @@ import (
 
 const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
+// RecentSignIn reports whether a token's assurance clears the sensitive-action
+// gate: signed in within SensitiveActionFreshAuthWindow and, for an account
+// with a usable second factor (mfa), with that factor (amr otp or mfa). An
+// account without one is never blocked for lacking it.
+func RecentSignIn(authTime time.Time, amr []string, mfa bool, now time.Time) bool {
+	if authTime.IsZero() || authTime.After(now) || now.Sub(authTime) > SensitiveActionFreshAuthWindow {
+		return false
+	}
+	return !mfa || slices.ContainsFunc(amr, func(m string) bool {
+		m = strings.ToLower(strings.TrimSpace(m))
+		return m == "otp" || m == "mfa"
+	})
+}
+
 type SessionFreshness struct {
 	LastAuthenticatedAt           time.Time
 	TimeUntilStepUpRequired       time.Duration

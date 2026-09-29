@@ -200,7 +200,9 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
-	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, nil)
+	sid, _, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	// Unauthenticated mint is refused before the authorizer runs.
@@ -437,7 +439,9 @@ func TestDelegatedTokenRoute_KeyRotation(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
 	delegate := newDelegateCertificate(t, nil)
-	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, nil)
+	sid, _, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	mintOK(t, h, mintBody(delegate, ""), userToken)
 

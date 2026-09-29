@@ -1,97 +1,45 @@
 package verify
 
 import (
+	"context"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-const DefaultSensitiveMaxAge = 15 * time.Minute
-
-type SensitiveOptions struct {
-	MaxAge        time.Duration
-	AMR           []string
-	ACR           string
-	StepUpMethods []string
+// SessionChecker checks the sign-in behind verified claims, live;
+// *authkit.Client is one.
+type SessionChecker interface {
+	// CheckRecentSignIn returns nil when the session or device key cl was
+	// minted from is still active and signed in recently enough for a
+	// sensitive action, with its second factor when the account has one.
+	// Otherwise it returns the error to answer: iam.ErrSessionRevoked,
+	// step_up_required carrying the step-up methods, or forbidden for a
+	// credential that is not a user's.
+	CheckRecentSignIn(ctx context.Context, cl Claims) error
 }
 
-// Sensitive gates a host route on a fresh authentication: auth_time within
-// MaxAge, plus AMR/ACR when set, plus a second factor for a user whose token
-// says mfa_enrolled. It reads only the token: mfa_enrolled reflects the
-// account when the token was minted, so it can be up to one access-token
-// lifetime stale after the user enrolls a factor. AuthKit's own sensitive
-// routes check the account's live MFA state instead.
-func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
-	opts := normalizeSensitiveOptions(options...)
+// Sensitive authenticates the request (it includes Required) and gates it on
+// the gate AuthKit's own credential routes apply: the session or device key
+// behind the token is still active (not logged out, revoked, banned or
+// deleted) and signed in within the last 15 minutes, with its second factor
+// when the account has one. A stale sign-in answers 403 step_up_required with
+// the account's step-up methods, which auth-ui handles; a revoked one 401
+// session_revoked. Stack it after RequirePermission when a route needs both.
+func Sensitive(a Authority) func(http.Handler) http.Handler {
+	authenticate := Required(a.Verifier())
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
-			if err != nil || !SensitiveClaims(cl, opts) {
-				iam.WriteError(w, errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithMetadata(sensitiveMetadata(opts, cl))))
+			if err == nil {
+				err = a.CheckRecentSignIn(r.Context(), cl)
+			}
+			if err != nil {
+				iam.WriteError(w, err)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
+		return authenticate(gate)
 	}
-}
-
-func SensitiveClaims(cl Claims, options ...SensitiveOptions) bool {
-	opts := normalizeSensitiveOptions(options...)
-	if !isUserClaims(cl) {
-		return false
-	}
-	for _, method := range opts.AMR {
-		if strings.TrimSpace(method) != "" && !cl.HasAMR(method) {
-			return false
-		}
-	}
-	if opts.ACR != "" && !strings.EqualFold(strings.TrimSpace(cl.ACR), opts.ACR) {
-		return false
-	}
-	// MFA-if-enrolled (default, non-optional): a user with usable 2FA must step up
-	// WITH 2FA — a password/OIDC re-auth is not sufficient. Users without 2FA are
-	// never blocked here; forcing a user to HAVE 2FA is a provisioning concern
-	// (role RequiresMFA / signup enrollment), not a step-up-gate concern, so the
-	// gate can never lock anyone out.
-	if cl.MFAEnrolled && !(cl.HasAMR("otp") || cl.HasAMR("mfa")) {
-		return false
-	}
-	return cl.AuthenticatedWithin(opts.MaxAge)
-}
-
-func normalizeSensitiveOptions(options ...SensitiveOptions) SensitiveOptions {
-	opts := SensitiveOptions{MaxAge: DefaultSensitiveMaxAge}
-	if len(options) > 0 {
-		opts = options[0]
-		if opts.MaxAge <= 0 {
-			opts.MaxAge = DefaultSensitiveMaxAge
-		}
-	}
-	return opts
-}
-
-func sensitiveMetadata(opts SensitiveOptions, cl Claims) map[string]any {
-	methods := opts.StepUpMethods
-	if len(methods) == 0 {
-		methods = []string{"password", "2fa"}
-	}
-	out := map[string]any{
-		"step_up_methods": methods,
-		"max_age_seconds": int64(opts.MaxAge.Seconds()),
-	}
-	// Per-user: a user with 2FA enrolled must satisfy the gate with 2FA, so tell
-	// the client to route to a 2FA method (not a password step-up).
-	if cl.MFAEnrolled {
-		out["mfa_required"] = true
-	}
-	if len(opts.AMR) > 0 {
-		out["required_amr"] = opts.AMR
-	}
-	if opts.ACR != "" {
-		out["required_acr"] = opts.ACR
-	}
-	return out
 }

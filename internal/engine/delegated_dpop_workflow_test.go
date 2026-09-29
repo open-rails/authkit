@@ -146,9 +146,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.NoError(t, verifier.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 	resourceMux := http.NewServeMux()
 	resourceMux.Handle("/", resourceHandler(verifier))
-	live, err := verify.RequiredLive(verifier.WithLiveness(engine))
-	require.NoError(t, err)
-	resourceMux.Handle("/live", live(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })))
+	resourceMux.Handle("/required", verify.Required(verifier)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })))
 	resource = httptest.NewTLSServer(resourceMux)
 	t.Cleanup(resource.Close)
 	call := func(scheme, token, proof, path string) int {
@@ -171,8 +169,8 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		return testdpop.Proof(t, browserKey, "GET", resource.URL+"/tasks", token, nil)
 	}
 	require.Equal(t, 200, call("DPoP", minted.Token, resourceProof(minted.Token), "/tasks?cursor=next"))
-	require.Equal(t, 401, call("DPoP", minted.Token, resourceProof(minted.Token), "/live"))
-	require.Equal(t, 200, call("DPoP", minted.Token, testdpop.Proof(t, browserKey, "GET", resource.URL+"/live", minted.Token, nil), "/live"))
+	require.Equal(t, 401, call("DPoP", minted.Token, resourceProof(minted.Token), "/required"))
+	require.Equal(t, 200, call("DPoP", minted.Token, testdpop.Proof(t, browserKey, "GET", resource.URL+"/required", minted.Token, nil), "/required"))
 	require.Equal(t, 401, call("Bearer", minted.Token, resourceProof(minted.Token), "/tasks"))
 	require.Equal(t, 401, call("DPoP", minted.Token, "", "/tasks"))
 	require.Equal(t, 401, call("DPoP", minted.Token, resourceProof("other-token"), "/tasks"))

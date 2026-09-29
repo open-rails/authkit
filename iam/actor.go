@@ -18,12 +18,23 @@ const (
 // only way to build the system actor. Authority is resolved live per operation;
 // nothing is cached in the value.
 type Actor struct {
-	kind  ActorKind
-	id    string
-	grant *DelegatedGrant
+	kind    ActorKind
+	id      string
+	grant   *DelegatedGrant
+	session SessionRef
 	// ceilings narrow authority; each one must cover a permission. nil = unbounded.
 	ceilings [][]Perm
 }
+
+// SessionRef names the sign-in an access token was minted from: a refresh
+// session (claim sid) or a device key (claim device_key_id), never both.
+type SessionRef struct {
+	SessionID   string
+	DeviceKeyID string
+}
+
+// IsZero reports whether r names no sign-in.
+func (r SessionRef) IsZero() bool { return r.SessionID == "" && r.DeviceKeyID == "" }
 
 // DelegatedGrant is copied from a verified delegated access token.
 type DelegatedGrant struct {
@@ -72,6 +83,29 @@ func newActor(kind ActorKind, id string) Actor {
 	}
 	return Actor{kind: kind, id: id}
 }
+
+// InSession binds a user or delegated actor to the sign-in its token was
+// minted from. Every authority check then also requires that session or
+// device key to be active, in the same query as the account check, and
+// refuses a revoked one with ErrSessionRevoked. verify.ActorFromClaims binds
+// every actor it builds from an AuthKit user or delegated token; an unbound
+// actor (UserActor in trusted server code) is checked at account level only.
+// The zero ref leaves a unchanged; any other actor, or a ref naming both, is
+// the zero Actor.
+func (a Actor) InSession(r SessionRef) Actor {
+	r.SessionID, r.DeviceKeyID = strings.TrimSpace(r.SessionID), strings.TrimSpace(r.DeviceKeyID)
+	switch {
+	case r.IsZero():
+		return a
+	case a.kind != ActorUser && a.kind != ActorDelegated, r.SessionID != "" && r.DeviceKeyID != "":
+		return Actor{}
+	}
+	a.session = r
+	return a
+}
+
+// Session is the sign-in a is bound to (InSession).
+func (a Actor) Session() (SessionRef, bool) { return a.session, !a.session.IsZero() }
 
 // Within narrows the actor to permissions covered by perms (an intersection
 // with any existing ceiling). On the system or the zero Actor it returns the

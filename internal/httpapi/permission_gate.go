@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
@@ -28,6 +29,10 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 			return
 		}
 		allowed, err := s.svc.Can(r.Context(), actor, group, perm)
+		if errors.Is(err, iam.ErrSessionRevoked) {
+			writeError(w, err)
+			return
+		}
 		if err != nil {
 			serverErr(w, "database_error", err)
 			return

@@ -11,7 +11,7 @@ import (
 )
 
 // authenticatePassword is the credential half of a password login once the
-// user row is resolved: the liveness gate, then the stored hash (with the
+// user row is resolved: the account gate, then the stored hash (with the
 // bcrypt import rehash to Argon2id), with its credential version captured before
 // checking the hash. It mints
 // nothing — PasswordLogin issues the session from its outcome.

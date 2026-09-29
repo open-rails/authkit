@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,7 +13,8 @@ import (
 
 // PermissionChecker checks an actor's live authority in a group; *authkit.Client
 // is one. Can is false for a dead actor, an unknown group or an actor bound
-// to another group, and ErrUnknownPermission for an unregistered perm.
+// to another group, iam.ErrSessionRevoked for an actor whose session was
+// revoked, and ErrUnknownPermission for an unregistered perm.
 type PermissionChecker interface {
 	Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error)
 	// KnownPermission reports whether perm is registered in the checker's
@@ -29,10 +31,11 @@ type VerifierSource interface {
 // Verifier is v, so a bare Verifier is a VerifierSource.
 func (v *Verifier) Verifier() *Verifier { return v }
 
-// Authority authenticates requests and checks permissions: what
-// RequirePermission needs. *authkit.Client is one.
+// Authority authenticates requests and checks permissions and sessions live:
+// what RequirePermission and Sensitive need. *authkit.Client is one.
 type Authority interface {
 	PermissionChecker
+	SessionChecker
 	VerifierSource
 }
 
@@ -81,9 +84,11 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.P
 
 // RequirePermission authenticates the request (it includes Required; do not
 // stack Required in front of it) and requires perm, checked live, in the group
-// attached to the request (WithGroup, or an adapter's SetGroup). A request
-// with no group fails closed: 500 internal_error, logged with its route. It
-// panics at construction on a perm the authority does not register.
+// attached to the request (WithGroup, or an adapter's SetGroup). The check
+// includes the token's session: once it is revoked (logout, revoke-all, a
+// password change, a ban, deletion) the request is 401 session_revoked. A
+// request with no group fails closed: 500 internal_error, logged with its
+// route. It panics at construction on a perm the authority does not register.
 func RequirePermission(a Authority, perm iam.Perm) func(http.Handler) http.Handler {
 	return requirePermission(a, perm, iam.GroupRef{})
 }
@@ -122,6 +127,10 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 				return
 			}
 			allowed, err := Allow(r.Context(), a, cl, perm, ref)
+			if errors.Is(err, iam.ErrSessionRevoked) {
+				iam.WriteError(w, err)
+				return
+			}
 			if err != nil || !allowed {
 				fail(w, errmodel.CodeForbidden)
 				return

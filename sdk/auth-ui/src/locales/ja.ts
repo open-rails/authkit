@@ -587,6 +587,7 @@ export const ja: AuthUiMessageBundle = {
     rename_rate_limited:
       "ユーザー名の変更回数が多すぎます。しばらくしてからもう一度お試しください。",
     renames_disabled: "ユーザー名の変更は無効になっています。",
+    session_revoked: "セッションが終了しました。もう一度ログインしてください。",
     sms_delivery_failed:
       "認証SMSを配信できませんでした。メールをお試しいただくか、サポートにお問い合わせください。",
     sms_unavailable: "現在SMSはご利用いただけません。メールをご利用ください。",

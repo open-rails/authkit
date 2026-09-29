@@ -10,10 +10,8 @@ import (
 // Reading it performs no verification or database lookup. Except for UserID,
 // fields may have their zero value because the claim was not supplied.
 //
-// Required and Optional use token claims as issued. AuthKit's ordinary access
-// tokens omit profile fields. RequiredLive additionally checks account liveness
-// and fills Email, EmailVerified, and Username from that request's lookup; it
-// does not refresh entitlements, authentication assurance, or MFA enrollment.
+// The middleware uses token claims as issued. AuthKit's ordinary access
+// tokens omit profile fields; read the account (Client.User) for them.
 type UserClaimsData struct {
 	// UserID is the immutable ID in the verifier's trusted local user namespace.
 	// It is nonempty when UserClaimsFromContext returns true.

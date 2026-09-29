@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -21,7 +22,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		UserID:                 claims.UserID,
 		ClaimsUsername:         claims.Username,
 		AuthTime:               claims.AuthTime,
-		StepUpSatisfied:        verify.SensitiveClaims(claims),
+		StepUpSatisfied:        authflow.RecentSignIn(claims.AuthTime, claims.AMR, claims.MFAEnrolled, time.Now()),
 		ProviderSupportsStepUp: s.providerSupportsStepUp,
 	})
 	if err != nil {

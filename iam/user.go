@@ -22,9 +22,6 @@ type User struct {
 	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
 	// Ban is nil when no ban is in force.
 	Ban *BanState `json:"ban,omitempty"`
-	// Live reports whether the account may authenticate now: not deleted,
-	// banned or reserved.
-	Live bool `json:"live"`
 }
 
 // BanState is a ban in force. By is "" when the system or a machine banned.
@@ -224,8 +221,10 @@ type SessionEventQuery struct {
 }
 
 // AccountSessionRevocation reports an account-wide emergency revocation across
-// the configured account issuers (TokenConfig.AccountIssuers). Issued access
-// tokens are not revoked; they stay valid until they expire.
+// the configured account issuers (TokenConfig.AccountIssuers). Access tokens
+// minted from the revoked sessions and device keys are refused at once by
+// every session check (permission checks, Sensitive, account changes); plain
+// stateless verification admits them until they expire.
 type AccountSessionRevocation struct {
 	// Issuers is the exact issuer scope covered, this deployment's first.
 	Issuers []string `json:"issuers"`

@@ -506,7 +506,6 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 
 	u, err := h.auth.User(ctx, iam.UserByID(recentID), iam.IncludeDeleted())
 	require.NoError(t, err)
-	require.False(t, u.Live)
 	require.True(t, recentAt.Equal(*u.DeletedAt), "deleted_at %v, imported %v", u.DeletedAt, recentAt)
 	_, err = h.auth.User(ctx, iam.UserByEmail(recent.Email))
 	require.ErrorIs(t, err, iam.ErrUserNotFound)

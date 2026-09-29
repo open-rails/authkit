@@ -11,7 +11,7 @@ import (
 )
 
 // newVerifier builds the engine's request verifier: its own issuer's keys,
-// the engine as enricher, liveness source and permission checker.
+// the engine as enricher and permission checker.
 func (s *Engine) newVerifier() (*verify.Verifier, error) {
 	cfg := s.cfg
 	opts := []verify.VerifierOption{
@@ -36,14 +36,14 @@ func (s *Engine) newVerifier() (*verify.Verifier, error) {
 			return nil, err
 		}
 	}
-	v.WithService(s).WithLiveness(s).WithPermissionChecker(s, cfg.Token.Issuer)
+	v.WithService(s).WithPermissionChecker(s, cfg.Token.Issuer)
 	return v, nil
 }
 
 // NewVerifier builds an extra verifier for the host's own resource routes. It
 // trusts no issuer until the host adds one (AddIssuer, LoadRemoteApplications)
 // and shares this engine's API-key resolver, stored remote applications,
-// account liveness, permission checks and DPoP replay store. DPoP proofs are
+// permission checks and DPoP replay store. DPoP proofs are
 // checked against the issuer's origin plus the request path unless an option
 // (verify.WithDPoPRequestURL) says otherwise.
 func (s *Engine) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
@@ -56,7 +56,7 @@ func (s *Engine) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
 		base = append(base, verify.WithSSRFGuard())
 	}
 	v := verify.NewVerifier(append(base, opts...)...)
-	v.WithService(s).WithLiveness(s).WithPermissionChecker(s, cfg.Token.Issuer)
+	v.WithService(s).WithPermissionChecker(s, cfg.Token.Issuer)
 	return v
 }
 

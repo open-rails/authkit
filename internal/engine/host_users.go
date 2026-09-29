@@ -19,7 +19,7 @@ import (
 )
 
 // Account records: the engine's working row, its public projection, the
-// internal lookups the flows use, the liveness policy and username renames.
+// internal lookups the flows use, the login account gate and username renames.
 
 // userRecord is a users row as the flows read it. iam.User is its public
 // projection (public).
@@ -42,9 +42,8 @@ type userRecord struct {
 	AvatarURL         *string
 }
 
-// public projects r; reserved comes from the same read. An expired temporary
-// ban is no ban.
-func (r *userRecord) public(reserved bool, now time.Time) iam.User {
+// public projects r. An expired temporary ban is no ban.
+func (r *userRecord) public(now time.Time) iam.User {
 	u := iam.User{
 		ID: r.ID, Email: deref(r.Email), Phone: deref(r.PhoneNumber), Username: deref(r.Username),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified,
@@ -57,7 +56,6 @@ func (r *userRecord) public(reserved bool, now time.Time) iam.User {
 			u.Ban.At = *r.BannedAt
 		}
 	}
-	u.Live = r.DeletedAt == nil && !reserved && u.Ban == nil
 	return u
 }
 
@@ -119,11 +117,10 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*userRecord, error
 	return userFromByIDRow(r), nil
 }
 
-// livenessAllowed is the login and refresh gate: not soft-deleted, not
+// accessAllowed is the login and refresh gate: not soft-deleted, not
 // reserved, not banned. autoUnbanIfExpired must already have run on u, since
-// an expired temporary ban is allowed; userRecord.public computes the same
-// verdict for reads (iam.User.Live) without that write.
-func livenessAllowed(u *userRecord, reserved bool) bool {
+// an expired temporary ban is allowed.
+func accessAllowed(u *userRecord, reserved bool) bool {
 	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
 }
 
@@ -144,7 +141,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *userRecord) error {
 	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 		return err
 	}
-	if !livenessAllowed(u, reserved) {
+	if !accessAllowed(u, reserved) {
 		return errmodel.ErrUserBanned
 	}
 	return nil

@@ -77,7 +77,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	_, claims := splitToken(t, reproved)
 	require.Less(t, claims["auth_time"].(float64), float64(time.Now().Add(-15*time.Minute).Unix()), "auth_time follows the second factor")
 
-	sensitive := h.auth.Require(verify.Sensitive()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+	sensitive := verify.Sensitive(h.auth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	hostRoute := func(token string) int {
 		r := httptest.NewRequest(http.MethodPost, "https://host.security.test/payout-address", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -222,23 +222,12 @@ func TestSecurityPasswordStepUpOnPasskeySession(t *testing.T) {
 	require.NotContains(t, claims["amr"], "mfa")
 	require.Nil(t, claims["mfa_enrolled"])
 
-	gate := func(opts verify.SensitiveOptions, token string) int {
-		route := h.auth.Require(verify.Sensitive(opts)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
-		r := httptest.NewRequest(http.MethodPost, "https://host.security.test/payout-address", nil)
-		r.Header.Set("Authorization", "Bearer "+token)
-		w := httptest.NewRecorder()
-		route.ServeHTTP(w, r)
-		return w.Code
-	}
-	require.Equal(t, http.StatusForbidden, gate(verify.SensitiveOptions{ACR: iam.AssuranceLevelMFA}, stepped))
-	require.Equal(t, http.StatusForbidden, gate(verify.SensitiveOptions{AMR: []string{"mfa"}}, stepped))
-	require.Equal(t, http.StatusNoContent, gate(verify.SensitiveOptions{}, stepped), "a password is this account's step-up")
-
-	t.Run("control: a fresh passkey sign-in clears the MFA gate", func(t *testing.T) {
-		resp := h.passkeyLogin(authn, 2)
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		require.Equal(t, http.StatusNoContent, gate(verify.SensitiveOptions{ACR: iam.AssuranceLevelMFA}, session(t, resp).AccessToken))
-	})
+	route := verify.Sensitive(h.auth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	r := httptest.NewRequest(http.MethodPost, "https://host.security.test/payout-address", nil)
+	r.Header.Set("Authorization", "Bearer "+stepped)
+	w := httptest.NewRecorder()
+	route.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNoContent, w.Code, "a password is this account's step-up: %s", w.Body.String())
 }
 
 // TestSecurityPasskeyHolderNeedsPasskey (P7): a holder of an MFA-required role

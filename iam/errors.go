@@ -50,6 +50,10 @@ var (
 	ErrLastOwner                  Error = errmodel.E(errmodel.CodeLastOwner)
 	ErrCannotTargetSelf           Error = errmodel.E(errmodel.CodeCannotTargetSelf)
 	ErrTwoFAEnrollmentRequired    Error = errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
+	// ErrSessionRevoked refuses an actor bound to a session or device key
+	// (Actor.InSession) that was revoked or expired, as logout, revoke-all, a
+	// password change, a ban and deletion all do.
+	ErrSessionRevoked Error = errmodel.E(errmodel.CodeSessionRevoked)
 )
 
 // Groups and naming.

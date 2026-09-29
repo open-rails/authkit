@@ -310,11 +310,35 @@ func (st *permissionGroupStore) directRoleName(ctx context.Context, gid string, 
 	return role, err
 }
 
+// usableUser is the account half of every live check: not deleted, reserved
+// or banned (an expired temporary ban is no ban).
+const usableUser = `deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp())`
+
+// userLive is the session check (#412), in one query: whether userID is
+// usable, and whether the sign-in r names, when it names one, is still an
+// active refresh session or device key of theirs. Logout, revoke-all, a
+// password change, a ban and deletion all revoke sign-ins, so signedIn covers
+// them; usable also covers sessions outside the configured account issuers.
+func userLive(ctx context.Context, q db.DBTX, userID string, r iam.SessionRef) (usable, signedIn bool, err error) {
+	switch {
+	case !isUUID(userID):
+		return false, true, nil // no such account: the account check refuses
+	case r.SessionID != "" && !isUUID(r.SessionID), r.DeviceKeyID != "" && !isUUID(r.DeviceKeyID):
+		return true, false, nil
+	}
+	err = q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND `+usableUser+`),
+ $2::text='' AND $3::text=''
+ OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id=NULLIF($2::text,'')::uuid AND user_id=$1::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()))
+ OR EXISTS(SELECT 1 FROM user_device_keys WHERE id=NULLIF($3::text,'')::uuid AND user_id=$1::uuid AND revoked_at IS NULL)`,
+		userID, r.SessionID, r.DeviceKeyID).Scan(&usable, &signedIn)
+	return usable, signedIn, err
+}
+
 func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, error) {
 	var query string
 	switch subject.Kind {
 	case iam.SubjectKindUser:
-		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
+		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND ` + usableUser + `)`
 	case iam.SubjectKindRemoteApplication:
 		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL AND ` + registrarLive("a") + `)`
 	default:
