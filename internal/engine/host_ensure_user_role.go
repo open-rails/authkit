@@ -39,7 +39,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.Grou
 			return err
 		}
 		q := db.New(st.q)
-		id, bound, err := lockEnsureUser(ctx, st.q, key, value)
+		id, bound, err := lockEnsureUser(ctx, q, key, value)
 		if err != nil {
 			return err
 		}
@@ -138,27 +138,36 @@ func ensureUserChannel(key iam.UserKey) string {
 // lockEnsureUser locks the live account key names. bound reports whether key
 // proves who holds it: the id itself, or a verified contact. A deleted
 // account is ErrUserNotFound: its contact cannot be reused while it exists.
-func lockEnsureUser(ctx context.Context, q db.DBTX, key iam.UserKey, value string) (id string, bound bool, err error) {
-	var sql string
-	switch key {
-	case iam.UserKeyID:
-		sql = `SELECT id::text, true, deleted_at IS NOT NULL FROM users WHERE id=$1::uuid FOR UPDATE`
-	case iam.UserKeyEmail:
-		sql = `SELECT id::text, email_verified, deleted_at IS NOT NULL FROM users WHERE email=$1::text::public.citext FOR UPDATE`
-	default:
-		sql = `SELECT id::text, phone_verified, deleted_at IS NOT NULL FROM users WHERE phone_number=$1 FOR UPDATE`
-	}
-	var deleted bool
-	err = q.QueryRow(ctx, sql, value).Scan(&id, &bound, &deleted)
+func lockEnsureUser(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (id string, bound bool, err error) {
+	acct, err := lockBootstrapAccount(ctx, q, key, value)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", false, nil
 	case err != nil:
 		return "", false, err
-	case deleted:
+	case acct.Deleted:
 		return "", false, fmt.Errorf("the account with %s %s is deleted: %w", key, value, iam.ErrUserNotFound)
 	}
-	return id, bound, nil
+	return acct.ID, acct.Verified, nil
+}
+
+// keyedAccount is the account a key names; the BootstrapAccountBy* queries
+// share its shape.
+type keyedAccount = db.BootstrapAccountByIDForUpdateRow
+
+// lockBootstrapAccount locks the account an id, email or phone names
+// (pgx.ErrNoRows: none). Verified reports whether key proves who holds it.
+func lockBootstrapAccount(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (keyedAccount, error) {
+	switch key {
+	case iam.UserKeyID:
+		return q.BootstrapAccountByIDForUpdate(ctx, value)
+	case iam.UserKeyEmail:
+		acct, err := q.BootstrapAccountByEmailForUpdate(ctx, value)
+		return keyedAccount(acct), err
+	default:
+		acct, err := q.BootstrapAccountByPhoneForUpdate(ctx, value)
+		return keyedAccount(acct), err
+	}
 }
 
 // roleHeld reports whether current already gives what role would: the same

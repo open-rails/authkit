@@ -7,86 +7,111 @@ package db
 
 import (
 	"context"
-	"time"
 )
 
-const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
-FROM remote_applications
-WHERE issuer = $1
+const remoteApplicationAuthority = `-- name: RemoteApplicationAuthority :one
+SELECT ra.permission_group_id::text AS permission_group_id, pg.persona
+FROM remote_applications ra
+JOIN permission_groups pg ON pg.id = ra.permission_group_id
+WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL
+  AND (ra.trust_root <> 'user' OR EXISTS (SELECT 1 FROM usable_users WHERE id = ra.registered_by))
 `
 
-type RemoteApplicationByIssuerRow struct {
-	ID                string
-	Slug              string
+type RemoteApplicationAuthorityRow struct {
 	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	TrustRoot         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	Persona           string
 }
 
-func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplicationByIssuerRow, error) {
+// An enabled application in a live group, whose registrar (if a group
+// registered it) is usable.
+func (q *Queries) RemoteApplicationAuthority(ctx context.Context, id string) (RemoteApplicationAuthorityRow, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationAuthority, id)
+	var i RemoteApplicationAuthorityRow
+	err := row.Scan(&i.PermissionGroupID, &i.Persona)
+	return i, err
+}
+
+const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
+SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE issuer = $1
+`
+
+func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplication, error) {
 	row := q.db.QueryRow(ctx, remoteApplicationByIssuer, issuer)
-	var i RemoteApplicationByIssuerRow
+	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.PermissionGroupID,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.TrustRoot,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PermissionGroupID,
+		&i.TrustRoot,
+		&i.RegisteredBy,
 	)
 	return i, err
 }
 
 const remoteApplicationBySlugForUpdate = `-- name: RemoteApplicationBySlugForUpdate :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
-FROM remote_applications
-WHERE slug = $1
-FOR UPDATE
+SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE slug = $1 FOR UPDATE
 `
 
-type RemoteApplicationBySlugForUpdateRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	TrustRoot         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug string) (RemoteApplicationBySlugForUpdateRow, error) {
+func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug string) (RemoteApplication, error) {
 	row := q.db.QueryRow(ctx, remoteApplicationBySlugForUpdate, slug)
-	var i RemoteApplicationBySlugForUpdateRow
+	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.PermissionGroupID,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.TrustRoot,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PermissionGroupID,
+		&i.TrustRoot,
+		&i.RegisteredBy,
 	)
 	return i, err
+}
+
+const remoteApplicationControlRoles = `-- name: RemoteApplicationControlRoles :many
+SELECT g.id::text AS group_id, g.persona, r.role
+FROM group_remote_application_roles r
+JOIN permission_groups g ON g.id = r.permission_group_id
+WHERE r.remote_application_id = $1::uuid AND g.deleted_at IS NULL
+ORDER BY g.id
+`
+
+type RemoteApplicationControlRolesRow struct {
+	GroupID string
+	Persona string
+	Role    string
+}
+
+// The roles an application holds in live groups.
+func (q *Queries) RemoteApplicationControlRoles(ctx context.Context, remoteApplicationID string) ([]RemoteApplicationControlRolesRow, error) {
+	rows, err := q.db.Query(ctx, remoteApplicationControlRoles, remoteApplicationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RemoteApplicationControlRolesRow
+	for rows.Next() {
+		var i RemoteApplicationControlRolesRow
+		if err := rows.Scan(&i.GroupID, &i.Persona, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const remoteApplicationDelete = `-- name: RemoteApplicationDelete :execrows
@@ -101,6 +126,34 @@ func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (i
 	return result.RowsAffected(), nil
 }
 
+const remoteApplicationSetRegistrar = `-- name: RemoteApplicationSetRegistrar :exec
+UPDATE remote_applications SET registered_by = $1::uuid WHERE id = $2::uuid
+`
+
+type RemoteApplicationSetRegistrarParams struct {
+	RegisteredBy string
+	ID           string
+}
+
+func (q *Queries) RemoteApplicationSetRegistrar(ctx context.Context, arg RemoteApplicationSetRegistrarParams) error {
+	_, err := q.db.Exec(ctx, remoteApplicationSetRegistrar, arg.RegisteredBy, arg.ID)
+	return err
+}
+
+const remoteApplicationSetTrustRoot = `-- name: RemoteApplicationSetTrustRoot :exec
+UPDATE remote_applications SET trust_root = $1 WHERE id = $2::uuid
+`
+
+type RemoteApplicationSetTrustRootParams struct {
+	TrustRoot string
+	ID        string
+}
+
+func (q *Queries) RemoteApplicationSetTrustRoot(ctx context.Context, arg RemoteApplicationSetTrustRootParams) error {
+	_, err := q.db.Exec(ctx, remoteApplicationSetTrustRoot, arg.TrustRoot, arg.ID)
+	return err
+}
+
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
 INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
@@ -113,21 +166,10 @@ ON CONFLICT (issuer) DO UPDATE
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
+RETURNING id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by
 `
 
 type RemoteApplicationUpsertParams struct {
-	Slug              string
-	PermissionGroupID *string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-}
-
-type RemoteApplicationUpsertRow struct {
-	ID                string
 	Slug              string
 	PermissionGroupID string
 	Issuer            string
@@ -135,17 +177,15 @@ type RemoteApplicationUpsertRow struct {
 	Mode              string
 	PublicKeys        []byte
 	Enabled           bool
-	TrustRoot         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
 }
 
 // Remote application registry. A
 // remote_application is the federation PRINCIPAL: it authenticates by signing
 // JWTs verified against its JWKS/public keys (#74).
 //
-// The controlling group is addressed as permission_group_id throughout.
-func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplicationUpsertParams) (RemoteApplicationUpsertRow, error) {
+// The controlling group is addressed as permission_group_id throughout. Every
+// read returns the whole row: db.RemoteApplication.
+func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplicationUpsertParams) (RemoteApplication, error) {
 	row := q.db.QueryRow(ctx, remoteApplicationUpsert,
 		arg.Slug,
 		arg.PermissionGroupID,
@@ -155,21 +195,70 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		arg.PublicKeys,
 		arg.Enabled,
 	)
-	var i RemoteApplicationUpsertRow
+	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
-		&i.PermissionGroupID,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
 		&i.Enabled,
-		&i.TrustRoot,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PermissionGroupID,
+		&i.TrustRoot,
+		&i.RegisteredBy,
 	)
 	return i, err
+}
+
+const remoteApplicationsByGroup = `-- name: RemoteApplicationsByGroup :many
+SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications
+WHERE permission_group_id = $1::uuid
+  AND ($2::uuid IS NULL OR id < $2::uuid)
+ORDER BY id DESC
+LIMIT $3
+`
+
+type RemoteApplicationsByGroupParams struct {
+	PermissionGroupID string
+	AfterID           *string
+	MaxRows           int64
+}
+
+// Newest first, keyset-paged by id.
+func (q *Queries) RemoteApplicationsByGroup(ctx context.Context, arg RemoteApplicationsByGroupParams) ([]RemoteApplication, error) {
+	rows, err := q.db.Query(ctx, remoteApplicationsByGroup, arg.PermissionGroupID, arg.AfterID, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RemoteApplication
+	for rows.Next() {
+		var i RemoteApplication
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Issuer,
+			&i.JwksUri,
+			&i.Mode,
+			&i.PublicKeys,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.PermissionGroupID,
+			&i.TrustRoot,
+			&i.RegisteredBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const remoteApplicationsClearRegistrar = `-- name: RemoteApplicationsClearRegistrar :exec
@@ -182,47 +271,31 @@ func (q *Queries) RemoteApplicationsClearRegistrar(ctx context.Context, userID s
 }
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, trust_root, created_at, updated_at
-FROM remote_applications
-WHERE enabled = true
-ORDER BY slug ASC
+SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE enabled = true ORDER BY slug ASC
 `
 
-type RemoteApplicationsEnabledRow struct {
-	ID                string
-	Slug              string
-	PermissionGroupID string
-	Issuer            string
-	JwksUri           string
-	Mode              string
-	PublicKeys        []byte
-	Enabled           bool
-	TrustRoot         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplicationsEnabledRow, error) {
+func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplication, error) {
 	rows, err := q.db.Query(ctx, remoteApplicationsEnabled)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RemoteApplicationsEnabledRow
+	var items []RemoteApplication
 	for rows.Next() {
-		var i RemoteApplicationsEnabledRow
+		var i RemoteApplication
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,
-			&i.PermissionGroupID,
 			&i.Issuer,
 			&i.JwksUri,
 			&i.Mode,
 			&i.PublicKeys,
 			&i.Enabled,
-			&i.TrustRoot,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PermissionGroupID,
+			&i.TrustRoot,
+			&i.RegisteredBy,
 		); err != nil {
 			return nil, err
 		}

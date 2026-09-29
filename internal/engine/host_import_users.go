@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,8 +36,7 @@ type newAccount struct {
 	HashAlgo      string
 }
 
-// importUsersChunkSize bounds rows per transaction and multi-row INSERT
-// (16 parameters a row, far under PostgreSQL's 65535).
+// importUsersChunkSize bounds rows per transaction.
 const importUsersChunkSize = 1000
 
 // importChunkAttempts bounds retries of a chunk that lost a provider link to
@@ -296,6 +296,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 		}
 	}
 	st := s.groupStoreFor(tx)
+	q := db.New(tx)
 	names := make([]string, len(chunk))
 	for i, p := range chunk {
 		names[i] = p.name
@@ -305,17 +306,17 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	if err = lockNameClaims(ctx, tx, names...); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, s.namingNow()); err != nil {
+	if err = q.ImportReleaseAliases(ctx, db.ImportReleaseAliasesParams{Names: names, Now: s.namingNow()}); err != nil {
 		return err
 	}
 	fresh, err := s.resolveImportRows(ctx, st, chunk, merge)
 	if err != nil {
 		return err
 	}
-	if fresh, err = rejectHeldProviders(ctx, tx, fresh); err != nil {
+	if fresh, err = rejectHeldProviders(ctx, q, fresh); err != nil {
 		return err
 	}
-	inserted, err := insertImportRows(ctx, tx, fresh)
+	inserted, err := insertImportRows(ctx, q, fresh)
 	if err != nil {
 		return err
 	}
@@ -343,10 +344,10 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 			p.out = importRejected(p.idx, "identifier_conflict")
 		}
 	}
-	if err = insertImportPasswords(ctx, tx, passwords); err != nil {
+	if err = insertImportPasswords(ctx, q, passwords); err != nil {
 		return err
 	}
-	if err = insertImportProviders(ctx, tx, providers); err != nil {
+	if err = insertImportProviders(ctx, q, providers); err != nil {
 		return err
 	}
 	for _, p := range fresh {
@@ -372,7 +373,7 @@ type importHit struct {
 // matched or conflicting row (merging where bound), and returns the rows that
 // name no account.
 func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore, rows []*importRow, merge bool) ([]*importRow, error) {
-	hits, err := s.importHits(ctx, st.q, rows)
+	hits, err := s.importHits(ctx, db.New(st.q), rows)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +434,7 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 
 // importHits reads, in four queries, every account the rows' identifiers
 // name: by id, email, phone, and canonical name or live alias.
-func (s *Engine) importHits(ctx context.Context, q db.DBTX, rows []*importRow) (map[importKey]importHit, error) {
+func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRow) (map[importKey]importHit, error) {
 	var ids, emails, phones, names []string
 	for _, p := range rows {
 		if p.declared {
@@ -447,42 +448,46 @@ func (s *Engine) importHits(ctx context.Context, q db.DBTX, rows []*importRow) (
 		}
 		names = append(names, p.name)
 	}
+	// The four ImportHitsBy* rows share one shape.
 	out := map[importKey]importHit{}
-	read := func(match iam.ImportMatch, sql string, args ...any) error {
-		r, err := q.Query(ctx, sql, args...)
-		if err != nil {
-			return err
-		}
-		defer r.Close()
-		for r.Next() {
-			var key string
-			h := importHit{match: match}
-			if err := r.Scan(&key, &h.userID, &h.deleted, &h.verified, &h.missing); err != nil {
-				return err
-			}
-			out[importKey{match, key}] = h
-		}
-		return r.Err()
+	add := func(match iam.ImportMatch, r db.ImportHitsByIDRow) {
+		out[importKey{match, r.Key}] = importHit{match: match, userID: r.UserID, deleted: r.Deleted, verified: r.Verified, missing: r.Missing}
 	}
 	if len(ids) > 0 {
-		if err := read(iam.ImportMatchID, `SELECT id::text, id::text, deleted_at IS NOT NULL, true, false FROM users WHERE id=ANY($1::uuid[])`, ids); err != nil {
+		hits, err := q.ImportHitsByID(ctx, ids)
+		if err != nil {
 			return nil, err
+		}
+		for _, r := range hits {
+			add(iam.ImportMatchID, r)
 		}
 	}
 	if len(emails) > 0 {
-		if err := read(iam.ImportMatchEmail, `SELECT lower(email::text), id::text, deleted_at IS NOT NULL, email_verified, false FROM users WHERE email=ANY($1::text[]::public.citext[])`, emails); err != nil {
+		hits, err := q.ImportHitsByEmail(ctx, emails)
+		if err != nil {
 			return nil, err
+		}
+		for _, r := range hits {
+			add(iam.ImportMatchEmail, db.ImportHitsByIDRow(r))
 		}
 	}
 	if len(phones) > 0 {
-		if err := read(iam.ImportMatchPhone, `SELECT phone_number, id::text, deleted_at IS NOT NULL, phone_verified, false FROM users WHERE phone_number=ANY($1::text[])`, phones); err != nil {
+		hits, err := q.ImportHitsByPhone(ctx, phones)
+		if err != nil {
 			return nil, err
 		}
+		for _, r := range hits {
+			add(iam.ImportMatchPhone, db.ImportHitsByIDRow(r))
+		}
 	}
-	err := read(iam.ImportMatchUsername, `SELECT c.name, c.owner_id::text, COALESCE(u.deleted_at IS NOT NULL, false), false, u.id IS NULL
- FROM name_claims c LEFT JOIN users u ON u.id=c.owner_id
- WHERE c.owner_kind='user' AND c.persona='' AND c.name=ANY($1::text[]) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$2)`, names, s.namingNow())
-	return out, err
+	hits, err := q.ImportHitsByName(ctx, db.ImportHitsByNameParams{Names: names, Now: s.namingNow()})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range hits {
+		add(iam.ImportMatchUsername, db.ImportHitsByIDRow(r))
+	}
+	return out, nil
 }
 
 // mergeImportRow merges a bound row into its account: metadata, the earlier
@@ -496,112 +501,111 @@ func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p
 			return err
 		}
 	}
-	if _, err := st.q.Exec(ctx, `UPDATE users SET metadata=COALESCE(metadata,'{}'::jsonb) || $2::jsonb, created_at=LEAST(created_at,$3),
- last_login=GREATEST(last_login,$4), preferred_language=COALESCE(preferred_language,$5), avatar_url=COALESCE(avatar_url,$6), updated_at=now() WHERE id=$1::uuid`,
-		userID, p.metadata, p.createdAt, p.lastLogin, p.language, p.avatar); err != nil {
+	q := db.New(st.q)
+	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{
+		ID: userID, Metadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,
+		PreferredLanguage: p.language, AvatarURL: p.avatar,
+	}); err != nil {
 		return err
 	}
 	if !withCredentials {
 		return nil
 	}
 	for _, l := range p.providers {
-		if _, err := linkProviderByIssuer(ctx, db.New(st.q), userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
+		if _, err := linkProviderByIssuer(ctx, q, userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
 			return err
 		}
 	}
 	if p.in.HashAlgo == "" {
 		return nil
 	}
-	_, err := st.q.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ($1::uuid,$2,$3) ON CONFLICT (user_id) DO NOTHING`, userID, p.in.PasswordHash, p.in.HashAlgo)
-	return err
+	return q.ImportMergePassword(ctx, db.ImportMergePasswordParams{UserID: userID, PasswordHash: p.in.PasswordHash, HashAlgo: p.in.HashAlgo})
 }
 
-// insertImportRows inserts rows with one multi-row INSERT and returns the ids
-// that landed; a row losing a uniqueness race to another writer does not.
-func insertImportRows(ctx context.Context, q pgx.Tx, rows []*importRow) (map[string]bool, error) {
+// importUserColumns is one users row for ImportInsertUsers, keyed by column.
+type importUserColumns struct {
+	ID                string          `json:"id"`
+	Email             *string         `json:"email"`
+	PhoneNumber       *string         `json:"phone_number"`
+	Username          string          `json:"username"`
+	EmailVerified     bool            `json:"email_verified"`
+	PhoneVerified     bool            `json:"phone_verified"`
+	BannedAt          *time.Time      `json:"banned_at"`
+	BannedUntil       *time.Time      `json:"banned_until"`
+	BanReason         *string         `json:"ban_reason"`
+	Metadata          json.RawMessage `json:"metadata"`
+	CreatedAt         *time.Time      `json:"created_at"`
+	UpdatedAt         *time.Time      `json:"updated_at"`
+	LastLogin         *time.Time      `json:"last_login"`
+	PreferredLanguage *string         `json:"preferred_language"`
+	AvatarURL         *string         `json:"avatar_url"`
+	DeletedAt         *time.Time      `json:"deleted_at"`
+}
+
+// insertImportRows inserts rows in one statement and returns the ids that
+// landed; a row losing a uniqueness race to another writer does not.
+func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (map[string]bool, error) {
 	inserted := map[string]bool{}
 	if len(rows) == 0 {
 		return inserted, nil
 	}
-	var b strings.Builder
-	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at) VALUES ")
-	args := make([]any, 0, len(rows)*16)
+	cols := make([]importUserColumns, len(rows))
 	for i, r := range rows {
-		if i > 0 {
-			b.WriteString(",")
+		cols[i] = importUserColumns{
+			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username,
+			EmailVerified: r.in.EmailVerified, PhoneVerified: r.in.PhoneVerified,
+			BannedAt: pgTime(r.in.BannedAt), BannedUntil: pgTime(r.in.BannedUntil), BanReason: r.in.BanReason,
+			Metadata: json.RawMessage(r.metadata), CreatedAt: pgTime(&r.createdAt), UpdatedAt: pgTime(&r.updatedAt),
+			LastLogin: pgTime(r.lastLogin), PreferredLanguage: r.language, AvatarURL: r.avatar, DeletedAt: pgTime(r.deletedAt),
 		}
-		n := i * 16
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb,$%d,$%d,$%d,$%d,$%d,$%d)",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12, n+13, n+14, n+15, n+16)
-		args = append(args, r.id, r.email, r.phone, r.username, r.in.EmailVerified, r.in.PhoneVerified,
-			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.metadata, r.createdAt, r.updatedAt,
-			r.lastLogin, r.language, r.avatar, r.deletedAt)
 	}
-	b.WriteString(" ON CONFLICT DO NOTHING RETURNING id::text")
-	res, err := q.Query(ctx, b.String(), args...)
+	users, err := json.Marshal(cols)
 	if err != nil {
 		return nil, err
 	}
-	defer res.Close()
-	for res.Next() {
-		var id string
-		if err := res.Scan(&id); err != nil {
-			return nil, err
-		}
+	ids, err := q.ImportInsertUsers(ctx, users)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
 		inserted[id] = true
 	}
-	return inserted, res.Err()
+	return inserted, nil
 }
 
 // insertImportPasswords stores the validated hashes of freshly inserted rows.
-func insertImportPasswords(ctx context.Context, q pgx.Tx, rows []*importRow) error {
+func insertImportPasswords(ctx context.Context, q *db.Queries, rows []*importRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	var b strings.Builder
-	b.WriteString("INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ")
-	args := make([]any, 0, len(rows)*3)
-	for i, r := range rows {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d)", i*3+1, i*3+2, i*3+3)
-		args = append(args, r.id, r.in.PasswordHash, r.in.HashAlgo)
+	var arg db.ImportInsertPasswordsParams
+	for _, r := range rows {
+		arg.UserIds = append(arg.UserIds, r.id)
+		arg.PasswordHashes = append(arg.PasswordHashes, r.in.PasswordHash)
+		arg.HashAlgos = append(arg.HashAlgos, r.in.HashAlgo)
 	}
-	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
-	_, err := q.Exec(ctx, b.String(), args...)
-	return err
+	return q.ImportInsertPasswords(ctx, arg)
 }
 
 // rejectHeldProviders rejects the rows naming an identity some account holds,
 // verified or not, and returns the rest.
-func rejectHeldProviders(ctx context.Context, tx pgx.Tx, rows []*importRow) ([]*importRow, error) {
-	var issuers, subjects []string
+func rejectHeldProviders(ctx context.Context, q *db.Queries, rows []*importRow) ([]*importRow, error) {
+	var arg db.ImportHeldProvidersParams
 	for _, p := range rows {
 		for _, l := range p.providers {
-			issuers, subjects = append(issuers, l.Issuer), append(subjects, l.Subject)
+			arg.Issuers, arg.Subjects = append(arg.Issuers, l.Issuer), append(arg.Subjects, l.Subject)
 		}
 	}
-	if len(issuers) == 0 {
+	if len(arg.Issuers) == 0 {
 		return rows, nil
 	}
-	res, err := tx.Query(ctx, `SELECT p.issuer, p.subject FROM user_providers p
- JOIN unnest($1::text[], $2::text[]) AS k(issuer, subject) ON p.issuer=k.issuer AND p.subject=k.subject`, issuers, subjects)
+	found, err := q.ImportHeldProviders(ctx, arg)
 	if err != nil {
 		return nil, err
 	}
 	held := map[providerKey]bool{}
-	for res.Next() {
-		var k providerKey
-		if err := res.Scan(&k.issuer, &k.subject); err != nil {
-			res.Close()
-			return nil, err
-		}
-		held[k] = true
-	}
-	res.Close()
-	if err := res.Err(); err != nil {
-		return nil, err
+	for _, k := range found {
+		held[providerKey{k.Issuer, k.Subject}] = true
 	}
 	var out []*importRow
 	for _, p := range rows {
@@ -621,24 +625,22 @@ func rejectHeldProviders(ctx context.Context, tx pgx.Tx, rows []*importRow) ([]*
 // insertImportProviders links the providers of freshly inserted rows. An
 // identity a concurrent writer took since rejectHeldProviders fails the chunk
 // with errImportProviderRaced, to be retried.
-func insertImportProviders(ctx context.Context, tx pgx.Tx, rows []*importRow) error {
-	var users, issuers, subjects []string
-	var slugs, emails []*string
+func insertImportProviders(ctx context.Context, q *db.Queries, rows []*importRow) error {
+	var arg db.ImportInsertProvidersParams
 	for _, p := range rows {
 		for _, l := range p.providers {
-			users, issuers, subjects = append(users, p.id), append(issuers, l.Issuer), append(subjects, l.Subject)
-			slugs, emails = append(slugs, nullable(l.Provider)), append(emails, nullable(l.Email))
+			arg.UserIds, arg.Issuers, arg.Subjects = append(arg.UserIds, p.id), append(arg.Issuers, l.Issuer), append(arg.Subjects, l.Subject)
+			arg.ProviderSlugs, arg.EmailsAtProvider = append(arg.ProviderSlugs, l.Provider), append(arg.EmailsAtProvider, l.Email)
 		}
 	}
-	if len(users) == 0 {
+	if len(arg.UserIds) == 0 {
 		return nil
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO user_providers (user_id, issuer, provider_slug, subject, email_at_provider)
- SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[]) ON CONFLICT DO NOTHING`, users, issuers, slugs, subjects, emails)
+	n, err := q.ImportInsertProviders(ctx, arg)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() != int64(len(users)) {
+	if n != int64(len(arg.UserIds)) {
 		return errImportProviderRaced
 	}
 	return nil
@@ -649,6 +651,16 @@ func utcTime(t *time.Time) *time.Time {
 		return nil
 	}
 	u := t.UTC()
+	return &u
+}
+
+// pgTime is t as a timestamptz parameter stores it: UTC, truncated to the
+// microsecond, so its JSON text converts exactly.
+func pgTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC().Truncate(time.Microsecond)
 	return &u
 }
 

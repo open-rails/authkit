@@ -115,7 +115,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	err := s.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		result, revocations = iam.BootstrapResult{}, nil
 		if opts.StartupOnly {
-			already, err := s.claimBootstrapApply(ctx, st.q, opts.Name)
+			already, err := s.claimBootstrapApply(ctx, db.New(st.q), opts.Name)
 			if err != nil || already {
 				result.AlreadyApplied = already
 				return err
@@ -183,35 +183,33 @@ func (m bootstrapMatch) refusal(username string) error {
 // findBootstrapAccount locks the account the user's email or phone names.
 // With neither, it looks up the canonical username only, which never binds;
 // an alias is never followed.
-func (s *Engine) findBootstrapAccount(ctx context.Context, q db.DBTX, user iam.BootstrapManifestUser) (bootstrapMatch, error) {
+func (s *Engine) findBootstrapAccount(ctx context.Context, q *db.Queries, user iam.BootstrapManifestUser) (bootstrapMatch, error) {
 	var m bootstrapMatch
-	find := func(channel, identifier, sql string) error {
-		var id string
-		var verified, deleted bool
-		err := q.QueryRow(ctx, sql, identifier).Scan(&id, &verified, &deleted)
+	find := func(key iam.UserKey, identifier string) error {
+		acct, err := lockBootstrapAccount(ctx, q, key, identifier)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if m.id != "" && m.id != id {
+		if m.id != "" && m.id != acct.ID {
 			return fmt.Errorf("bootstrap user %q: its email and phone belong to different accounts: %w", user.Username, iam.ErrPhoneInUse)
 		}
 		if m.id == "" {
-			m.channel, m.identifier = channel, identifier
+			m.channel, m.identifier = string(key), identifier
 		}
-		m.id, m.deleted, m.bound = id, deleted, m.bound || verified
+		m.id, m.deleted, m.bound = acct.ID, acct.Deleted, m.bound || acct.Verified
 		return nil
 	}
 	email, phone := strings.TrimSpace(user.Email), strings.TrimSpace(user.Phone)
 	if email != "" {
-		if err := find("email", contact.NormalizeEmail(email), `SELECT id::text, email_verified, deleted_at IS NOT NULL FROM users WHERE email=$1::text::public.citext FOR UPDATE`); err != nil {
+		if err := find(iam.UserKeyEmail, contact.NormalizeEmail(email)); err != nil {
 			return m, err
 		}
 	}
 	if phone != "" {
-		if err := find("phone", contact.NormalizePhone(phone), `SELECT id::text, phone_verified, deleted_at IS NOT NULL FROM users WHERE phone_number=$1 FOR UPDATE`); err != nil {
+		if err := find(iam.UserKeyPhone, contact.NormalizePhone(phone)); err != nil {
 			return m, err
 		}
 	}
@@ -219,11 +217,11 @@ func (s *Engine) findBootstrapAccount(ctx context.Context, q db.DBTX, user iam.B
 		return m, nil
 	}
 	username := strings.TrimSpace(user.Username)
-	err := q.QueryRow(ctx, `SELECT u.id::text, u.deleted_at IS NOT NULL FROM name_claims c JOIN users u ON u.id=c.owner_id
- WHERE c.owner_kind='user' AND c.persona='' AND c.name=lower($1) AND c.canonical FOR UPDATE OF u`, username).Scan(&m.id, &m.deleted)
+	acct, err := q.BootstrapAccountByCanonicalNameForUpdate(ctx, username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bootstrapMatch{}, nil
 	}
+	m.id, m.deleted = acct.ID, acct.Deleted
 	m.channel, m.identifier = "username", username
 	return m, err
 }
@@ -242,7 +240,7 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 	if !role.IsZero() {
 		result.RootRoleAssignments++
 	}
-	m, err := s.findBootstrapAccount(ctx, st.q, user)
+	m, err := s.findBootstrapAccount(ctx, q, user)
 	if err != nil {
 		return "", nil, err
 	}
@@ -315,26 +313,19 @@ func (s *Engine) bootstrapApplyName(name string) string {
 // graph is accounted for and a new name records itself as already applied
 // instead of refusing. Only a non-empty graph with an EMPTY claim table is
 // refused.
-func (s *Engine) claimBootstrapApply(ctx context.Context, q db.DBTX, name string) (already bool, err error) {
+func (s *Engine) claimBootstrapApply(ctx context.Context, q *db.Queries, name string) (already bool, err error) {
 	name = s.bootstrapApplyName(name)
-	var nameClaimed, anyClaimed, graphEmpty bool
-	if err := q.QueryRow(ctx, `
-  SELECT
-   EXISTS (SELECT 1 FROM bootstrap_applies WHERE name = $1),
-   EXISTS (SELECT 1 FROM bootstrap_applies),
-   NOT EXISTS (SELECT 1 FROM users WHERE deleted_at IS NULL)
-   AND NOT EXISTS (SELECT 1 FROM remote_applications)
- `, name).Scan(&nameClaimed, &anyClaimed, &graphEmpty); err != nil {
+	state, err := q.BootstrapApplyState(ctx, name)
+	if err != nil {
 		return false, err
 	}
-	if nameClaimed {
+	if state.NameClaimed {
 		return true, nil
 	}
-	if !anyClaimed && !graphEmpty {
+	if !state.AnyClaimed && !state.GraphEmpty {
 		return false, errmodel.ErrBootstrapDatabaseNotEmpty
 	}
-	_, err = q.Exec(ctx, `INSERT INTO bootstrap_applies (name) VALUES ($1)`, name)
-	return anyClaimed, err
+	return state.AnyClaimed, q.BootstrapApplyInsert(ctx, name)
 }
 
 func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS bool) error {

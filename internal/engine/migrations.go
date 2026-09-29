@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/migratekit"
@@ -73,7 +74,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error
 		defer cancel()
 		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
 	}()
-	if _, err := lockConn.Exec(ctx, "SELECT pg_advisory_lock(hashtext(current_database()), hashtext($1))", "river-migrations:"+riverCfg.Schema); err != nil {
+	if err := db.New(lockConn).MigrationLock(ctx, "river-migrations:"+riverCfg.Schema); err != nil {
 		return fmt.Errorf("authkit: lock River migrations: %w", err)
 	}
 
@@ -102,11 +103,7 @@ func (s *Engine) probeMigrations() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	var exists bool
-	err := s.pg.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'users')`,
-		s.dbSchema(),
-	).Scan(&exists)
+	exists, err := s.q.MigrationSchemaHasUsers(ctx, s.dbSchema())
 	if err != nil || exists {
 		return nil
 	}

@@ -25,23 +25,16 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	if appID == "" {
 		return out, iam.ErrInvalidRemoteApplication
 	}
-	q := s.pg
-	var gid string
-	err := q.QueryRow(ctx,
-		`SELECT ra.permission_group_id::text, pg.persona
-		 FROM remote_applications ra
-		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
-		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL AND `+registrarLive("ra"),
-		appID).Scan(&gid, scanPersona(&out.Persona))
+	row, err := s.q.RemoteApplicationAuthority(ctx, appID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.RemoteApplicationAuthority{}, iam.ErrRemoteApplicationNotFound
 	}
 	if err != nil {
 		return iam.RemoteApplicationAuthority{}, err
 	}
-	out.PermissionGroupID = gid
+	out.PermissionGroupID, out.Persona = row.PermissionGroupID, ident.Persona(row.Persona)
 	out.AuthorityIssuer = s.cfg.Token.Issuer
-	grants, err := s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), gid)
+	grants, err := s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), out.PermissionGroupID)
 	if err != nil {
 		return iam.RemoteApplicationAuthority{}, err
 	}
