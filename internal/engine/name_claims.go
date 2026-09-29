@@ -95,7 +95,7 @@ func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 	if taken || s.pendingChangeUsernameTaken(ctx, name) {
 		return iam.ErrUsernameInUse
 	}
-	return s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", RequestedName: name, Operation: iam.NameCreate})
+	return s.admitName(ctx, iam.NameAdmissionRequest{RequestedName: name, Operation: iam.NameCreate})
 }
 
 // usernameTaken reports whether any claim holds name: a canonical name, an

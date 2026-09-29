@@ -4,14 +4,13 @@
 // library and iam, and has no database.
 //
 // A persona is a type of permission group (channel, org, merchant). A
-// permission group is one instance of a persona (/c/golang). root is the
-// persona with exactly one group, the whole site.
+// permission group is one instance of a persona. root is the persona with
+// exactly one group, the whole site.
 package rbac
 
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -22,7 +21,6 @@ import (
 type PersonaSpec struct {
 	Permissions        []string // app-defined catalog; AuthKit adds its built-ins
 	RequireMFA         []string // permissions or patterns of the catalog that need MFA
-	Creation           Creation
 	CustomRoles        bool
 	APIKeys            bool
 	RemoteApplications bool
@@ -36,21 +34,12 @@ type RoleSpec struct {
 	Includes    []iam.Role
 }
 
-// Creation configures the generated POST /<persona> route. ReservedSlugs are
-// creatable only by actors holding `<persona>:*` on root.
-type Creation struct {
-	Enabled       bool
-	SlugPattern   string
-	ReservedSlugs []string
-}
-
 // Persona is a compiled persona.
 type Persona struct {
 	Name iam.Persona
 	// Permissions is the complete catalog: app-declared plus built-ins, sorted.
 	Permissions        []iam.Perm
 	Roles              []Role // declared roles (includes flattened) plus owner
-	Creation           Creation
 	CustomRoles        bool
 	APIKeys            bool
 	RemoteApplications bool
@@ -70,7 +59,6 @@ type Schema struct {
 	order    []iam.Persona
 	known    map[iam.Perm]struct{}
 	mfa      []iam.Perm // concrete permissions that need MFA, every persona
-	patterns map[iam.Persona]*regexp.Regexp
 }
 
 // Default is the root-only schema.
@@ -89,7 +77,6 @@ func New(personas map[iam.Persona]PersonaSpec, roles []RoleSpec) (*Schema, error
 	s := &Schema{
 		personas: map[iam.Persona]Persona{},
 		known:    map[iam.Perm]struct{}{},
-		patterns: map[iam.Persona]*regexp.Regexp{},
 	}
 	specs := make(map[iam.Persona]PersonaSpec, len(personas)+1)
 	for name, spec := range personas {
@@ -134,9 +121,6 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name+":")
 		}
-		if resource(perm) == iam.SelfResource {
-			return Persona{}, fmt.Errorf("permission %q: the %q resource is reserved to AuthKit", perm, iam.SelfResource)
-		}
 		catalog[perm] = struct{}{}
 	}
 	for _, perm := range builtins(name, spec) {
@@ -174,33 +158,12 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 			return Persona{}, fmt.Errorf("RequireMFA %q matches no permission in the catalog", pattern)
 		}
 	}
-
-	c := spec.Creation
-	if c.Enabled && name == iam.RootPersona {
-		return Persona{}, errors.New("the root group is a singleton; creation cannot be enabled")
-	}
-	p.Creation = Creation{Enabled: c.Enabled, SlugPattern: strings.TrimSpace(c.SlugPattern)}
-	if p.Creation.SlugPattern != "" {
-		re, err := regexp.Compile("^(?:" + p.Creation.SlugPattern + ")$")
-		if err != nil {
-			return Persona{}, fmt.Errorf("creation slug pattern: %w", err)
-		}
-		s.patterns[name] = re
-	}
-	for _, raw := range c.ReservedSlugs {
-		slug := strings.ToLower(strings.TrimSpace(raw))
-		if !iam.ValidSlug(slug) {
-			return Persona{}, fmt.Errorf("reserved slug %q must be lowercase URL-safe", raw)
-		}
-		p.Creation.ReservedSlugs = append(p.Creation.ReservedSlugs, slug)
-	}
 	return p, nil
 }
 
 // builtins returns the permissions AuthKit registers for a persona: members
 // always, roles:manage with CustomRoles, credentials with APIKeys or
-// RemoteApplications, and self except on root, which adds its intrinsic
-// permissions instead (its group cannot be read, renamed or deleted as a group).
+// RemoteApplications, and on root its intrinsic account permissions.
 func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
 	out := []iam.Perm{iam.PermMembersRead(name), iam.PermMembersManage(name)}
 	if spec.CustomRoles {
@@ -213,9 +176,8 @@ func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
 		for _, perm := range iam.IntrinsicRootPermissions() {
 			out = append(out, iam.Perm(perm))
 		}
-		return out
 	}
-	return append(out, iam.PermSelfRead(name), iam.PermSelfUpdate(name), iam.PermSelfDelete(name))
+	return out
 }
 
 func (s *Schema) compileRoles(specs []RoleSpec) error {
@@ -363,14 +325,6 @@ func (s *Schema) CustomRoleGrantsValid(persona iam.Persona, grants []string) err
 	return nil
 }
 
-func resource(p iam.Perm) string {
-	segs := strings.Split(string(p), ":")
-	if len(segs) < 2 {
-		return ""
-	}
-	return segs[1]
-}
-
 // KnownPermission reports whether perm is a concrete permission registered in
 // some persona's catalog.
 func (s *Schema) KnownPermission(perm iam.Perm) bool {
@@ -401,23 +355,6 @@ func (s *Schema) Role(persona iam.Persona, role iam.Role) (Role, bool) {
 		}
 	}
 	return Role{}, false
-}
-
-// CreationEnabled reports whether the persona has the generated creation route.
-func (s *Schema) CreationEnabled(persona iam.Persona) bool {
-	return s.personas[persona].Creation.Enabled
-}
-
-// CreationSlugAllowed applies the persona's SlugPattern; the built-in slug
-// rule is enforced separately.
-func (s *Schema) CreationSlugAllowed(persona iam.Persona, slug string) bool {
-	re, ok := s.patterns[persona]
-	return !ok || re.MatchString(slug)
-}
-
-// SlugReserved reports whether slug is one of the persona's reserved slugs.
-func (s *Schema) SlugReserved(persona iam.Persona, slug string) bool {
-	return slices.Contains(s.personas[persona].Creation.ReservedSlugs, strings.ToLower(strings.TrimSpace(slug)))
 }
 
 // Assignment is a subject's single role in one permission group, tagged with

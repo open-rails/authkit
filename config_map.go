@@ -57,7 +57,6 @@ func (c RoleConfig) engine() engine.RoleConfig {
 			out.Personas[name] = engine.Persona{
 				Permissions:        p.Permissions,
 				RequireMFA:         p.RequireMFA,
-				Creation:           engine.GroupCreation(p.Creation),
 				CustomRoles:        p.CustomRoles,
 				APIKeys:            p.APIKeys,
 				RemoteApplications: p.RemoteApplications,
@@ -123,7 +122,6 @@ func (d Deps) engine() engine.Deps {
 		OnEvent:                d.OnEvent,
 		DelegatedAuthorization: d.DelegatedAuthorization,
 		ApplicationAdmission:   d.ApplicationAdmission,
-		InstanceAdmission:      d.InstanceAdmission,
 		NameAdmission:          d.NameAdmission,
 		SolanaSNSResolver:      d.SolanaSNSResolver,
 		OutboundHTTP:           d.OutboundHTTP,

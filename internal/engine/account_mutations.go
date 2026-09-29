@@ -160,7 +160,7 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 	if err != nil {
 		return iam.User{}, err
 	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return iam.User{}, err
 	}
 	tx, err := s.pg.Begin(ctx)

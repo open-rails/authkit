@@ -1,9 +1,5 @@
 package iam
 
-// SelfResource is the permission resource meaning the group itself
-// (`channel:self:update`). It is reserved to AuthKit's built-ins.
-const SelfResource = "self"
-
 // Built-in per-persona permissions. The owner role (`<persona>:*`) covers
 // them all, and an app may grant them to other roles.
 
@@ -24,12 +20,3 @@ func PermCredentialsRead(p Persona) Perm { return Perm(string(p) + ":credentials
 // PermCredentialsManage gates minting, revoking and re-roling API keys and
 // remote applications. Registered with PermCredentialsRead.
 func PermCredentialsManage(p Persona) Perm { return Perm(string(p) + ":credentials:manage") }
-
-// PermSelfRead gates reading the group's own descriptor: id, slug, display name.
-func PermSelfRead(p Persona) Perm { return Perm(string(p) + ":self:read") }
-
-// PermSelfUpdate gates changing the group's slug and display name.
-func PermSelfUpdate(p Persona) Perm { return Perm(string(p) + ":self:update") }
-
-// PermSelfDelete gates the recoverable (soft) delete of the group.
-func PermSelfDelete(p Persona) Perm { return Perm(string(p) + ":self:delete") }

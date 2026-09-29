@@ -5,8 +5,9 @@
 // DB-less verify package and hosts can all share it.
 //
 // A persona is a type of permission group (channel, org, merchant). A
-// permission group is one instance of a persona (/c/golang). root is the
+// permission group is one instance of a persona, addressed by ID: it holds
+// roles for an entity the host app owns (the channel /c/golang). root is the
 // persona with exactly one group, the whole site. A permission is
 // `<persona>:<resource>:<action>`; `*` may replace the action or everything
-// after the persona, and the resource `self` is the group itself.
+// after the persona.
 package iam

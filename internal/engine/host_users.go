@@ -203,7 +203,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*userR
 	if err != nil {
 		return nil, err
 	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return nil, err
 	}
 	tx, err := s.pg.Begin(ctx)
@@ -437,7 +437,7 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 			return err
 		}
 	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
 	if err := renameNameClaim(ctx, q, id, oldName, username, now, policy); err != nil {
