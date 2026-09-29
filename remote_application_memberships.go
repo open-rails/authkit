@@ -104,8 +104,8 @@ func (s *engine) remoteApplicationRoles(ctx context.Context, appID string) ([]st
 }
 
 // ResolveRemoteApplicationAuthority resolves a remote_application's effective
-// permissions — the additive walk-up of every role it holds across its
-// controlling permission-group's parent chain (#111) — plus the owning group
+// permissions — the union of its roles on its controlling permission-group and
+// on root (#111) — plus the owning group
 // instance the authority is bound to (#248). Permissions is an empty slice
 // (no error) when the app holds no roles.
 func (s *engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (iam.RemoteApplicationAuthority, error) {

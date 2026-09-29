@@ -1,6 +1,9 @@
 package httpapi
 
-import "github.com/open-rails/authkit/iam"
+import (
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/rbac"
+)
 
 // Route-surface generation (#111): the auto-generated management routes are
 // DERIVED from each configured group persona. Public routes
@@ -10,85 +13,76 @@ import "github.com/open-rails/authkit/iam"
 // than a runtime 403. Group ids never appear in a path.
 
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
-// RESOURCE's own id (:instance_slug), gated by Perm (a concrete <persona>:<res>:<act>).
+// RESOURCE's own id (:instance_slug), gated by Perm (a concrete
+// <persona>:<res>:<act>). OrPerm, when set, also admits the caller.
 type GeneratedRoute struct {
 	Persona iam.Persona
 	Method  string
 	Path    string // e.g. /merchant/:instance_slug/members
 	Perm    iam.Perm
+	OrPerm  iam.Perm
 }
 
 // GeneratedRoutes returns the full management surface implied by the schema's
 // per-persona definition. The HTTP layer mounts exactly these; disabled
-// capabilities are simply absent (→ 404). Reads gate on <area>:read;
-// mutations on the matching <area>:manage built-in.
-func GeneratedRoutes(s *iam.GroupSchema) []GeneratedRoute {
+// capabilities are simply absent (→ 404).
+func GeneratedRoutes(s *rbac.Schema) []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, persona := range s.Personas() {
 		td, _ := s.Persona(persona)
 		base := "/" + string(persona) + "/:instance_slug"
-		caps := td.Capabilities
+		add := func(method, path string, perm iam.Perm) {
+			out = append(out, GeneratedRoute{Persona: persona, Method: method, Path: base + path, Perm: perm})
+		}
 		memberRoutes := persona != iam.RootPersona
 
 		if memberRoutes {
 			rd, mg := iam.PermMembersRead(persona), iam.PermMembersManage(persona)
-			out = append(out,
-				GeneratedRoute{persona, "GET", base + "/members", rd},
-				GeneratedRoute{persona, "POST", base + "/members", mg},
-				GeneratedRoute{persona, "DELETE", base + "/members/:user", mg},
-				GeneratedRoute{persona, "PUT", base + "/members/:user/roles/:role", mg},
-				// #264: group settings — slug rename (tombstone-forwarding)
-				// and display-name changes. Owner-controlled via the wildcard.
-				GeneratedRoute{persona, "PATCH", base, iam.PermSettingsManage(persona)},
-				// #269: the instance's own identity descriptor — the read
-				// symmetric of the PATCH, and the only place a caller outside
-				// the process learns the group's uuid. Creation reports it
-				// once; this route is how it stays recoverable (and how an
-				// instance created before #269 becomes addressable at all).
-				GeneratedRoute{persona, "GET", base, iam.PermSettingsRead(persona)},
-			)
+			add("GET", "/members", rd)
+			add("POST", "/members", mg)
+			add("DELETE", "/members/:user", mg)
+			add("PUT", "/members/:user/roles/:role", mg)
+			// #264: the group itself — slug rename (tombstone-forwarding)
+			// and display-name changes. Owner-controlled via the wildcard.
+			add("PATCH", "", iam.PermSelfUpdate(persona))
+			// #269: the instance's own identity descriptor, and the only
+			// place a caller outside the process learns the group's uuid.
+			add("GET", "", iam.PermSelfRead(persona))
 		}
-		// Listing the role catalog is part of visible role/member management;
-		// personas with every management capability off emit no public routes.
-		if memberRoutes || caps.CustomRoles {
-			out = append(out, GeneratedRoute{persona, "GET", base + "/roles", iam.PermRolesRead(persona)})
+		// The role catalog is visible to member readers and custom-role managers.
+		if memberRoutes || td.CustomRoles {
+			roles := GeneratedRoute{Persona: persona, Method: "GET", Path: base + "/roles", Perm: iam.PermMembersRead(persona)}
+			if td.CustomRoles {
+				roles.OrPerm = iam.PermRolesManage(persona)
+			}
+			out = append(out, roles)
 		}
-		if caps.CustomRoles {
+		if td.CustomRoles {
 			mg := iam.PermRolesManage(persona)
-			out = append(out,
-				GeneratedRoute{persona, "POST", base + "/roles", mg},
-				GeneratedRoute{persona, "DELETE", base + "/roles/:role", mg},
-			)
+			add("POST", "/roles", mg)
+			add("DELETE", "/roles/:role", mg)
 		}
-		if caps.APIKeys {
+		if td.APIKeys {
 			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
-			out = append(out,
-				GeneratedRoute{persona, "GET", base + "/api-keys", rd},
-				GeneratedRoute{persona, "POST", base + "/api-keys", mg},
-				GeneratedRoute{persona, "DELETE", base + "/api-keys/:key", mg},
-			)
+			add("GET", "/api-keys", rd)
+			add("POST", "/api-keys", mg)
+			add("DELETE", "/api-keys/:key", mg)
 		}
-		if caps.RemoteApplications {
+		if td.RemoteApplications {
 			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
-			out = append(out,
-				GeneratedRoute{persona, "GET", base + "/remote-applications", rd},
-				GeneratedRoute{persona, "POST", base + "/remote-applications", mg},
-				GeneratedRoute{persona, "DELETE", base + "/remote-applications/:app", mg},
-				// #263: remote-application role assignment — the
-				// SubjectKindRemoteApp symmetric of the member-role route.
-				GeneratedRoute{persona, "PUT", base + "/remote-applications/:app/roles/:role", mg},
-			)
+			add("GET", "/remote-applications", rd)
+			add("POST", "/remote-applications", mg)
+			add("DELETE", "/remote-applications/:app", mg)
+			// #263: the SubjectKindRemoteApp symmetric of the member-role route.
+			add("PUT", "/remote-applications/:app/roles/:role", mg)
 		}
-		// Invite-LINK routes (#134): mint / list / revoke a high-entropy invite
-		// link. Redemption is NOT here — it is the persona-agnostic POST
-		// /invites/redeem (any authenticated user), mounted as a fixed route.
+		// Invite-LINK routes (#134). Redemption is the persona-agnostic POST
+		// /invites/redeem, mounted as a fixed route.
 		if memberRoutes {
 			rd, mg := iam.PermMembersRead(persona), iam.PermMembersManage(persona)
-			out = append(out,
-				GeneratedRoute{persona, "POST", base + "/invites/links", mg},
-				GeneratedRoute{persona, "GET", base + "/invites/links", rd},
-				GeneratedRoute{persona, "DELETE", base + "/invites/links/:link", mg},
-			)
+			add("POST", "/invites/links", mg)
+			add("GET", "/invites/links", rd)
+			add("DELETE", "/invites/links/:link", mg)
 		}
 	}
 	return out

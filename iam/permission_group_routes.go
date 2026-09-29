@@ -1,40 +1,35 @@
 package iam
 
-// Built-in per-persona group-management permissions (authkit-provisioned in
-// every persona's catalog). All are 3-segment <persona>:<area>:<action>. The owner
-// role (=<persona>:*) covers them all; an app may grant them to other roles.
-func PermMembersManage(p Persona) Perm {
-	return Perm(string(p) + ":members:manage")
-}
+// SelfResource is the permission resource meaning the group itself
+// (`channel:self:update`). It is reserved to AuthKit's built-ins.
+const SelfResource = "self"
 
-func PermMembersRead(p Persona) Perm {
-	return Perm(string(p) + ":members:read")
-}
+// Built-in per-persona permissions. The owner role (`<persona>:*`) covers
+// them all, and an app may grant them to other roles.
 
-func PermRolesManage(p Persona) Perm {
-	return Perm(string(p) + ":roles:manage")
-}
+// PermMembersRead gates listing a group's members and its role catalog.
+func PermMembersRead(p Persona) Perm { return Perm(string(p) + ":members:read") }
 
-func PermRolesRead(p Persona) Perm { return Perm(string(p) + ":roles:read") }
+// PermMembersManage gates adding, removing and re-roling members and invites.
+func PermMembersManage(p Persona) Perm { return Perm(string(p) + ":members:manage") }
 
-func PermCredentialsManage(p Persona) Perm {
-	return Perm(string(p) + ":credentials:manage")
-}
+// PermRolesManage gates defining and deleting custom roles. Registered only
+// for personas with CustomRoles.
+func PermRolesManage(p Persona) Perm { return Perm(string(p) + ":roles:manage") }
 
-func PermCredentialsRead(p Persona) Perm {
-	return Perm(string(p) + ":credentials:read")
-}
+// PermCredentialsRead gates listing API keys and remote applications.
+// Registered only for personas with APIKeys or RemoteApplications.
+func PermCredentialsRead(p Persona) Perm { return Perm(string(p) + ":credentials:read") }
 
-// PermSettingsManage gates the group's own settings surface (#264): slug
-// rename and display-name changes. Held by the owner via `<persona>:*`;
-// grant it to other roles deliberately.
-func PermSettingsManage(p Persona) Perm {
-	return Perm(string(p) + ":settings:manage")
-}
+// PermCredentialsManage gates minting, revoking and re-roling API keys and
+// remote applications. Registered with PermCredentialsRead.
+func PermCredentialsManage(p Persona) Perm { return Perm(string(p) + ":credentials:manage") }
 
-// PermSettingsRead gates reading the group's own identity descriptor (#269):
-// GET /<persona>/:instance_slug — id, slug, display name. The read symmetric of
-// PermSettingsManage; held by the owner via `<persona>:*`.
-func PermSettingsRead(p Persona) Perm {
-	return Perm(string(p) + ":settings:read")
-}
+// PermSelfRead gates reading the group's own descriptor: id, slug, display name.
+func PermSelfRead(p Persona) Perm { return Perm(string(p) + ":self:read") }
+
+// PermSelfUpdate gates changing the group's slug and display name.
+func PermSelfUpdate(p Persona) Perm { return Perm(string(p) + ":self:update") }
+
+// PermSelfDelete gates the recoverable (soft) delete of the group.
+func PermSelfDelete(p Persona) Perm { return Perm(string(p) + ":self:delete") }

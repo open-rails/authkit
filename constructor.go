@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/rbac"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
@@ -171,11 +172,9 @@ func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	var gs *iam.GroupSchema
-	if len(norm.RBAC) > 0 {
-		if gs, err = iam.BuildSchema(norm.RBAC...); err != nil {
-			return nil, fmt.Errorf("permission-group schema: %w", err)
-		}
+	gs, err := norm.Roles.schema()
+	if err != nil {
+		return nil, err
 	}
 	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
 	return newClient(norm, src, gs, deps)
@@ -185,7 +184,7 @@ func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*engine, error) {
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
 // the engine exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *iam.GroupSchema, deps Deps) (*engine, error) {
+func newClient(norm Config, keys jwtkit.KeySource, gs *rbac.Schema, deps Deps) (*engine, error) {
 	s := &engine{
 		cfg:               norm,
 		keys:              keys,
@@ -282,11 +281,10 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 		stdlog.Printf("authkit: warning: TOTP is offered by 2FA policy but no key material is configured (no %s/%s, no TwoFactor.TOTPSecretKey) — TOTP will be reported unavailable and enrollment will fail closed", totpKeysDir(norm), totpKeyFilename)
 	}
 
-	// #111: build + validate the permission-group schema (intrinsic root injected
-	// when the app declares none). A bad catalog/containment fails construction.
-	gs, gerr := iam.BuildSchema(norm.RBAC...)
-	if gerr != nil {
-		return nil, fmt.Errorf("permission-group schema: %w", gerr)
+	// A bad persona catalog or role fails construction.
+	gs, err := norm.Roles.schema()
+	if err != nil {
+		return nil, err
 	}
 
 	// #264: application self-registration needs a declared org persona to hang
@@ -294,12 +292,8 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	// first registration.
 	if norm.Applications.SelfRegistration {
 		persona := iam.Persona(strings.TrimSpace(string(norm.Applications.OrgPersona)))
-		td, ok := gs.Persona(persona)
-		if !ok || persona == iam.RootPersona {
+		if _, ok := gs.Persona(persona); !ok || persona == iam.RootPersona {
 			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)
-		}
-		if td.Parent != iam.RootPersona {
-			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q must be parented by %q (got %q)", persona, iam.RootPersona, td.Parent)
 		}
 	}
 

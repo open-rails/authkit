@@ -2,9 +2,11 @@ package authkit
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/verify"
 )
 
 // Permission groups, roles and group invitations.
@@ -57,7 +59,7 @@ func (a *Auth) UpdateGroupInstanceAs(ctx context.Context, actorUserID string, gr
 	return a.engine.UpdateGroupInstanceAs(ctx, actorUserID, groupID, update)
 }
 
-// SoftDeleteGroupInstanceByID retires a nonroot subtree without removing its
+// SoftDeleteGroupInstanceByID retires a non-root group without removing its
 // rows or name reservations. Repeated calls retain the original DeletedAt.
 // The trusted host owns admission, retention and eventual hard deletion.
 func (a *Auth) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
@@ -100,12 +102,25 @@ func (a *Auth) ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]ia
 	return a.engine.ListSubjectGroups(ctx, subject)
 }
 
+// Can reports whether subject holds perm in group. An unregistered perm is
+// iam.ErrUnknownPermission, never a silent false.
 func (a *Auth) Can(ctx context.Context, subject iam.Subject, group iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.engine.Can(ctx, subject, group, perm)
 }
 
 func (a *Auth) CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
 	return a.engine.CanOnGroup(ctx, subject, groupID, perm)
+}
+
+// KnownPermission reports whether perm is registered in a persona catalog of
+// Config.Roles, AuthKit's built-ins included.
+func (a *Auth) KnownPermission(perm iam.Perm) bool { return a.engine.KnownPermission(perm) }
+
+// RequirePermission authenticates the request and requires perm on the group
+// resolve returns. It panics at construction on an unregistered perm.
+func (a *Auth) RequirePermission(perm iam.Perm, resolve func(*http.Request) verify.PermissionScope) func(http.Handler) http.Handler {
+	gate := verify.RequirePermission(a, perm, resolve)
+	return func(next http.Handler) http.Handler { return a.Require(gate(next)) }
 }
 
 // EffectivePermissionsForGroups returns one subject's effective grant

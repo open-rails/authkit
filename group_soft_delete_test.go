@@ -23,7 +23,10 @@ func softDeleteRuntime(t *testing.T) (*Auth, *pgxpool.Pool) {
 	cfg := maintenanceConfig()
 	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
-	cfg.RBAC = []iam.PersonaDef{{Name: iam.RootPersona}, {Name: "channel", Parent: iam.RootPersona, Roles: []iam.RoleDef{{Name: "reader", Permissions: []string{"channel:posts:read"}}}}, {Name: "section", Parent: "channel"}}
+	cfg.Roles = RoleConfig{
+		Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:read"}}},
+		Roles:    []Role{{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}}},
+	}
 	runtimeConfig := pg.Pool.Config()
 	runtimeConfig.MaxConns = 1
 	runtimePool, err := pgxpool.NewWithConfig(t.Context(), runtimeConfig)
@@ -45,8 +48,6 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.NoError(t, err)
 	group := iam.GroupRef{Persona: "channel", Instance: "retained"}
 	id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
-	require.NoError(t, err)
-	child, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "retained-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
 	require.NoError(t, err)
 	active, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "still-active", OwnerSubjectID: peer.ID})
 	require.NoError(t, err)
@@ -71,14 +72,12 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	again, err := client.SoftDeleteGroupInstanceByID(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, again.DeletedAt)
-	for _, gid := range []string{id, child} {
-		descriptor, err := client.GroupInstanceByID(ctx, gid)
-		require.NoError(t, err)
-		require.Equal(t, deleted.DeletedAt, descriptor.DeletedAt)
-		allowed, err := client.CanOnGroup(ctx, iam.UserSubject(owner.ID), gid, "channel:posts:read")
-		require.NoError(t, err)
-		require.False(t, allowed)
-	}
+	descriptor, err := client.GroupInstanceByID(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, deleted.DeletedAt, descriptor.DeletedAt)
+	allowed, err = client.CanOnGroup(ctx, iam.UserSubject(owner.ID), id, "channel:posts:read")
+	require.NoError(t, err)
+	require.False(t, allowed)
 	allowed, err = checker.Can(ctx, scope, "channel:posts:read")
 	require.NoError(t, err)
 	require.False(t, allowed, "captured machine principal must observe retirement without another proof")
@@ -87,19 +86,17 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	_, err = client.GroupInstanceForSlug(ctx, group)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, iam.UserSubject(peer.ID), "reader"), iam.ErrGroupNotFound)
-	_, err = client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "forbidden-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
-	require.Error(t, err)
 	_, err = client.UpdateGroupInstanceAs(ctx, owner.ID, id, iam.GroupInstanceUpdate{DisplayName: new("changed")})
 	require.Error(t, err)
 	_, _, err = client.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "forbidden", Role: "reader"})
 	require.Error(t, err)
 	var roles, keys, names int
-	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=ANY($1::uuid[])", []string{id, child}).Scan(&roles))
-	require.Equal(t, 2, roles)
+	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=$1::uuid", id).Scan(&roles))
+	require.Equal(t, 1, roles)
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.api_keys WHERE id=$1::uuid", key.ID).Scan(&keys))
 	require.Equal(t, 1, keys)
-	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=ANY($1::uuid[]) AND canonical", []string{id, child}).Scan(&names))
-	require.Equal(t, 2, names)
+	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid AND canonical", id).Scan(&names))
+	require.Equal(t, 1, names)
 	result, err = client.SoftDeleteUsers(ctx, []string{owner.ID, peer.ID})
 	require.NoError(t, err)
 	require.NoError(t, result[0].Err)

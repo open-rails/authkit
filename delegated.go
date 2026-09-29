@@ -59,10 +59,11 @@ func (s *engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, 
 
 func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, perm iam.Perm) (bool, error) {
 	namespace, _, _ := strings.Cut(string(perm), ":")
-	if _, ok := s.groupSchemaOrDefault().Persona(iam.Persona(namespace)); !ok && namespace != "*" {
+	sch := s.groupSchemaOrDefault()
+	if _, ok := sch.Persona(iam.Persona(namespace)); !ok && namespace != "*" {
 		return true, nil
 	}
-	if strings.TrimSpace(userID) == "" {
+	if strings.TrimSpace(userID) == "" || !sch.KnownPermission(perm) {
 		return false, nil
 	}
 	return s.Can(ctx, iam.UserSubject(userID), iam.RootGroup(), perm)

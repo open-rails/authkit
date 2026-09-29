@@ -19,8 +19,8 @@ import (
 // API keys: long-lived, revocable shared-secret bearer credentials owned by a
 // permission-group (not a person), for machine/automation callers (#111). An
 // API key holds exactly ONE role of its group's PERSONA catalog (or a group custom
-// role); its effective permissions are resolved FROM that role (the GroupSchema
-// catalog / group_custom_roles) at use time, so editing the role updates every
+// role); its effective permissions are resolved FROM that role (Config.Roles
+// / group_custom_roles) at use time, so editing the role updates every
 // key that holds it. Permissions are app-defined strings, opaque to authkit. See
 // agents #43 (lifecycle) and #111 (permission-groups).
 

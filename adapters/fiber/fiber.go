@@ -123,8 +123,10 @@ func UserClaims(c fiber.Ctx) (verify.UserClaimsData, bool) {
 }
 
 // RequirePermission checks the canonical permission policy using a
-// Fiber-native scope resolver. Mount after Required or RequiredLive.
+// Fiber-native scope resolver. Mount after Required or RequiredLive. It panics
+// at construction on a perm the checker does not register.
 func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
+	verify.MustKnowPermission(checker, perm)
 	return func(c fiber.Ctx) error {
 		var resolver func(*http.Request) verify.PermissionScope
 		if resolve != nil {

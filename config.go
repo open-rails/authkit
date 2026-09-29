@@ -54,9 +54,9 @@ type Config struct {
 	// in explicitly before RouteDeviceKeys is mounted or the engine issues
 	// enrollment/login challenges (#293).
 	DeviceKeys DeviceKeysConfig
-	// RBAC declares the app's permission-group personas (#111): containment
-	// schema plus per-persona role catalogs. Empty yields root-only.
-	RBAC []iam.PersonaDef
+	// Roles declares personas, their permission catalogs and roles. The zero
+	// value is root-only.
+	Roles RoleConfig
 
 	// Applications configures application self-registration (#264): domain-
 	// proven remote applications with service-owned orgs. Zero value = disabled
@@ -132,11 +132,11 @@ type ApplicationsConfig struct {
 	// JWKS client. Local federation rigs only; the default (false) refuses
 	// anything that is not a public https endpoint.
 	AllowPrivateNetworkJWKS bool
-	// OrgPersona is the declared RBAC persona under which each self-registered
+	// OrgPersona is the declared persona under which each self-registered
 	// application's SERVICE-OWNED org is created (instance_slug = the
 	// application slug; the application principal is seeded as its owner).
 	// Required when SelfRegistration is set; must be a declared non-root
-	// persona whose Parent is the root persona.
+	// persona.
 	OrgPersona iam.Persona
 }
 
@@ -351,7 +351,7 @@ type TwoFactorConfig struct {
 	// enroll before normal session use; existing un-enrolled users are challenged
 	// on their next authenticated request). Empty defaults to Optional; other
 	// values fail construction. Per-role
-	// RoleDef.RequiresMFA remains available for narrower enforcement.
+	// Role.RequiresMFA remains available for narrower enforcement.
 	Mode iam.TwoFactorMode
 
 	// Methods is the set of second-factor channels the host enables

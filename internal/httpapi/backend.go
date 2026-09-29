@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/oidcstate"
+	"github.com/open-rails/authkit/internal/rbac"
 	siws "github.com/open-rails/authkit/internal/siws"
 	jwtkit "github.com/open-rails/authkit/jwtkit"
 	verify "github.com/open-rails/authkit/verify"
@@ -109,7 +110,7 @@ type Backend interface {
 	PasskeysEnabled() bool
 	PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error)
 	PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error)
-	PermissionGroupSchema() *iam.GroupSchema
+	PermissionGroupSchema() *rbac.Schema
 	ProviderSlugs(ctx context.Context, userID string) ([]string, error)
 	PublicKeysByKID() map[string]crypto.PublicKey
 	PublicNativeUserRegistrationEnabled() bool

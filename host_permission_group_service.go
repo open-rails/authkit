@@ -1,9 +1,9 @@
 package authkit
 
 // Engine-level permission-group API (#111): the consumer entry points that wrap
-// the store with the declared GroupSchema (catalog + containment validation),
-// owner seeding, and transaction scoping. Group ids stay INTERNAL — callers
-// address groups by (persona, instance_slug).
+// the store with the compiled role schema, owner seeding, and transaction
+// scoping. Group ids stay INTERNAL — callers address groups by (persona,
+// instance_slug).
 
 import (
 	"context"
@@ -17,20 +17,26 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
-// PermissionGroupSchema returns the validated schema this engine was built with
-// (the intrinsic root-only schema if constructed without Config groups).
-func (s *engine) PermissionGroupSchema() *iam.GroupSchema {
+// PermissionGroupSchema returns the compiled Config.Roles.
+func (s *engine) PermissionGroupSchema() *rbac.Schema {
 	return s.groupSchemaOrDefault()
 }
 
-func (s *engine) groupSchemaOrDefault() *iam.GroupSchema {
+var rootOnlySchema = rbac.Default()
+
+func (s *engine) groupSchemaOrDefault() *rbac.Schema {
 	if s.groupSchema != nil {
 		return s.groupSchema
 	}
-	gs, _ := iam.BuildSchema() // root-only; cannot fail
-	return gs
+	return rootOnlySchema
+}
+
+// KnownPermission reports whether perm is registered in a persona catalog.
+func (s *engine) KnownPermission(perm iam.Perm) bool {
+	return s.groupSchemaOrDefault().KnownPermission(perm)
 }
 
 // groupStore binds a PermissionGroupStore to the engine's schema-bound pool
@@ -39,38 +45,19 @@ func (s *engine) groupStore() *permissionGroupStore {
 	return s.groupStoreFor(s.pg)
 }
 
-// initializeGroups installs only declared topology and the root singleton.
-// It never assigns users roles or restores revoked authority. The shared
-// authority lock and transaction keep concurrent construction atomic.
+// initializeGroups installs the root singleton. It never assigns users roles
+// or restores revoked authority. The shared authority lock and transaction
+// keep concurrent construction atomic.
 func (s *engine) initializeGroups() error {
 	if s.pg == nil {
 		return nil
 	}
 	ctx := context.Background()
 	if err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		// An issuer-only runtime may share the identity schema with a host that
-		// declares additional personas. Omitted RBAC is not permission to
-		// reconcile that host's topology down to the implicit root default.
-		if len(s.cfg.RBAC) > 0 {
-			if err := st.SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
-				return err
-			}
-		}
 		_, err := st.ensureRootGroup(ctx)
 		return err
 	}); err != nil {
 		return fmt.Errorf("authkit: initialize permission groups (apply migrations before New): %w", err)
-	}
-	s.logRBACDrift(ctx)
-	return nil
-}
-
-// SeedPermissionGroupContainment writes the declared containment schema into
-// group_persona_parents so the DB trigger can enforce tree shape. Idempotent; call
-// once at bootstrap.
-func (s *engine) SeedPermissionGroupContainment(ctx context.Context) error {
-	if err := s.groupStore().SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
-		return err
 	}
 	s.logRBACDrift(ctx)
 	return nil
@@ -111,28 +98,16 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	return id, err
 }
 
-// CreatePermissionGroup validates containment against the schema, resolves the
-// parent group, creates the group, and (atomically) seeds the owner assignment.
-// Returns the INTERNAL group id (for the caller's own bookkeeping; never exposed
-// over the wire).
+// CreatePermissionGroup creates a group of a declared non-root persona and
+// (atomically) seeds the owner assignment. Returns the INTERNAL group id (for
+// the caller's own bookkeeping; never exposed over the wire).
 func (s *engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermissionGroupRequest) (string, error) {
-	sch := s.groupSchemaOrDefault()
 	group := iam.GroupRef{Persona: req.Persona, Instance: req.InstanceSlug}.Canonical()
-	parentGroup := iam.GroupRef{Persona: req.ParentPersona, Instance: req.ParentInstanceSlug}.Canonical()
 	req.Persona, req.InstanceSlug = group.Persona, group.Instance
-	req.ParentPersona, req.ParentInstanceSlug = parentGroup.Persona, parentGroup.Instance
-	td, ok := sch.Persona(req.Persona)
-	if !ok {
+	if _, ok := s.groupSchemaOrDefault().Persona(req.Persona); !ok || group.IsRoot() {
 		return "", fmt.Errorf("unknown group persona %q: %w", req.Persona, iam.ErrUnknownGroupPersona)
 	}
 	if err := iam.ValidateGroupInstanceSlug(group); err != nil {
-		return "", err
-	}
-	parentPersona := req.ParentPersona
-	if req.Persona != iam.RootPersona && parentPersona == "" && td.Parent != "" {
-		parentPersona = td.Parent
-	}
-	if err := sch.ValidateParent(req.Persona, parentPersona); err != nil {
 		return "", err
 	}
 
@@ -146,22 +121,7 @@ func (s *engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermis
 		return "", err
 	}
 
-	parentID := ""
-	if req.Persona != iam.RootPersona {
-		if parentPersona == iam.RootPersona {
-			parentID, err = st.RootGroupID(ctx)
-		} else {
-			parent := iam.GroupRef{Persona: parentPersona, Instance: req.ParentInstanceSlug}
-			if err := iam.ValidateGroupInstanceSlug(parent); err != nil {
-				return "", err
-			}
-			parentID, err = st.GroupByInstanceSlug(ctx, parent)
-		}
-		if err != nil {
-			return "", fmt.Errorf("resolve %q parent: %w", parentPersona, err)
-		}
-	}
-	id, err := st.CreateGroupNamed(ctx, group, parentID, strings.TrimSpace(req.DisplayName))
+	id, err := st.CreateGroupNamed(ctx, group, strings.TrimSpace(req.DisplayName))
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +184,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 		}
 		return out, err
 	}
-	allowed, err := st.CanOnGroup(ctx, s.groupSchemaOrDefault(), iam.UserSubject(actorUserID), groupID, iam.PermSettingsManage(persona))
+	allowed, err := st.CanOnGroup(ctx, s.groupSchemaOrDefault(), iam.UserSubject(actorUserID), groupID, iam.PermSelfUpdate(persona))
 	if err != nil {
 		return out, err
 	}
@@ -299,7 +259,7 @@ func (s *engine) ResolveGroupIDForSlug(ctx context.Context, group iam.GroupRef) 
 // GroupInstanceForSlug reads one instance's own identity — id, persona, slug,
 // display name (#269). This is the read behind GET /<persona>/:instance_slug:
 // the id is a JOIN KEY a host needs for its own ledger rows, never an address.
-// Authorization is the caller's job (the route gates on <persona>:settings:read).
+// Authorization is the caller's job (the route gates on <persona>:self:read).
 func (s *engine) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.GroupInstance{}, err
@@ -315,7 +275,7 @@ func (s *engine) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (
 // validRoleForPersona reports whether role is assignable in a group of persona: a
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
-func (s *engine) validRoleForPersona(sch *iam.GroupSchema, persona iam.Persona, role iam.Role) bool {
+func (s *engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role iam.Role) bool {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if role == "" {
 		return false
@@ -324,7 +284,7 @@ func (s *engine) validRoleForPersona(sch *iam.GroupSchema, persona iam.Persona, 
 		return true
 	}
 	td, ok := sch.Persona(persona)
-	return ok && td.Capabilities.CustomRoles
+	return ok && td.CustomRoles
 }
 
 // AssignGroupRole grants a subject a role in the group addressed by (persona,
@@ -401,8 +361,8 @@ func (s *engine) UnassignGroupRole(ctx context.Context, group iam.GroupRef, subj
 	})
 }
 
-// DeletePermissionGroup deletes a group instance (children, role assignments,
-// api keys, and remote applications cascade). Delete-time naming rule (#264
+// DeletePermissionGroup deletes a group instance (role assignments, api keys,
+// and remote applications cascade). Delete-time naming rule (#264
 // ruling 5): by DEFAULT the slug is TOMBSTONED to the group uuid forever —
 // fail-safe, published references can never be re-claimed. Passing
 // ReleaseSlug frees every deleted canonical name instead; that is safe ONLY for names nothing
@@ -439,10 +399,13 @@ func (s *engine) DeletePermissionGroup(ctx context.Context, group iam.GroupRef, 
 }
 
 // Can is the engine-level authorization check: resolve the group addressed by
-// (persona, instanceSlug), then test perm coverage via the additive walk-up.
-// The caller constructs perm per the two-persona rule (LT:RT:action).
+// (persona, instanceSlug), then test perm coverage over the subject's roles on
+// that group and on root. An unregistered perm is ErrUnknownPermission.
 func (s *engine) Can(ctx context.Context, subject iam.Subject, group iam.GroupRef, perm iam.Perm) (bool, error) {
 	sch := s.groupSchemaOrDefault()
+	if !sch.KnownPermission(perm) {
+		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
+	}
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)
 	if err != nil {
@@ -503,9 +466,8 @@ func (s *engine) ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]
 
 // DefineGroupCustomRole creates/updates a custom role in the group addressed by
 // (persona, instanceSlug), acting as actorUserID. Requires the persona to allow
-// custom roles; every permission must be a valid grant pattern in that
-// persona's namespace (namespace purity) and must not collide with a catalog
-// role name. requiresMFA mirrors RoleDef.RequiresMFA for catalog roles (#247).
+// custom roles; every permission must match the persona's catalog, and the
+// name must not collide with a declared role. requiresMFA mirrors Role.RequiresMFA for catalog roles (#247).
 //
 // #247 SECURITY: redefining an EXISTING custom role is a DEFERRED grant (a
 // widened grant set) — and, for a narrowed one, a deferred revoke — to EVERY
@@ -523,7 +485,7 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 	if !ok {
 		return fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
-	if !td.Capabilities.CustomRoles {
+	if !td.CustomRoles {
 		return fmt.Errorf("group persona %q does not allow custom roles: %w", persona, iam.ErrCustomRolesNotSupported)
 	}
 	if !iam.ValidPermissionSegment(string(role)) {
@@ -532,26 +494,8 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 	if _, isCatalog := sch.Role(persona, role); isCatalog {
 		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom: %w", role, iam.ErrCustomRoleIsCatalogRole)
 	}
-	for _, p := range permissions {
-		if err := iam.ValidateGrantPattern(p); err != nil {
-			return err
-		}
-		if iam.Perm(p).Persona() != persona {
-			return fmt.Errorf("custom role grant %q is cross-persona — a %q role may hold only %q: perms: %w", p, persona, persona, iam.ErrCustomRoleGrantCrossPersona)
-		}
-	}
-	universe, ok := sch.GrantableUniverse(persona)
-	if !ok {
-		return fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
-	}
-	allowed := make(map[string]struct{}, len(universe))
-	for _, p := range universe {
-		allowed[p] = struct{}{}
-	}
-	for _, p := range permissions {
-		if _, ok := allowed[p]; !ok {
-			return fmt.Errorf("custom role grant %q is outside catalog: %w", p, iam.ErrCustomRoleGrantOutsideCatalog)
-		}
+	if err := sch.CustomRoleGrantsValid(persona, permissions); err != nil {
+		return err
 	}
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, group)

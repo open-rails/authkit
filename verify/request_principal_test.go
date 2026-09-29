@@ -35,6 +35,8 @@ func (s *principalAuthority) CanOnGroup(_ context.Context, subject iam.Subject, 
 	return s.allowed && subject == iam.UserSubject("native-user") && group == "group-1" && permission == "repo:read", s.err
 }
 
+func (s *principalAuthority) KnownPermission(iam.Perm) bool { return true }
+
 type principalLiveness struct{ calls int }
 
 func (s *principalLiveness) UserLivenessByIDs(context.Context, []string) (map[string]iam.UserLiveness, error) {

@@ -133,7 +133,7 @@ func (s *engine) roleLive(persona iam.Persona, groupID string, role iam.Role, cu
 func (s *engine) customRolesLive(persona iam.Persona, role iam.Role) bool {
 	sch := s.groupSchemaOrDefault()
 	td, ok := sch.Persona(persona)
-	if !ok || !td.Capabilities.CustomRoles {
+	if !ok || !td.CustomRoles {
 		return false
 	}
 	if _, catalog := sch.Role(persona, role); catalog {

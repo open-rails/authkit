@@ -13,7 +13,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.RBAC = []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "operator", Permissions: []string{iam.PermRootUsersDelete, iam.PermRootUsersRecover}})}
+	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "operator", Permissions: []string{iam.PermRootUsersDelete}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()

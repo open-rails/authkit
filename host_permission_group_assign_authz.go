@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -44,20 +45,20 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 
 // authorizeRoleChange enforces the #136 capability + no-escalation rules for
 // actorUserID changing (assign or unassign) targetRole in group gid of persona.
-func (s *engine) authorizeRoleChange(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, targetRole iam.Role) error {
+func (s *engine) authorizeRoleChange(ctx context.Context, st *permissionGroupStore, sch *rbac.Schema, persona iam.Persona, gid, actorUserID string, targetRole iam.Role) error {
 	return s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermMembersManage(persona), targetRole)
 }
 
-func (s *engine) authorizeRoleGrant(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, capabilityPerm iam.Perm, targetRole iam.Role) error {
+func (s *engine) authorizeRoleGrant(ctx context.Context, st *permissionGroupStore, sch *rbac.Schema, persona iam.Persona, gid, actorUserID string, capabilityPerm iam.Perm, targetRole iam.Role) error {
 	return s.authorizeGroupActorRole(ctx, st, sch, persona, gid, groupMutationActor{userID: actorUserID}, capabilityPerm, targetRole)
 }
 
-func (s *engine) authorizeGroupActorRole(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid string, actor groupMutationActor, capabilityPerm iam.Perm, targetRole iam.Role) error {
+func (s *engine) authorizeGroupActorRole(ctx context.Context, st *permissionGroupStore, sch *rbac.Schema, persona iam.Persona, gid string, actor groupMutationActor, capabilityPerm iam.Perm, targetRole iam.Role) error {
 	subject, err := s.groupMutationSubject(ctx, st, persona, gid, actor)
 	if err != nil {
 		return err
 	}
-	// Resolve the actor's effective grants in this group (additive walk-up union).
+	// Resolve the actor's effective grants in this group (roles on the group and on root).
 	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, subject, true)
 	if err != nil {
 		return err
@@ -90,7 +91,7 @@ func (s *engine) authorizeGroupActorRole(ctx context.Context, st *permissionGrou
 
 // roleGrantsForAuthz returns the permission grants a role confers in a group: a
 // catalog role's declared perms, or a custom role's stored grants.
-func (s *engine) roleGrantsForAuthz(sch *iam.GroupSchema, persona iam.Persona, gid string, role iam.Role, resolver iam.CustomRoleResolver) ([]string, error) {
+func (s *engine) roleGrantsForAuthz(sch *rbac.Schema, persona iam.Persona, gid string, role iam.Role, resolver rbac.CustomRoleResolver) ([]string, error) {
 	if r, ok := sch.Role(persona, role); ok {
 		return r.Permissions, nil
 	}
@@ -115,7 +116,7 @@ func (s *engine) roleGrantsForAuthz(sch *iam.GroupSchema, persona iam.Persona, g
 // sets are supplied directly by the caller rather than resolved from a role
 // name — DefineGroupCustomRole/DeleteGroupCustomRole already have both the
 // stored old grants and the requested new ones in hand.
-func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, oldGrants, newGrants []string) error {
+func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGroupStore, sch *rbac.Schema, persona iam.Persona, gid, actorUserID string, oldGrants, newGrants []string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	if actorUserID == "" {
 		return iam.ErrInsufficientRoleAuthority

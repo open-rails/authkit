@@ -38,7 +38,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = accountIssuers
 		cfg.Token.AccessTokenDuration = ttl
-		cfg.RBAC = []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "operator", Permissions: iam.IntrinsicRootPermissions()})}
+		cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "operator", Permissions: iam.IntrinsicRootPermissions()}}}
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(srv.Close)
@@ -49,7 +49,6 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	siteB := site(issuerB, time.Hour, issuerA, issuerB)
 	siteC := site(issuerC, time.Hour)
 	require.Equal(t, []string{issuerA, issuerB}, fixtureBackend(siteA.Backend()).Config().Token.AccountIssuers)
-	require.NoError(t, fixtureBackend(siteA.Backend()).SeedPermissionGroupContainment(ctx))
 	_, err := fixtureBackend(siteA.Backend()).EnsureRootGroup(ctx)
 	require.NoError(t, err)
 

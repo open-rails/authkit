@@ -67,8 +67,8 @@ func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
 // routes. It authorizes the calling principal against permission `perm` on the
 // (persona, instanceSlug) permission group, for EVERY supported principal
 // shape:
-//   - user JWT: resolved through the permission-group (svc.Can, walking the
-//     parent chain to root and unioning assignments), then current account
+//   - user JWT: resolved through the permission-group (svc.Can, unioning the
+//     user's roles on the group and on root), then current account
 //     liveness before the sensitive operation;
 //   - api-key / service, delegated, and remote-application principals: resolved
 //     through their verified permission ceiling (claims.HasPermission); a

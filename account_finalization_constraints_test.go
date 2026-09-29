@@ -37,7 +37,7 @@ func prepareExpiredDeletion(t *testing.T, s *engine, userID string) string {
 func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.RBAC = []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "member"})}
+	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "member"}}}
 	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)

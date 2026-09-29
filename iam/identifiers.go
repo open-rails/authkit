@@ -2,16 +2,21 @@ package iam
 
 import "strings"
 
-// Persona is a permission-group persona name (`root`, `org`, `merchant`): the
-// first permission segment and the namespace every grant is anchored in.
+// Persona names a type of permission group (`channel`, `org`, `merchant`). A
+// permission group is one instance of a persona (/c/golang). root is the
+// persona with exactly one group, the whole site. The persona is the first
+// segment of every permission its groups use.
 type Persona string
 
-// Role is a role slug in a persona's catalog (`owner`, `admin`) or a group's
-// custom-role name.
+// Role names a role of a persona (`owner`, `moderator`) or a group's custom
+// role. A role bundles permissions; where it is held is its scope, and a role
+// held on root applies in every group.
 type Role string
 
-// Perm is a concrete permission (`org:members:read`) or a grant pattern
-// (`org:members:*`, `org:*`).
+// Perm is a permission `<persona>:<resource>:<action>` (`channel:posts:edit`)
+// or a grant pattern, where `*` replaces the action (`channel:posts:*`) or
+// everything after the persona (`channel:*`, the owner). The resource `self`
+// is the group itself.
 type Perm string
 
 // SubjectKind discriminates who holds a role in a permission group.
@@ -21,8 +26,8 @@ const (
 	SubjectKindUser      SubjectKind = "user"
 	SubjectKindRemoteApp SubjectKind = "remote_application"
 
-	// RootPersona is the single built-in persona: every deployment has exactly
-	// one root group, the parentless ancestor of every other group.
+	// RootPersona is the built-in persona with exactly one group, the whole
+	// site. It always exists.
 	RootPersona Persona = "root"
 
 	// OwnerRole is the role every persona ships: it holds the persona's whole

@@ -447,6 +447,8 @@ func (f permissionChecker) CanOnGroup(ctx context.Context, subject iam.Subject, 
 	return f(ctx, subject, group, perm)
 }
 
+func (permissionChecker) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
+
 func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	issuer := newIssuer(t)
 	scope := verify.PermissionScope{GroupID: "group-uuid", AuthorityIssuer: issuer.URL(), Persona: "blog", Instance: "writers"}
@@ -484,6 +486,16 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 			t.Fatalf("response = %d %q, calls = %d; want %d and one lookup", status, body, calls, want)
 		}
 	}
+}
+
+func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
+	checker := permissionChecker(func(context.Context, iam.Subject, string, iam.Perm) (bool, error) { return true, nil })
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unregistered permission must panic when the route is built")
+		}
+	}()
+	authkitfiber.RequirePermission(checker, "blog:posts:delete", nil)
 }
 
 type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)
