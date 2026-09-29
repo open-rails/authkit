@@ -4,9 +4,9 @@ import "github.com/open-rails/authkit/iam"
 
 // InviteRedemption is the group and role a redeemed invite link granted.
 type InviteRedemption struct {
-	Persona      iam.Persona
-	InstanceSlug string
-	Role         iam.Role
+	GroupID string
+	Persona iam.Persona
+	Role    iam.Role
 }
 
 type MFAStatus struct {

@@ -440,7 +440,7 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
-	if err := renameNameClaim(ctx, q, "user", "", id, oldName, username, now, policy); err != nil {
+	if err := renameNameClaim(ctx, q, id, oldName, username, now, policy); err != nil {
 		return err
 	}
 	if _, err := q.Exec(ctx, `UPDATE users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {

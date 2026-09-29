@@ -202,13 +202,13 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		custom      []string
 	)
 	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
-        g.id::text, g.persona, COALESCE(g.instance_slug,''), g.display_name, r.permissions
+        g.id::text, g.persona, g.created_at, r.permissions
  FROM api_keys k
  JOIN permission_groups g ON g.id=k.permission_group_id
  LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
  WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
 		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, &p.Group.Persona, &p.Group.Slug, &p.Group.DisplayName, &custom)
+			&p.Group.ID, &p.Group.Persona, &p.Group.CreatedAt, &custom)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}

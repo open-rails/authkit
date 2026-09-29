@@ -128,7 +128,7 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
 	}
-	if a.IsZero() || validateGroupSlug(ref) != nil {
+	if a.IsZero() {
 		return false, nil
 	}
 	if err := s.requirePG(); err != nil {
@@ -172,13 +172,10 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 	st := s.groupStore()
 	ids := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		if id := ref.ID(); id != "" {
-			if u, err := uuid.Parse(id); err == nil {
+		if !ref.IsRoot() {
+			if u, err := uuid.Parse(ref.ID()); err == nil {
 				ids = append(ids, u.String())
 			}
-			continue
-		}
-		if validateGroupSlug(ref) != nil {
 			continue
 		}
 		g, err := s.resolveGroup(ctx, st, ref)
@@ -218,7 +215,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 		if g.DeletedAt != nil {
 			continue
 		}
-		t := groupTarget{ID: g.ID, Persona: g.Persona, Slug: g.Slug}
+		t := groupTarget{ID: g.ID, Persona: g.Persona}
 		auth, err := s.actorAuthority(ctx, st, a, t)
 		if errors.Is(err, iam.ErrInsufficientAuthority) {
 			return map[string][]iam.Perm{}, nil

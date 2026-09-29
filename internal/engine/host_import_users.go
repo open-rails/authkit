@@ -305,7 +305,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	// Hold the names' claim locks so a matched-free name stays free until the
 	// insert, and drop expired aliases so they neither match nor block.
-	if err = lockNameClaims(ctx, tx, "user", "", names...); err != nil {
+	if err = lockNameClaims(ctx, tx, names...); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, s.namingNow()); err != nil {

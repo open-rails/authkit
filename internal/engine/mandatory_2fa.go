@@ -216,7 +216,7 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 // mutate role/2FA state (only gate checks).
 func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]authflow.RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
-		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
+		`SELECT a.permission_group_id::text, g.persona, a.role
 		   FROM group_user_roles a
 		   JOIN permission_groups g ON g.id = a.permission_group_id
 		  WHERE a.user_id = $1::uuid`,
@@ -230,7 +230,7 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	var candidates []authflow.RemovedMFARoleAssignment
 	for rows.Next() {
 		var r authflow.RemovedMFARoleAssignment
-		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
+		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.Role); err != nil {
 			rows.Close()
 			return nil, err
 		}

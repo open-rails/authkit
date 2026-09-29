@@ -21,7 +21,6 @@ func (e *MFAContinuationRequiredError) Unwrap() error { return e.Reason }
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
 	Persona           iam.Persona
-	InstanceSlug      string
 	Role              iam.Role
 	RemovedAt         time.Time
 }

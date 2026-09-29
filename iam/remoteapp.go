@@ -57,14 +57,12 @@ type RemoteApplicationKey struct {
 }
 
 // RemoteApplicationAuthority is a remote application's stored authority: its
-// effective permissions and the group they are bound to. InstanceSlug is ""
-// for root.
+// effective permissions and the group they are bound to.
 type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string
 	Permissions       []string
 	Persona           Persona
-	InstanceSlug      string
 }
 
 // RemoteApplication is a registered federation principal: an external issuer

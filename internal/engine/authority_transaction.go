@@ -420,12 +420,12 @@ func outsideApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore
 	return surviving, nil
 }
 
-func (s *Engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string, opts iam.PurgeGroupOptions) error {
+func (s *Engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string) error {
 	surviving, err := outsideApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err
 	}
-	if err := st.DeleteGroup(ctx, gid, opts); err != nil {
+	if err := st.DeleteGroup(ctx, gid); err != nil {
 		return err
 	}
 	for _, id := range surviving {

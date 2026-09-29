@@ -28,36 +28,20 @@ import (
 type groupTarget struct {
 	ID      string
 	Persona iam.Persona
-	Slug    string
 }
 
 // resolveGroup resolves ref to a live group through st (call it inside the
-// authority transaction): by id, by persona and slug (request binding and
-// tombstone forwarding apply), or the root group, whose id is cached.
+// authority transaction): by id, or the root group, whose id is cached.
 func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref iam.GroupRef) (groupTarget, error) {
-	var id string
 	switch {
-	case ref.IsZero():
-		return groupTarget{}, iam.ErrGroupNotFound
 	case ref.IsRoot():
 		id, err := s.rootGroup(ctx, st)
 		return groupTarget{ID: id, Persona: iam.RootPersona}, err
-	case ref.ID() != "":
-		if !isUUID(ref.ID()) {
-			return groupTarget{}, iam.ErrGroupNotFound
-		}
-		id = ref.ID()
-	default:
-		if err := validateGroupSlug(ref); err != nil {
-			return groupTarget{}, err
-		}
-		var err error
-		if id, err = st.GroupByInstanceSlug(ctx, ref); err != nil {
-			return groupTarget{}, err
-		}
+	case !isUUID(ref.ID()):
+		return groupTarget{}, iam.ErrGroupNotFound
 	}
 	var g groupTarget
-	err := st.q.QueryRow(ctx, `SELECT id::text, persona, COALESCE(instance_slug,'') FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&g.ID, &g.Persona, &g.Slug)
+	err := st.q.QueryRow(ctx, `SELECT id::text, persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL`, ref.ID()).Scan(&g.ID, &g.Persona)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return groupTarget{}, iam.ErrGroupNotFound
 	}

@@ -288,7 +288,6 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		PermissionGroupID:              p.Group.ID,
 		PermissionGroupAuthorityIssuer: p.Issuer,
 		PermissionGroupPersona:         string(p.Group.Persona),
-		PermissionGroupInstance:        p.Group.Slug,
 	}, true, nil
 }
 
@@ -379,7 +378,6 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *iam.Rem
 		PermissionGroupID:              authority.PermissionGroupID,
 		PermissionGroupAuthorityIssuer: authority.AuthorityIssuer,
 		PermissionGroupPersona:         string(authority.Persona),
-		PermissionGroupInstance:        authority.InstanceSlug,
 	}, nil
 }
 
@@ -1032,7 +1030,6 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 			cl.PermissionGroupID = authority.PermissionGroupID
 			cl.PermissionGroupAuthorityIssuer = authority.PermissionGroupAuthorityIssuer
 			cl.PermissionGroupPersona = authority.PermissionGroupPersona
-			cl.PermissionGroupInstance = authority.PermissionGroupInstance
 		}
 		if v.permValidator != nil {
 			if err := v.permValidator(cl.Permissions); err != nil {

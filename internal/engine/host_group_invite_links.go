@@ -188,10 +188,10 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		var linkID string
 		var redeemedAt, expiresAt, revokedAt *time.Time
 		var issuerOK bool
-		err = st.q.QueryRow(ctx, `SELECT l.id::text, g.persona, COALESCE(g.instance_slug,''), l.role, l.redeemed_at, l.expires_at, l.revoked_at, `+issuerLive("l.invited_by")+`
+		err = st.q.QueryRow(ctx, `SELECT l.id::text, g.id::text, g.persona, l.role, l.redeemed_at, l.expires_at, l.revoked_at, `+issuerLive("l.invited_by")+`
  FROM group_invite_links l JOIN permission_groups g ON g.id=l.permission_group_id
  WHERE l.code_hash=$1 AND l.permission_group_id=$2::uuid
- FOR UPDATE OF l`, codeHash, groupID).Scan(&linkID, &out.Persona, &out.InstanceSlug, &out.Role, &redeemedAt, &expiresAt, &revokedAt, &issuerOK)
+ FOR UPDATE OF l`, codeHash, groupID).Scan(&linkID, &out.GroupID, &out.Persona, &out.Role, &redeemedAt, &expiresAt, &revokedAt, &issuerOK)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInviteLinkNotFound
 		}
@@ -250,11 +250,11 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	var consumedAt, revokedAt *time.Time
 	var expiresAt time.Time
 	var issuerOK, addressed bool
-	err = st.q.QueryRow(ctx, `SELECT i.id::text, g.persona, COALESCE(g.instance_slug,''), COALESCE(i.role,''), i.consumed_at, i.expires_at, i.revoked_at, `+issuerLive("i.invited_by")+`,
+	err = st.q.QueryRow(ctx, `SELECT i.id::text, g.id::text, g.persona, COALESCE(i.role,''), i.consumed_at, i.expires_at, i.revoked_at, `+issuerLive("i.invited_by")+`,
        EXISTS(SELECT 1 FROM users u WHERE u.id=$3::uuid AND lower(u.email::text)=lower(i.email::text) AND u.email_verified)
  FROM account_registration_invites i JOIN permission_groups g ON g.id=i.permission_group_id AND g.deleted_at IS NULL
  WHERE i.code_hash=$1 AND i.permission_group_id=$2::uuid
- FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.Persona, &out.InstanceSlug, &out.Role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
+ FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.GroupID, &out.Persona, &out.Role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !addressed {
 		return iam.ErrInviteLinkNotFound
 	}
