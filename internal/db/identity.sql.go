@@ -19,7 +19,7 @@ WHERE id = ANY($1::uuid[])
 type IdentityPublicUsersByIDsRow struct {
 	ID        string
 	Username  *string
-	AvatarUrl *string
+	AvatarURL *string
 	CreatedAt time.Time
 	DeletedAt *time.Time
 }
@@ -40,7 +40,7 @@ func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, ids []string) ([
 		if err := rows.Scan(
 			&i.ID,
 			&i.Username,
-			&i.AvatarUrl,
+			&i.AvatarURL,
 			&i.CreatedAt,
 			&i.DeletedAt,
 		); err != nil {

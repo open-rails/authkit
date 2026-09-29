@@ -36,3 +36,6 @@ SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permissi
 FROM remote_applications
 WHERE slug = $1
 FOR UPDATE;
+
+-- name: RemoteApplicationsClearRegistrar :exec
+UPDATE remote_applications SET registered_by = NULL, updated_at = now() WHERE registered_by = sqlc.arg(user_id)::uuid;

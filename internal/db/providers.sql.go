@@ -371,3 +371,12 @@ func (q *Queries) UserProviderVerifyImported(ctx context.Context, arg UserProvid
 	err := row.Scan(&verified_at)
 	return verified_at, err
 }
+
+const userProvidersDeleteByUser = `-- name: UserProvidersDeleteByUser :exec
+DELETE FROM user_providers WHERE user_id = $1::uuid
+`
+
+func (q *Queries) UserProvidersDeleteByUser(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, userProvidersDeleteByUser, userID)
+	return err
+}

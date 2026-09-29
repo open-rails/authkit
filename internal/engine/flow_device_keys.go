@@ -282,7 +282,7 @@ func deviceKeyEnrollable(ctx context.Context, q db.DBTX, publicKey []byte, owner
 // challengeDeviceKeySecondFactor names the proof the retry carries in
 // code_2fa, sending the SMS code first. An account whose only factor is email
 // proves with a backup code, or enrolls an independent factor.
-func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *userRecord, enrollmentID string, factors []authflow.TwoFactorFactor, backupCodes bool) (string, error) {
+func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *db.User, enrollmentID string, factors []authflow.TwoFactorFactor, backupCodes bool) (string, error) {
 	if len(factors) == 0 {
 		if backupCodes {
 			return "backup_code", nil
@@ -325,7 +325,7 @@ func deviceKeyCodeScope(enrollmentID string) string { return "device-key:" + sha
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
-func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *userRecord, key authflow.DeviceKey) {
+func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key authflow.DeviceKey) {
 	if s.email == nil || u.Email == nil {
 		return
 	}

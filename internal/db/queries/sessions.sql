@@ -153,3 +153,9 @@ WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = sqlc.arg(issuer) AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
 FOR UPDATE;
+
+-- name: SessionProvedPassword :one
+-- Whether the user's live session session_id signed in with a password.
+SELECT ('pwd' = ANY(auth_methods))::boolean AS proved
+FROM refresh_sessions
+WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());

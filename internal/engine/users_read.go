@@ -15,24 +15,12 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Account reads. They take no actor: the host is the trust boundary, and
 // httpapi gates its read routes with root:users:read.
-
-// userColumns selects a userRecord in scanUser order.
-const userColumns = `u.id::text, u.email::text, u.phone_number, u.username::text, u.email_verified, u.phone_verified,
- u.banned_at, u.banned_until, u.ban_reason, u.banned_by::text, u.deleted_at, u.created_at, u.updated_at, u.last_login,
- u.preferred_language, u.avatar_url`
-
-func scanUser(row pgx.Row) (*userRecord, error) {
-	var r userRecord
-	err := row.Scan(&r.ID, &r.Email, &r.PhoneNumber, &r.Username, &r.EmailVerified, &r.PhoneVerified,
-		&r.BannedAt, &r.BannedUntil, &r.BanReason, &r.BannedBy, &r.DeletedAt, &r.CreatedAt, &r.UpdatedAt, &r.LastLogin,
-		&r.PreferredLanguage, &r.AvatarURL)
-	return &r, err
-}
 
 // User returns one account. Soft-deleted accounts are excluded unless opts
 // include iam.IncludeDeleted(); a miss is iam.ErrUserNotFound.
@@ -40,35 +28,43 @@ func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOpti
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
-	var where string
 	value := ref.Value()
+	if value == "" {
+		return iam.User{}, iam.ErrUserNotFound
+	}
+	var r db.User
+	var err error
 	switch ref.Key() {
 	case iam.UserKeyID:
 		if !isUUID(value) {
 			return iam.User{}, iam.ErrUserNotFound
 		}
-		where = `u.id=$1::uuid`
+		r, err = s.q.UserByID(ctx, value)
 	case iam.UserKeyEmail:
-		value, where = contact.NormalizeEmail(value), `u.email=lower($1::text)::public.citext`
+		if value = contact.NormalizeEmail(value); value == "" {
+			return iam.User{}, iam.ErrUserNotFound
+		}
+		r, err = s.q.UserByEmail(ctx, value)
 	case iam.UserKeyPhone:
-		value, where = contact.NormalizePhone(value), `u.phone_number=$1`
+		if value = contact.NormalizePhone(value); value == "" {
+			return iam.User{}, iam.ErrUserNotFound
+		}
+		r, err = s.q.UserByPhone(ctx, &value)
 	case iam.UserKeyUsername:
-		where = `u.username=$1::text::public.citext`
-	}
-	if where == "" || value == "" {
+		r, err = s.q.UserByUsername(ctx, value)
+	default:
 		return iam.User{}, iam.ErrUserNotFound
 	}
-	if !iam.IncludesDeleted(opts) {
-		where += ` AND u.deleted_at IS NULL`
-	}
-	r, err := scanUser(s.pg.QueryRow(ctx, `SELECT `+userColumns+` FROM users u WHERE `+where, value))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.User{}, iam.ErrUserNotFound
 	}
 	if err != nil {
 		return iam.User{}, err
 	}
-	return r.public(time.Now()), nil
+	if r.DeletedAt != nil && !iam.IncludesDeleted(opts) {
+		return iam.User{}, iam.ErrUserNotFound
+	}
+	return publicUser(&r, time.Now()), nil
 }
 
 // Users returns the accounts among ids, deleted ones included; unknown ids are
@@ -85,20 +81,15 @@ func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, 
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pg.Query(ctx, `SELECT `+userColumns+` FROM users u WHERE u.id=ANY($1::uuid[])`, ids)
+	rows, err := s.q.UsersByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	now := time.Now()
-	for rows.Next() {
-		r, err := scanUser(rows)
-		if err != nil {
-			return nil, err
-		}
-		out[r.ID] = r.public(now)
+	for i := range rows {
+		out[rows[i].ID] = publicUser(&rows[i], now)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // PublicUsers returns what others may see of ids. A deleted account is a
@@ -125,7 +116,7 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true}
 			continue
 		}
-		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: deref(r.AvatarUrl), CreatedAt: r.CreatedAt}
+		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: deref(r.AvatarURL), CreatedAt: r.CreatedAt}
 	}
 	return out, nil
 }
@@ -185,10 +176,7 @@ func (s *Engine) HasUsableMFA(ctx context.Context, userID string) (bool, error) 
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	var ok bool
-	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=$1::uuid AND m.enabled
- AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=m.user_id))`, userID).Scan(&ok)
-	return ok, err
+	return s.q.MFAUsable(ctx, userID)
 }
 
 // userCursor is ListUsers' keyset position: the last row's sort value and id,
@@ -295,31 +283,53 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		where = append(where, "TRUE")
 	}
 	limit := q.Page.PageLimit()
-	sql := `SELECT ` + userColumns + `, ` + col + `::text FROM users u WHERE ` + strings.Join(where, " AND ") +
+	// The filters, sort column and keyset are built at runtime, so this query
+	// only pages ids; the rows come from UsersByIDs, the one user projection.
+	sql := `SELECT u.id::text, ` + col + `::text FROM users u WHERE ` + strings.Join(where, " AND ") +
 		` ORDER BY ` + col + ` ` + dir + ` NULLS LAST, u.id ` + dir + ` LIMIT ` + arg(limit+1)
 	rows, err := s.pg.Query(ctx, sql, args...)
 	if err != nil {
 		return page, err
 	}
-	defer rows.Close()
-	now := time.Now()
-	var last userCursor
+	var keys []userCursor
 	for rows.Next() {
-		var r userRecord
-		var sortValue *string
-		if err := rows.Scan(&r.ID, &r.Email, &r.PhoneNumber, &r.Username, &r.EmailVerified, &r.PhoneVerified,
-			&r.BannedAt, &r.BannedUntil, &r.BanReason, &r.BannedBy, &r.DeletedAt, &r.CreatedAt, &r.UpdatedAt, &r.LastLogin,
-			&r.PreferredLanguage, &r.AvatarURL, &sortValue); err != nil {
+		c := userCursor{Sort: q.Sort, Desc: q.Desc}
+		if err := rows.Scan(&c.ID, &c.Value); err != nil {
+			rows.Close()
 			return page, err
 		}
-		if len(page.Items) == limit {
-			page.Next = encodeUserCursor(last)
-			break
-		}
-		page.Items = append(page.Items, r.public(now))
-		last = userCursor{Sort: q.Sort, Desc: q.Desc, Value: sortValue, ID: r.ID}
+		keys = append(keys, c)
 	}
-	return page, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return page, err
+	}
+	if len(keys) > limit {
+		keys = keys[:limit]
+		page.Next = encodeUserCursor(keys[limit-1])
+	}
+	if len(keys) == 0 {
+		return page, nil
+	}
+	ids := make([]string, len(keys))
+	for i, k := range keys {
+		ids[i] = k.ID
+	}
+	users, err := s.q.UsersByIDs(ctx, ids)
+	if err != nil {
+		return page, err
+	}
+	byID := make(map[string]*db.User, len(users))
+	for i := range users {
+		byID[users[i].ID] = &users[i]
+	}
+	now := time.Now()
+	for _, k := range keys {
+		if u := byID[k.ID]; u != nil { // absent when purged between the two reads
+			page.Items = append(page.Items, publicUser(u, now))
+		}
+	}
+	return page, nil
 }
 
 func encodeUserCursor(c userCursor) string {

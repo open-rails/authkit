@@ -17,32 +17,29 @@ import (
 // credential created before that proof, so a pre-registration can never leave
 // the real owner's account with a backdoor.
 
-type contactState struct {
-	unproven   bool
-	identifier string
-	channel    string
-}
-
-func readContactState(ctx context.Context, q db.DBTX, userID string, lock bool) (contactState, error) {
-	sql := `SELECT (email IS NOT NULL OR phone_number IS NOT NULL)
-	           AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)),
-	         COALESCE(email::text, phone_number, ''), CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END
-	    FROM users WHERE id = $1::uuid`
-	if lock {
-		sql += ` FOR UPDATE`
-	}
-	var st contactState
-	err := q.QueryRow(ctx, sql, userID).Scan(&st.unproven, &st.identifier, &st.channel)
+// contactState reads whether the account's addresses are all unproven, and
+// the address to prove.
+func contactState(ctx context.Context, q db.DBTX, userID string) (db.ContactStateRow, error) {
+	st, err := db.New(q).ContactState(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st, iam.ErrUserNotFound
 	}
 	return st, err
 }
 
-func contactVerificationRequired(st contactState) error {
+// contactStateForUpdate is contactState that also locks the account row.
+func contactStateForUpdate(ctx context.Context, q db.DBTX, userID string) (db.ContactStateRow, error) {
+	st, err := db.New(q).ContactStateForUpdate(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.ContactStateRow(st), iam.ErrUserNotFound
+	}
+	return db.ContactStateRow(st), err
+}
+
+func contactVerificationRequired(st db.ContactStateRow) error {
 	return errmodel.E(errmodel.CodeVerificationRequired, errmodel.WithMetadata(map[string]any{
-		"identifier": st.identifier,
-		"channel":    st.channel,
+		"identifier": st.Identifier,
+		"channel":    st.Channel,
 		"reason":     "contact_unproven",
 	}))
 }
@@ -51,11 +48,11 @@ func contactVerificationRequired(st contactState) error {
 // addresses are all unproven. Accounts with no address have nothing a
 // pre-registration could claim and are unaffected.
 func requireProvenContactOn(ctx context.Context, q db.DBTX, userID string) error {
-	st, err := readContactState(ctx, q, userID, false)
+	st, err := contactState(ctx, q, userID)
 	if err != nil {
 		return err
 	}
-	if st.unproven {
+	if st.Unproven {
 		return contactVerificationRequired(st)
 	}
 	return nil
@@ -84,16 +81,14 @@ func (s *Engine) RequireProvenContact(ctx context.Context, userID string) error 
 // fresh device, a reset or an email/SMS login code says nothing about who set
 // the password, so it is deleted (a reset replaces it anyway).
 func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userID string, keepSessionID *string) ([]revokedSession, error) {
-	st, err := readContactState(ctx, tx, userID, true)
-	if err != nil || !st.unproven {
+	st, err := contactStateForUpdate(ctx, tx, userID)
+	if err != nil || !st.Unproven {
 		return nil, err
 	}
+	q := s.qtx(tx)
 	keepPassword := false
 	if keepSessionID != nil && *keepSessionID != "" {
-		var pwd bool
-		err := tx.QueryRow(ctx, `SELECT 'pwd' = ANY(auth_methods) FROM refresh_sessions
-			WHERE id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`,
-			*keepSessionID, userID).Scan(&pwd)
+		pwd, err := q.SessionProvedPassword(ctx, db.SessionProvedPasswordParams{SessionID: *keepSessionID, UserID: userID})
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			keepSessionID = nil
@@ -105,24 +100,26 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userI
 	} else {
 		keepSessionID = nil
 	}
-	statements := []string{
-		`DELETE FROM user_providers WHERE user_id = $1::uuid`,
-		`UPDATE user_passkeys SET deleted_at = now() WHERE user_id = $1::uuid AND deleted_at IS NULL`,
-		`UPDATE user_device_keys SET revoked_at = now() WHERE user_id = $1::uuid AND revoked_at IS NULL`,
-		`DELETE FROM mfa_factors WHERE user_id = $1::uuid`,
-		`UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = $1::uuid`,
-		`UPDATE api_keys SET revoked_at = now() WHERE created_by = $1::uuid AND revoked_at IS NULL`,
-		`UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE invited_by = $1::uuid AND revoked_at IS NULL AND redeemed_at IS NULL`,
-		`UPDATE account_registration_invites SET revoked_at = now(), updated_at = now() WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL`,
-		`UPDATE remote_applications SET registered_by = NULL, updated_at = now() WHERE registered_by = $1::uuid`,
+	retire := []func(context.Context, string) error{
+		q.UserProvidersDeleteByUser,
+		q.PasskeysDeleteByUser,
+		func(ctx context.Context, userID string) error {
+			return q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID})
+		},
+		q.MFADeleteAllFactors,
+		q.MFAResetSettings,
+		q.APIKeysRevokeCreatedBy,
+		q.InviteLinksRevokeInvitedBy,
+		q.AccountInvitesRevokeInvitedBy,
+		q.RemoteApplicationsClearRegistrar,
 	}
 	if !keepPassword {
-		statements = append(statements, `DELETE FROM user_passwords WHERE user_id = $1::uuid`)
+		retire = append(retire, q.UserPasswordDelete)
 	}
-	for _, stmt := range statements {
-		if _, err := tx.Exec(ctx, stmt, userID); err != nil {
+	for _, step := range retire {
+		if err := step(ctx, userID); err != nil {
 			return nil, err
 		}
 	}
-	return revokeSessionsTx(ctx, s.qtx(tx), userID, s.accountIssuers(), keepSessionID)
+	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
 }

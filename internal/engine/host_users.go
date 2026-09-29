@@ -18,32 +18,12 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Account records: the engine's working row, its public projection, the
-// internal lookups the flows use, the login account gate and username renames.
+// Account records: the engine's working row (db.User, from sqlc), its public
+// projection, the internal lookups the flows use, the login account gate and
+// username renames.
 
-// userRecord is a users row as the flows read it. iam.User is its public
-// projection (public).
-type userRecord struct {
-	ID                string
-	Email             *string
-	PhoneNumber       *string
-	Username          *string
-	EmailVerified     bool
-	PhoneVerified     bool
-	BannedAt          *time.Time
-	BannedUntil       *time.Time
-	BanReason         *string
-	BannedBy          *string
-	DeletedAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	LastLogin         *time.Time
-	PreferredLanguage *string
-	AvatarURL         *string
-}
-
-// public projects r. An expired temporary ban is no ban.
-func (r *userRecord) public(now time.Time) iam.User {
+// publicUser projects r. An expired temporary ban is no ban.
+func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
 		ID: r.ID, Email: deref(r.Email), Phone: deref(r.PhoneNumber), Username: deref(r.Username),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified,
@@ -61,7 +41,7 @@ func (r *userRecord) public(now time.Time) iam.User {
 
 // banInForce is isUserBanned without the lazy unban: a ban whose Until has
 // passed is over.
-func banInForce(r *userRecord, now time.Time) bool {
+func banInForce(r *db.User, now time.Time) bool {
 	return isUserBanned(r) && (r.BannedUntil == nil || r.BannedUntil.After(now))
 }
 
@@ -72,19 +52,7 @@ func deref(p *string) string {
 	return *p
 }
 
-func userFromByIDRow(r db.UserByIDRow) *userRecord {
-	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
-}
-
-func userFromByEmailRow(r db.UserByEmailRow) *userRecord {
-	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
-}
-
-func userFromByPhoneRow(r db.UserByPhoneRow) *userRecord {
-	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
-}
-
-func (s *Engine) getUserByEmail(ctx context.Context, email string) (*userRecord, error) {
+func (s *Engine) getUserByEmail(ctx context.Context, email string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -92,10 +60,10 @@ func (s *Engine) getUserByEmail(ctx context.Context, email string) (*userRecord,
 	if err != nil {
 		return nil, err
 	}
-	return userFromByEmailRow(r), nil
+	return &r, nil
 }
 
-func (s *Engine) getUserByUsername(ctx context.Context, username string) (*userRecord, error) {
+func (s *Engine) getUserByUsername(ctx context.Context, username string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -106,7 +74,7 @@ func (s *Engine) getUserByUsername(ctx context.Context, username string) (*userR
 	return s.getUserByID(ctx, resolution.ID)
 }
 
-func (s *Engine) getUserByID(ctx context.Context, id string) (*userRecord, error) {
+func (s *Engine) getUserByID(ctx context.Context, id string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -114,17 +82,17 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*userRecord, error
 	if err != nil {
 		return nil, err
 	}
-	return userFromByIDRow(r), nil
+	return &r, nil
 }
 
 // accessAllowed is the login and refresh gate: not soft-deleted, not
 // reserved, not banned. autoUnbanIfExpired must already have run on u, since
 // an expired temporary ban is allowed.
-func accessAllowed(u *userRecord, reserved bool) bool {
+func accessAllowed(u *db.User, reserved bool) bool {
 	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
 }
 
-func (s *Engine) ensureUserAccess(ctx context.Context, u *userRecord) error {
+func (s *Engine) ensureUserAccess(ctx context.Context, u *db.User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -147,7 +115,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *userRecord) error {
 	return nil
 }
 
-func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *userRecord) error {
+func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *db.User) error {
 	if u == nil || u.BannedUntil == nil {
 		return nil
 	}
@@ -164,7 +132,7 @@ func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *userRecord) error {
 	return nil
 }
 
-func isUserBanned(u *userRecord) bool {
+func isUserBanned(u *db.User) bool {
 	if u == nil {
 		return false
 	}
@@ -189,7 +157,7 @@ func mapUserUniqueViolation(err error) error {
 	return err
 }
 
-func (s *Engine) createUser(ctx context.Context, email, username string) (*userRecord, error) {
+func (s *Engine) createUser(ctx context.Context, email, username string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -219,8 +187,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*userR
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	u := userRecord{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
-	return &u, nil
+	return &ins, nil
 }
 
 func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
@@ -266,7 +233,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
 }
 
-func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*userRecord, error) {
+func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*db.User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -298,10 +265,10 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 	if err != nil {
 		return nil, err
 	}
-	return userFromByIDRow(row), nil
+	return &row, nil
 }
 
-func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*userRecord, error) {
+func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*db.User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -317,7 +284,7 @@ func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 			return nil, err
 		}
 	}
-	before, err := readContactState(ctx, tx, userID, true)
+	before, err := contactStateForUpdate(ctx, tx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +333,7 @@ func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	if err != nil {
 		return nil, err
 	}
-	return userFromByIDRow(row), nil
+	return &row, nil
 }
 
 func (s *Engine) clearUserBan(ctx context.Context, userID string) error {
@@ -402,26 +369,21 @@ const (
 )
 
 func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
-	q := tx
-	var old *string
-	var last *time.Time
-	if err := q.QueryRow(ctx, `SELECT username::text,last_renamed_at FROM users WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id).Scan(&old, &last); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrUserNotFound
-		}
+	q := s.qtx(tx)
+	current, err := q.UserNameForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.ErrUserNotFound
+	}
+	if err != nil {
 		return err
 	}
-	oldName := ""
-	if old != nil {
-		oldName = *old
-	}
+	oldName := deref(current.Username)
 	if strings.EqualFold(oldName, username) {
 		if oldName == username || authority != normalRename {
 			return nil
 		}
 		// Same identity, new display spelling: no name claim, alias or cooldown.
-		_, err := q.Exec(ctx, `UPDATE users SET username=$2,updated_at=$3 WHERE id=$1::uuid`, id, username, s.namingNow())
-		return err
+		return q.UserSetUsernameSpelling(ctx, db.UserSetUsernameSpellingParams{ID: id, Username: &username, AtTime: s.namingNow()})
 	}
 	if authority == normalRename {
 		if err := s.ValidateUsername(username); err != nil {
@@ -431,21 +393,17 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	now := s.namingNow()
 	policy := s.NamingPolicy()
 	if authority == normalRename {
-		if err := policy.CheckRename(last, now); err != nil {
+		if err := policy.CheckRename(current.LastRenamedAt, now); err != nil {
 			return err
 		}
 	}
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
-	if err := renameNameClaim(ctx, q, id, oldName, username, now, policy); err != nil {
+	if err := renameNameClaim(ctx, tx, id, oldName, username, now, policy); err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx, `UPDATE users SET username=$2,last_renamed_at=$3,updated_at=$3 WHERE id=$1::uuid`, id, username, now); err != nil {
-		return err
-	}
-
-	return nil
+	return q.UserRename(ctx, db.UserRenameParams{ID: id, Username: &username, AtTime: now})
 }
 
 func isUniqueViolation(err error, constraint string) bool {

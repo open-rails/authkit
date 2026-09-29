@@ -16,6 +16,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 )
@@ -46,7 +47,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	requiresVerification := s.registrationVerificationRequired()
 
 	var (
-		u   *userRecord
+		u   *db.User
 		err error
 	)
 	switch {
@@ -135,7 +136,7 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired.
-func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *userRecord) (authflow.LoginOutcome, bool, error) {
+func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
 	needsEmail := !u.EmailVerified && u.Email != nil
 	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {

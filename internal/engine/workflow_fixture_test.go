@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func newHardeningService(t *testing.T) (*Engine, *testoutbox.Outbox) {
 	return svc, sender
 }
 
-func newHardeningUser(t *testing.T, ctx context.Context, svc *Engine, tag string) (*userRecord, string) {
+func newHardeningUser(t *testing.T, ctx context.Context, svc *Engine, tag string) (*db.User, string) {
 	t.Helper()
 	username := fmt.Sprintf("hard-%s-%d", tag, time.Now().UnixNano())
 	email := username + "@example.test"

@@ -71,7 +71,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		return authflow.PasswordlessStartResult{}, err
 	}
 
-	var user *userRecord
+	var user *db.User
 	switch channel {
 	case passwordlessChannelEmail:
 		user, err = s.getUserByEmail(ctx, identifier)

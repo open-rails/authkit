@@ -10,6 +10,49 @@ import (
 	"time"
 )
 
+const contactState = `-- name: ContactState :one
+SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
+        AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)))::boolean AS unproven,
+       COALESCE(email::text, phone_number, '')::text AS identifier,
+       (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
+FROM users WHERE id = $1
+`
+
+type ContactStateRow struct {
+	Unproven   bool
+	Identifier string
+	Channel    string
+}
+
+// An account is unproven when it has an address and none is verified.
+func (q *Queries) ContactState(ctx context.Context, id string) (ContactStateRow, error) {
+	row := q.db.QueryRow(ctx, contactState, id)
+	var i ContactStateRow
+	err := row.Scan(&i.Unproven, &i.Identifier, &i.Channel)
+	return i, err
+}
+
+const contactStateForUpdate = `-- name: ContactStateForUpdate :one
+SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
+        AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)))::boolean AS unproven,
+       COALESCE(email::text, phone_number, '')::text AS identifier,
+       (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
+FROM users WHERE id = $1 FOR UPDATE
+`
+
+type ContactStateForUpdateRow struct {
+	Unproven   bool
+	Identifier string
+	Channel    string
+}
+
+func (q *Queries) ContactStateForUpdate(ctx context.Context, id string) (ContactStateForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, contactStateForUpdate, id)
+	var i ContactStateForUpdateRow
+	err := row.Scan(&i.Unproven, &i.Identifier, &i.Channel)
+	return i, err
+}
+
 const userAdvanceCredentialVersion = `-- name: UserAdvanceCredentialVersion :exec
 UPDATE users SET credential_version = credential_version + 1 WHERE id = $1
 `
@@ -73,143 +116,128 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM users WHERE email = lower($1::text)::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version FROM users WHERE email = lower($1::text)::public.citext
 `
 
-type UserByEmailRow struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	LastLogin     *time.Time
-}
-
-func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow, error) {
+func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, userByEmail, email)
-	var i UserByEmailRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.PhoneNumber,
 		&i.Username,
 		&i.EmailVerified,
+		&i.PhoneNumber,
 		&i.PhoneVerified,
 		&i.BannedAt,
 		&i.BannedUntil,
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
+		&i.PreferredLanguage,
+		&i.AvatarURL,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
-FROM users WHERE id = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version FROM users WHERE id = $1
 `
 
-type UserByIDRow struct {
-	ID                string
-	Email             *string
-	PhoneNumber       *string
-	Username          *string
-	EmailVerified     bool
-	PhoneVerified     bool
-	BannedAt          *time.Time
-	BannedUntil       *time.Time
-	BanReason         *string
-	BannedBy          *string
-	DeletedAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	LastLogin         *time.Time
-	PreferredLanguage *string
-	AvatarUrl         *string
-}
-
-// User-row queries.
-// preferred_language is included in this projection (a widening; no existing
-// caller breaks) so callers that already load the user row — e.g. GET /me — read
-// the language off this row instead of issuing a separate UserPreferredLanguage
-// query (#228).
-func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) {
+// User-row queries. A user read selects the whole row, so every read returns
+// db.User: the engine's one user type.
+func (q *Queries) UserByID(ctx context.Context, id string) (User, error) {
 	row := q.db.QueryRow(ctx, userByID, id)
-	var i UserByIDRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.PhoneNumber,
 		&i.Username,
 		&i.EmailVerified,
+		&i.PhoneNumber,
 		&i.PhoneVerified,
 		&i.BannedAt,
 		&i.BannedUntil,
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarUrl,
+		&i.AvatarURL,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM users WHERE phone_number = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version FROM users WHERE phone_number = $1
 `
 
-type UserByPhoneRow struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	LastLogin     *time.Time
-}
-
-func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByPhoneRow, error) {
+func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, error) {
 	row := q.db.QueryRow(ctx, userByPhone, phoneNumber)
-	var i UserByPhoneRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.PhoneNumber,
 		&i.Username,
 		&i.EmailVerified,
+		&i.PhoneNumber,
 		&i.PhoneVerified,
 		&i.BannedAt,
 		&i.BannedUntil,
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
+		&i.PreferredLanguage,
+		&i.AvatarURL,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
+	)
+	return i, err
+}
+
+const userByUsername = `-- name: UserByUsername :one
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version FROM users WHERE username = $1::text::public.citext
+`
+
+func (q *Queries) UserByUsername(ctx context.Context, username string) (User, error) {
+	row := q.db.QueryRow(ctx, userByUsername, username)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Username,
+		&i.EmailVerified,
+		&i.PhoneNumber,
+		&i.PhoneVerified,
+		&i.BannedAt,
+		&i.BannedUntil,
+		&i.BanReason,
+		&i.BannedBy,
+		&i.DeletedAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLogin,
+		&i.PreferredLanguage,
+		&i.AvatarURL,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
@@ -415,7 +443,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (id, email, username)
 SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
-RETURNING id, email, username, email_verified, banned_at, deleted_at
+RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version
 `
 
 type UserInsertParams struct {
@@ -425,32 +453,61 @@ type UserInsertParams struct {
 	AtTime   time.Time
 }
 
-type UserInsertRow struct {
-	ID            string
-	Email         *string
-	Username      *string
-	EmailVerified bool
-	BannedAt      *time.Time
-	DeletedAt     *time.Time
-}
-
-func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserInsertRow, error) {
+func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, error) {
 	row := q.db.QueryRow(ctx, userInsert,
 		arg.ID,
 		arg.Email,
 		arg.Username,
 		arg.AtTime,
 	)
-	var i UserInsertRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.Username,
 		&i.EmailVerified,
+		&i.PhoneNumber,
+		&i.PhoneVerified,
 		&i.BannedAt,
+		&i.BannedUntil,
+		&i.BanReason,
+		&i.BannedBy,
 		&i.DeletedAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLogin,
+		&i.PreferredLanguage,
+		&i.AvatarURL,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
+}
+
+const userNameForUpdate = `-- name: UserNameForUpdate :one
+SELECT username, last_renamed_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+`
+
+type UserNameForUpdateRow struct {
+	Username      *string
+	LastRenamedAt *time.Time
+}
+
+func (q *Queries) UserNameForUpdate(ctx context.Context, id string) (UserNameForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, userNameForUpdate, id)
+	var i UserNameForUpdateRow
+	err := row.Scan(&i.Username, &i.LastRenamedAt)
+	return i, err
+}
+
+const userPasswordDelete = `-- name: UserPasswordDelete :exec
+DELETE FROM user_passwords WHERE user_id = $1
+`
+
+func (q *Queries) UserPasswordDelete(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, userPasswordDelete, userID)
+	return err
 }
 
 const userPasswordInsert = `-- name: UserPasswordInsert :exec
@@ -556,6 +613,22 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 	return language, err
 }
 
+const userRename = `-- name: UserRename :exec
+UPDATE users SET username = $1, last_renamed_at = $2::timestamptz, updated_at = $2::timestamptz
+WHERE id = $3
+`
+
+type UserRenameParams struct {
+	Username *string
+	AtTime   time.Time
+	ID       string
+}
+
+func (q *Queries) UserRename(ctx context.Context, arg UserRenameParams) error {
+	_, err := q.db.Exec(ctx, userRename, arg.Username, arg.AtTime, arg.ID)
+	return err
+}
+
 const userSetEmailVerified = `-- name: UserSetEmailVerified :exec
 UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1
 `
@@ -617,6 +690,22 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 	return err
 }
 
+const userSetUsernameSpelling = `-- name: UserSetUsernameSpelling :exec
+UPDATE users SET username = $1, updated_at = $2::timestamptz WHERE id = $3
+`
+
+type UserSetUsernameSpellingParams struct {
+	Username *string
+	AtTime   time.Time
+	ID       string
+}
+
+// Same name, new display spelling: no name claim, alias or cooldown.
+func (q *Queries) UserSetUsernameSpelling(ctx context.Context, arg UserSetUsernameSpellingParams) error {
+	_, err := q.db.Exec(ctx, userSetUsernameSpelling, arg.Username, arg.AtTime, arg.ID)
+	return err
+}
+
 const userSoftDelete = `-- name: UserSoftDelete :exec
 UPDATE users SET deleted_at = statement_timestamp(), updated_at = statement_timestamp() WHERE id = $1
 `
@@ -624,4 +713,48 @@ UPDATE users SET deleted_at = statement_timestamp(), updated_at = statement_time
 func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userSoftDelete, id)
 	return err
+}
+
+const usersByIDs = `-- name: UsersByIDs :many
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version FROM users WHERE id = ANY($1::uuid[])
+`
+
+func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) {
+	rows, err := q.db.Query(ctx, usersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Username,
+			&i.EmailVerified,
+			&i.PhoneNumber,
+			&i.PhoneVerified,
+			&i.BannedAt,
+			&i.BannedUntil,
+			&i.BanReason,
+			&i.BannedBy,
+			&i.DeletedAt,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastLogin,
+			&i.PreferredLanguage,
+			&i.AvatarURL,
+			&i.LastRenamedAt,
+			&i.CredentialVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
