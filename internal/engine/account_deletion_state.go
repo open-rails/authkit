@@ -120,6 +120,11 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if pending {
 		return river.JobSnooze(time.Minute)
 	}
+	// Sweep while the creator still exists (creator-less credentials are the
+	// operator's); the delete then cascades to what the account issued.
+	if err := s.revokeCredentialsOf(ctx, store, userID); err != nil {
+		return err
+	}
 	if err := s.qtx(tx).UserDeleteHard(ctx, userID); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {

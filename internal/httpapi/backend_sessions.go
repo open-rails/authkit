@@ -10,8 +10,8 @@ import (
 
 // sessionsBackend is session, token and device-key management.
 type sessionsBackend interface {
-	MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
-	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (iam.AccountSessionRevocation, error)
+	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
+	RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string) (iam.AccountSessionRevocation, error)
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error)
 	ListSessionEvents(ctx context.Context, userID string, eventTypes ...authflow.SessionEventType) ([]authflow.AuthSessionEvent, error)
 	ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error)

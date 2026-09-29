@@ -38,9 +38,9 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	pg := testdb.ScratchPostgres(t)
 	client := newServerClient(t, newServerTestConfig(), pg.Pool)
 	email := uniqueEmail("limited")
-	user, err := client.CreateUser(t.Context(), email, "limited"+uniqueSuffix())
+	user, err := client.createUser(t.Context(), email, "limited"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, client.AdminSetPassword(t.Context(), user.ID, "Correct-password-12345"))
+	require.NoError(t, client.adminSetPassword(t.Context(), user.ID, "Correct-password-12345"))
 	cfg := workflowHTTPConfig()
 	cfg.DirectPeerIP = false
 	cfg.ClientIP = func(r *http.Request) string {

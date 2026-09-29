@@ -82,7 +82,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	// Age the enrolling session so the step-up gates below apply again.
 	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, sid)
 	require.NoError(t, err)
-	current, _, err := f.service.Backend().MintAccessToken(ctx, userID, map[string]any{"sid": sid})
+	current, _, err := fixtureBackend(f.service.Backend()).mintTestAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	require.Equal(t, true, unverifiedAccessClaims(t, current)["mfa_enrolled"])
 	denied := f.expect(403, f.request("POST", "/user/2fa/backup-codes", current, map[string]any{}))
@@ -149,7 +149,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
 	require.Equal(t, "totp", status.Method)
 
-	user, err := f.service.Backend().AdminGetUser(ctx, userID)
+	user, err := fixtureBackend(f.service.Backend()).getUserByID(ctx, userID)
 	require.NoError(t, err)
 	challenge := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": pass}))
 	require.Equal(t, userID, challenge.Error.Metadata.UserID)
@@ -173,7 +173,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	// Only age the real MFA session; never inject proof or reset TOTP replay state.
 	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, loginSID)
 	require.NoError(t, err)
-	staleMFA, _, err := f.service.Backend().MintAccessToken(ctx, userID, map[string]any{"sid": loginSID})
+	staleMFA, _, err := fixtureBackend(f.service.Backend()).mintTestAccessToken(ctx, userID, map[string]any{"sid": loginSID})
 	require.NoError(t, err)
 	denied = f.expect(403, f.request("POST", "/user/2fa/backup-codes", staleMFA, map[string]any{}))
 	var staleResponse struct {

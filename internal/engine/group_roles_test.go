@@ -25,7 +25,7 @@ func TestGroupRoleOperations(t *testing.T) {
 		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Roles: roles}, keyset{}, Deps{Postgres: pg.Pool})
 	ctx := t.Context()
 	newUser := func(name string) iam.Subject {
-		u, err := engine.CreateUser(ctx, name+"@example.test", name)
+		u, err := engine.createUser(ctx, name+"@example.test", name)
 		require.NoError(t, err)
 		return iam.UserSubject(u.ID)
 	}
@@ -65,7 +65,7 @@ func TestGroupRoleOperations(t *testing.T) {
 	require.NoError(t, unassignRole(ctx, engine, iam.UserActor(admin.ID), root, other, "admin"), "unassigning a role not held is a no-op")
 
 	// A banned actor is not live, whatever roles it still holds.
-	require.NoError(t, engine.BanUser(ctx, admin.ID, nil, nil, owner.ID))
+	require.NoError(t, engine.Ban(ctx, iam.OperatorActor(), admin.ID, iam.Ban{}))
 	_, err = engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor}, "editor")
 	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
 
@@ -93,7 +93,7 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 		}}, keyset{}, Deps{Postgres: pg.Pool})
 	ctx := t.Context()
 	newUser := func(name string) iam.Subject {
-		u, err := engine.CreateUser(ctx, name+"@example.test", name)
+		u, err := engine.createUser(ctx, name+"@example.test", name)
 		require.NoError(t, err)
 		return iam.UserSubject(u.ID)
 	}
@@ -152,7 +152,7 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 	f := escalationFixture{engine: e, acme: iam.GroupBySlug("org", "acme"), other: iam.GroupBySlug("org", "other")}
 	f.newUser = func(prefix string) iam.Subject {
 		n++
-		u, err := e.CreateUser(ctx, fmt.Sprintf("%s%d@escalation.test", prefix, n), fmt.Sprintf("%s%d", prefix, n))
+		u, err := e.createUser(ctx, fmt.Sprintf("%s%d@escalation.test", prefix, n), fmt.Sprintf("%s%d", prefix, n))
 		require.NoError(t, err)
 		return iam.UserSubject(u.ID)
 	}
@@ -258,9 +258,9 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 			link, err := f.engine.CreateInviteLink(ctx, iam.UserActor(creator.ID), f.acme, iam.NewInviteLink{Role: "member"})
 			require.NoError(t, err)
 			if end == "ban" {
-				require.NoError(t, f.engine.BanUser(ctx, creator.ID, nil, nil, f.founder.ID))
+				require.NoError(t, f.engine.Ban(ctx, iam.OperatorActor(), creator.ID, iam.Ban{}))
 			} else {
-				require.NoError(t, f.engine.SoftDeleteUser(ctx, creator.ID))
+				require.NoError(t, f.engine.softDelete(ctx, creator.ID))
 			}
 			require.NoError(t, f.engine.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 				return f.engine.revokeCredentialsOf(ctx, st, creator.ID)

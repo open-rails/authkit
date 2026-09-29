@@ -38,11 +38,11 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	accounts := map[string]string{"browser-victim@example.test": "Victim-password-12345", "browser-attacker@example.test": "=Attack-password-12345"}
 	var attackerID string
 	for email, plain := range accounts {
-		user, err := core.CreateUser(ctx, email, strings.Split(email, "@")[0])
+		user, err := core.createUser(ctx, email, strings.Split(email, "@")[0])
 		require.NoError(t, err)
 		hash, err := password.HashArgon2id(plain)
 		require.NoError(t, err)
-		require.NoError(t, core.UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
+		require.NoError(t, core.upsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 		if strings.Contains(email, "attacker") {
 			attackerID = user.ID
 		}

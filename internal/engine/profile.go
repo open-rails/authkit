@@ -17,9 +17,13 @@ import (
 // (stage "load_user"), or a store failure (stage "load_password" /
 // "load_2fa").
 func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error) {
-	u, err := s.AdminGetUser(ctx, in.UserID)
+	u, err := s.getUserByID(ctx, in.UserID)
 	if err != nil || u == nil {
 		return authflow.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
+	}
+	roles, _ := s.rootRoleSlugsByUser(ctx, u.ID)
+	if roles == nil {
+		roles = []string{}
 	}
 	username := ""
 	if u.Username != nil {
@@ -37,38 +41,15 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if err != nil {
 		return authflow.UserProfile{}, stageErr("load_password", err)
 	}
-	solanaLinkedAccount, slErr := s.getSolanaLinkedAccount(ctx, u.ID)
-	solanaAddress := ""
-	if solanaLinkedAccount != nil {
-		solanaAddress = solanaLinkedAccount.Address
-	} else if slErr != nil {
-		// Only when the linked-account read ERRORED; a clean "no wallet" already
-		// means there is no address to find.
-		solanaAddress, _ = s.getSolanaAddress(ctx, u.ID)
-	}
-	var solanaAddressPtr *string
-	if solanaAddress != "" {
-		solanaAddressPtr = &solanaAddress
-	}
+	solanaLinkedAccount, _ := s.getSolanaLinkedAccount(ctx, u.ID)
 	linkedProviders := []string{}
-	userAliases := []string{}
-	var providerSlugs []string
-	if providers, aliases, err := s.userProfileLinks(ctx, u.ID); err == nil {
-		providerSlugs = providers
-		for _, provider := range providers {
+	providerSlugs, err := s.ProviderSlugs(ctx, u.ID)
+	if err == nil {
+		for _, provider := range providerSlugs {
 			if provider = strings.TrimSpace(provider); provider != "" {
 				linkedProviders = append(linkedProviders, provider)
 			}
 		}
-		for _, alias := range aliases {
-			if alias = strings.TrimSpace(alias); alias != "" {
-				userAliases = append(userAliases, alias)
-			}
-		}
-	}
-	roles := u.Roles
-	if roles == nil {
-		roles = []string{}
 	}
 	var createdAt *string
 	if !u.CreatedAt.IsZero() {
@@ -121,15 +102,12 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 		EmailVerified:       u.EmailVerified,
 		PhoneVerified:       u.PhoneVerified,
 		HasPassword:         hasPassword,
-		DiscordUsername:     u.DiscordUsername,
-		SolanaAddress:       solanaAddressPtr,
 		SolanaLinkedAccount: solanaLinkedAccount,
 		LinkedProviders:     linkedProviders,
 		EnabledProviders:    in.EnabledProviders,
 		Roles:               roles,
-		Entitlements:        u.Entitlements,
+		Entitlements:        s.listEntitlements(ctx, u.ID),
 		AvatarURL:           u.AvatarURL,
-		UserAliases:         userAliases,
 		PreferredLanguage:   preferredLanguage,
 		CreatedAt:           createdAt,
 		Naming:              namingState,

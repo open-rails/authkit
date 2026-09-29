@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"time"
 )
 
 const userIsReserved = `-- name: UserIsReserved :one
@@ -24,44 +23,10 @@ WHERE id = $1::uuid
 // Owner-namespace queries (core/service_owner_namespace*.go, core/owner_namespace_lookup.go).
 //
 // Permission groups own group-scoped routing now. The reserved-account guard is
-// users.metadata->>'reserved' (UserIsReserved); active aliases come from name_claims; rename history is not authority.
+// users.metadata->>'reserved' (UserIsReserved); rename history is not authority.
 func (q *Queries) UserIsReserved(ctx context.Context, id string) (bool, error) {
 	row := q.db.QueryRow(ctx, userIsReserved, id)
 	var reserved bool
 	err := row.Scan(&reserved)
 	return reserved, err
-}
-
-const userSlugAliases = `-- name: UserSlugAliases :many
-SELECT c.name AS from_slug
-FROM name_claims c JOIN users u ON u.id=c.owner_id
-WHERE c.owner_kind='user' AND c.owner_id=$1::uuid AND NOT c.canonical
-  AND (c.expires_at IS NULL OR c.expires_at > $2::timestamptz)
-  AND u.deleted_at IS NULL
-ORDER BY c.name ASC
-`
-
-type UserSlugAliasesParams struct {
-	UserID string
-	AtTime time.Time
-}
-
-func (q *Queries) UserSlugAliases(ctx context.Context, arg UserSlugAliasesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, userSlugAliases, arg.UserID, arg.AtTime)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var from_slug string
-		if err := rows.Scan(&from_slug); err != nil {
-			return nil, err
-		}
-		items = append(items, from_slug)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

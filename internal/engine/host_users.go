@@ -12,28 +12,80 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// User directory and lifecycle: lookups, access/ban checks, create, import,
-// update (email/username), ban/unban, soft/host delete.
+// Account records: the engine's working row, its public projection, the
+// internal lookups the flows use, the liveness policy and username renames.
 
-func userFromByIDRow(r db.UserByIDRow) *iam.User {
-	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
+// userRecord is a users row as the flows read it. iam.User is its public
+// projection (public).
+type userRecord struct {
+	ID                string
+	Email             *string
+	PhoneNumber       *string
+	Username          *string
+	EmailVerified     bool
+	PhoneVerified     bool
+	BannedAt          *time.Time
+	BannedUntil       *time.Time
+	BanReason         *string
+	BannedBy          *string
+	DeletedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	LastLogin         *time.Time
+	PreferredLanguage *string
+	AvatarURL         *string
 }
 
-func userFromByEmailRow(r db.UserByEmailRow) *iam.User {
-	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+// public projects r; reserved comes from the same read. An expired temporary
+// ban is no ban.
+func (r *userRecord) public(reserved bool, now time.Time) iam.User {
+	u := iam.User{
+		ID: r.ID, Email: deref(r.Email), Phone: deref(r.PhoneNumber), Username: deref(r.Username),
+		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified,
+		PreferredLanguage: deref(r.PreferredLanguage), AvatarURL: deref(r.AvatarURL),
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
+	}
+	if banInForce(r, now) {
+		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: deref(r.BanReason), By: deref(r.BannedBy)}
+		if r.BannedAt != nil {
+			u.Ban.At = *r.BannedAt
+		}
+	}
+	u.Live = r.DeletedAt == nil && !reserved && u.Ban == nil
+	return u
 }
 
-func userFromByPhoneRow(r db.UserByPhoneRow) *iam.User {
-	return &iam.User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+// banInForce is isUserBanned without the lazy unban: a ban whose Until has
+// passed is over.
+func banInForce(r *userRecord, now time.Time) bool {
+	return isUserBanned(r) && (r.BannedUntil == nil || r.BannedUntil.After(now))
 }
 
-func (s *Engine) getUserByEmail(ctx context.Context, email string) (*iam.User, error) {
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func userFromByIDRow(r db.UserByIDRow) *userRecord {
+	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
+}
+
+func userFromByEmailRow(r db.UserByEmailRow) *userRecord {
+	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByPhoneRow(r db.UserByPhoneRow) *userRecord {
+	return &userRecord{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func (s *Engine) getUserByEmail(ctx context.Context, email string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -44,12 +96,7 @@ func (s *Engine) getUserByEmail(ctx context.Context, email string) (*iam.User, e
 	return userFromByEmailRow(r), nil
 }
 
-// GetUserByEmail looks up a user by email.
-func (s *Engine) GetUserByEmail(ctx context.Context, email string) (*iam.User, error) {
-	return s.getUserByEmail(ctx, email)
-}
-
-func (s *Engine) getUserByUsername(ctx context.Context, username string) (*iam.User, error) {
+func (s *Engine) getUserByUsername(ctx context.Context, username string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -60,12 +107,7 @@ func (s *Engine) getUserByUsername(ctx context.Context, username string) (*iam.U
 	return s.getUserByID(ctx, resolution.ID)
 }
 
-// GetUserByUsername looks up a user by username.
-func (s *Engine) GetUserByUsername(ctx context.Context, username string) (*iam.User, error) {
-	return s.getUserByUsername(ctx, username)
-}
-
-func (s *Engine) getUserByID(ctx context.Context, id string) (*iam.User, error) {
+func (s *Engine) getUserByID(ctx context.Context, id string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -76,18 +118,15 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*iam.User, error) 
 	return userFromByIDRow(r), nil
 }
 
-// livenessAllowed is THE account-liveness policy, in one place: a loaded user
-// row passes only when it is not soft-deleted, not reserved, and not banned.
-// Both gates evaluate it — ensureUserAccess for the single-user login/refresh
-// path (which resolves `reserved` with its own query) and UserLivenessByIDs for
-// the batch per-request path (#267, which resolves it in the same query) — so
-// the two can never disagree about who is live. autoUnbanIfExpired must already
-// have run on u, since an expired temporary ban is allowed.
-func livenessAllowed(u *iam.User, reserved bool) bool {
+// livenessAllowed is the login and refresh gate: not soft-deleted, not
+// reserved, not banned. autoUnbanIfExpired must already have run on u, since
+// an expired temporary ban is allowed; userRecord.public computes the same
+// verdict for reads (iam.User.Live) without that write.
+func livenessAllowed(u *userRecord, reserved bool) bool {
 	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
 }
 
-func (s *Engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
+func (s *Engine) ensureUserAccess(ctx context.Context, u *userRecord) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -110,7 +149,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
 	return nil
 }
 
-func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *iam.User) error {
+func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *userRecord) error {
 	if u == nil || u.BannedUntil == nil {
 		return nil
 	}
@@ -127,7 +166,7 @@ func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *iam.User) error {
 	return nil
 }
 
-func isUserBanned(u *iam.User) bool {
+func isUserBanned(u *userRecord) bool {
 	if u == nil {
 		return false
 	}
@@ -152,7 +191,7 @@ func mapUserUniqueViolation(err error) error {
 	return err
 }
 
-func (s *Engine) createUser(ctx context.Context, email, username string) (*iam.User, error) {
+func (s *Engine) createUser(ctx context.Context, email, username string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -171,13 +210,8 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*iam.U
 	if err != nil {
 		return nil, mapUserUniqueViolation(err)
 	}
-	u := iam.User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
+	u := userRecord{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 	return &u, nil
-}
-
-// CreateUser inserts a new user with the given email and username.
-func (s *Engine) CreateUser(ctx context.Context, email, username string) (*iam.User, error) {
-	return s.createUser(ctx, email, username)
 }
 
 func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
@@ -223,7 +257,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
 }
 
-func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*iam.User, error) {
+func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*userRecord, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -258,33 +292,7 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 	return userFromByIDRow(row), nil
 }
 
-func (s *Engine) UpdateImportedUser(ctx context.Context, userID string, input newAccount) (*iam.User, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return nil, iam.ErrUserNotFound
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.lockAuthority(ctx, tx); err != nil {
-		return nil, err
-	}
-	user, err := s.updateImportedUserTx(ctx, tx, userID, input)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return user, nil
-}
-
-func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*iam.User, error) {
+func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*userRecord, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -294,8 +302,19 @@ func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 		banned = false
 	}
 	reserved := metadataMarksReserved([]byte(metadata))
+	st := s.groupStoreFor(tx)
 	if banned || reserved {
-		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(tx), iam.UserSubject(userID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
+			return nil, err
+		}
+	}
+	before, err := readContactState(ctx, tx, userID, true)
+	if err != nil {
+		return nil, err
+	}
+	// Marking a contact verified is a proof transition (L8).
+	if input.EmailVerified || input.PhoneVerified {
+		if _, err := s.retirePreProofCredentials(ctx, tx, userID, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -323,23 +342,22 @@ func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	if err != nil {
 		return nil, err
 	}
+	if err := s.keepMFAHolderProven(ctx, tx, userID, before); err != nil {
+		return nil, err
+	}
+	if banned || reserved {
+		if _, err := s.revokeCredentialsTx(ctx, tx, userID); err != nil {
+			return nil, err
+		}
+		if err := s.revokeCredentialsOf(ctx, st, userID); err != nil {
+			return nil, err
+		}
+	}
 	row, err := s.qtx(tx).UserByID(ctx, updatedID)
 	if err != nil {
 		return nil, err
 	}
 	return userFromByIDRow(row), nil
-}
-
-func (s *Engine) setEmailVerified(ctx context.Context, id string, v bool) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
-}
-
-// MarkEmailVerified records that the user's email address is verified.
-func (s *Engine) MarkEmailVerified(ctx context.Context, id string) error {
-	return s.setEmailVerified(ctx, id, true)
 }
 
 func (s *Engine) clearUserBan(ctx context.Context, userID string) error {
@@ -350,127 +368,6 @@ func (s *Engine) clearUserBan(ctx context.Context, userID string) error {
 		return fmt.Errorf("invalid_user")
 	}
 	return s.q.UserClearBan(ctx, userID)
-}
-
-// BanUser disables a user account and stores ban metadata. bannedBy is the
-// acting user and must hold every root grant the target holds (#286), so a
-// bounded operator can never lock out a more privileged account. The ban,
-// session revoke and device-key revoke commit together.
-func (s *Engine) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
-	if s.pg == nil {
-		return fmt.Errorf("postgres not configured")
-	}
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("invalid_user")
-	}
-	now := time.Now().UTC()
-	if until != nil && !until.UTC().After(now) {
-		return iam.ErrInvalidUntil
-	}
-	var reasonPtr *string
-	if reason != nil {
-		trimmed := strings.TrimSpace(*reason)
-		if trimmed != "" {
-			reasonPtr = &trimmed
-		}
-	}
-	bannedBy = strings.TrimSpace(bannedBy)
-	var untilPtr *time.Time
-	if until != nil {
-		t := until.UTC()
-		untilPtr = &t
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(tx)
-	if err := s.lockAuthority(ctx, st.q); err != nil {
-		return err
-	}
-	if err := s.authorizeAccountAuthorityOn(ctx, st, bannedBy, userID); err != nil {
-		return err
-	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
-		return err
-	}
-	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
-		return err
-	}
-	revoked, err := s.revokeCredentialsTx(ctx, tx, userID)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonBanned))
-	return nil
-}
-
-// UnbanUser clears ban metadata and re-enables the account.
-func (s *Engine) UnbanUser(ctx context.Context, userID string) error {
-	return s.clearUserBan(ctx, userID)
-}
-
-// SoftDeleteUser marks the user deleted without dropping rows. Sessions and
-// device keys are revoked in the same transaction.
-func (s *Engine) SoftDeleteUser(ctx context.Context, id string) error {
-	return s.softDeleteUser(ctx, "", id)
-}
-
-func (s *Engine) softDeleteUser(ctx context.Context, actorUserID, id string) error {
-	if s.pg == nil {
-		return nil
-	}
-	client, err := s.deletionRiver()
-	if err != nil {
-		return err
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(tx)
-	if err := s.lockAuthority(ctx, st.q); err != nil {
-		return err
-	}
-	if actorUserID != "" {
-		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, id); err != nil {
-			return err
-		}
-	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(id)); err != nil {
-		return err
-	}
-	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	if user.DeletedAt != nil {
-		return nil // A repeat request must not extend the recovery window.
-	}
-	revoked, err := s.revokeCredentialsTx(ctx, tx, id)
-	if err != nil {
-		return err
-	}
-	// The invalidate_recovery_grants trigger advances credential_version when
-	// deleted_at changes, invalidating every pre-deletion proof atomically.
-	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
-		return err
-	}
-	if err := s.createAccountDeletion(ctx, tx, client, id); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))
-	return nil
 }
 
 // revokeCredentialsTx revokes every refresh session (all account issuers) and
@@ -495,22 +392,6 @@ const (
 	importRename
 )
 
-// UpdateUsername applies the deployment policy to an account rename.
-func (s *Engine) UpdateUsername(ctx context.Context, id, username string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	username = strings.TrimSpace(username)
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.renameUsernameTx(ctx, tx, id, username, normalRename); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
 func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
 	q := tx
 	var old *string
@@ -555,70 +436,5 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 		return err
 	}
 
-	return nil
-}
-
-func (s *Engine) updateEmail(ctx context.Context, id, email string) error {
-	if s.pg == nil {
-		return nil
-	}
-	if err := contact.ValidateEmail(email); err != nil {
-		return err
-	}
-	trimmed := contact.NormalizeEmail(email)
-	u, err := s.getUserByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if u == nil {
-		return fmt.Errorf("user not found")
-	}
-
-	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
-		return nil
-	}
-
-	if err := s.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: id, Email: trimmed}); err != nil {
-		return mapUserUniqueViolation(err)
-	}
-
-	return s.RequestEmailVerification(ctx, trimmed, 0)
-}
-
-// UpdateEmail updates a user's email and re-triggers email verification.
-func (s *Engine) UpdateEmail(ctx context.Context, id, email string) error {
-	return s.updateEmail(ctx, id, email)
-}
-
-// maxAvatarURLLen caps the stored avatar URL/key string (#262) — a sanity
-// bound, not format validation: hosts may store URLs or opaque object keys.
-const maxAvatarURLLen = 2048
-
-// UpdateAvatarURL sets (nil clears) a user's avatar URL/key string (#262).
-// Blob storage and content validation are host-owned; authkit stores the
-// string verbatim (trimmed) and serves it on GET /me.
-func (s *Engine) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
-	if s.pg == nil {
-		return nil
-	}
-	if avatarURL != nil {
-		trimmed := strings.TrimSpace(*avatarURL)
-		if trimmed == "" {
-			avatarURL = nil
-		} else {
-			if len(trimmed) > maxAvatarURLLen || strings.ContainsAny(trimmed, "\n\r") {
-				return errmodel.ErrAvatarURLInvalid
-			}
-			avatarURL = &trimmed
-		}
-	}
-	n, err := s.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: id, AvatarUrl: avatarURL})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return iam.ErrUserNotFound
-	}
 	return nil
 }

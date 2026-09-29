@@ -75,8 +75,8 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	unban := func(target account, token string) response {
 		return h.post("/admin/users/"+target.id+"/unban", nil, token)
 	}
-	require.NoError(t, h.auth.BanUser(ctx, moderator.id, nil, nil, owner.id))
-	require.NoError(t, h.auth.BanUser(ctx, admin.id, nil, nil, owner.id))
+	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), moderator.id, iam.Ban{}))
+	require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), admin.id, iam.Ban{}))
 
 	for _, tc := range []struct {
 		name   string
@@ -89,9 +89,9 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := unban(tc.target, tc.token)
 			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-			u, err := h.auth.AdminGetUser(ctx, tc.target.id)
+			u, err := h.auth.User(ctx, iam.UserByID(tc.target.id), iam.IncludeDeleted())
 			require.NoError(t, err)
-			require.NotNil(t, u.BannedAt, "ban was lifted")
+			require.NotNil(t, u.Ban, "ban was lifted")
 		})
 	}
 	t.Run("control: owner lifts both bans", func(t *testing.T) {

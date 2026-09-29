@@ -27,10 +27,7 @@ type Claims struct {
 	SessionID       string
 	// DeviceKeyID is the AuthKit-issued machine credential that minted this
 	// access token. It is present only on device-key tokens.
-	DeviceKeyID string
-	// Roles is external access-token metadata. Native user roles are never
-	// populated from a token; their group authority is resolved live.
-	Roles           []string
+	DeviceKeyID     string
 	Entitlements    []string
 	AMR             []string
 	ACR             string
@@ -65,8 +62,7 @@ type Claims struct {
 	// extracted and validated at verify (malformed entries dropped, count
 	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
-	// Nil when absent. Distinct from the native-user Roles claim, which a
-	// delegated token never carries.
+	// Nil when absent.
 	DelegatedRoles []string
 
 	// Documents is the validated top-level `documents` claim on a delegated
@@ -342,15 +338,6 @@ func (c Claims) PermissionGroupAllows(scope PermissionScope) bool {
 func (c Claims) HasPermission(perm iam.Perm) bool {
 	for _, p := range c.Permissions {
 		if perm.Matches(iam.Perm(p)) {
-			return true
-		}
-	}
-	return false
-}
-
-func (c Claims) HasRole(role string) bool {
-	for _, r := range c.Roles {
-		if strings.EqualFold(r, role) {
 			return true
 		}
 	}

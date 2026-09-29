@@ -24,9 +24,9 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 		return err
 	}})
 	require.NoError(t, err)
-	user, err := runtime.CreateUser(t.Context(), "shutdown@example.test", "shutdown")
+	user, err := runtime.createUser(t.Context(), "shutdown@example.test", "shutdown")
 	require.NoError(t, err)
-	require.NoError(t, runtime.SoftDeleteUser(t.Context(), user.ID))
+	require.NoError(t, runtime.softDelete(t.Context(), user.ID))
 	require.NoError(t, runtime.Start(t.Context()))
 	select {
 	case <-entered:

@@ -21,10 +21,10 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	s := runtime
-	user, err := s.CreateUser(t.Context(), "recovery-race@example.test", "recoveryrace")
+	user, err := s.createUser(t.Context(), "recovery-race@example.test", "recoveryrace")
 	require.NoError(t, err)
-	require.NoError(t, s.AdminSetPassword(t.Context(), user.ID, "Correct-race-password-1"))
-	require.NoError(t, s.SoftDeleteUser(t.Context(), user.ID))
+	require.NoError(t, s.adminSetPassword(t.Context(), user.ID, "Correct-race-password-1"))
+	require.NoError(t, s.softDelete(t.Context(), user.ID))
 	deletedVersion, err := s.q.UserCredentialVersion(t.Context(), user.ID)
 	require.NoError(t, err)
 	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, passwordlessChannelEmail, *user.Email, nil)
@@ -41,7 +41,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, s.ConfirmAccountRecovery(t.Context(), token))
-	require.NoError(t, s.SoftDeleteUser(t.Context(), user.ID))
+	require.NoError(t, s.softDelete(t.Context(), user.ID))
 	version, err := s.q.UserCredentialVersion(t.Context(), user.ID)
 	require.NoError(t, err)
 	// Deliberately keep an old generation with a current CV in server-side test

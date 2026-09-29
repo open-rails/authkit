@@ -55,11 +55,11 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	handler := apiHandler(srv)
-	user, err := core.CreateUser(t.Context(), "unbound-peer@example.test", "unboundpeer")
+	user, err := core.createUser(t.Context(), "unbound-peer@example.test", "unboundpeer")
 	require.NoError(t, err)
 	hash, err := bcrypt.GenerateFromPassword([]byte("Unbound-peer-password-1"), bcrypt.MinCost)
 	require.NoError(t, err)
-	require.NoError(t, core.UpsertPasswordHash(t.Context(), user.ID, string(hash), "bcrypt"))
+	require.NoError(t, core.upsertPasswordHash(t.Context(), user.ID, string(hash), "bcrypt"))
 
 	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"identifier":"unbound-peer@example.test","password":"Unbound-peer-password-1"}`))
 	r.Header.Set("Content-Type", "application/json")

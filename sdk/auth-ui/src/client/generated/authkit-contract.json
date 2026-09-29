@@ -62,8 +62,7 @@
       "method": "DELETE",
       "path": "/api/v1/admin/users/{user_id}",
       "group": "admin",
-      "auth": "permission",
-      "permission": "root:users:delete"
+      "auth": "required"
     },
     {
       "method": "GET",
@@ -83,15 +82,13 @@
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/ban",
       "group": "admin",
-      "auth": "permission",
-      "permission": "root:users:ban"
+      "auth": "required"
     },
     {
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/restore",
       "group": "admin",
-      "auth": "permission",
-      "permission": "root:users:delete"
+      "auth": "required"
     },
     {
       "method": "DELETE",
@@ -109,8 +106,7 @@
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/sessions/revoke",
       "group": "admin",
-      "auth": "permission",
-      "permission": "root:users:manage"
+      "auth": "required"
     },
     {
       "method": "GET",
@@ -130,8 +126,7 @@
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/unban",
       "group": "admin",
-      "auth": "permission",
-      "permission": "root:users:ban"
+      "auth": "required"
     },
     {
       "method": "GET",

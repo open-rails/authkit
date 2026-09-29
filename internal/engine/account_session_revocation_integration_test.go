@@ -92,7 +92,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	}
 	user := func(tag string) (id, email, pass string) {
 		email, pass = newCookieTestUser(t, pool, siteA, tag)
-		u, err := siteA.Backend().GetUserByEmail(ctx, email)
+		u, err := fixtureBackend(siteA.Backend()).getUserByEmail(ctx, email)
 		require.NoError(t, err)
 		return u.ID, email, pass
 	}
@@ -234,15 +234,15 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	t.Run("ban revokes sibling sessions so unban cannot revive them", func(t *testing.T) {
 		id, email, pass := user("banned")
 		onB := login(siteB, email, pass)
-		require.NoError(t, siteA.Backend().BanUser(ctx, id, nil, nil, operatorID))
-		require.NoError(t, fixtureBackend(siteA.Backend()).UnbanUser(ctx, id))
+		require.NoError(t, siteA.Backend().Ban(ctx, iam.OperatorActor(), id, iam.Ban{}))
+		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.OperatorActor(), id))
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &onB))
 	})
 
 	t.Run("unconfigured deployment covers only its own issuer", func(t *testing.T) {
 		id, email, pass := user("solo")
 		onB, onC := login(siteB, email, pass), login(siteC, email, pass)
-		got, err := fixtureBackend(siteC.Backend()).AdminRevokeAccountSessions(ctx, id)
+		got, err := fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.OperatorActor(), id)
 		require.NoError(t, err)
 		require.Equal(t, []string{issuerC}, got.Issuers)
 		require.Equal(t, map[string]int{issuerC: 1}, got.RevokedSessions)
@@ -250,25 +250,25 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(siteC, &onC))
 		require.Equal(t, http.StatusOK, refresh(siteB, &onB))
 
-		_, err = fixtureBackend(siteC.Backend()).AdminRevokeAccountSessions(ctx, "00000000-0000-7000-8000-000000000000")
+		_, err = fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.OperatorActor(), "00000000-0000-7000-8000-000000000000")
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 	t.Run("permission gates are live while native tokens follow their lifetime", func(t *testing.T) {
 		elevated := login(siteB, operatorEmail, operatorPass)
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
 		targetID, _, _ := user("sensitive-target")
-		require.NoError(t, siteA.Backend().BanUser(ctx, operatorID, nil, nil, operatorID))
+		require.NoError(t, siteA.Backend().Ban(ctx, iam.OperatorActor(), operatorID, iam.Ban{}))
 		directory := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, directory.Code, "a banned identity loses its permissions at once")
 		mutation := call(siteB, http.MethodPost, "/admin/users/"+targetID+"/ban", elevated.AccessToken, `{"until":"infinite"}`)
 		require.Equal(t, http.StatusForbidden, mutation.Code, mutation.Body.String())
-		target, err := siteB.Backend().AdminGetUser(ctx, targetID)
+		target, err := fixtureBackend(siteB.Backend()).getUserByID(ctx, targetID)
 		require.NoError(t, err)
 		require.Nil(t, target.BannedAt)
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &elevated), "ban prevents issuing another access token")
 		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+operatorEmail+`","password":"`+operatorPass+`"}`)
 		require.Equal(t, http.StatusUnauthorized, relogin.Code, relogin.Body.String())
-		require.NoError(t, fixtureBackend(siteA.Backend()).UnbanUser(ctx, operatorID))
+		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.OperatorActor(), operatorID))
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
 		revokeRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 		revoked := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
@@ -287,7 +287,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		unavailable := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusOK, unavailable.Code, unavailable.Body.String())
 		siteB.Verifier().WithLiveness(fixtureBackend(siteB.Backend()))
-		require.NoError(t, siteA.Backend().SoftDeleteUser(ctx, operatorID))
+		require.NoError(t, fixtureBackend(siteA.Backend()).softDelete(ctx, operatorID))
 		deleted := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, deleted.Code, "deleted identities have no current permission authority")
 		latent, err := siteB.Backend().EffectivePermissions(ctx, iam.UserActor(operatorID), []iam.GroupRef{iam.RootGroup()})

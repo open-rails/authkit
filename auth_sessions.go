@@ -2,19 +2,32 @@ package authkit
 
 import (
 	"context"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 )
 
 // Sessions and access tokens.
 
-// AdminRevokeAccountSessions revokes the user's refresh sessions on every
-// account issuer plus device keys. Unchecked: the host authorizes the actor.
-func (a *Auth) AdminRevokeAccountSessions(ctx context.Context, userID string) (iam.AccountSessionRevocation, error) {
-	return a.engine.AdminRevokeAccountSessions(ctx, userID)
+// Sessions lists the account's live refresh sessions on this issuer.
+func (a *Auth) Sessions(ctx context.Context, userID string) ([]iam.Session, error) {
+	return a.engine.Sessions(ctx, userID)
 }
 
-func (a *Auth) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
-	return a.engine.MintAccessToken(ctx, userID, extra)
+// RevokeSession revokes one refresh session under ACCT(root:users:manage);
+// an account may revoke its own.
+func (a *Auth) RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string) error {
+	return a.engine.RevokeSession(ctx, actor, userID, sessionID)
+}
+
+// RevokeAccountSessions revokes the account's refresh sessions on every
+// account issuer and its device keys, under ACCT(root:users:manage); an
+// account may revoke its own. Issued access tokens expire on their TTL.
+func (a *Auth) RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string) (iam.AccountSessionRevocation, error) {
+	return a.engine.RevokeAccountSessions(ctx, actor, userID)
+}
+
+// MintAccessToken mints an access token for a live account outside any login
+// flow. Operator only; reserved claims are dropped.
+func (a *Auth) MintAccessToken(ctx context.Context, actor iam.Actor, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
+	return a.engine.MintAccessToken(ctx, actor, userID, o)
 }

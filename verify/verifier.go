@@ -993,7 +993,6 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 		if issuer.isLocal {
 			// Native JWTs establish identity, never group/role/permission
 			// authority. Machine and delegated profiles retain their ceilings.
-			cl.Roles = nil
 			cl.Permissions = nil
 		}
 		if !issuer.isLocal {
@@ -1200,12 +1199,8 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		cl.DelegatedRoles = rawUUIDStringsAttribute(cl.Attributes, "roles", MaxDelegatedRoles)
 	} else {
 		cl.UserTier = strClaim(mc, "user_tier")
-		if cl.UserTier == "" {
-			cl.UserTier = strClaim(mc, "plan")
-		}
 	}
 
-	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
 	return cl

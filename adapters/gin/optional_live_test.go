@@ -19,9 +19,9 @@ type ginLiveDirectory struct {
 	allowed bool
 }
 
-func (s *ginLiveDirectory) UserLivenessByIDs(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
+func (s *ginLiveDirectory) Users(_ context.Context, ids []string) (map[string]iam.User, error) {
 	s.calls++
-	return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: s.allowed, Username: "fresh"}}, nil
+	return map[string]iam.User{ids[0]: {ID: ids[0], Live: s.allowed, Username: "fresh"}}, nil
 }
 
 func TestOptionalLive(t *testing.T) {

@@ -27,7 +27,14 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok {
+		fail(w, errmodel.CodeUnauthorized)
+		return
+	}
+	name := strings.TrimSpace(body.Username)
+	updated, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, iam.UserUpdate{Username: &name})
+	if err != nil {
 		if errors.Is(err, iam.ErrRenameRateLimited) {
 			state, stateErr := s.svc.UserNamingState(r.Context(), claims.UserID)
 			if stateErr != nil {
@@ -45,12 +52,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		serverErr(w, "database_error", err)
 		return
 	}
-	users, err := s.svc.PublicUsersByIDs(r.Context(), []string{claims.UserID})
-	if err != nil {
-		serverErr(w, "database_error", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"username": users[claims.UserID].Username, "naming": state})
+	writeJSON(w, http.StatusOK, map[string]any{"username": updated.Username, "naming": state})
 }
 
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
@@ -80,20 +82,17 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		fail(w, errmodel.CodeInvalidPreferredLanguage)
 		return
 	}
-	if err := s.svc.SetPreferredLanguage(r.Context(), claims.UserID, normalized); err != nil {
-		if strings.Contains(err.Error(), "invalid_preferred_language") {
-			fail(w, errmodel.CodeInvalidPreferredLanguage)
-			return
-		}
-		fail(w, errmodel.CodeFailedToUpdatePreferredLanguage)
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok {
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
-	preferred, err := s.svc.GetPreferredLanguage(r.Context(), claims.UserID)
+	updated, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, iam.UserUpdate{PreferredLanguage: &normalized})
 	if err != nil {
-		serverErr(w, "preferred_language_lookup_failed", err)
+		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": preferred.Language})
+	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": updated.PreferredLanguage})
 }
 
 func (s *Service) supportsLanguage(language string) bool {
@@ -122,8 +121,18 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
 		return
 	}
-	if err := s.svc.SoftDeleteUser(r.Context(), claims.UserID); err != nil {
-		serverErr(w, "failed_to_delete", err)
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok {
+		fail(w, errmodel.CodeUnauthorized)
+		return
+	}
+	res, err := s.svc.DeleteUsers(r.Context(), actor, []string{claims.UserID})
+	if err := opErr(res, err); err != nil {
+		if errmodel.As(err) == nil {
+			serverErr(w, "failed_to_delete", err)
+			return
+		}
+		writeError(w, err)
 		return
 	}
 	noContent(w)

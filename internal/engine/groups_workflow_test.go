@@ -23,7 +23,7 @@ func groupsTestEngine(t *testing.T, mode iam.TwoFactorMode, roles RoleConfig) *E
 
 func newGroupsUser(t *testing.T, e *Engine, name string) string {
 	t.Helper()
-	u, err := e.CreateUser(t.Context(), name+"@groups.test", name)
+	u, err := e.createUser(t.Context(), name+"@groups.test", name)
 	require.NoError(t, err)
 	return u.ID
 }
@@ -179,7 +179,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(iam.Actor{}, golangRef, "channel:posts:edit"))
 	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:posts:pin")
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	require.NoError(t, e.BanUser(ctx, dave, nil, nil, bob))
+	require.NoError(t, e.Ban(ctx, iam.OperatorActor(), dave, iam.Ban{}))
 	require.False(t, can(iam.UserActor(dave), golangRef, "channel:posts:edit"), "a banned user holds nothing")
 
 	perms, err := e.EffectivePermissions(ctx, iam.UserActor(carol), []iam.GroupRef{golangRef, annRef, iam.GroupBySlug("channel", "missing")})
@@ -255,24 +255,24 @@ func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 		return roles[iam.UserSubject(userID)]
 	}
 
-	squatter, err := client.CreateUser(ctx, "newhire@h2.test", "h2squatter")
+	squatter, err := client.createUser(ctx, "newhire@h2.test", "h2squatter")
 	require.NoError(t, err)
 	w := add("newhire@h2.test")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"invited":true`)
 	require.Empty(t, roleOf(squatter.ID), "an unverified email never receives a role")
 
-	gone, err := client.CreateUser(ctx, "gone@h2.test", "h2gone")
+	gone, err := client.createUser(ctx, "gone@h2.test", "h2gone")
 	require.NoError(t, err)
-	require.NoError(t, client.MarkEmailVerified(ctx, gone.ID))
-	require.NoError(t, client.SoftDeleteUser(ctx, gone.ID))
+	require.NoError(t, client.markEmailVerified(ctx, gone.ID))
+	require.NoError(t, client.softDelete(ctx, gone.ID))
 	w = add("gone@h2.test")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.Empty(t, roleOf(gone.ID), "a deleted account never receives a role")
 
-	proven, err := client.CreateUser(ctx, "proven@h2.test", "h2proven")
+	proven, err := client.createUser(ctx, "proven@h2.test", "h2proven")
 	require.NoError(t, err)
-	require.NoError(t, client.MarkEmailVerified(ctx, proven.ID))
+	require.NoError(t, client.markEmailVerified(ctx, proven.ID))
 	w = add("PROVEN@h2.test")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Equal(t, iam.Role("member"), roleOf(proven.ID))

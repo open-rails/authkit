@@ -3,114 +3,101 @@ package authkit
 import (
 	"context"
 	"crypto/ed25519"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 )
 
-// User and account operations.
+// Accounts. Reads take no actor: the host is the trust boundary. Every
+// mutation takes the actor right after ctx; iam.OperatorActor() is trusted
+// host authority. A non-operator needs rule ACCT: the named root:users:*
+// permission and coverage of the target account's grants in root and in every
+// group it holds a role in.
 
-func (a *Auth) CreateUser(ctx context.Context, email string, username string) (*iam.User, error) {
-	return a.engine.CreateUser(ctx, email, username)
+// User returns one account by iam.UserByID, UserByEmail, UserByPhone or
+// UserByUsername. Soft-deleted accounts need iam.IncludeDeleted(). A miss is
+// iam.ErrUserNotFound. An address match proves nothing about who owns the
+// account unless EmailVerified or PhoneVerified is set: never grant authority
+// to an account found by an unverified address.
+func (a *Auth) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOption) (iam.User, error) {
+	return a.engine.User(ctx, ref, opts...)
 }
 
-func (a *Auth) GetUserByEmail(ctx context.Context, email string) (*iam.User, error) {
-	return a.engine.GetUserByEmail(ctx, email)
+// Users returns the accounts among ids (at most iam.MaxBatch), deleted ones
+// included; unknown ids are absent. It carries contact details: render other
+// people with PublicUsers. It is also verify's liveness source (User.Live).
+func (a *Auth) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
+	return a.engine.Users(ctx, ids)
 }
 
-func (a *Auth) GetUserByPhone(ctx context.Context, phone string) (*iam.User, error) {
-	return a.engine.GetUserByPhone(ctx, phone)
+// PublicUsers returns what other people may see of ids: deleted accounts are
+// tombstones, unknown ids are absent.
+func (a *Auth) PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error) {
+	return a.engine.PublicUsers(ctx, ids)
 }
 
-func (a *Auth) GetUserByUsername(ctx context.Context, username string) (*iam.User, error) {
-	return a.engine.GetUserByUsername(ctx, username)
+// ListUsers pages through the user directory.
+func (a *Auth) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.User], error) {
+	return a.engine.ListUsers(ctx, q)
 }
 
-// GetUserMetadata reads application-owned JSON under trusted host authority.
-// Hosts select public fields explicitly; the metadata map is not a public profile.
-func (a *Auth) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
-	return a.engine.GetUserMetadata(ctx, userID)
+// UserMetadata returns the account's application-owned metadata. It is not a
+// public profile: select public fields explicitly.
+func (a *Auth) UserMetadata(ctx context.Context, userID string) (map[string]any, error) {
+	return a.engine.UserMetadata(ctx, userID)
 }
 
-// SoftDeleteUsers begins the fixed 30-day recoverable account lifecycle:
-// per-item BEST-EFFORT — the returned OpResults pinpoint the failures; the
-// outer error is a whole-call failure only (e.g. no store).
-func (a *Auth) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]iam.OpResult, error) {
-	return a.engine.SoftDeleteUsers(ctx, userIDs)
+// CreateUser creates a native account. Operator only.
+func (a *Auth) CreateUser(ctx context.Context, actor iam.Actor, u iam.NewUser) (iam.User, error) {
+	return a.engine.CreateUser(ctx, actor, u)
 }
 
-func (a *Auth) MarkEmailVerified(ctx context.Context, id string) error {
-	return a.engine.MarkEmailVerified(ctx, id)
+// UpdateUser changes an account under ACCT(root:users:manage). An account may
+// change its own Username, AvatarURL and PreferredLanguage. PasswordHash and
+// the verified flags are operator-only; setting a verified flag on an account
+// with no proven contact first retires its pre-proof credentials.
+func (a *Auth) UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
+	return a.engine.UpdateUser(ctx, actor, userID, u)
 }
 
-// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
-// string (#262). Blob storage/validation is the host's job.
-func (a *Auth) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
-	return a.engine.UpdateAvatarURL(ctx, id, avatarURL)
+// PatchUserMetadata merges patch into the account's metadata under
+// ACCT(root:users:manage); a nil value deletes its key.
+func (a *Auth) PatchUserMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any) error {
+	return a.engine.PatchUserMetadata(ctx, actor, userID, patch)
 }
 
-func (a *Auth) UpdateEmail(ctx context.Context, id string, email string) error {
-	return a.engine.UpdateEmail(ctx, id, email)
+// Ban bans an account under ACCT(root:users:ban) and revokes its sessions,
+// device keys, and the API keys and invites it issued. Nobody bans
+// themselves.
+func (a *Auth) Ban(ctx context.Context, actor iam.Actor, userID string, b iam.Ban) error {
+	return a.engine.Ban(ctx, actor, userID, b)
 }
 
-func (a *Auth) UpdateUsername(ctx context.Context, id string, username string) error {
-	return a.engine.UpdateUsername(ctx, id, username)
+// Unban lifts a ban under ACCT(root:users:ban). Nobody lifts their own ban.
+func (a *Auth) Unban(ctx context.Context, actor iam.Actor, userID string) error {
+	return a.engine.Unban(ctx, actor, userID)
 }
 
-// UsersByIDs resolves many user IDs to slim display projections in ONE
-// query; missing IDs are absent. PRIVILEGED — the projection carries Email;
-// render other users with PublicUsersByIDs.
-func (a *Auth) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserSummary, error) {
-	return a.engine.UsersByIDs(ctx, ids)
+// DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
+// the 30-day recovery window; an account may delete itself. Results are per
+// item; the error is a whole-call failure.
+func (a *Auth) DeleteUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
+	return a.engine.DeleteUsers(ctx, actor, ids)
 }
 
-// PublicUsersByIDs is the PUBLIC-SAFE twin (#268): no email; soft-deleted
-// users come back as tombstones, banned users normally, unknown ids absent.
-func (a *Auth) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]iam.PublicUserRef, error) {
-	return a.engine.PublicUsersByIDs(ctx, ids)
+// RestoreUsers restores soft-deleted accounts within their recovery window
+// under ACCT(root:users:delete).
+func (a *Auth) RestoreUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
+	return a.engine.RestoreUsers(ctx, actor, ids)
 }
 
-// UserLivenessByIDs is the batch account-liveness read behind verify's
-// per-request liveness gate (#267). Errors PROPAGATE so authorization
-// callers fail closed; unknown ids are absent and a gate treats that as a
-// denial.
-func (a *Auth) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
-	return a.engine.UserLivenessByIDs(ctx, ids)
+// PurgeUsers ends the recovery window of accounts now; the rows go once the
+// host deletion callbacks complete. Operator only.
+func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
+	return a.engine.PurgeUsers(ctx, actor, ids)
 }
 
-// ActiveDeviceKeys returns the user's unrevoked device public keys in
-// enrollment order, for a host that admits the user's machines. Errors
-// propagate; ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+// ActiveDeviceKeys returns the account's unrevoked device public keys in
+// enrollment order. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (a *Auth) ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519.PublicKey, error) {
 	return a.engine.ActiveDeviceKeys(ctx, userID)
-}
-
-func (a *Auth) UpsertPasswordHash(ctx context.Context, userID string, hash string, algo string) error {
-	return a.engine.UpsertPasswordHash(ctx, userID, hash, algo)
-}
-
-func (a *Auth) AdminGetUser(ctx context.Context, id string) (*iam.AdminUser, error) {
-	return a.engine.AdminGetUser(ctx, id)
-}
-
-func (a *Auth) AdminListUsers(ctx context.Context, opts iam.AdminUserListOptions) (*iam.AdminListUsersResult, error) {
-	return a.engine.AdminListUsers(ctx, opts)
-}
-
-func (a *Auth) AdminSetPassword(ctx context.Context, userID string, new string) error {
-	return a.engine.AdminSetPassword(ctx, userID, new)
-}
-
-func (a *Auth) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
-	return a.engine.BanUser(ctx, userID, reason, until, bannedBy)
-}
-
-func (a *Auth) UnbanUser(ctx context.Context, userID string) error {
-	return a.engine.UnbanUser(ctx, userID)
-}
-
-// OperatorRestoreUsers restores soft-deleted accounts before their fixed
-// recovery deadline under explicit trusted host authority.
-func (a *Auth) OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]iam.OpResult, error) {
-	return a.engine.OperatorRestoreUsers(ctx, userIDs)
 }

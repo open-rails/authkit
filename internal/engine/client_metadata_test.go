@@ -19,16 +19,16 @@ func TestClientReadsUserMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, imported.Inserted)
 	id := imported.Rows[0].UserID
-	data, err := client.GetUserMetadata(t.Context(), id)
+	data, err := client.UserMetadata(t.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "Public bio", data["biography"])
 	require.Equal(t, "not automatically public", data["host_private"])
 	data["biography"] = "local mutation"
-	again, err := client.GetUserMetadata(t.Context(), id)
+	again, err := client.UserMetadata(t.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "Public bio", again["biography"])
-	_, err = client.GetUserMetadata(t.Context(), uuid.NewString())
+	_, err = client.UserMetadata(t.Context(), uuid.NewString())
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
-	_, err = client.GetUserMetadata(t.Context(), "")
-	require.ErrorContains(t, err, "invalid_user")
+	_, err = client.UserMetadata(t.Context(), "")
+	require.ErrorIs(t, err, iam.ErrUserNotFound)
 }

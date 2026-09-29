@@ -78,14 +78,14 @@ func newHardeningService(t *testing.T) (*Engine, *hardeningEmailSender) {
 	return svc, sender
 }
 
-func newHardeningUser(t *testing.T, ctx context.Context, svc *Engine, tag string) (*iam.User, string) {
+func newHardeningUser(t *testing.T, ctx context.Context, svc *Engine, tag string) (*userRecord, string) {
 	t.Helper()
 	username := fmt.Sprintf("hard-%s-%d", tag, time.Now().UnixNano())
 	email := username + "@example.test"
-	u, err := svc.CreateUser(ctx, email, username)
+	u, err := svc.createUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, u.ID) })
-	require.NoError(t, svc.MarkEmailVerified(ctx, u.ID))
+	require.NoError(t, svc.markEmailVerified(ctx, u.ID))
 	u.EmailVerified = true
 	return u, email
 }

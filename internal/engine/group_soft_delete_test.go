@@ -42,9 +42,9 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	rt, pool := softDeleteRuntime(t)
 	ctx := t.Context()
 	client := rt
-	owner, err := client.CreateUser(ctx, "retained-owner@example.test", "retained-owner")
+	owner, err := client.createUser(ctx, "retained-owner@example.test", "retained-owner")
 	require.NoError(t, err)
-	peer, err := client.CreateUser(ctx, "active-owner@example.test", "active-owner")
+	peer, err := client.createUser(ctx, "active-owner@example.test", "active-owner")
 	require.NoError(t, err)
 	group := iam.GroupBySlug("channel", "retained")
 	id, err := seedGroup(ctx, client, group.Persona(), group.Slug(), owner.ID)
@@ -63,7 +63,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	allowed, err := checker.Can(ctx, scope, "channel:posts:read")
 	require.NoError(t, err)
 	require.True(t, allowed)
-	result, err := client.SoftDeleteUsers(ctx, []string{owner.ID})
+	result, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
 	require.NoError(t, err)
 	require.ErrorIs(t, result[0].Err, iam.ErrCannotRemoveLastAdminRole)
 	deleted, err := client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))
@@ -97,7 +97,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Equal(t, 1, keys)
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid AND canonical", id).Scan(&names))
 	require.Equal(t, 1, names)
-	result, err = client.SoftDeleteUsers(ctx, []string{owner.ID, peer.ID})
+	result, err = client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID, peer.ID})
 	require.NoError(t, err)
 	require.NoError(t, result[0].Err)
 	require.ErrorIs(t, result[1].Err, iam.ErrCannotRemoveLastAdminRole, "active sibling still requires its owner")
@@ -120,7 +120,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	for n := range 8 {
-		owner, err := client.CreateUser(ctx, fmt.Sprintf("race-%d@example.test", n), fmt.Sprintf("retirerace%d", n))
+		owner, err := client.createUser(ctx, fmt.Sprintf("race-%d@example.test", n), fmt.Sprintf("retirerace%d", n))
 		require.NoError(t, err)
 		id, err := seedGroup(ctx, client, "channel", fmt.Sprintf("race-%d", n), owner.ID)
 		require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		wg.Go(func() { <-start; _, retireErr = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id)) })
 		wg.Go(func() {
 			<-start
-			results, err := client.SoftDeleteUsers(ctx, []string{owner.ID})
+			results, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
 			deleteErr = err
 			if err == nil {
 				deleteErr = results[0].Err
@@ -142,7 +142,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		if deleteErr != nil {
 			require.ErrorIs(t, deleteErr, iam.ErrCannotRemoveLastAdminRole)
 		}
-		results, err := client.SoftDeleteUsers(ctx, []string{owner.ID})
+		results, err := client.DeleteUsers(ctx, iam.OperatorActor(), []string{owner.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 		retained, err := client.Group(ctx, iam.GroupByID(id))
@@ -155,7 +155,7 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	rt, pool := softDeleteRuntime(t)
 	client := rt
 	ctx := t.Context()
-	owner, err := client.CreateUser(ctx, "external-owner@example.test", "external-owner")
+	owner, err := client.createUser(ctx, "external-owner@example.test", "external-owner")
 	require.NoError(t, err)
 	controller, err := seedGroup(ctx, client, "channel", "controller", owner.ID)
 	require.NoError(t, err)

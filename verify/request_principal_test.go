@@ -41,9 +41,9 @@ func (s *principalAuthority) KnownPermission(iam.Perm) bool { return true }
 
 type principalLiveness struct{ calls int }
 
-func (s *principalLiveness) UserLivenessByIDs(context.Context, []string) (map[string]iam.UserLiveness, error) {
+func (s *principalLiveness) Users(context.Context, []string) (map[string]iam.User, error) {
 	s.calls++
-	return map[string]iam.UserLiveness{"native-user": {Allowed: false}}, nil
+	return map[string]iam.User{"native-user": {Live: false}}, nil
 }
 
 func principalRequest(token string) *http.Request {

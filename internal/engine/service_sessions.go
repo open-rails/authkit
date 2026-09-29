@@ -22,43 +22,6 @@ import (
 	"github.com/open-rails/authkit/internal/secret"
 )
 
-// issueRefreshSession creates a session row and returns a new refresh token string.
-func (s *Engine) issueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
-	return s.issueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
-}
-
-// issueRefreshSessionWithAuthMethods creates a refresh session and records the
-// authentication methods that established it. Callers minting a session after
-// MFA should pass e.g. []string{"pwd", "otp", "mfa"}.
-func (s *Engine) issueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
-	if s.pg == nil {
-		return "", "", nil, errors.New("postgres not configured")
-	}
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return "", "", nil, err
-	}
-	defer tx.Rollback(ctx)
-	q := s.qtx(tx)
-	if _, err := s.lockLoginAccount(ctx, q, userID, 0); err != nil {
-		return "", "", nil, err
-	}
-	settings, settingsErr := s.get2FASettings(ctx, q, userID)
-	status, statusErr := s.mfaStatusWith(settings, settingsErr)
-	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, status, statusErr); err != nil {
-		return "", "", nil, err
-	}
-	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, userID, userAgent, ip, authMethods)
-	if err != nil {
-		return "", "", nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", "", nil, err
-	}
-	s.logSessionEvictions(ctx, userID, evicted)
-	return sid, rt, exp, nil
-}
-
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
 func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
@@ -308,44 +271,7 @@ func graceKeystream(predecessor string, n int) []byte {
 	return out[:n]
 }
 
-// issueAuthenticatedSession issues a session for a trusted, already-authenticated
-// caller. Interactive login flows additionally check their captured proof version
-// before using the same transaction-owned issuance helper.
-func (s *Engine) issueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
-	if s.pg == nil {
-		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
-	}
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	defer tx.Rollback(ctx)
-	q := s.qtx(tx)
-	u, err := s.lockLoginAccount(ctx, q, userID, 0)
-	if err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	settings, settingsErr := s.get2FASettings(ctx, q, userID)
-	mfa, mfaErr := s.mfaStatusWith(settings, settingsErr)
-	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, mfa, mfaErr); err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	address := ""
-	if ip != nil {
-		address = ip.String()
-	}
-	session, exp, evicted, err := s.issueLoginSessionTx(ctx, q, u, mfa, loginSessionInput{UserID: userID, UserAgent: userAgent, IP: address, AuthMethods: authMethods, Extra: extra})
-	if err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", "", "", time.Time{}, nil, err
-	}
-	s.logSessionEvictions(ctx, userID, evicted)
-	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
-}
-
-func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa authflow.MFAStatus, in loginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
+func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *userRecord, mfa authflow.MFAStatus, in loginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
@@ -373,13 +299,13 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *i
 
 // lockLoginAccount serializes proof completion with credential recovery. Zero
 // expectedVersion is reserved for trusted host issuance, never an in-flight proof.
-func (s *Engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*iam.User, error) {
+func (s *Engine) lockLoginAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64) (*userRecord, error) {
 	return s.lockAuthenticationAccount(ctx, q, userID, expectedVersion, false)
 }
 
 // Only verified first-factor completion may consider a deleted account. Normal
 // session issuance and refresh retain the strict gate above.
-func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64, allowDeleted bool) (*iam.User, error) {
+func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, userID string, expectedVersion int64, allowDeleted bool) (*userRecord, error) {
 	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -546,79 +472,6 @@ func (s *Engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSe
 	}
 	s.logRevokedSessions(ctx, userID, revoked, *reason)
 	return nil
-}
-
-// AdminRevokeAccountSessions is the unchecked account-wide emergency revoke;
-// hosts authorize the actor. See AdminRevokeAccountSessionsAs.
-func (s *Engine) AdminRevokeAccountSessions(ctx context.Context, userID string) (iam.AccountSessionRevocation, error) {
-	return s.revokeAccountSessions(ctx, "", userID)
-}
-
-// revokeAccountSessions revokes refresh sessions on every account issuer and
-// all device keys in one transaction under the account lock, so nothing that
-// can mint a new access token survives. Issued access tokens expire on TTL.
-func (s *Engine) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (iam.AccountSessionRevocation, error) {
-	issuers := s.accountIssuers()
-	out := iam.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
-	for _, issuer := range issuers {
-		out.RevokedSessions[issuer] = 0
-	}
-	if err := s.requirePG(); err != nil {
-		return out, err
-	}
-	userID = strings.TrimSpace(userID)
-	reason := string(authflow.SessionRevokeReasonAdminRevokeAll)
-	if r := authflow.SessionRevokeReasonFrom(ctx); r != nil {
-		reason = *r
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback(ctx)
-	if actorUserID != "" {
-		st := s.groupStoreFor(tx)
-		if err := s.lockAuthority(ctx, st.q); err != nil {
-			return out, err
-		}
-		if err := s.authorizeAccountAuthorityOn(ctx, st, actorUserID, userID); err != nil {
-			return out, err
-		}
-	}
-	q := s.qtx(tx)
-	if _, err := q.UserCredentialVersionForUpdate(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
-		return out, iam.ErrUserNotFound
-	} else if err != nil {
-		return out, err
-	}
-	revoked, err := revokeSessionsTx(ctx, q, userID, issuers, nil)
-	if err != nil {
-		return out, err
-	}
-	keys, err := s.revokeAllDeviceKeys(ctx, tx, userID)
-	if err != nil {
-		return out, err
-	}
-	unlisted, err := q.SessionsCountActiveOutsideIssuers(ctx, db.SessionsCountActiveOutsideIssuersParams{UserID: userID, Issuers: issuers})
-	if err != nil {
-		return out, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return out, err
-	}
-	for _, r := range revoked {
-		out.RevokedSessions[r.Issuer]++
-	}
-	out.RevokedDeviceKeys = int(keys)
-	out.UnlistedIssuerSessions = int(unlisted)
-	s.logRevokedSessions(ctx, userID, revoked, reason)
-	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
-		Issuer: s.cfg.Token.Issuer,
-		UserID: userID,
-		Event:  authflow.SessionEventAccountSessionsRevoked,
-		Reason: &reason,
-	})
-	return out, nil
 }
 
 // accountIssuers is the normalized account-level revocation scope (a copy).

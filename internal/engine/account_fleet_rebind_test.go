@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -16,13 +17,13 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	old, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(old.Close)
-	user, err := old.CreateUser(t.Context(), "rebind@example.test", "rebind")
+	user, err := old.createUser(t.Context(), "rebind@example.test", "rebind")
 	require.NoError(t, err)
-	require.NoError(t, old.SoftDeleteUser(t.Context(), user.ID))
+	require.NoError(t, old.softDelete(t.Context(), user.ID))
 	cfg.River.Schema = "replacement_jobs"
 	_, err = New(cfg, Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "active account lifecycle work")
-	results, err := old.OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err := old.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	_, err = New(cfg, Deps{Postgres: pg.Pool})
@@ -37,12 +38,12 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	replacement, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err, "quiescent history does not permanently pin a schema")
 	t.Cleanup(replacement.Close)
-	err = old.SoftDeleteUser(t.Context(), user.ID)
+	err = old.softDelete(t.Context(), user.ID)
 	require.ErrorContains(t, err, "fleet was rebound")
 	var deleted *time.Time
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT deleted_at FROM profiles.users WHERE id=$1::uuid", user.ID).Scan(&deleted))
 	require.Nil(t, deleted, "stale producer rejection rolls back the account mutation")
-	require.NoError(t, replacement.SoftDeleteUser(t.Context(), user.ID))
+	require.NoError(t, replacement.softDelete(t.Context(), user.ID))
 	var jobs int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM replacement_jobs.river_job WHERE kind='authkit_account_delivery'").Scan(&jobs))
 	require.Equal(t, 1, jobs)

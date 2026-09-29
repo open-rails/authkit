@@ -135,7 +135,7 @@ func TestRolesWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 	user := func(name string) iam.Subject {
-		u, err := a.CreateUser(ctx, name+"@roles.test", name)
+		u, err := a.createUser(ctx, name+"@roles.test", name)
 		require.NoError(t, err)
 		return iam.UserSubject(u.ID)
 	}

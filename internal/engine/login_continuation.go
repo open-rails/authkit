@@ -167,7 +167,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	return out, nil
 }
 
-func (s *Engine) sendLoginFactor(ctx context.Context, user *iam.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
+func (s *Engine) sendLoginFactor(ctx context.Context, user *userRecord, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
 	factors := s.loginFactors(proof, settings)
 	var selected *authflow.TwoFactorFactor
 	for i := range factors {

@@ -22,10 +22,10 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 	login := func(prefix string) (string, string, flowResponse, flowResponse) {
 		t.Helper()
 		email := uniqueEmail(prefix)
-		user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "enr"+uniqueSuffix())
+		user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "enr"+uniqueSuffix())
 		require.NoError(t, err)
-		require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, enrollPassword))
-		require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+		require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, enrollPassword))
+		require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 		body := map[string]any{"identifier": email, "password": enrollPassword}
 		return user.ID, email, f.expect(200, f.post("/password/login", body)), f.expect(200, f.post("/password/login", body))
 	}
@@ -110,10 +110,10 @@ func TestForcedEmailEnrollmentIssuesVerifiedSession(t *testing.T) {
 	f := newAccountFlow(t, testdb.Pool(t), cfg)
 	ctx := t.Context()
 	email := uniqueEmail("forced-email")
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "forced"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "forced"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, enrollPassword))
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, enrollPassword))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 
 	grant := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": enrollPassword}))
 	require.Equal(t, "2fa_enrollment_required", grant.Error.Code)

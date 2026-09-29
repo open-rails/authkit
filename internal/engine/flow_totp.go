@@ -48,9 +48,12 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	if !s.useEphemeralStore() {
 		return "", "", fmt.Errorf("ephemeral store not configured")
 	}
-	user, err := s.AdminGetUser(ctx, userID)
+	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", "", err
+	}
+	if user == nil {
+		return "", "", iam.ErrUserNotFound
 	}
 	secret, err = generateTOTPSecret()
 	if err != nil {

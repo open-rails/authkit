@@ -137,12 +137,16 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	}
 	limit := q.Page.PageLimit()
 	rows, err := s.pg.Query(ctx, `SELECT kind, id, role FROM (
- SELECT 'user' AS kind, user_id::text AS id, role FROM group_user_roles WHERE permission_group_id=$1::uuid
+ SELECT 'user' AS kind, r.user_id::text AS id, r.role, (u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
+   AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())) AS live
+  FROM group_user_roles r JOIN users u ON u.id=r.user_id WHERE r.permission_group_id=$1::uuid
  UNION ALL
- SELECT 'remote_application', remote_application_id::text, role FROM group_remote_application_roles WHERE permission_group_id=$1::uuid) m
+ SELECT 'remote_application', r.remote_application_id::text, r.role, (a.enabled AND c.deleted_at IS NULL)
+  FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
+  JOIN permission_groups c ON c.id=a.permission_group_id WHERE r.permission_group_id=$1::uuid) m
  WHERE (cardinality($2::text[])=0 OR kind=ANY($2::text[])) AND (cardinality($3::text[])=0 OR role=ANY($3::text[]))
- AND ($4='' OR (kind,id)>($4,$5))
- ORDER BY kind,id LIMIT $6`, g.ID, kinds, roles, after[0], after[1], limit+1)
+ AND ($4='' OR (kind,id)>($4,$5)) AND (NOT $7 OR live)
+ ORDER BY kind,id LIMIT $6`, g.ID, kinds, roles, after[0], after[1], limit+1, q.LiveOnly)
 	if err != nil {
 		return out, err
 	}
@@ -161,6 +165,23 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1]
 		out.Next = encodePageCursor(string(last.Subject.Kind), last.Subject.ID)
+	}
+	if q.WithUsers {
+		var ids []string
+		for _, m := range out.Items {
+			if m.Subject.Kind == iam.SubjectKindUser {
+				ids = append(ids, m.Subject.ID)
+			}
+		}
+		users, err := s.Users(ctx, ids)
+		if err != nil {
+			return out, err
+		}
+		for i, m := range out.Items {
+			if u, ok := users[m.Subject.ID]; ok && m.Subject.Kind == iam.SubjectKindUser {
+				out.Items[i].User = &u
+			}
+		}
 	}
 	return out, nil
 }

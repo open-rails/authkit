@@ -29,8 +29,8 @@ type contactChannel struct {
 	requestVerification  func(context.Context, string) error
 	requestChange        func(ctx context.Context, userID, id string) error
 	requestPasswordReset func(ctx context.Context, id string, ip, ua *string) error
-	getUser              func(context.Context, string) (*iam.User, error)
-	isVerified           func(*iam.User) bool
+	getUser              func(context.Context, string) (iam.User, error)
+	isVerified           func(iam.User) bool
 	pendingExists        func(context.Context, string) (bool, error)
 
 	errVerifyUnavailable errmodel.Code
@@ -51,8 +51,10 @@ func (s *Service) emailChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
-		getUser:    s.svc.GetUserByEmail,
-		isVerified: func(u *iam.User) bool { return u.EmailVerified },
+		getUser: func(ctx context.Context, email string) (iam.User, error) {
+			return s.svc.User(ctx, iam.UserByEmail(email))
+		},
+		isVerified: func(u iam.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -76,8 +78,10 @@ func (s *Service) phoneChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
-		getUser:    s.svc.GetUserByPhone,
-		isVerified: func(u *iam.User) bool { return u.PhoneVerified },
+		getUser: func(ctx context.Context, phone string) (iam.User, error) {
+			return s.svc.User(ctx, iam.UserByPhone(phone))
+		},
+		isVerified: func(u iam.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
@@ -225,7 +229,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 // identifier: already verified → 409; a live account or an unknown identifier
 // → 410 (the link expired); a pending registration → 400 (wrong token).
 func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, ch contactChannel, id string) {
-	if u, err := ch.getUser(ctx, id); err == nil && u != nil {
+	if u, err := ch.getUser(ctx, id); err == nil {
 		if ch.isVerified(u) {
 			fail(w, ch.errAlreadyVerified)
 			return

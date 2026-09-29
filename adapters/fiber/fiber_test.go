@@ -505,9 +505,9 @@ func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
 	authkitfiber.RequirePermission(auth, "blog:posts:delete", nil)
 }
 
-type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)
+type livenessSource func(context.Context, []string) (map[string]iam.User, error)
 
-func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
+func (f livenessSource) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
 	return f(ctx, ids)
 }
 
@@ -520,19 +520,19 @@ func TestRequiredLive(t *testing.T) {
 	}
 	cases := []struct {
 		name   string
-		live   map[string]iam.UserLiveness
+		live   map[string]iam.User
 		err    error
 		status int
 	}{
-		{"allowed", map[string]iam.UserLiveness{"user-1": {Allowed: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
-		{"disabled", map[string]iam.UserLiveness{"user-1": {Allowed: false}}, nil, http.StatusUnauthorized},
+		{"allowed", map[string]iam.User{"user-1": {Live: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
+		{"disabled", map[string]iam.User{"user-1": {Live: false}}, nil, http.StatusUnauthorized},
 		{"missing", nil, nil, http.StatusUnauthorized},
 		{"unavailable", nil, errors.New("directory unavailable"), http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
+			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]iam.User, error) {
 				calls++
 				if !reflect.DeepEqual(ids, []string{"user-1"}) {
 					t.Errorf("liveness IDs = %v", ids)
@@ -695,9 +695,9 @@ func TestOptionalLive(t *testing.T) {
 	issuer := newIssuer(t)
 	calls := 0
 	allowed := true
-	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
+	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]iam.User, error) {
 		calls++
-		return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
+		return map[string]iam.User{ids[0]: {ID: ids[0], Live: allowed, Username: "fresh"}}, nil
 	}))
 	middleware, err := authkitfiber.OptionalLive(verifier)
 	if err != nil {

@@ -60,3 +60,11 @@ func parseIP(s string) net.IP {
 	}
 	return net.ParseIP(s)
 }
+
+// nullableString is s, or JSON null when s is empty.
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}

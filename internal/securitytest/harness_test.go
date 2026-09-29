@@ -237,17 +237,29 @@ func unique(prefix string) string {
 	return strings.ToLower(prefix) + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "") + string(rune('a'+seq.n%26))
 }
 
-// newAccount creates a password user with a verified address through the
-// trusted host client.
+// newAccount creates a password user with a verified address with operator
+// authority.
 func (h *host) newAccount(prefix string) account {
 	h.t.Helper()
 	name := unique(prefix)
 	email := name + "@security.test"
-	u, err := h.auth.CreateUser(context.Background(), email, name)
+	u, err := h.auth.CreateUser(context.Background(), iam.OperatorActor(), iam.NewUser{Email: email, Username: name, Password: password, EmailVerified: true})
 	require.NoError(h.t, err)
-	require.NoError(h.t, h.auth.MarkEmailVerified(context.Background(), u.ID))
-	require.NoError(h.t, h.auth.AdminSetPassword(context.Background(), u.ID, password))
 	return account{id: u.ID, email: email, username: name}
+}
+
+// setPassword replaces a password with operator authority.
+func (h *host) setPassword(id, pw string) error {
+	_, err := h.auth.UpdateUser(context.Background(), iam.OperatorActor(), id, iam.UserUpdate{Password: &pw})
+	return err
+}
+
+// verifyEmail marks the account's email verified with operator authority.
+func (h *host) verifyEmail(id string) {
+	h.t.Helper()
+	verified := true
+	_, err := h.auth.UpdateUser(context.Background(), iam.OperatorActor(), id, iam.UserUpdate{EmailVerified: &verified})
+	require.NoError(h.t, err)
 }
 
 func (h *host) login(a account) tokens {

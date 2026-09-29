@@ -14,7 +14,7 @@ import (
 )
 
 // getUserByPhone returns a user by phone number (if any)
-func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*iam.User, error) {
+func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -51,7 +51,7 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 	return iam.ErrUserNotFound
 }
 
-func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *iam.User, ttl time.Duration) error {
+func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *userRecord, ttl time.Duration) error {
 	if u == nil {
 		return iam.ErrUserNotFound
 	}
@@ -91,7 +91,7 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *iam.User, t
 }
 
 // GetUserByPhone looks up a user by phone number.
-func (s *Engine) GetUserByPhone(ctx context.Context, phone string) (*iam.User, error) {
+func (s *Engine) GetUserByPhone(ctx context.Context, phone string) (*userRecord, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

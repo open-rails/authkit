@@ -38,9 +38,8 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	cfg.HTTP.APIPrefix = "/auth"
 	runtime := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(runtime.Close)
-	user, err := runtime.CreateUser(context.Background(), "runtime-boundary@example.test", "runtime-boundary")
+	_, err := runtime.CreateUser(context.Background(), iam.OperatorActor(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
-	require.NoError(t, runtime.AdminSetPassword(context.Background(), user.ID, "Correct-horse-battery-1"))
 	require.NotNil(t, runtime.Verifier())
 	require.Contains(t, runtime.Patterns(), "GET "+iam.JWKSPath)
 	require.Contains(t, runtime.Patterns(), "POST /auth/password/login")

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"crypto"
 	"sort"
 	"strings"
@@ -50,12 +49,6 @@ func (s *Engine) JWKS() jwtkit.JWKS {
 		ks.Keys = append(ks.Keys, jwtkit.PublicToJWK(pub, kid, alg))
 	}
 	return ks
-}
-
-// AdminSetPassword force-sets a user's password
-// (admin only, no current password required)
-func (s *Engine) AdminSetPassword(ctx context.Context, userID, new string) error {
-	return s.changePassword(ctx, userID, new, nil, nil, nil, authflow.SessionRevokeReasonAdminSetPassword)
 }
 
 // DelegationAuthorizer returns the host-injected delegated-token authorizer

@@ -21,10 +21,10 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 		for _, failure := range []string{"read", "claim", "persistence"} {
 			t.Run(method+"/"+failure, func(t *testing.T) {
 				f.t = t
-				user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, uniqueEmail("mfa-backend"), "mfaback"+uniqueSuffix())
+				user, err := fixtureBackend(f.service.Backend()).createUser(ctx, uniqueEmail("mfa-backend"), "mfaback"+uniqueSuffix())
 				require.NoError(t, err)
-				require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
-				require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
+				require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
+				require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
 				session := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-horse-battery-1"})).AccessToken
 				body := map[string]any{"method": method}
 				if method == "sms" {

@@ -31,19 +31,19 @@ func TestBootstrapWorkflow(t *testing.T) {
 	dry, err := svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), manifest, iam.BootstrapOptions{DryRun: true})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{DryRun: true, UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, dry)
-	_, err = svc.GetUserByUsername(ctx, "bootstrap-admin")
+	_, err = svc.getUserByUsername(ctx, "bootstrap-admin")
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 
 	first, err := svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), manifest, iam.BootstrapOptions{StartupOnly: true, Name: "first"})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, first)
-	user, err := svc.GetUserByUsername(ctx, "bootstrap-admin")
+	user, err := svc.getUserByUsername(ctx, "bootstrap-admin")
 	require.NoError(t, err)
 	require.NoError(t, svc.CheckUserPassword(ctx, user.ID, seeded))
 	roles, err := svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(user.ID)})
 	require.NoError(t, err)
 	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(user.ID)])
-	require.NoError(t, svc.AdminSetPassword(ctx, user.ID, rotated))
+	require.NoError(t, svc.adminSetPassword(ctx, user.ID, rotated))
 
 	// Neither the original name nor a different name can replay genesis, even
 	// when the new manifest asks to enforce a password or create another owner.
@@ -57,7 +57,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 		require.Equal(t, iam.BootstrapResult{AlreadyApplied: true}, result)
 		require.NoError(t, svc.CheckUserPassword(ctx, user.ID, rotated))
 	}
-	_, err = svc.GetUserByUsername(ctx, "unexpected-owner")
+	_, err = svc.getUserByUsername(ctx, "unexpected-owner")
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.Equal(t, []string{"first", "second"}, bootstrapClaimNames(t, ctx, pg))
 
@@ -79,7 +79,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	recovery := iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{{Username: "recovery-owner", Email: "recovery@example.test", EmailVerified: true, RootRole: iam.OwnerRole}}}
 	_, err = svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), recovery, iam.BootstrapOptions{})
 	require.NoError(t, err)
-	recoveryUser, err := svc.GetUserByUsername(ctx, "recovery-owner")
+	recoveryUser, err := svc.getUserByUsername(ctx, "recovery-owner")
 	require.NoError(t, err)
 	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	result, err = svc.ApplyBootstrapManifest(ctx, iam.OperatorActor(), recovery, iam.BootstrapOptions{})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{UsersCreated: 1, RootRoleAssignments: 1}, result)
-	recoveryUser, err = svc.GetUserByUsername(ctx, "recovery-owner-2")
+	recoveryUser, err = svc.getUserByUsername(ctx, "recovery-owner-2")
 	require.NoError(t, err)
 	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)

@@ -62,9 +62,9 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	t.Cleanup(rt.Close)
 	client := rt
 
-	owner, err := client.CreateUser(ctx, "batch-owner@example.test", "batch-owner")
+	owner, err := client.createUser(ctx, "batch-owner@example.test", "batch-owner")
 	require.NoError(t, err)
-	member, err := client.CreateUser(ctx, "batch-member@example.test", "batch-member")
+	member, err := client.createUser(ctx, "batch-member@example.test", "batch-member")
 	require.NoError(t, err)
 	subject := iam.UserSubject(member.ID)
 	actor := iam.UserActor(member.ID)

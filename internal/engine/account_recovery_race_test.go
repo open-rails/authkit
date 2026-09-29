@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
@@ -21,9 +22,9 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
 			t.Cleanup(runtime.Close)
-			user, err := runtime.CreateUser(t.Context(), name+"@example.test", name)
+			user, err := runtime.createUser(t.Context(), name+"@example.test", name)
 			require.NoError(t, err)
-			require.NoError(t, runtime.SoftDeleteUser(t.Context(), user.ID))
+			require.NoError(t, runtime.softDelete(t.Context(), user.ID))
 			var generation string
 			require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id::text FROM profiles.account_deletions WHERE user_id=$1::uuid", user.ID).Scan(&generation))
 			if expired {
@@ -38,7 +39,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				<-start
-				restoreErr = runtime.restoreUser(t.Context(), "", user.ID)
+				restoreErr = itemErr(runtime.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID}))
 			})
 			wg.Go(func() {
 				<-start
