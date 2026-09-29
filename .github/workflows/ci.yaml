@@ -89,6 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          # Release tags: released migrations are compared with the last one.
           fetch-depth: 0
       - uses: actions/setup-go@v7.0.0
         with:

@@ -20,12 +20,12 @@ requests to `master`, and through `workflow_dispatch`. It has three jobs:
 | Job | Checks |
 |---|---|
 | `workflows` | Race-tested AuthKit and adapter workflows against PostgreSQL 18 and Redis, the adversarial `securitytest` suite ([threat map](docs/security-tests.md)), then the two-site Chrome cookie workflow. The event gate requires the retained workflows and every security test to pass with no skipped tests. |
-| `contracts` | Go vet, SQLC generation/vet and generated-code drift, published migration/route/wire/API contracts, and module-isolated adapter checks. Fiber additionally runs its race suite and vet against the published root dependency. |
+| `contracts` | Go vet, SQLC generation/vet and generated-code drift, and immutability of released migrations ([stability](docs/stability.md)). |
 | `Required Security` | Pinned govulncheck for reachable dependency vulnerabilities, plus a Trivy filesystem scan for fixable HIGH/CRITICAL dependency, secret and configuration findings. |
 
 Permissions default to `contents: read`. Actions and installed tools carry
 explicit version or commit pins. Dependabot proposes weekly updates for the
-root and all adapter Go modules and GitHub Actions; updates use the same checks.
+Go module and GitHub Actions; updates use the same checks.
 No job uses `pull_request_target` or `continue-on-error`.
 
 ### Tests must run, not skip
@@ -49,8 +49,7 @@ govulncheck ./...
 ```
 
 Set `AUTHKIT_TEST_DATABASE_URL` and `AUTHKIT_TEST_REDIS_URL` to use existing
-local services. `.reports/` is gitignored. Published-module verification uses
-`GOWORK=off` and rejects module replacements; see [compatibility checks](compatibility/README.md).
+local services. `.reports/` is gitignored.
 
 ## Triage
 
