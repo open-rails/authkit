@@ -2,52 +2,23 @@ package engine
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
-	"math/big"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/secret"
 )
 
-// API keys: long-lived, revocable shared-secret bearer credentials owned by a
-// permission-group (not a person), for machine/automation callers (#111). An
-// API key holds exactly ONE role of its group's PERSONA catalog (or a group custom
-// role); its effective permissions are resolved FROM that role (Config.Roles
-// / group_custom_roles) at use time, so editing the role updates every
-// key that holds it. Permissions are app-defined strings, opaque to authkit. See
-// agents #43 (lifecycle) and #111 (permission-groups).
-
-const (
-	apiKeyKeyIDLen  = 16 // base62 chars; non-secret public lookup id
-	apiKeySecretLen = 43 // base62 chars ~= 256 bits of entropy
-)
-
-const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-
-func randBase62(n int) (string, error) {
-	out := make([]byte, n)
-	max := big.NewInt(int64(len(base62Alphabet)))
-	for i := range out {
-		idx, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", err
-		}
-		out[i] = base62Alphabet[idx.Int64()]
-	}
-	return string(out), nil
-}
-
-func (s *Engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
-	g := groupTarget{ID: gid, Persona: persona}
-	return s.requireRoleGrant(ctx, st, iam.UserActor(actorUserID), g, iam.PermCredentialsManage(persona), role)
-}
+// API keys (#111): long-lived, revocable bearer credentials owned by a
+// permission group, for machine callers. A key holds one role of its group
+// (catalog or custom); its permissions resolve from that role at use time, so
+// editing the role changes every key holding it. Issuance follows rule CRED
+// (credential_issuers.go): the creator is recorded and the key dies with the
+// creator's authority. The operator issues keys with no creator.
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission
 // set within a permission-group of persona: a catalog role from the schema
@@ -70,28 +41,24 @@ func (s *Engine) effectiveGroupRolePermissions(ctx context.Context, st *permissi
 	return []string{}, nil
 }
 
-// MintAPIKey inserts a new API key. The key references exactly ONE
-// role (opts.Role) valid for the owning group's persona; its effective
-// permissions are resolved from the role at use time.
-func (s *Engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.APIKeyMintOptions) (iam.APIKey, string, error) {
-	if err := s.requirePG(); err != nil {
-		return iam.APIKey{}, "", err
-	}
-	persona := iam.Persona(strings.TrimSpace(string(group.Persona())))
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+// MintAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
+// plus COVER(role). Only a user or the operator issues credentials. The token
+// is returned once.
+func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+	creator, err := credentialIssuer(a)
 	if err != nil {
 		return iam.APIKey{}, "", err
 	}
-	name := strings.TrimSpace(opts.Name)
+	name := strings.TrimSpace(k.Name)
 	if name == "" {
 		return iam.APIKey{}, "", errmodel.ErrMissingName
 	}
-	role := iam.Role(strings.ToLower(strings.TrimSpace(string(opts.Role))))
+	role := iam.Role(strings.ToLower(strings.TrimSpace(string(k.Role))))
 	if role == "" {
 		return iam.APIKey{}, "", errmodel.ErrInvalidRole
 	}
 	now := time.Now().UTC()
-	expiresAt := opts.ExpiresAt
+	expiresAt := k.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
 		return iam.APIKey{}, "", errmodel.ErrInvalidExpiry
 	}
@@ -101,145 +68,103 @@ func (s *Engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.AP
 			expiresAt = &capAt
 		}
 	}
-	secret, err := randBase62(apiKeySecretLen)
+	var out iam.APIKey
+	var token string
+	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
+			return err
+		}
+		grants, err := s.roleGrants(ctx, st, g, role)
+		if err != nil {
+			return err
+		}
+		if err := s.requireRoleGrant(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
+			return err
+		}
+		for range 5 {
+			minted, err := apikey.Mint(s.cfg.APIKeys.Prefix)
+			if err != nil {
+				return err
+			}
+			out = iam.APIKey{LookupID: minted.LookupID, Name: name, Role: role, Permissions: append([]string{}, grants...), CreatedBy: creator, ExpiresAt: expiresAt}
+			err = st.q.QueryRow(ctx, `INSERT INTO api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
+ VALUES($1::uuid,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO NOTHING RETURNING id::text,created_at`,
+				g.ID, minted.LookupID, minted.SecretHash, name, role, nullable(creator), expiresAt).Scan(&out.ID, &out.CreatedAt)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue // lookup id collision
+			}
+			token = minted.Token
+			return err
+		}
+		return errors.New("authkit: api key lookup id generation failed")
+	})
 	if err != nil {
 		return iam.APIKey{}, "", err
 	}
-	secretHash := sha256Raw(secret)
-	for attempt := 0; attempt < 5; attempt++ {
-		keyID, err := randBase62(apiKeyKeyIDLen)
-		if err != nil {
-			return iam.APIKey{}, "", err
-		}
-		var out iam.APIKey
-		err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-			if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
-				return err
-			}
-			permissions, err := s.effectiveGroupRolePermissions(ctx, st, gid, persona, role)
-			if err != nil {
-				return err
-			}
-			if permissions == nil {
-				permissions = []string{}
-			}
-			if err := s.authorizeAPIKeyRoleGrant(ctx, st, persona, gid, strings.TrimSpace(opts.CreatedBy), role); err != nil {
-				return err
-			}
-			var id string
-			var createdAt time.Time
-			err = st.q.QueryRow(ctx, `INSERT INTO api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
-   VALUES($1::uuid,$2,$3,$4,$5,$6,$7) RETURNING id::text,created_at`, gid, keyID, secretHash, name, role, nullable(strings.TrimSpace(opts.CreatedBy)), expiresAt).Scan(&id, &createdAt)
-			if err != nil {
-				return err
-			}
-			out = iam.APIKey{ID: id, KeyID: keyID, Name: name, Role: role, Permissions: permissions, CreatedBy: strings.TrimSpace(opts.CreatedBy), CreatedAt: createdAt, ExpiresAt: expiresAt}
-			return nil
-		})
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "key_id") {
-				continue
-			}
-			return iam.APIKey{}, "", err
-		}
-		return out, iam.FormatAPIKey(s.cfg.APIKeys.Prefix, keyID, secret), nil
-	}
-	return iam.APIKey{}, "", errors.New("key_id_generation_failed")
+	return out, token, nil
 }
 
-// ListAPIKeys returns metadata for every API key of the permission-group
-// addressed by (persona, instanceSlug), including revoked/expired ones. The
-// secret is never returned. Terminal keys are retained for 90 days and removed
-// by cleanupExpiredAuthState in bounded batches.
-func (s *Engine) ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]iam.APIKey, error) {
+// APIKeys lists the group's keys, newest first, including revoked and
+// expired ones (terminal keys are purged after 90 days). Never the secret.
+func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error) {
 	if err := s.requirePG(); err != nil {
-		return nil, err
+		return iam.ListPage[iam.APIKey]{}, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	after, err := idCursor(p)
 	if err != nil {
-		return nil, err
+		return iam.ListPage[iam.APIKey]{}, err
 	}
-	q := s.pg
-	rows, err := q.Query(ctx,
-		`SELECT id::text, key_id, name, role, COALESCE(created_by::text, ''),
-		        created_at, last_used_at, expires_at, revoked_at
-		 FROM api_keys
-		 WHERE permission_group_id = $1::uuid
-		 ORDER BY created_at DESC`, gid)
+	st := s.groupStore()
+	g, err := s.resolveGroup(ctx, st, ref)
 	if err != nil {
-		return nil, err
+		return iam.ListPage[iam.APIKey]{}, err
 	}
-	defer rows.Close()
-	var out []iam.APIKey
-	for rows.Next() {
+	rows, err := st.q.Query(ctx, `SELECT id::text, key_id, name, role, COALESCE(created_by::text,''), created_at, last_used_at, expires_at, revoked_at
+ FROM api_keys WHERE permission_group_id=$1::uuid AND ($2::uuid IS NULL OR id<$2::uuid)
+ ORDER BY id DESC LIMIT $3`, g.ID, after, p.PageLimit()+1)
+	if err != nil {
+		return iam.ListPage[iam.APIKey]{}, err
+	}
+	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.APIKey, error) {
 		var k iam.APIKey
-		if err := rows.Scan(&k.ID, &k.KeyID, &k.Name, &k.Role, &k.CreatedBy,
-			&k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, k)
+		err := row.Scan(&k.ID, &k.LookupID, &k.Name, &k.Role, &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt)
+		return k, err
+	})
+	if err != nil {
+		return iam.ListPage[iam.APIKey]{}, err
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	page := idPage(keys, p.PageLimit(), func(k iam.APIKey) string { return k.ID })
+	if err := s.loadAPIKeyPermissions(ctx, st, g, page.Items); err != nil {
+		return iam.ListPage[iam.APIKey]{}, err
 	}
-	if err := s.loadAPIKeyPermissions(ctx, gid, iam.Persona(strings.TrimSpace(string(group.Persona()))), out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return page, nil
 }
 
-// RevokeAPIKey marks the API key revoked. It is scoped to the group so a token
-// cannot be revoked from a different group. Returns false if no matching,
-// not-already-revoked token exists.
-func (s *Engine) RevokeAPIKey(ctx context.Context, group iam.GroupRef, tokenID string) (bool, error) {
-	if err := s.requirePG(); err != nil {
+// RevokeAPIKey revokes the group's live key id. It needs the authority to
+// issue the key's role: CAP(<p>:credentials:manage) plus COVER(role). False
+// means no live key matched in the group.
+func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, id string) (bool, error) {
+	if err := requireActor(a); err != nil {
 		return false, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
-	if err != nil {
-		return false, err
-	}
-	q := s.pg
-	tag, err := q.Exec(ctx,
-		`UPDATE api_keys SET revoked_at = now()
-		 WHERE id = $1::uuid AND permission_group_id = $2::uuid AND revoked_at IS NULL`,
-		strings.TrimSpace(tokenID), gid)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
-}
-
-// RevokeAPIKeyForActor is the runtime revoke: the actor must be able to mint
-// the key's role, so a bounded credentials manager cannot revoke a key of a
-// role above their own. Returns false if no live key matches in the group.
-func (s *Engine) RevokeAPIKeyForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, tokenID string) (bool, error) {
-	if err := requireActor(actor); err != nil {
-		return false, err
-	}
-	if err := s.requirePG(); err != nil {
-		return false, err
-	}
-	g, err := s.resolveGroup(ctx, s.groupStore(), group)
-	if err != nil {
-		return false, err
-	}
-	gid := g.ID
+	id = strings.TrimSpace(id)
 	revoked := false
-	err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
+	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if !isUUID(id) {
+			return nil
+		}
 		var role iam.Role
-		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, strings.TrimSpace(tokenID), gid).Scan(&role)
+		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, id, g.ID).Scan(&role)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.requireRoleGrant(ctx, st, actor, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
+		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
 			return err
 		}
-		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, strings.TrimSpace(tokenID)); err != nil {
+		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, id); err != nil {
 			return err
 		}
 		revoked = true
@@ -248,81 +173,63 @@ func (s *Engine) RevokeAPIKeyForActor(ctx context.Context, actor iam.Actor, grou
 	return revoked, err
 }
 
-// ResolveAPIKey validates a presented API key (key_id + secret) and returns the
-// owning permission-group id and the key's
-// effective permissions resolved from its role at verify time (a role edit is
-// reflected immediately — perms are never frozen into the key).
-func (s *Engine) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
-	resolved, err := s.ResolveAPIKeyDetailed(ctx, keyID, secret)
-	if err != nil {
-		return "", nil, err
-	}
-	return resolved.PermissionGroupID, resolved.Permissions, nil
-}
-
-// ResolveAPIKeyDetailed validates a presented API key and returns the full
-// resolution result (id, key_id, owning group, role, and role-resolved
-// permissions).
-func (s *Engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, presented string) (iam.ResolvedAPIKey, error) {
+// ResolveAPIKey authenticates a presented token: the key must exist with a
+// matching secret, be neither revoked nor expired, belong to a live group, and
+// have a live creator (a banned, deleted or reserved creator's keys are
+// refused even before any sweep revokes them). Permissions are the role's now.
+// It is verify's API-key resolver.
+func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error) {
 	if err := s.requirePG(); err != nil {
-		return iam.ResolvedAPIKey{}, err
+		return iam.APIKeyPrincipal{}, err
 	}
-	q := s.pg
+	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeys.Prefix, strings.TrimSpace(token))
+	if !ok {
+		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+	}
 	var (
-		id                string
-		secretHash        []byte
-		role              iam.Role
-		expiresAt         *time.Time
-		revokedAt         *time.Time
-		groupID           string
-		persona           iam.Persona
-		instanceSlug      string
-		customPermissions []string
+		p           iam.APIKeyPrincipal
+		secretHash  []byte
+		revokedAt   *time.Time
+		creatorLive bool
+		custom      []string
 	)
-	err := q.QueryRow(ctx,
-		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
-		        pg.id::text, pg.persona, COALESCE(pg.instance_slug, ''), r.permissions
-		 FROM api_keys t
-		 JOIN permission_groups pg ON pg.id = t.permission_group_id
- LEFT JOIN group_custom_roles r ON r.permission_group_id=t.permission_group_id AND r.role=t.role
-		 WHERE t.key_id = $1 AND pg.deleted_at IS NULL`, keyID).
-		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug, &customPermissions)
+	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
+        g.id::text, g.persona, COALESCE(g.instance_slug,''), g.display_name, r.permissions
+ FROM api_keys k
+ JOIN permission_groups g ON g.id=k.permission_group_id
+ LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
+ WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
+		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
+			&p.Group.ID, &p.Group.Persona, &p.Group.InstanceSlug, &p.Group.DisplayName, &custom)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ResolvedAPIKey{}, iam.ErrInvalidAccessToken
-		}
-		return iam.ResolvedAPIKey{}, err
+		return iam.APIKeyPrincipal{}, err
 	}
-
-	if !secret.Equal(secretHash, sha256Raw(presented)) {
-		return iam.ResolvedAPIKey{}, iam.ErrInvalidAccessToken
+	if !apikey.Matches(secretHash, secret) {
+		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
 	}
-	if revokedAt != nil {
-		return iam.ResolvedAPIKey{}, iam.ErrAccessTokenRevoked
+	if revokedAt != nil || !creatorLive {
+		return iam.APIKeyPrincipal{}, iam.ErrAccessTokenRevoked
 	}
-	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
-		return iam.ResolvedAPIKey{}, iam.ErrAccessTokenExpired
+	if p.ExpiresAt != nil && !p.ExpiresAt.After(time.Now().UTC()) {
+		return iam.APIKeyPrincipal{}, iam.ErrAccessTokenExpired
 	}
-
-	s.touchAccessTokenAsync(id)
-	// Key and custom definition were read in the same statement snapshot.
-	gotPerms := customPermissions
-	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
-		gotPerms = append([]string(nil), def.Permissions...)
+	s.touchAccessTokenAsync(p.ID)
+	sch := s.groupSchemaOrDefault()
+	persona, _ := sch.Persona(p.Group.Persona)
+	switch def, ok := sch.Role(p.Group.Persona, p.Role); {
+	case ok:
+		p.Permissions = append([]string{}, def.Permissions...)
+	case custom != nil && persona.CustomRoles:
+		p.Permissions = custom
+	default:
+		p.Permissions = []string{}
 	}
-	if gotPerms == nil {
-		gotPerms = []string{}
-	}
-	return iam.ResolvedAPIKey{
-		APIKeyID:          id,
-		KeyID:             keyID,
-		PermissionGroupID: groupID,
-		AuthorityIssuer:   s.cfg.Token.Issuer,
-		Persona:           persona,
-		InstanceSlug:      instanceSlug,
-		Role:              role,
-		Permissions:       gotPerms,
-	}, nil
+	p.LookupID = lookupID
+	p.Issuer = s.cfg.Token.Issuer
+	return p, nil
 }
 
 // touchAccessTokenAsync updates last_used_at without blocking the request. A
@@ -339,28 +246,20 @@ func (s *Engine) touchAccessTokenAsync(id string) {
 	}()
 }
 
-// loadAPIKeyPermissions fills each key's Permissions with its ROLE resolved to
-// effective permissions (#111). Keys sharing a role resolve once (cached per role).
-func (s *Engine) loadAPIKeyPermissions(ctx context.Context, groupID string, persona iam.Persona, tokens []iam.APIKey) error {
-	if len(tokens) == 0 {
-		return nil
-	}
+// loadAPIKeyPermissions fills each key's Permissions with its role resolved
+// now. Keys sharing a role resolve once.
+func (s *Engine) loadAPIKeyPermissions(ctx context.Context, st *permissionGroupStore, g groupTarget, keys []iam.APIKey) error {
 	byRole := map[iam.Role][]string{}
-	for i := range tokens {
-		role := tokens[i].Role
-		perms, ok := byRole[role]
+	for i := range keys {
+		perms, ok := byRole[keys[i].Role]
 		if !ok {
 			var err error
-			perms, err = s.effectiveGroupRolePermissions(ctx, s.groupStore(), groupID, persona, role)
-			if err != nil {
+			if perms, err = s.effectiveGroupRolePermissions(ctx, st, g.ID, g.Persona, keys[i].Role); err != nil {
 				return err
 			}
-			if perms == nil {
-				perms = []string{}
-			}
-			byRole[role] = perms
+			byRole[keys[i].Role] = perms
 		}
-		tokens[i].Permissions = perms
+		keys[i].Permissions = perms
 	}
 	return nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
@@ -260,18 +261,14 @@ func WithPermissions(fn PermissionValidator) VerifierOption {
 // API-key principal Claims on success or a sanitized error on failure. When the
 // token is not an API key, matched is false and the caller proceeds to JWT verify.
 func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, matched bool, err error) {
-	if !iam.HasAPIKeyPrefix(v.tokenPrefix, token) {
+	if !apikey.HasMarker(v.tokenPrefix, token) {
 		return Claims{}, false, nil
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
 		return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
 	}
-	keyID, secret, ok := iam.ParseAPIKey(v.tokenPrefix, token)
-	if !ok {
-		return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
-	}
-	resolved, rerr := v.enrich.ResolveAPIKeyDetailed(ctx, keyID, secret)
+	p, rerr := v.enrich.ResolveAPIKey(ctx, token)
 	if rerr != nil {
 		switch {
 		case errors.Is(rerr, iam.ErrAccessTokenRevoked):
@@ -286,14 +283,14 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		}
 	}
 	return Claims{
-		APIKeyID:    resolved.APIKeyID,
-		Permissions: resolved.Permissions,
+		APIKeyID:    p.ID,
+		Permissions: p.Permissions,
 		TokenType:   APIKeyPrincipalType,
 		// Bind the key's authority to the group instance it was minted on (#248).
-		PermissionGroupID:              resolved.PermissionGroupID,
-		PermissionGroupAuthorityIssuer: resolved.AuthorityIssuer,
-		PermissionGroupPersona:         string(resolved.Persona),
-		PermissionGroupInstance:        resolved.InstanceSlug,
+		PermissionGroupID:              p.Group.ID,
+		PermissionGroupAuthorityIssuer: p.Issuer,
+		PermissionGroupPersona:         string(p.Group.Persona),
+		PermissionGroupInstance:        p.Group.InstanceSlug,
 	}, true, nil
 }
 
@@ -576,7 +573,8 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // Enricher resolves API keys and stored application authority. Local access
 // tokens remain stateless; account liveness uses the separate LivenessSource.
 type Enricher interface {
-	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (iam.ResolvedAPIKey, error)
+	// ResolveAPIKey authenticates a whole presented API-key token.
+	ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error)
 	ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (iam.RemoteApplicationAuthority, error)

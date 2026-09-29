@@ -9,9 +9,9 @@ import (
 
 // invitesBackend is group and account invitations.
 type invitesBackend interface {
-	CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupInviteLinkRequest) (iam.GroupInviteLinkCreated, error)
-	ListGroupInviteLinks(ctx context.Context, group iam.GroupRef) ([]iam.GroupInviteLink, error)
-	RevokeGroupInviteLinkForActor(ctx context.Context, a iam.Actor, group iam.GroupRef, linkID string) error
-	CreateAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest) (authflow.AccountRegistrationInviteCreated, error)
-	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (authflow.RedeemGroupInviteLinkResult, error)
+	CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.GroupRef, l iam.NewInviteLink) (iam.InviteLinkCreated, error)
+	InviteLinks(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.InviteLink], error)
+	RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.GroupRef, linkID string) error
+	CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.NewAccountInvite) (iam.AccountInviteCreated, error)
+	RedeemInviteLink(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error)
 }

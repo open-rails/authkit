@@ -236,8 +236,9 @@ func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 }
 
 type issued struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
+	ID     string `json:"id"`
+	Code   string `json:"code"`
+	Secret string `json:"secret"`
 }
 
 func (h *host) issue(path, token string, body map[string]any) issued {
@@ -252,9 +253,9 @@ func (h *host) issue(path, token string, body map[string]any) issued {
 
 func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	keys, err := h.auth.ListAPIKeys(context.Background(), group)
+	keys, err := h.auth.APIKeys(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
 	require.NoError(t, err)
-	for _, k := range keys {
+	for _, k := range keys.Items {
 		if k.ID == id {
 			return k.RevokedAt == nil
 		}
@@ -265,9 +266,9 @@ func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 
 func liveLink(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	links, err := h.auth.ListGroupInviteLinks(context.Background(), group)
+	links, err := h.auth.InviteLinks(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
 	require.NoError(t, err)
-	for _, l := range links {
+	for _, l := range links.Items {
 		if l.ID == id {
 			return l.RevokedAt == nil
 		}

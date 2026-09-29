@@ -198,7 +198,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					channel = method
 				}
 				f.expect(403, f.post(start, body))
-				invite, err := f.service.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: uniqueEmail("invite"), InvitedBy: inviter})
+				invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: uniqueEmail("invite")})
 				require.NoError(t, err)
 				require.Equal(t, invite.URL, f.email.lastInviteURL())
 				body["account_invite_token"] = invite.Code
@@ -271,7 +271,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	// revoked invitation must leave no account or password behind.
 	for _, start := range []string{"/register", "/passwordless/start"} {
 		email := uniqueEmail("revoked")
-		invite, err := f.service.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: email})
 		require.NoError(t, err)
 		payload := map[string]any{"identifier": email, "account_invite_token": invite.Code}
 		if start == "/register" {
@@ -311,7 +311,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	_, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, uniqueEmail("collision"), username)
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
-	invite, err := f.service.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: collisionEmail, InvitedBy: inviter})
+	invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: collisionEmail})
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite.Code}))
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": f.email.verificationCode(t)}))
@@ -646,7 +646,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.service.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: email})
 		require.NoError(t, err)
 		var failed flowResponse
 		if flow == "oidc" || flow == "oauth2" {

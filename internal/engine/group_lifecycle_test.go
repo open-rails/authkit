@@ -21,7 +21,7 @@ type lifecycleReadKey struct{}
 type lifecycleReadTrace struct{ swap atomic.Pointer[func()] }
 
 func (tr *lifecycleReadTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, "WITH targets AS") || strings.Contains(data.SQL, "FROM api_keys t") {
+	if strings.Contains(data.SQL, "WITH targets AS") || strings.Contains(data.SQL, "WHERE k.key_id=") {
 		return context.WithValue(ctx, lifecycleReadKey{}, true)
 	}
 	return ctx
@@ -139,30 +139,28 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
-	mint := func() (string, string) {
-		_, token, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "lifecycle-key", Role: role, CreatedBy: owner.ID})
+	mint := func() string {
+		_, token, err := svc.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "lifecycle-key", Role: role})
 		require.NoError(t, err)
-		key, secret, ok := iam.ParseAPIKey(svc.cfg.APIKeys.Prefix, token)
-		require.True(t, ok)
-		return key, secret
+		return token
 	}
-	key, secret := mint()
-	link, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
+	token := mint()
+	link, err := svc.CreateInviteLink(ctx, iam.UserActor(owner.ID), group, iam.NewInviteLink{Role: role})
 	require.NoError(t, err)
-	invite, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
+	invite, err := svc.CreateAccountInvite(ctx, iam.UserActor(owner.ID), iam.NewAccountInvite{Email: "invitee@lifecycle.test", Group: group, Role: role})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
 	allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
 	require.NoError(t, err)
 	require.True(t, allowed)
-	resolved, err := svc.ResolveAPIKeyDetailed(ctx, key, secret)
+	resolved, err := svc.ResolveAPIKey(ctx, token)
 	require.NoError(t, err)
 	require.Contains(t, resolved.Permissions, "org:billing:write")
 	_, err = pool.Exec(ctx, `CREATE FUNCTION lifecycle_role_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected role failure'; END $$;
  CREATE TRIGGER lifecycle_role_failure BEFORE DELETE ON group_custom_roles FOR EACH ROW EXECUTE FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
 	require.ErrorContains(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role), "injected role failure")
-	_, err = svc.ResolveAPIKeyDetailed(ctx, key, secret)
+	_, err = svc.ResolveAPIKey(ctx, token)
 	require.NoError(t, err, "key deletion must roll back with definition deletion")
 	_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_role_failure ON group_custom_roles; DROP FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
@@ -174,9 +172,9 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, app.ID)
 	require.NoError(t, err)
 	require.Empty(t, authority.Permissions)
-	_, err = svc.ResolveAPIKeyDetailed(ctx, key, secret)
+	_, err = svc.ResolveAPIKey(ctx, token)
 	require.Error(t, err)
-	_, err = svc.RedeemGroupInviteLink(ctx, link.Code, member.ID)
+	_, err = svc.RedeemInviteLink(ctx, iam.UserActor(member.ID), link.Code)
 	require.Error(t, err)
 	require.Error(t, svc.consumeRegistrationInvite(ctx, "invitee@lifecycle.test", member.ID, invite.Code))
 
@@ -187,7 +185,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			define("org:billing:read")
 			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
 			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
-			key, secret := mint()
+			token := mint()
 			swap := func() {
 				require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
 				define("org:billing:write")
@@ -203,7 +201,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 				require.NoError(t, err)
 				require.NotContains(t, authority.Permissions, "org:billing:write")
 			case "key":
-				resolved, err := svc.ResolveAPIKeyDetailed(ctx, key, secret)
+				resolved, err := svc.ResolveAPIKey(ctx, token)
 				if err == nil {
 					require.NotContains(t, resolved.Permissions, "org:billing:write")
 				}
@@ -228,15 +226,15 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role)
 			},
 			func() error {
-				_, _, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "waiting", Role: role, CreatedBy: owner.ID})
+				_, _, err := svc.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "waiting", Role: role})
 				return err
 			},
 			func() error {
-				_, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
+				_, err := svc.CreateInviteLink(ctx, iam.UserActor(owner.ID), group, iam.NewInviteLink{Role: role})
 				return err
 			},
 			func() error {
-				_, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "waiting@lifecycle.test", Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
+				_, err := svc.CreateAccountInvite(ctx, iam.UserActor(owner.ID), iam.NewAccountInvite{Email: "waiting@lifecycle.test", Group: group, Role: role})
 				return err
 			},
 		}

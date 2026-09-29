@@ -192,6 +192,10 @@ func (s *Engine) applyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 		}
 		result.RootRoleAssignments++
 	}
+	// A demoted user's credentials go with the authority that issued them.
+	if err = s.revokeUncoveredCredentials(ctx, groups, groups.touched...); err != nil {
+		return result, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, err
 	}

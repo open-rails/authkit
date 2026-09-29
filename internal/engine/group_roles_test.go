@@ -181,7 +181,7 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 func TestRoleOperationsNeverEscalate(t *testing.T) {
 	f := newEscalationFixture(t)
 	ctx := t.Context()
-	key, _, err := f.engine.MintAPIKey(ctx, f.acme, iam.APIKeyMintOptions{Name: "manager-key", Role: "manager", CreatedBy: f.founder.ID})
+	key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: "manager"})
 	require.NoError(t, err)
 	actors := map[string]iam.Actor{
 		"user":                  iam.UserActor(f.manager),
@@ -254,9 +254,9 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 		t.Run(end, func(t *testing.T) {
 			creator := f.newUser("creator")
 			grantRole(t, f.engine, f.acme, creator, "manager")
-			key, _, err := f.engine.MintAPIKey(ctx, f.acme, iam.APIKeyMintOptions{Name: end + "-key", Role: "member", CreatedBy: creator.ID})
+			key, _, err := f.engine.MintAPIKey(ctx, iam.UserActor(creator.ID), f.acme, iam.NewAPIKey{Name: end + "-key", Role: "member"})
 			require.NoError(t, err)
-			link, err := f.engine.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: creator.ID})
+			link, err := f.engine.CreateInviteLink(ctx, iam.UserActor(creator.ID), f.acme, iam.NewInviteLink{Role: "member"})
 			require.NoError(t, err)
 			if end == "ban" {
 				require.NoError(t, f.engine.BanUser(ctx, creator.ID, nil, nil, f.founder.ID))
@@ -266,14 +266,14 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 			require.NoError(t, f.engine.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 				return f.engine.revokeCredentialsOf(ctx, st, creator.ID)
 			}))
-			keys, err := f.engine.ListAPIKeys(ctx, f.acme)
+			keys, err := f.engine.APIKeys(ctx, f.acme, iam.PageRequest{})
 			require.NoError(t, err)
-			for _, k := range keys {
+			for _, k := range keys.Items {
 				if k.ID == key.ID {
 					require.NotNil(t, k.RevokedAt, "the key outlived its creator")
 				}
 			}
-			_, err = f.engine.RedeemGroupInviteLink(ctx, link.Code, f.newUser("redeemer").ID)
+			_, err = f.engine.RedeemInviteLink(ctx, iam.UserActor(f.newUser("redeemer").ID), link.Code)
 			require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked)
 		})
 	}

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
@@ -58,12 +57,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			return
 		}
 		if u == nil {
-			// Account-registration invitations require a native inviter. A
-			// machine actor can manage existing users, but cannot invent one.
-			inviter, ok := userActorID(w, actor)
-			if !ok {
-				return
-			}
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
 				return
 			}
@@ -71,14 +64,9 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			// Consuming the code authorizes the stranger's registration AND grants this
 			// role on consume — one link covers register + join. Authorized by THIS
 			// group's members:manage (the role-carrying create path), which does not
-			// grant general root:users:invite authority.
-			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), authflow.CreateAccountRegistrationInviteRequest{
-				Email:        email,
-				InvitedBy:    inviter,
-				Persona:      group.Persona(),
-				InstanceSlug: group.Slug(),
-				Role:         role,
-			})
+			// grant general root:users:invite authority. Machine actors cannot
+			// issue invitations.
+			invite, err := s.svc.CreateAccountInvite(r.Context(), actor, iam.NewAccountInvite{Email: email, Group: group, Role: role})
 			if err != nil {
 				s.writeGroupOpError(w, err)
 				return

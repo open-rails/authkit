@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	stdlog "log"
 	"net/url"
 	"strings"
@@ -12,9 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
@@ -42,109 +39,68 @@ func (s *Engine) accountRegistrationInviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-func (s *Engine) CreateAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest) (authflow.AccountRegistrationInviteCreated, error) {
-	return s.createAccountRegistrationInvite(ctx, req, true)
-}
-
-func (s *Engine) createAccountRegistrationInvite(ctx context.Context, req authflow.CreateAccountRegistrationInviteRequest, requireRootInvitePermission bool) (authflow.AccountRegistrationInviteCreated, error) {
-	if err := s.requirePG(); err != nil {
-		return authflow.AccountRegistrationInviteCreated{}, err
+// CreateAccountInvite invites i.Email to register. A plain invite needs
+// CAP(root:users:invite) on root. With i.Group and i.Role set, registering also
+// grants that role, and the invite needs that group's CAP(<p>:members:manage)
+// plus COVER(role) instead (the invite-link rule), not root:users:invite. Only
+// a user or the operator issues credentials. The code is returned once and
+// emailed to i.Email.
+func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.NewAccountInvite) (iam.AccountInviteCreated, error) {
+	creator, err := credentialIssuer(a)
+	if err != nil {
+		return iam.AccountInviteCreated{}, err
 	}
-	email := contact.NormalizeEmail(req.Email)
+	email := contact.NormalizeEmail(i.Email)
 	if err := contact.ValidateEmail(email); err != nil {
-		return authflow.AccountRegistrationInviteCreated{}, err
+		return iam.AccountInviteCreated{}, err
 	}
-	invitedBy := strings.TrimSpace(req.InvitedBy)
-	if invitedBy == "" {
-		return authflow.AccountRegistrationInviteCreated{}, errmodel.ErrInvalidInvite
+	role := iam.Role(strings.ToLower(strings.TrimSpace(string(i.Role))))
+	carriesRole := !i.Group.IsZero()
+	if carriesRole != (role != "") {
+		return iam.AccountInviteCreated{}, errmodel.ErrInvalidInvite
 	}
-
-	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
-	// consume. The two halves authorize differently:
-	//   - plain registration invite (no role) -> root:users:invite (general onboarding).
-	//   - role-carrying invite -> that group's members:manage no-escalation ONLY (the
-	//     same mint gate as CreateGroupInviteLink). A member-manager may attach a
-	//     registration credential scoped to THIS invite without gaining general
-	//     root:users:invite authority.
-	group := iam.GroupBySlug(req.Persona, req.InstanceSlug)
-	persona := group.Persona()
-	role := iam.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
-	carriesRole := persona != "" && role != ""
-
-	var groupID *string
+	if carriesRole && !s.externalInvitesEnabled() {
+		return iam.AccountInviteCreated{}, iam.ErrExternalInvitesDisabled
+	}
+	ref := iam.RootGroup()
 	if carriesRole {
-		if !s.externalInvitesEnabled() {
-			return authflow.AccountRegistrationInviteCreated{}, iam.ErrExternalInvitesDisabled
-		}
-		st := s.groupStore()
-		sch := s.groupSchemaOrDefault()
-		if !s.validRoleForPersona(sch, persona, role) {
-			return authflow.AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
-		}
-		gid, err := s.resolveGroupID(ctx, st, group)
-		if err != nil {
-			return authflow.AccountRegistrationInviteCreated{}, err
-		}
-		groupID = &gid
-	} else if requireRootInvitePermission {
-		ok, err := s.Can(ctx, iam.UserSubject(invitedBy), iam.RootGroup(), iam.PermRootUsersInvite)
-		if err != nil {
-			return authflow.AccountRegistrationInviteCreated{}, err
-		}
-		if !ok {
-			return authflow.AccountRegistrationInviteCreated{}, iam.ErrInsufficientRoleAuthority
-		}
+		ref = i.Group
 	}
-
-	ttl := req.ExpiresIn
+	ttl := i.ExpiresIn
 	if ttl <= 0 {
 		ttl = defaultAccountRegistrationInviteTTL
 	}
-	expiresAt := time.Now().UTC().Add(ttl)
-	code := secret.RandB64(32)
-	codeHash := sha256Hex(code)
-	var roleParam *iam.Role
-	if carriesRole {
-		roleParam = &role
-	}
-	var id string
-	insert := func(q db.DBTX) error {
-		return q.QueryRow(ctx,
-			`INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
-		 VALUES ($1, $2::uuid, $3, $4, $5, $6)
-		 RETURNING id::text`,
-			email, invitedBy, codeHash, expiresAt, groupID, roleParam).Scan(&id)
-
-	}
-	var err error
-	if groupID != nil {
-		err = s.withLockedGroup(ctx, *groupID, func(st *permissionGroupStore) error {
-			g := groupTarget{ID: *groupID, Persona: persona}
-			if err := s.requireRoleGrant(ctx, st, iam.UserActor(invitedBy), g, iam.PermMembersManage(persona), role); err != nil {
+	out := iam.AccountInviteCreated{Code: secret.RandB64(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
+	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		var groupID *string
+		var roleParam *iam.Role
+		if carriesRole {
+			if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
 				return err
 			}
-			return insert(st.q)
-		})
-	} else {
-		err = insert(s.pg)
-	}
+			if err := s.requireRoleGrant(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
+				return err
+			}
+			groupID, roleParam = &g.ID, &role
+		} else {
+			auth, err := s.actorAuthority(ctx, st, a, g)
+			if err != nil {
+				return err
+			}
+			if err := auth.requireCap(iam.PermRootUsersInvite); err != nil {
+				return err
+			}
+		}
+		return st.q.QueryRow(ctx, `INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
+ VALUES ($1, $2::uuid, $3, $4, $5, $6) RETURNING id::text`,
+			email, nullable(creator), sha256Hex(out.Code), out.ExpiresAt, groupID, roleParam).Scan(&out.ID)
+	})
 	if err != nil {
-		return authflow.AccountRegistrationInviteCreated{}, err
+		return iam.AccountInviteCreated{}, err
 	}
-	created := authflow.AccountRegistrationInviteCreated{
-		ID:        id,
-		Code:      code,
-		URL:       s.accountRegistrationInviteURL(code),
-		Email:     email,
-		ExpiresAt: expiresAt,
-	}
-	if carriesRole {
-		created.Persona = persona
-		created.InstanceSlug = group.Slug()
-		created.Role = role
-	}
-	s.sendAccountRegistrationInviteEmail(ctx, email, created.URL)
-	return created, nil
+	out.URL = s.accountRegistrationInviteURL(out.Code)
+	s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
+	return out, nil
 }
 
 func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
@@ -176,9 +132,9 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(
-		   SELECT 1 FROM account_registration_invites
-		   WHERE code_hash = $1 AND revoked_at IS NULL
-		     AND consumed_at IS NULL AND expires_at > now()
+		   SELECT 1 FROM account_registration_invites i
+		   WHERE i.code_hash = $1 AND i.revoked_at IS NULL
+		     AND i.consumed_at IS NULL AND i.expires_at > now() AND `+issuerLive("i.invited_by")+`
 		 )`,
 		sha256Hex(token)).Scan(&exists)
 	return exists, err
@@ -208,7 +164,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, err
 	}
 	var groupID *string
-	err = q.QueryRow(ctx, `SELECT permission_group_id::text FROM account_registration_invites WHERE code_hash=$1 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()`, sha256Hex(token)).Scan(&groupID)
+	err = q.QueryRow(ctx, `SELECT i.permission_group_id::text FROM account_registration_invites i WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now() AND `+issuerLive("i.invited_by"), sha256Hex(token)).Scan(&groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errmodel.ErrAccountRegistrationInviteNotFound
 	}
@@ -223,7 +179,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 	var invite registrationInvite
 	err = tx.QueryRow(ctx, `SELECT i.id::text,i.permission_group_id::text,i.role,g.persona
 FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id=i.permission_group_id
-WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now()
+WHERE i.code_hash=$1 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at>now() AND `+issuerLive("i.invited_by")+`
 AND i.permission_group_id IS NOT DISTINCT FROM $2::uuid
 FOR UPDATE OF i`, sha256Hex(token), groupID).Scan(&invite.ID, &invite.GroupID, &invite.Role, &invite.Persona)
 	if errors.Is(err, pgx.ErrNoRows) {

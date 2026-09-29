@@ -164,7 +164,7 @@ END $$`)
 	return response
 }
 
-func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool, email string) (string, authflow.AccountRegistrationInviteCreated) {
+func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool, email string) (string, iam.AccountInviteCreated) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := fixtureBackend(srv.Backend()).ensureRootGroup(ctx)
@@ -172,10 +172,7 @@ func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool,
 	inviter, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
 	seedRole(t, fixtureBackend(srv.Backend()), iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole)
-	invite, err := srv.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{
-		Email:     email,
-		InvitedBy: inviter.ID,
-	})
+	invite, err := srv.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: email})
 	require.NoError(t, err)
 	return inviter.ID, invite
 }

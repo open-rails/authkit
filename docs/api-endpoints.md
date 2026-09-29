@@ -381,15 +381,15 @@ acts as an API-key principal for that permission group: middleware sets
 (`Claims.PrincipalKind() == authkit.PrincipalKindAPIKey`), with no `UserID`. Permissions are opaque to AuthKit; the
 embedding app owns the vocabulary and enforces meaning.
 
-**Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
+**Presentation.** `Authorization: Bearer <prefix>_st_<lookup_id>_<secret>`. `<prefix>` is
 the host's configured `authkit.Config.APIKeys.Prefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
-bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
+bare `st_`. `lookup_id` is a non-secret public id for O(1) indexed lookup; only
 `sha256(secret)` is stored. The full token is shown **once** at creation.
 
 **Resolution** happens in the `Required`/`Optional` middleware *before* JWT
-verification: tokens carrying the configured marker are looked up by `key_id`,
+verification: tokens carrying the configured marker are looked up by `lookup_id`,
 the secret is compared in constant time, and revoked/expired/group-deleted tokens
-are rejected. Non-API-key credentials fall through to normal JWT verification. The API key
+and tokens of a banned or deleted creator are rejected. Non-API-key credentials fall through to normal JWT verification. The API key
 path is distinct from the password-login handler, so API keys **bypass the
 interactive password-login rate limiter by design** (a robot must not use the
 human login path).
@@ -398,10 +398,11 @@ human login path).
 `<persona>:credentials:manage` permission. The request body supplies one `role`;
 AuthKit validates that the role exists in the target group and enforces
 no-escalation. Permissions resolve from that role at verify time rather than
-being frozen into the key. An API key carries no user, so it can never
-mint/list/revoke API keys. Revoking a key, or an invite link, needs the same
-authority as minting its role. A key or link is revoked automatically once its
-creator can no longer mint its role.
+being frozen into the key. Only a user (or the host's operator actor, whose
+keys have no creator) issues keys and invite links; machine actors never do.
+Revoking a key, or an invite link, needs the same authority as minting its
+role. A key or link is revoked automatically once its creator can no longer
+mint its role, including after a role-catalog change at boot.
 
 ## Service JWTs (OIDC/JWKS machine credentials)
 
@@ -438,9 +439,10 @@ TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
 checked on every request.
 
 **Storage.** `profiles.api_keys` (`key_id` unique, `secret_hash` bytea,
-single `role`, `created_by` audit-only & `ON DELETE SET NULL` so a token
-outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
-best-effort/async).
+single `role`, `created_by` NULL only for operator-issued keys and
+`ON DELETE CASCADE` so no key outlives its creator, nullable
+`expires_at`/`revoked_at`, `last_used_at` touched best-effort/async). A key of a
+banned, deleted or reserved creator is refused.
 
 **Configuration.** `authkit.Config.APIKeys.Prefix` (lowercase alnum, ≤16 chars; empty
 → `st_`) and `authkit.Config.APIKeys.MaxTTL` (0 = no cap).

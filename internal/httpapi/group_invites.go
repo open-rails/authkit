@@ -19,7 +19,7 @@ type inviteLinkCreateRequest struct {
 	ExpiresInSeconds *int64 `json:"expires_in_seconds,omitempty"`
 }
 
-// groupInviteLinkMint mints an invite link; the plaintext code is returned ONCE.
+// groupInviteLinkMint mints a link issued by the caller; the code is returned once.
 func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	if s.rateLimited(w, r, RLInviteCreate) {
 		return
@@ -29,45 +29,40 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	invitedBy, ok := userActorID(w, actor)
-	if !ok {
-		return
-	}
-	req := iam.CreateGroupInviteLinkRequest{
-		Persona:      group.Persona(),
-		InstanceSlug: group.Slug(),
-		Role:         iam.Role(strings.TrimSpace(body.Role)),
-		InvitedBy:    invitedBy,
-	}
+	l := iam.NewInviteLink{Role: iam.Role(strings.TrimSpace(body.Role))}
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
-		req.ExpiresIn = time.Duration(*body.ExpiresInSeconds) * time.Second
+		l.ExpiresIn = time.Duration(*body.ExpiresInSeconds) * time.Second
 	}
-	created, err := s.svc.CreateGroupInviteLink(r.Context(), req)
+	created, err := s.svc.CreateInviteLink(r.Context(), actor, group, l)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":   created.ID,
-		"code": created.Code, // shown ONCE
-		"url":  created.URL,
+		"id":         created.ID,
+		"code":       created.Code, // shown once
+		"url":        created.URL,
+		"expires_at": created.ExpiresAt,
 	})
 }
 
-// groupInviteLinkList lists the group's invite links (never returns the code).
+// groupInviteLinkList lists the group's links, newest first (?cursor=,
+// ?limit=), never their codes.
 func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	links, err := s.svc.ListGroupInviteLinks(r.Context(), group)
+	page, err := s.svc.InviteLinks(r.Context(), group, pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	data := make([]map[string]any, 0, len(links))
-	for _, l := range links {
+	data := make([]map[string]any, 0, len(page.Items))
+	for _, l := range page.Items {
 		m := map[string]any{
 			"id":         l.ID,
 			"role":       l.Role,
-			"invited_by": l.InvitedBy,
 			"created_at": l.CreatedAt,
+		}
+		if l.InvitedBy != "" {
+			m["invited_by"] = l.InvitedBy
 		}
 		if l.RedeemedAt != nil {
 			m["redeemed_at"] = l.RedeemedAt
@@ -80,12 +75,7 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 		}
 		data = append(data, m)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object":        "list",
-		"persona":       group.Persona(),
-		"instance_slug": group.Slug(),
-		"data":          data,
-	})
+	writeList(w, data, page.Next)
 }
 
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
@@ -94,7 +84,7 @@ func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeGroupInviteLinkForActor(r.Context(), actor, group, linkID); err != nil {
+	if err := s.svc.RevokeInviteLink(r.Context(), actor, group, linkID); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -106,12 +96,12 @@ type inviteRedeemRequest struct {
 	Code string `json:"code"`
 }
 
-// handleInviteRedeemPOST redeems an invite-link code for the authenticated caller,
-// assigning the link's role. Persona-agnostic: the code resolves to its own group,
-// so one endpoint serves every persona.
+// handleInviteRedeemPOST redeems an invite-link code for the signed-in user,
+// assigning the link's role. Persona-agnostic: the code resolves to its own
+// group, so one endpoint serves every persona.
 func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
+	actor, ok := verify.ActorFromContext(r.Context())
+	if !ok || actor.Kind() != iam.ActorUser {
 		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
@@ -120,7 +110,7 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	res, err := s.svc.RedeemGroupInviteLink(r.Context(), strings.TrimSpace(body.Code), claims.UserID)
+	res, err := s.svc.RedeemInviteLink(r.Context(), actor, strings.TrimSpace(body.Code))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

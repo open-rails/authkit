@@ -27,10 +27,11 @@ var forbiddenDepPrefixes = []string{
 
 // sharedInternal are engine-free internal packages the verification surface
 // may share with the engine: one outbound/SSRF policy (ak#316), one DPoP
-// proof verifier and the error catalog.
+// proof verifier, the error catalog and the API-key token format.
 var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard": true,
 	"github.com/open-rails/authkit/internal/dpop":     true,
+	"github.com/open-rails/authkit/internal/apikey":   true,
 	errmodelPackage: true,
 }
 
@@ -43,6 +44,7 @@ var stdlibOnly = map[string][]string{
 	"./iam":               {errmodelPackage},
 	"./internal/errmodel": nil,
 	"./internal/netguard": nil,
+	"./internal/apikey":   nil,
 }
 
 func listDeps(t *testing.T, pkg string) []string {

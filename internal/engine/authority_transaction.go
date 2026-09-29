@@ -47,10 +47,12 @@ func (s *Engine) withAuthorityMutation(ctx context.Context, apply func(*permissi
 }
 
 // revokeUncoveredCredentials revokes live invite links, account invitations and
-// API keys whose creator could no longer issue their role, after grants in the
-// touched groups changed (root grants apply in every group). A credential never outlives
-// the authority that issued it; otherwise a demoted creator could redeem their
-// own link, or keep using their own key, to regain the role.
+// API keys whose creator could no longer issue them, after grants in the
+// touched groups changed (root grants apply in every group, so a root touch
+// sweeps the whole site). A credential never outlives the authority that
+// issued it; otherwise a demoted creator could redeem their own link, or keep
+// using their own key, to regain the role. Operator-issued credentials (no
+// creator) are never swept.
 func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
 	type credential struct {
 		table, id, groupID, creator string
@@ -71,12 +73,17 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text
   FROM group_invite_links l JOIN scope t ON t.id=l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
-   AND ($2='' OR l.invited_by::text=$2)
+   AND l.invited_by IS NOT NULL AND ($2='' OR l.invited_by::text=$2)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text
   FROM account_registration_invites a JOIN scope t ON t.id=a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
-   AND ($2='' OR a.invited_by::text=$2)
+   AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
+UNION ALL
+SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text
+  FROM account_registration_invites a JOIN scope t ON t.persona='root'
+ WHERE a.permission_group_id IS NULL AND a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
+   AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
 UNION ALL
 SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k.created_by::text
   FROM api_keys k JOIN scope t ON t.id=k.permission_group_id
@@ -104,8 +111,11 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 			continue
 		}
 		capability := iam.PermMembersManage(c.persona)
-		if c.table == "api_keys" {
+		switch {
+		case c.table == "api_keys":
 			capability = iam.PermCredentialsManage(c.persona)
+		case c.role == "":
+			capability = iam.PermRootUsersInvite
 		}
 		err := s.creatorCovers(ctx, st, c.creator, groupTarget{ID: c.groupID, Persona: c.persona}, capability, c.role)
 		if err == nil {
@@ -127,37 +137,30 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 }
 
 // creatorCovers is rule CRED: the creator is still a live account (not
-// banned, deleted or reserved), holds capability and covers role.
+// banned, deleted or reserved), holds capability and covers role. A plain
+// registration invite carries no role, so it needs capability only.
 func (s *Engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
+	if role == "" {
+		auth, err := s.actorAuthority(ctx, st, iam.UserActor(creator), g)
+		if err != nil {
+			return err
+		}
+		return auth.requireCap(capability)
+	}
 	return s.requireRoleGrant(ctx, st, iam.UserActor(creator), g, capability, role)
 }
 
 // revokeCredentialsOf re-checks every live API key, invite link and
-// role-carrying registration invite userID issued, in every group, and
-// revokes those it no longer covers. Account lifecycle paths (ban, soft
-// delete, reserve, and purge before the row goes) call it inside their
-// authority transaction; after any of them the user covers nothing.
+// registration invite userID issued, in every group, and revokes those it no
+// longer covers. Account lifecycle paths (ban, soft delete, reserve, and purge
+// before the row goes) call it inside their authority transaction; after any
+// of them the user covers nothing.
 func (s *Engine) revokeCredentialsOf(ctx context.Context, st *permissionGroupStore, userID string) error {
-	rows, err := st.q.Query(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE invited_by=$1::uuid AND revoked_at IS NULL AND redeemed_at IS NULL
- UNION SELECT permission_group_id::text FROM account_registration_invites WHERE invited_by=$1::uuid AND permission_group_id IS NOT NULL AND revoked_at IS NULL AND consumed_at IS NULL
- UNION SELECT permission_group_id::text FROM api_keys WHERE created_by=$1::uuid AND revoked_at IS NULL`, userID)
+	rootID, err := s.rootGroup(ctx, st)
 	if err != nil {
 		return err
 	}
-	var touched []authorityTouch
-	for rows.Next() {
-		var gid string
-		if err := rows.Scan(&gid); err != nil {
-			rows.Close()
-			return err
-		}
-		touched = append(touched, authorityTouch{groupID: gid, userID: userID})
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	return s.revokeUncoveredCredentials(ctx, st, touched...)
+	return s.revokeUncoveredCredentials(ctx, st, authorityTouch{groupID: rootID, userID: userID})
 }
 
 func (st *permissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
