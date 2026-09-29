@@ -16,6 +16,18 @@ import (
 // checker, so a retained inactive group cannot grant captured token authority.
 type PermissionChecker interface {
 	CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error)
+	// KnownPermission reports whether perm is registered in the checker's
+	// permission catalogs.
+	KnownPermission(perm iam.Perm) bool
+}
+
+// MustKnowPermission panics when checker does not register perm: gating a
+// route on an unregistered permission is a programming error, caught when the
+// route is built. A nil checker (token-carried authority only) has no catalog.
+func MustKnowPermission(checker PermissionChecker, perm iam.Perm) {
+	if checker != nil && !checker.KnownPermission(perm) {
+		panic(fmt.Sprintf("authkit: RequirePermission: permission %q is not registered in any persona catalog", perm))
+	}
 }
 
 // DelegatedAuthority is implemented by a checker that can re-check, on use, a
@@ -82,7 +94,9 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.P
 // RequirePermission authorizes the resolved group once and places that exact
 // scope in the request context for the downstream handler. Missing resolution or
 // any permission-check error denies. Unbound delegated authority is scope-free.
+// It panics at construction on a perm the checker does not register.
 func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
+	MustKnowPermission(checker, perm)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())

@@ -1,8 +1,12 @@
 package iam
 
-// Built-in per-persona group-management permissions (authkit-provisioned in
-// every persona's catalog). All are 3-segment <persona>:<area>:<action>. The owner
-// role (=<persona>:*) covers them all; an app may grant them to other roles.
+// SelfResource is the permission resource meaning the group itself
+// (`channel:self:update`). It is reserved to AuthKit's built-ins.
+const SelfResource = "self"
+
+// Built-in per-persona permissions. AuthKit registers them in every persona's
+// catalog; the owner role (`<persona>:*`) covers them all, and an app may grant
+// them to other roles.
 func PermMembersManage(p Persona) Perm {
 	return Perm(string(p) + ":members:manage")
 }
@@ -25,16 +29,29 @@ func PermCredentialsRead(p Persona) Perm {
 	return Perm(string(p) + ":credentials:read")
 }
 
-// PermSettingsManage gates the group's own settings surface (#264): slug
-// rename and display-name changes. Held by the owner via `<persona>:*`;
-// grant it to other roles deliberately.
-func PermSettingsManage(p Persona) Perm {
-	return Perm(string(p) + ":settings:manage")
-}
+// PermSelfRead gates reading the group's own descriptor: id, slug, display name.
+func PermSelfRead(p Persona) Perm { return Perm(string(p) + ":self:read") }
 
-// PermSettingsRead gates reading the group's own identity descriptor (#269):
-// GET /<persona>/:instance_slug — id, slug, display name. The read symmetric of
-// PermSettingsManage; held by the owner via `<persona>:*`.
-func PermSettingsRead(p Persona) Perm {
-	return Perm(string(p) + ":settings:read")
+// PermSelfUpdate gates changing the group's slug and display name.
+func PermSelfUpdate(p Persona) Perm { return Perm(string(p) + ":self:update") }
+
+// PermSelfDelete gates the recoverable (soft) delete of the group.
+func PermSelfDelete(p Persona) Perm { return Perm(string(p) + ":self:delete") }
+
+// BuiltinPermissions returns the permissions AuthKit registers for persona p.
+// Root has no `self` permissions (its group cannot be read, renamed or
+// deleted as a group) and adds IntrinsicRootPermissions.
+func BuiltinPermissions(p Persona) []Perm {
+	out := []Perm{
+		PermMembersRead(p), PermMembersManage(p),
+		PermRolesRead(p), PermRolesManage(p),
+		PermCredentialsRead(p), PermCredentialsManage(p),
+	}
+	if p == RootPersona {
+		for _, perm := range IntrinsicRootPermissions() {
+			out = append(out, Perm(perm))
+		}
+		return out
+	}
+	return append(out, PermSelfRead(p), PermSelfUpdate(p), PermSelfDelete(p))
 }

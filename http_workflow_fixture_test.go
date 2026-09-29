@@ -319,7 +319,6 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 	t.Helper()
 	ctx := context.Background()
 	coreSvc := core
-	require.NoError(t, coreSvc.engine.SeedPermissionGroupContainment(ctx))
 	rootGID, err := coreSvc.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
@@ -864,28 +863,25 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 
 // instanceCreateTestConfig declares an "org" persona with generated creation
 // enabled: a slug pattern tighter than the built-in rule (no dots), one
-// reserved slug escalated to the root "site-admin" role, and remote
+// reserved slug that only holders of org:* on root may take, and remote
 // applications on for the role-assignment route.
 func instanceCreateTestConfig() Config {
 	cfg := newServerTestConfig()
-	cfg.RBAC = []iam.PersonaDef{
-		{Name: iam.RootPersona, Roles: []iam.RoleDef{
-			{Name: "site-admin", Permissions: []string{"root:resources:read"}},
+	cfg.Roles = RoleConfig{
+		Personas: map[string]Persona{"org": {
+			Permissions:        []string{"org:catalog:read"},
+			RemoteApplications: true,
+			Creation: GroupCreation{
+				Enabled:       true,
+				SlugPattern:   `[a-z0-9][a-z0-9-]{0,30}`,
+				ReservedSlugs: []string{"platform"},
+			},
 		}},
-		{
-			Name:         "org",
-			Parent:       iam.RootPersona,
-			Capabilities: iam.PersonaCapabilities{RemoteApplications: true},
-			Roles: []iam.RoleDef{
-				{Name: "member", Permissions: []string{"org:catalog:read"}},
-				{Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},
-			},
-			Creation: iam.InstanceCreationDef{
-				Enabled:                true,
-				SlugPattern:            `[a-z0-9][a-z0-9-]{0,30}`,
-				ReservedSlugs:          []string{"platform"},
-				ReservedEscalationRole: "site-admin",
-			},
+		Roles: []Role{
+			{Persona: iam.RootPersona, Name: "site-admin", Permissions: []string{"root:resources:read"}},
+			{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*"}},
+			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
+			{Persona: "org", Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},
 		},
 	}
 	return cfg

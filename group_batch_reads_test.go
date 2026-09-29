@@ -47,15 +47,16 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	cfg := maintenanceConfig()
 	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
-	cfg.RBAC = []iam.PersonaDef{
-		{Name: iam.RootPersona},
-		{Name: "channel", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true},
-			Catalog: []string{"channel:posts:read", "channel:posts:write"},
-			Roles: []iam.RoleDef{
-				{Name: "reader", Permissions: []string{"channel:posts:read"}},
-				{Name: "moderator", Permissions: []string{"channel:posts:read", "channel:posts:write"}, RequiresMFA: true},
-			}},
-		{Name: "section", Parent: "channel", Roles: []iam.RoleDef{{Name: "editor", Permissions: []string{"section:pages:write"}}}},
+	cfg.Roles = RoleConfig{
+		Personas: map[string]Persona{
+			"channel": {Permissions: []string{"channel:posts:read", "channel:posts:write"}, CustomRoles: true},
+			"section": {Permissions: []string{"section:pages:write"}},
+		},
+		Roles: []Role{
+			{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}},
+			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []iam.Role{"reader"}, RequiresMFA: true},
+			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
+		},
 	}
 	rt, err := New(cfg, Deps{Postgres: pool})
 	require.NoError(t, err)
@@ -67,12 +68,8 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	member, err := client.CreateUser(ctx, "batch-member@example.test", "batch-member")
 	require.NoError(t, err)
 	subject := iam.UserSubject(member.ID)
-	create := func(persona iam.Persona, slug, parent string) (string, iam.GroupRef) {
-		req := iam.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID}
-		if parent != "" {
-			req.ParentPersona, req.ParentInstanceSlug = "channel", parent
-		}
-		id, err := client.CreatePermissionGroup(ctx, req)
+	create := func(persona iam.Persona, slug string) (string, iam.GroupRef) {
+		id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID})
 		require.NoError(t, err)
 		return id, iam.GroupRef{Persona: persona, Instance: slug}
 	}
@@ -80,20 +77,20 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.NoError(t, client.OperatorAssignGroupRole(ctx, ref, subject, role))
 	}
 
-	reader, readerRef := create("channel", "batch-reader", "")
+	reader, readerRef := create("channel", "batch-reader")
 	assign(readerRef, "reader")
-	moderated, moderatedRef := create("channel", "batch-moderated", "")
+	moderated, moderatedRef := create("channel", "batch-moderated")
 	assign(moderatedRef, "moderator")
-	section, sectionRef := create("section", "batch-section", "batch-moderated")
+	section, sectionRef := create("section", "batch-section")
 	assign(sectionRef, "editor")
-	curated, curatedRef := create("channel", "batch-curated", "")
+	curated, curatedRef := create("channel", "batch-curated")
 	require.NoError(t, rt.engine.DefineGroupCustomRole(ctx, owner.ID, curatedRef, authflow.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
 	assign(curatedRef, "curator")
-	retired, retiredRef := create("channel", "batch-retired", "")
+	retired, retiredRef := create("channel", "batch-retired")
 	assign(retiredRef, "reader")
 	_, err = client.SoftDeleteGroupInstanceByID(ctx, retired)
 	require.NoError(t, err)
-	unassigned, unassignedRef := create("channel", "batch-unassigned", "")
+	unassigned, unassignedRef := create("channel", "batch-unassigned")
 	unknown := uuid.NewString()
 
 	ids := []string{reader, moderated, section, curated, retired, unassigned, unknown, "not-a-uuid", reader}
@@ -123,7 +120,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	want := map[string][]iam.Perm{
 		reader:    {"channel:posts:read"},
 		moderated: {"channel:posts:read", "channel:posts:write"},
-		section:   {"channel:posts:read", "channel:posts:write", "section:pages:write"},
+		section:   {"section:pages:write"},
 		curated:   {"channel:posts:write"},
 	}
 	require.Len(t, perms, len(want))

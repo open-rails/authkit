@@ -232,11 +232,9 @@ type ImportUnverifiedSolanaLinksResult struct {
 }
 
 type CreatePermissionGroupRequest struct {
-	Persona            Persona
-	InstanceSlug       string
-	ParentPersona      Persona
-	ParentInstanceSlug string
-	OwnerSubjectID     string
+	Persona        Persona
+	InstanceSlug   string
+	OwnerSubjectID string
 	// OwnerSubjectKind selects the owner principal kind: "user" (default) or
 	// "remote_application" (#264 service-owned orgs — an application principal
 	// owning its own permission group).
@@ -256,7 +254,7 @@ type CreatePermissionGroupRequest struct {
 // to the old group now resolves to the new owner (#308). authkit never
 // deletes a group on its own.
 type DeletePermissionGroupOptions struct {
-	// ReleaseSlug applies to every canonical name in the deleted subtree;
+	// ReleaseSlug applies to every canonical name of the deleted group;
 	// prior aliases retain their original expiry.
 	ReleaseSlug bool
 }

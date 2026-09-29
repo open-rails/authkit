@@ -143,9 +143,6 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	if err != nil {
 		return result, err
 	}
-	if err = groups.SeedContainment(ctx, schema); err != nil {
-		return result, err
-	}
 	for _, app := range manifest.RemoteApplications {
 		if err = s.applyBootstrapRemoteApplication(ctx, groups, rootID, app); err != nil {
 			return result, err

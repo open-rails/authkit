@@ -35,6 +35,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 const (
@@ -234,14 +235,14 @@ func isUniqueViolation(err error, constraint string) bool {
 
 // applicationsEnabled validates the self-registration configuration and
 // returns the org persona definition.
-func (s *engine) applicationsEnabled() (iam.PersonaDef, error) {
+func (s *engine) applicationsEnabled() (rbac.Persona, error) {
 	if !s.cfg.Applications.SelfRegistration {
-		return iam.PersonaDef{}, iam.ErrApplicationRegistrationDisabled
+		return rbac.Persona{}, iam.ErrApplicationRegistrationDisabled
 	}
 	persona := iam.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
-	if !ok || persona == iam.RootPersona || td.Parent != iam.RootPersona {
-		return iam.PersonaDef{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared persona parented by root", iam.ErrApplicationRegistrationDisabled, persona)
+	if !ok || persona == iam.RootPersona {
+		return rbac.Persona{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared non-root persona", iam.ErrApplicationRegistrationDisabled, persona)
 	}
 	return td, nil
 }
@@ -358,7 +359,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	// anti-squat gates as any org: not reserved by the persona (#296), free in
 	// the application namespace AND in the org persona namespace (live groups
 	// + tombstones).
-	if slugReserved(td.Creation.ReservedSlugs, app.Slug) {
+	if s.groupSchemaOrDefault().SlugReserved(td.Name, app.Slug) {
 		return nil, fmt.Errorf("%w: slug %q is reserved", iam.ErrApplicationSlugConflict, app.Slug)
 	}
 	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug); err == nil {
@@ -371,14 +372,10 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	} else if !available {
 		return nil, iam.ErrApplicationSlugConflict
 	}
-	rootGID, err := st.RootGroupID(ctx)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
 	}
-	gid, err := st.CreateGroupNamed(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}, rootGID, app.DisplayName)
+	gid, err := st.CreateGroupNamed(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}, app.DisplayName)
 	if err != nil {
 		return nil, err
 	}

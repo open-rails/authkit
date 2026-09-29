@@ -30,6 +30,8 @@ type authoritySource struct {
 func (s *authoritySource) CanOnGroup(context.Context, iam.Subject, string, iam.Perm) (bool, error) {
 	return false, nil
 }
+
+func (s *authoritySource) KnownPermission(iam.Perm) bool { return true }
 func (s *authoritySource) GroupInstanceByID(_ context.Context, id string) (iam.GroupInstance, error) {
 	return iam.GroupInstance{ID: id, DeletedAt: s.deletedAt}, nil
 }

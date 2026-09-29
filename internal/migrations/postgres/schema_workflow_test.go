@@ -49,13 +49,11 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			err = conn.QueryRowContext(ctx, `UPDATE `+s+`users SET email='host@example.test' WHERE id=$1::uuid RETURNING credential_version`, userID).Scan(&credentialVersion)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, credentialVersion)
-			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`group_persona_parents(persona,parent_persona) VALUES ('merchant','root')`)
+			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('root')`)
 			require.NoError(t, err)
-			var rootID string
-			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('root') RETURNING id::text`).Scan(&rootID))
-			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona,parent_id,instance_slug) VALUES ('merchant',$1::uuid,'host-merchant')`, rootID)
+			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona,instance_slug) VALUES ('merchant','host-merchant')`)
 			require.NoError(t, err)
-			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona,parent_id,instance_slug) VALUES ('team',$1::uuid,'refused-team')`, rootID)
+			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('team')`)
 			var refusal *pgconn.PgError
 			require.ErrorAs(t, err, &refusal)
 			require.Equal(t, "23514", refusal.Code)

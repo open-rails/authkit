@@ -447,6 +447,8 @@ func (f permissionChecker) CanOnGroup(ctx context.Context, subject iam.Subject, 
 	return f(ctx, subject, group, perm)
 }
 
+func (permissionChecker) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
+
 func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	issuer := newIssuer(t)
 	scope := verify.PermissionScope{GroupID: "group-uuid", AuthorityIssuer: issuer.URL(), Persona: "blog", Instance: "writers"}

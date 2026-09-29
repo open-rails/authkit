@@ -664,7 +664,7 @@ var groupOpCodes = map[error]iam.Code{
 }
 
 // customRoleRequest is the body for defining a per-group custom role.
-// RequiresMFA (#247) mirrors RoleDef.RequiresMFA for catalog roles: a custom
+// RequiresMFA (#247) mirrors Role.RequiresMFA for catalog roles: a custom
 // role granting sensitive perms can require MFA on the same assignment/redeem
 // gate.
 type customRoleRequest struct {
@@ -726,7 +726,7 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 }
 
 // groupInstanceDescriptor is the #269 instance-identity read
-// (GET /<persona>/{instance_slug}), gated by <persona>:settings:read — the read
+// (GET /<persona>/{instance_slug}), gated by <persona>:self:read — the read
 // symmetric of the #264 PATCH. It answers with the instance's own uuid, which is
 // the JOIN KEY a host needs to carry the group into its own (or a sibling
 // service's) ledger; every route stays slug-addressed, so the id is knowable
@@ -755,7 +755,7 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 }
 
 // groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):
-// display-name changes and slug renames, gated by <persona>:settings:manage
+// display-name changes and slug renames, gated by <persona>:self:update
 // (the owner holds it via the wildcard). The captured UUID is retained through
 // authorization, slug rename and display-name mutation in one transaction.
 func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {

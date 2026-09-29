@@ -78,7 +78,7 @@ type PasswordlessStartResult struct {
 
 // CustomRoleDef defines (or redefines) a per-group custom role: its grant
 // patterns, all in the group's persona namespace, and whether holding it
-// requires an enrolled second factor (mirrors RoleDef.RequiresMFA, #247).
+// requires an enrolled second factor (mirrors Role.RequiresMFA, #247).
 type CustomRoleDef struct {
 	Role        iam.Role
 	Permissions []string

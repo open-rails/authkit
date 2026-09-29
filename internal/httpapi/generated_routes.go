@@ -1,6 +1,9 @@
 package httpapi
 
-import "github.com/open-rails/authkit/iam"
+import (
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/rbac"
+)
 
 // Route-surface generation (#111): the auto-generated management routes are
 // DERIVED from each configured group persona. Public routes
@@ -22,12 +25,11 @@ type GeneratedRoute struct {
 // per-persona definition. The HTTP layer mounts exactly these; disabled
 // capabilities are simply absent (→ 404). Reads gate on <area>:read;
 // mutations on the matching <area>:manage built-in.
-func GeneratedRoutes(s *iam.GroupSchema) []GeneratedRoute {
+func GeneratedRoutes(s *rbac.Schema) []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, persona := range s.Personas() {
 		td, _ := s.Persona(persona)
 		base := "/" + string(persona) + "/:instance_slug"
-		caps := td.Capabilities
 		memberRoutes := persona != iam.RootPersona
 
 		if memberRoutes {
@@ -37,30 +39,30 @@ func GeneratedRoutes(s *iam.GroupSchema) []GeneratedRoute {
 				GeneratedRoute{persona, "POST", base + "/members", mg},
 				GeneratedRoute{persona, "DELETE", base + "/members/:user", mg},
 				GeneratedRoute{persona, "PUT", base + "/members/:user/roles/:role", mg},
-				// #264: group settings — slug rename (tombstone-forwarding)
+				// #264: the group itself — slug rename (tombstone-forwarding)
 				// and display-name changes. Owner-controlled via the wildcard.
-				GeneratedRoute{persona, "PATCH", base, iam.PermSettingsManage(persona)},
+				GeneratedRoute{persona, "PATCH", base, iam.PermSelfUpdate(persona)},
 				// #269: the instance's own identity descriptor — the read
 				// symmetric of the PATCH, and the only place a caller outside
 				// the process learns the group's uuid. Creation reports it
 				// once; this route is how it stays recoverable (and how an
 				// instance created before #269 becomes addressable at all).
-				GeneratedRoute{persona, "GET", base, iam.PermSettingsRead(persona)},
+				GeneratedRoute{persona, "GET", base, iam.PermSelfRead(persona)},
 			)
 		}
 		// Listing the role catalog is part of visible role/member management;
 		// personas with every management capability off emit no public routes.
-		if memberRoutes || caps.CustomRoles {
+		if memberRoutes || td.CustomRoles {
 			out = append(out, GeneratedRoute{persona, "GET", base + "/roles", iam.PermRolesRead(persona)})
 		}
-		if caps.CustomRoles {
+		if td.CustomRoles {
 			mg := iam.PermRolesManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "POST", base + "/roles", mg},
 				GeneratedRoute{persona, "DELETE", base + "/roles/:role", mg},
 			)
 		}
-		if caps.APIKeys {
+		if td.APIKeys {
 			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/api-keys", rd},
@@ -68,7 +70,7 @@ func GeneratedRoutes(s *iam.GroupSchema) []GeneratedRoute {
 				GeneratedRoute{persona, "DELETE", base + "/api-keys/:key", mg},
 			)
 		}
-		if caps.RemoteApplications {
+		if td.RemoteApplications {
 			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/remote-applications", rd},

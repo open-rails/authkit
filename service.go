@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -86,8 +87,8 @@ type engine struct {
 	sms          SMSSender
 	pg           *pgxpool.Pool
 	q            *db.Queries
-	schema       string           // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema  *iam.GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
+	schema       string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema  *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
 	entitlements atomic.Pointer[entitlementsBox]
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.

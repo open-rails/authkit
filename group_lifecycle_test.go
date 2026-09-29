@@ -21,7 +21,7 @@ type lifecycleReadKey struct{}
 type lifecycleReadTrace struct{ swap atomic.Pointer[func()] }
 
 func (tr *lifecycleReadTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, "WITH RECURSIVE chain AS") || strings.Contains(data.SQL, "FROM api_keys t") {
+	if strings.Contains(data.SQL, "WITH targets AS") || strings.Contains(data.SQL, "FROM api_keys t") {
 		return context.WithValue(ctx, lifecycleReadKey{}, true)
 	}
 	return ctx
@@ -34,7 +34,7 @@ func (tr *lifecycleReadTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ 
 	}
 }
 
-// One real-store workflow covers subtree reservation/release/rollback and role
+// One real-store workflow covers name reservation/release/rollback and role
 // edit/delete/recreate across members, applications, keys and deferred grants.
 // Controlled query barriers also exercise writer and reader interleavings.
 func TestGroupLifecycleWorkflow(t *testing.T) {
@@ -48,86 +48,71 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []iam.PersonaDef{
-		{Name: "org", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true, APIKeys: true}, Catalog: []string{"org:billing:read", "org:billing:write"}},
-		{Name: "repo", Parent: "org"}, {Name: "leaf", Parent: "repo"},
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
+		Personas: map[string]Persona{"org": {Permissions: []string{"org:billing:read", "org:billing:write"}, CustomRoles: true, APIKeys: true}},
 	}}, keyset{}, Deps{Postgres: pool})
-	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	_, err = svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	owner, err := svc.CreateUser(ctx, "owner@lifecycle.test", "lifecycleowner")
 	require.NoError(t, err)
 	member, err := svc.CreateUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
-	create := func(persona, name, parent string) string {
-		id, err := svc.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: iam.Persona(persona), InstanceSlug: name, ParentInstanceSlug: parent, OwnerSubjectID: owner.ID})
+	create := func(name string) string {
+		id, err := svc.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: name, OwnerSubjectID: owner.ID})
 		require.NoError(t, err)
 		return id
 	}
 	for _, release := range []bool{false, true} {
-		t.Run(fmt.Sprintf("subtree_release_%v", release), func(t *testing.T) {
-			parentName := fmt.Sprintf("parent-%v", release)
-			childName := fmt.Sprintf("child-%v", release)
-			leafName := fmt.Sprintf("leaf-%v", release)
-			parent := create("org", parentName, "")
-			child := create("repo", childName, parentName)
-			leaf := create("leaf", leafName, childName)
-			renamed := childName + "-renamed"
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, iam.GroupInstanceUpdate{Slug: &renamed})
+		t.Run(fmt.Sprintf("delete_release_%v", release), func(t *testing.T) {
+			name := fmt.Sprintf("group-%v", release)
+			group := create(name)
+			renamed := name + "-renamed"
+			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, group, iam.GroupInstanceUpdate{Slug: &renamed})
 			require.NoError(t, err)
 			var deadline time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&deadline))
-			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, parent, iam.DeletePermissionGroupOptions{ReleaseSlug: release}))
-			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, parent, iam.DeletePermissionGroupOptions{ReleaseSlug: release})) // captured-ID replay
+			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&deadline))
+			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{ReleaseSlug: release}))
+			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{ReleaseSlug: release})) // captured-ID replay
 			var remaining int
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
 			require.Zero(t, remaining)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
-			require.Zero(t, remaining, "descendant authority rows cascade with the subtree")
-			for _, ref := range []iam.GroupRef{{Persona: "org", Instance: parentName}, {Persona: "repo", Instance: renamed}, {Persona: "leaf", Instance: leafName}} {
-				available, err := svc.groupStore().InstanceSlugAvailable(ctx, ref)
-				require.NoError(t, err)
-				require.Equal(t, release, available)
-			}
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&remaining))
+			require.Zero(t, remaining, "authority rows cascade with the group")
+			available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "org", Instance: renamed})
+			require.NoError(t, err)
+			require.Equal(t, release, available)
 			var retained time.Time
-			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&retained))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&retained))
 			require.True(t, deadline.Equal(retained), "old aliases keep their issued deadlines")
 		})
 	}
-	t.Run("subtree_rollback_and_late_descendant", func(t *testing.T) {
-		parent := create("org", "fault-parent", "")
-		child := create("repo", "fault-child", "fault-parent")
+	t.Run("delete_rollback_and_concurrent_rename", func(t *testing.T) {
+		group := create("fault-group")
 		_, err := pool.Exec(ctx, `CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
-  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-child') EXECUTE FUNCTION lifecycle_delete_failure()`)
+  CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-group') EXECUTE FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
-		require.ErrorContains(t, svc.DeleteGroupInstanceByID(ctx, parent, iam.DeletePermissionGroupOptions{}), "injected lifecycle failure")
+		require.ErrorContains(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{}), "injected lifecycle failure")
 		var canonical bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, child).Scan(&canonical))
-		require.True(t, canonical, "reservation rolls back with the failed cascade")
+		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, group).Scan(&canonical))
+		require.True(t, canonical, "reservation rolls back with the failed delete")
 		_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_delete_failure ON permission_groups; DROP FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
 		blocker, err := pool.Begin(ctx)
 		require.NoError(t, err)
 		defer blocker.Rollback(ctx)
-		_, err = blocker.Exec(ctx, `SELECT id FROM permission_groups WHERE id=$1 FOR KEY SHARE`, child)
+		_, err = blocker.Exec(ctx, `SELECT id FROM permission_groups WHERE id=$1 FOR KEY SHARE`, group)
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
-		go func() { deleted <- svc.DeleteGroupInstanceByID(ctx, parent, iam.DeletePermissionGroupOptions{}) }()
+		go func() { deleted <- svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{}) }()
 		require.Eventually(t, func() bool {
 			var n int
-			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%WHERE parent_id=ANY%'`).Scan(&n)
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE%'`).Scan(&n)
 			return err == nil && n == 1
 		}, 5*time.Second, 10*time.Millisecond)
-		// FK KEY SHARE is compatible with the blocker, so this descendant commits
-		// after deletion began but before the child row can be locked/traversed.
-		// Public creation queues behind the authority lock. This direct store
-		// insertion still exercises the subtree traversal's FK race boundary.
-		_, err = svc.groupStore().CreateGroup(ctx, iam.GroupRef{Persona: "leaf", Instance: "late-leaf"}, child)
-		require.NoError(t, err)
 		renamed := make(chan error, 1)
-		newName := "fault-child-renamed"
+		newName := "fault-group-renamed"
 		go func() {
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, iam.GroupInstanceUpdate{Slug: &newName})
+			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, group, iam.GroupInstanceUpdate{Slug: &newName})
 			renamed <- err
 		}()
 		require.Eventually(t, func() bool {
@@ -138,15 +123,12 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
 		renameErr := <-renamed
-		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "repo", Instance: newName})
+		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "org", Instance: newName})
 		require.NoError(t, err)
 		require.Equal(t, renameErr != nil, newAvailable, "a completed concurrent rename must be reserved; a losing rename leaves no claim")
-		available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "leaf", Instance: "late-leaf"})
-		require.NoError(t, err)
-		require.False(t, available, "late committed descendants must be reserved too")
 	})
 
-	gid := create("org", "role-lifecycle", "")
+	gid := create("role-lifecycle")
 	group := iam.GroupRef{Persona: "org", Instance: "role-lifecycle"}
 	role := iam.Role("auditor")
 	define := func(permission string) {

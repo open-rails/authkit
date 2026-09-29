@@ -69,7 +69,7 @@ func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 			return iam.ErrTwoFAEnrollmentRequired
 		}
 		// #249 follow-up: Mode==Optional otherwise lets an unenrolled user
-		// through — EXCEPT a user holding a role whose RoleDef.RequiresMFA is
+		// through — EXCEPT a user holding a role whose Role.RequiresMFA is
 		// true. That combination arises when a role was assigned while
 		// Mode==Disabled (requireMFAForRoleAssignment short-circuits there so
 		// bootstrap can't brick itself) and the host later re-enables 2FA,
@@ -98,7 +98,7 @@ func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 }
 
 // roleRequiresMFA reports whether role (in persona) requires MFA: a catalog
-// role's declared RoleDef.RequiresMFA, or — for a non-catalog role (#247) — a
+// role's declared Role.RequiresMFA, or — for a non-catalog role (#247) — a
 // per-group custom role's stored requires_mfa flag, looked up in gid. gid may
 // be empty when the role is known to be a catalog role at the call site (the
 // custom-role branch is then simply skipped, reporting false).
@@ -118,7 +118,7 @@ func (s *engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, per
 
 // userHoldsMFARequiredRole reports whether userID currently holds at least one
 // role, in any permission group, that requires MFA — a catalog role with
-// RoleDef.RequiresMFA or a custom role with requires_mfa (#247). Used only by
+// Role.RequiresMFA or a custom role with requires_mfa (#247). Used only by
 // requireSessionMFAStateWith (login/refresh session establishment) — never
 // per-request middleware — since it hits the database.
 func (s *engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {

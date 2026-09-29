@@ -12,9 +12,7 @@ import (
 func TestClientOperatorRoleOperations(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	runtime := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://admin-client.test"},
-		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{
-			iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}),
-		}}, keyset{}, Deps{Postgres: pg.Pool})
+		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Roles: editorRoles()}, keyset{}, Deps{Postgres: pg.Pool})
 	client := runtime
 	ctx := t.Context()
 	user, err := client.CreateUser(ctx, "operator@example.test", "operator")
@@ -38,7 +36,9 @@ func TestClientOperatorRoleOperations(t *testing.T) {
 	canEdit(true)
 	// Host authority does not bypass subject-state MFA requirements.
 	runtime.cfg.TwoFactor.Mode = iam.TwoFactorOptional
-	runtime.groupSchema, err = iam.BuildSchema(iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}, RequiresMFA: true}))
+	mfaRoles := editorRoles()
+	mfaRoles.Roles[0].RequiresMFA = true
+	runtime.groupSchema, err = mfaRoles.schema()
 	require.NoError(t, err)
 	other, err := client.CreateUser(ctx, "unenrolled@example.test", "unenrolled")
 	require.NoError(t, err)

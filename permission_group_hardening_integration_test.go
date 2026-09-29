@@ -22,21 +22,19 @@ import (
 // real Postgres, mirroring the harness in permission_group_credentials_integration_test.go.
 
 // hardeningTestConfig declares a "merchant" persona with custom roles enabled
-// and an explicit Catalog so a bounded "roles-admin" role (holds
-// merchant:roles:manage but none of the billing perms) can be built for the
-// escalation tests.
+// and a catalog so a bounded "roles-admin" role (holds merchant:roles:manage
+// but none of the billing perms) can be built for the escalation tests.
 func hardeningTestConfig() Config {
 	return Config{
 		Keys:  testKeys(),
 		Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
-		RBAC: []iam.PersonaDef{{
-			Name: "merchant", Parent: iam.RootPersona,
-			Capabilities: iam.PersonaCapabilities{CustomRoles: true},
-			Catalog:      []string{"merchant:billing:read", "merchant:billing:write", "merchant:catalog:read", "merchant:roles:manage"},
-			Roles: []iam.RoleDef{
-				{Name: "roles-admin", Permissions: []string{"merchant:roles:manage"}},
-			},
-		}},
+		Roles: RoleConfig{
+			Personas: map[string]Persona{"merchant": {
+				Permissions: []string{"merchant:billing:read", "merchant:billing:write", "merchant:catalog:read"},
+				CustomRoles: true,
+			}},
+			Roles: []Role{{Persona: "merchant", Name: "roles-admin", Permissions: []string{"merchant:roles:manage"}}},
+		},
 	}
 }
 
@@ -48,7 +46,6 @@ func newHardeningTestService(t *testing.T) (*httpapi.Service, *pgxpool.Pool, str
 	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
 	require.NoError(t, err)
 	t.Cleanup(coreSvc.Close)
-	require.NoError(t, coreSvc.engine.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 

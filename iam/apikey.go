@@ -69,7 +69,7 @@ type ResolvedAPIKey struct {
 	// Persona / InstanceSlug identify the owning permission-group INSTANCE the
 	// key was minted on (#248). InstanceSlug is "" for singleton personas (root).
 	// The verify layer binds the key's token-carried permissions to this exact
-	// instance; descendant/walk-down authority is deliberately deferred.
+	// instance.
 	Persona      Persona
 	InstanceSlug string
 	Role         Role

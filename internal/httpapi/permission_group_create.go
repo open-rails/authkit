@@ -1,7 +1,7 @@
 package httpapi
 
 // #263: the generated persona-instance CREATION route — POST /<persona> for
-// personas whose InstanceCreationDef opts in. An authenticated USER creates a
+// personas whose GroupCreation opts in. An authenticated USER creates a
 // group instance and is seeded as its owner; slug pattern, reserved-slug
 // escalation, the host admission seam, and create-or-return-if-member
 // idempotency live in the core create path (CreateInstanceForSubject). AuthKit

@@ -15,7 +15,6 @@ func cleanRootGroupTables(ctx context.Context, pool *pgxpool.Pool) {
 	_, _ = pool.Exec(ctx, `DELETE FROM group_remote_application_roles`)
 	_, _ = pool.Exec(ctx, `DELETE FROM group_user_roles`)
 	_, _ = pool.Exec(ctx, `DELETE FROM permission_groups`)
-	_, _ = pool.Exec(ctx, `DELETE FROM group_persona_parents`)
 }
 
 // The sole root owner disabling their own 2FA must be refused outright — never

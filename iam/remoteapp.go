@@ -57,8 +57,7 @@ type RemoteAppKey struct {
 // RemoteApplicationAuthority is a remote_application's STORED authority: its
 // role-resolved effective permissions plus the owning permission-group INSTANCE
 // they are bound to (#248). InstanceSlug is "" for singleton personas (root).
-// Exact-instance binding only; descendant/walk-down authority is deliberately
-// deferred.
+// Exact-instance binding only.
 type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string

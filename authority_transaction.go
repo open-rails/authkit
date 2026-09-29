@@ -11,7 +11,7 @@ import (
 )
 
 // lockAuthority precedes every group, account, MFA and session row lock in an
-// authority mutation. A schema-wide boundary also protects ancestor grants and
+// authority mutation. A schema-wide boundary also protects root grants and
 // mutable role definitions. Login, verification and session reads do not use it.
 func (s *engine) lockAuthority(ctx context.Context, q db.DBTX) error {
 	_, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.authority."+s.dbSchema())
@@ -48,7 +48,7 @@ func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*permissi
 
 // revokeUncoveredCredentials revokes live invite links, account invitations and
 // API keys whose creator could no longer issue their role, after grants in the
-// touched groups (and so their subtrees) changed. A credential never outlives
+// touched groups changed (root grants apply in every group). A credential never outlives
 // the authority that issued it; otherwise a demoted creator could redeem their
 // own link, or keep using their own key, to regain the role.
 func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
@@ -64,21 +64,22 @@ func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 			continue
 		}
 		seen[t] = true
-		rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
-  SELECT id, persona FROM permission_groups WHERE id=$1::uuid
-  UNION ALL SELECT g.id, g.persona FROM permission_groups g JOIN subtree p ON g.parent_id=p.id WHERE g.deleted_at IS NULL)
+		rows, err := st.q.Query(ctx, `WITH scope AS (
+  SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
+    ON g.id=t.id OR (t.persona='root' AND g.deleted_at IS NULL)
+   WHERE t.id=$1::uuid)
 SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text
-  FROM group_invite_links l JOIN subtree t ON t.id=l.permission_group_id
+  FROM group_invite_links l JOIN scope t ON t.id=l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
    AND ($2='' OR l.invited_by::text=$2)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text
-  FROM account_registration_invites a JOIN subtree t ON t.id=a.permission_group_id
+  FROM account_registration_invites a JOIN scope t ON t.id=a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
    AND ($2='' OR a.invited_by::text=$2)
 UNION ALL
 SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k.created_by::text
-  FROM api_keys k JOIN subtree t ON t.id=k.permission_group_id
+  FROM api_keys k JOIN scope t ON t.id=k.permission_group_id
  WHERE k.revoked_at IS NULL AND k.created_by IS NOT NULL AND (k.expires_at IS NULL OR k.expires_at>now())
    AND ($2='' OR k.created_by::text=$2)`, t.groupID, t.userID)
 		if err != nil {
@@ -281,17 +282,14 @@ func (s *engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 	return st.AssignRole(ctx, gid, subject, role)
 }
 
-// A subtree deletion can also delete applications owning other groups. Check
+// A group deletion can also delete applications owning other groups. Check
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.
-func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore, gid string) ([]string, error) {
-	rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
-      SELECT id FROM permission_groups WHERE id=$1::uuid
-      UNION ALL SELECT g.id FROM permission_groups g JOIN subtree p ON g.parent_id=p.id)
-      SELECT DISTINCT r.permission_group_id::text FROM group_remote_application_roles r
+func outsideApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore, gid string) ([]string, error) {
+	rows, err := st.q.Query(ctx, `SELECT DISTINCT r.permission_group_id::text FROM group_remote_application_roles r
       JOIN remote_applications a ON a.id=r.remote_application_id
-      WHERE a.permission_group_id IN (SELECT id FROM subtree) AND a.enabled AND r.role='owner'
-      AND r.permission_group_id NOT IN (SELECT id FROM subtree)`, gid)
+      WHERE a.permission_group_id=$1::uuid AND a.enabled AND r.role='owner'
+      AND r.permission_group_id<>$1::uuid`, gid)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +311,7 @@ func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *permissionGro
 }
 
 func (s *engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string, opts iam.DeletePermissionGroupOptions) error {
-	surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, gid)
+	surviving, err := outsideApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err
 	}

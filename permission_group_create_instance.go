@@ -1,8 +1,8 @@
 package authkit
 
 // Generated persona-instance CREATION (#263): the core policy behind
-// POST /<persona>. Per-persona config (InstanceCreationDef) declares the slug
-// pattern and the reserved-slug list + escalation role; the host cost gate is
+// POST /<persona>. Per-persona config (GroupCreation) declares the slug
+// pattern and the reserved-slug list; the host cost gate is
 // the MayCreateInstance admission seam (WithInstanceAdmission); velocity limits
 // (per-IP + per-user) are enforced by the HTTP layer. Creation is idempotent
 // for existing members: re-creating a slug you already belong to returns the
@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // MayCreateInstance consults the host admission seam (#263). A nil predicate
@@ -33,8 +34,8 @@ func (s *engine) MayCreateInstance(ctx context.Context, group iam.GroupRef, subj
 }
 
 // CreateInstanceForSubject is the #263 creation path: validate the slug against
-// the persona's creation config, gate reserved slugs on the root escalation
-// role, consult the host admission seam, then create the group with ownerUserID
+// the persona's creation config, gate reserved slugs on `<persona>:*` held on
+// root, consult the host admission seam, then create the group with ownerUserID
 // seeded as owner. If the slug is already held and the caller is a member of
 // that group, it returns Created=false instead of a conflict.
 func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (authflow.CreateInstanceResult, error) {
@@ -48,8 +49,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 	ownerUserID = strings.TrimSpace(ownerUserID)
 	out.InstanceSlug = slug
 
-	def, ok := sch.CreationDef(persona)
-	if !ok || !def.Enabled {
+	if !sch.CreationEnabled(persona) {
 		return out, fmt.Errorf("group persona %q does not allow generated instance creation: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	if ownerUserID == "" {
@@ -101,10 +101,9 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 
 // authorizeSlugClaim is the single gate for a user claiming an instance slug
 // (creation and rename, #263/#292): the built-in slug rule, the persona's
-// SlugPattern, and reserved slugs, which only a holder of the configured
-// root-group escalation role may take; with no role configured they are never
-// claimable.
-func (s *engine) authorizeSlugClaim(ctx context.Context, sch *iam.GroupSchema, group iam.GroupRef, actorUserID string) error {
+// SlugPattern, and reserved slugs, which only a holder of `<persona>:*` on root
+// may take.
+func (s *engine) authorizeSlugClaim(ctx context.Context, sch *rbac.Schema, group iam.GroupRef, actorUserID string) error {
 	persona, slug := group.Persona, group.Instance
 	if err := iam.ValidateGroupInstanceSlug(group); err != nil {
 		return fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
@@ -112,35 +111,26 @@ func (s *engine) authorizeSlugClaim(ctx context.Context, sch *iam.GroupSchema, g
 	if !sch.CreationSlugAllowed(persona, slug) {
 		return fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, iam.ErrGroupSlugInvalid)
 	}
-	def, _ := sch.CreationDef(persona)
-	if slugReserved(def.ReservedSlugs, slug) {
-		role := iam.Role(strings.TrimSpace(string(def.ReservedEscalationRole)))
-		if role == "" || strings.TrimSpace(actorUserID) == "" || !s.userHoldsRootRole(ctx, actorUserID, role) {
-			return iam.ErrGroupSlugReserved
-		}
+	if !sch.SlugReserved(persona, slug) {
+		return nil
+	}
+	actorUserID = strings.TrimSpace(actorUserID)
+	if actorUserID == "" {
+		return iam.ErrGroupSlugReserved
+	}
+	st := s.groupStore()
+	rootID, err := st.RootGroupID(ctx)
+	if err != nil {
+		return err
+	}
+	ok, err := st.CanOnGroup(ctx, sch, iam.UserSubject(actorUserID), rootID, persona.OwnerGrant())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return iam.ErrGroupSlugReserved
 	}
 	return nil
-}
-
-func slugReserved(reserved []string, slug string) bool {
-	for _, r := range reserved {
-		if strings.ToLower(strings.TrimSpace(r)) == slug {
-			return true
-		}
-	}
-	return false
-}
-
-// userHoldsRootRole reports whether the user holds the named LIVE configured
-// role in the root group (the reserved-slug escalation check).
-func (s *engine) userHoldsRootRole(ctx context.Context, userID string, role iam.Role) bool {
-	roles, _ := s.rootRoleSlugsByUser(ctx, userID)
-	for _, r := range roles {
-		if r == string(role) {
-			return true
-		}
-	}
-	return false
 }
 
 // subjectMemberOfGroup reports whether the user holds a DIRECT role in the live

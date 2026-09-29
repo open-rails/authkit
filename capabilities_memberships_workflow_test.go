@@ -16,7 +16,10 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.RBAC = []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "reader", Permissions: []string{"root:posts:read"}})}
+	cfg.Roles = RoleConfig{
+		Personas: map[string]Persona{"root": {Permissions: []string{"root:posts:read"}}},
+		Roles:    []Role{{Persona: iam.RootPersona, Name: "reader", Permissions: []string{"root:posts:read"}}},
+	}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	f.service.SetProviders(authprovider.Google("google-client", "secret"), authprovider.Discord("discord-client", "secret"))
 	f.mount()

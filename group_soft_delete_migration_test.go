@@ -38,4 +38,10 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 	require.Equal(t, 1, canonical)
 	_, err = pg.Pool.Exec(ctx, "UPDATE profiles.permission_groups SET deleted_at=now() WHERE id=$1::uuid", root)
 	require.Error(t, err, "root remains active at the storage boundary")
+	var containment int
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM information_schema.columns WHERE table_schema='profiles' AND table_name='permission_groups' AND column_name='parent_id')
+		+ (SELECT count(*) FROM information_schema.tables WHERE table_schema='profiles' AND table_name='group_persona_parents')`).Scan(&containment))
+	require.Zero(t, containment, "0005 drops the stored containment tree")
+	_, err = pg.Pool.Exec(ctx, "INSERT INTO profiles.permission_groups(persona) VALUES('channel')")
+	require.Error(t, err, "a non-root group needs a slug")
 }

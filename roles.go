@@ -10,7 +10,7 @@ import (
 )
 
 // Root permission-group role helpers. "Root roles" are a user's assignments in
-// the RootPersona group; the catalog itself lives in Config (the GroupSchema),
+// the RootPersona group; the catalog itself lives in Config.Roles,
 // not the DB, so upsert is validation-only.
 
 // normalizeRootRoleSlug canonicalises a root role slug. "admin" is not special:
@@ -101,7 +101,7 @@ func (s *engine) AssignRoleBySlug(ctx context.Context, userID string, role iam.R
 }
 
 // UpsertRoleBySlug is a no-op under the permission-group model: catalog roles
-// live in core.Config (the GroupSchema), not the DB, so there is nothing to
+// live in Config.Roles, not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug
 // is a known root catalog role, ensures the root group exists, and returns.
 func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role iam.Role, description *string) error {

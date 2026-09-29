@@ -13,10 +13,9 @@ import (
 func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := instanceCreateTestConfig()
-	cfg.RBAC[1].Roles = append(cfg.RBAC[1].Roles, iam.RoleDef{Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
+	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
-	require.NoError(t, client.engine.SeedPermissionGroupContainment(ctx))
 	_, err := client.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())

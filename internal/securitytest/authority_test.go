@@ -25,20 +25,19 @@ import (
 const orgPersona iam.Persona = "org"
 
 func withRBAC(c *authkit.Config) {
-	c.RBAC = []iam.PersonaDef{
-		iam.IntrinsicRootPersona(
-			iam.RoleDef{Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
-			iam.RoleDef{Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
-			iam.RoleDef{Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersRecover, iam.PermRootResourcesRead}},
-		),
-		{
-			Name:         orgPersona,
-			Parent:       iam.RootPersona,
-			Capabilities: iam.PersonaCapabilities{RemoteApplications: true, APIKeys: true, CustomRoles: true},
-			Roles: []iam.RoleDef{
-				{Name: "member", Permissions: []string{"org:catalog:read"}},
-				{Name: "manager", Permissions: []string{"org:members:manage", "org:members:read", "org:credentials:manage", "org:credentials:read", "org:roles:manage", "org:roles:read", "org:catalog:read"}},
-			},
+	c.Roles = authkit.RoleConfig{
+		Personas: map[string]authkit.Persona{
+			string(orgPersona): {Permissions: []string{"org:catalog:read"}, RemoteApplications: true, APIKeys: true, CustomRoles: true},
+		},
+		Roles: []authkit.Role{
+			{Persona: iam.RootPersona, Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
+			{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
+			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersRecover, iam.PermRootResourcesRead}},
+			{Persona: orgPersona, Name: "member", Permissions: []string{"org:catalog:read"}},
+			{Persona: orgPersona, Name: "manager", Permissions: []string{"org:catalog:read"}, Includes: []iam.Role{"member-admin", "credential-admin", "role-admin"}},
+			{Persona: orgPersona, Name: "member-admin", Permissions: []string{"org:members:manage", "org:members:read"}},
+			{Persona: orgPersona, Name: "credential-admin", Permissions: []string{"org:credentials:*"}},
+			{Persona: orgPersona, Name: "role-admin", Permissions: []string{"org:roles:*"}},
 		},
 	}
 }
@@ -111,7 +110,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique("org")}
 	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
@@ -172,12 +171,12 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique("esc")}
 	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	other := iam.GroupRef{Persona: orgPersona, Instance: unique("other")}
 	_, err = h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: other.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: other.Instance, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
@@ -217,7 +216,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.auth.Can(ctx, iam.UserSubject(manager.id), group, "org:*")
+	ownerAllowed, err := h.auth.Can(ctx, iam.UserSubject(manager.id), group, iam.PermSelfDelete(orgPersona))
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
 	stillOwner, err := h.auth.Can(ctx, iam.UserSubject(owner.id), group, "org:members:manage")
@@ -230,7 +229,7 @@ func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 	h.t.Helper()
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
 	_, err := h.auth.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: founder.id,
+		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: founder.id,
 	})
 	require.NoError(h.t, err)
 	return group, "/" + string(orgPersona) + "/" + group.Instance

@@ -71,18 +71,23 @@ func groupBatch(groupIDs []string) ([]string, error) {
 }
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
-// or reclaimed name cannot redirect this check to a different owner.
+// or reclaimed name cannot redirect this check to a different owner. An
+// unregistered perm is ErrUnknownPermission.
 func (s *engine) CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	return s.groupStore().CanOnGroup(ctx, s.groupSchemaOrDefault(), subject, strings.TrimSpace(groupID), perm)
+	sch := s.groupSchemaOrDefault()
+	if !sch.KnownPermission(perm) {
+		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
+	}
+	return s.groupStore().CanOnGroup(ctx, sch, subject, strings.TrimSpace(groupID), perm)
 }
 
 // DeleteGroupInstanceByID is the trusted host's lifecycle primitive. The host
 // authorizes deletion before calling it; retries always target the captured UUID.
-// The entire descendant subtree is deleted. ReleaseSlug applies to every
-// deleted canonical name, preserving earlier alias reservations.
+// ReleaseSlug applies to the deleted canonical name, preserving earlier alias
+// reservations.
 func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts iam.DeletePermissionGroupOptions) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -105,21 +110,20 @@ func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 	return tx.Commit(ctx)
 }
 
-// SoftDeleteGroupInstanceByID retains the entire subtree while making it
-// inactive. Group retirement and account deletion share the authority lock.
+// SoftDeleteGroupInstanceByID retains the group while making it inactive.
+// Group retirement and account deletion share the authority lock.
 func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
 	var out iam.GroupInstance
 	groupID = strings.TrimSpace(groupID)
 	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
-		ids, err := st.lockGroupSubtree(ctx, groupID)
+		if err := st.lockGroup(ctx, groupID); err != nil {
+			return err
+		}
+		surviving, err := outsideApplicationOwnerGroups(ctx, st, groupID)
 		if err != nil {
 			return err
 		}
-		surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, groupID)
-		if err != nil {
-			return err
-		}
-		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=COALESCE(deleted_at,$2),updated_at=CASE WHEN deleted_at IS NULL THEN $2 ELSE updated_at END WHERE id=ANY($1::uuid[])`, ids, st.now()); err != nil {
+		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=COALESCE(deleted_at,$2),updated_at=CASE WHEN deleted_at IS NULL THEN $2 ELSE updated_at END WHERE id=$1::uuid`, groupID, st.now()); err != nil {
 			return err
 		}
 		for _, id := range surviving {

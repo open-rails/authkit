@@ -91,7 +91,10 @@ func UserClaims(c *gin.Context) (verify.UserClaimsData, bool) {
 	return verify.UserClaimsFromContext(c.Request.Context())
 }
 
+// RequirePermission checks perm on the group resolve returns. It panics at
+// construction on a perm the checker does not register.
 func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
+	verify.MustKnowPermission(checker, perm)
 	return func(c *gin.Context) {
 		var mw func(http.Handler) http.Handler
 		if resolve == nil {
