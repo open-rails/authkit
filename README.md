@@ -331,9 +331,9 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 		})
 	}
 
-	r.GET("/c", f.listChannels)               // anyone can browse the channels
-	r.POST("/c", signedIn, f.createChannel)   // anyone signed in can start a channel
-	
+	r.GET("/c", f.listChannels)             // anyone can browse the channels
+	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
+
 	ch := r.Group("/c/:channel", f.channel)   // every route below knows its channel
 	ch.GET("", f.getChannel)                  // anyone can read a channel's page
 	ch.GET("/posts", f.listPosts(true))       // anyone can read
@@ -346,9 +346,9 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approvePost) // approve / disapprove posts
 
 	// admin-specific routes:
-	ch.PUT("/moderators/:user_id", signedIn, f.appoint) // appoint a moderator
-	ch.DELETE("/moderators/:user_id", signedIn, f.appoint) // remove a moderator
-	ch.PATCH("", may("channel:self:edit"), f.editChannel) // edit channel settings
+	ch.PUT("/moderators/:user_id", signedIn, f.appoint)        // appoint a moderator
+	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)     // remove a moderator
+	ch.PATCH("", may("channel:self:edit"), f.editChannel)      // edit channel settings
 	ch.DELETE("", may("channel:self:delete"), f.deleteChannel) // delete channel
 }
 ```
