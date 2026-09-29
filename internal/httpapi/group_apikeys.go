@@ -1,6 +1,6 @@
 package httpapi
 
-// API-key handlers of the generated per-persona group surface.
+// API-key handlers of the group surface.
 
 import (
 	"net/http"
@@ -11,7 +11,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys:
+// apiKeyMintRequest is the body for POST /groups/{group_id}/api-keys:
 // the one group role the key holds, and an optional expiry.
 type apiKeyMintRequest struct {
 	Name      string     `json:"name"`
@@ -46,13 +46,13 @@ func apiKeyJSON(k iam.APIKey) map[string]any {
 
 // groupAPIKeyMint mints a key created by the caller and returns its token
 // once, as "secret".
-func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
+func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	key, token, err := s.svc.MintAPIKey(r.Context(), actor, group, iam.NewAPIKey{
+	key, token, err := s.svc.MintAPIKey(r.Context(), actor, iam.GroupByID(g.ID), iam.NewAPIKey{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      iam.Role(strings.TrimSpace(body.Role)),
 		ExpiresAt: body.ExpiresAt,
@@ -67,8 +67,8 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group 
 }
 
 // groupAPIKeyList lists the group's keys, newest first (?cursor=, ?limit=).
-func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	page, err := s.svc.APIKeys(r.Context(), group, pageQuery(r))
+func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, g iam.Group) {
+	page, err := s.svc.APIKeys(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -82,12 +82,12 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group 
 
 // groupAPIKeyRevoke revokes the group's key (the :key path param). 404 when no
 // live key matches in this group.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, id string) {
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
 	if id == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	ok, err := s.svc.RevokeAPIKey(r.Context(), actor, group, id)
+	ok, err := s.svc.RevokeAPIKey(r.Context(), actor, iam.GroupByID(g.ID), id)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

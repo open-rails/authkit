@@ -1171,13 +1171,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return profile
     },
 
-    getPermissions: (
-      input: { persona?: string; instance?: string } = {},
-      signal?: AbortSignal
-    ) =>
+    // The caller's permissions in one group; the root group by default.
+    getPermissions: (input: { groupId?: string } = {}, signal?: AbortSignal) =>
       request<PermissionSet>("GET", "/me/permissions", {
         signal,
-        query: input,
+        query: { group_id: input.groupId },
       }).then((r) => r.permissions),
 
     updateUsername: (username: string) =>

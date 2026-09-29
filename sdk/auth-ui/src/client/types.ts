@@ -189,15 +189,13 @@ export type Availability = {
 export type RemovedMfaRole = {
   permission_group_id: string
   persona: string
-  instance_slug: string
   role: string
   removed_at: string
 }
 
 export type PermissionSet = {
   object: "permission_set"
-  persona: string
-  instance_slug: string
+  group_id: string
   permissions: string[]
 }
 

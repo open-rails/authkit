@@ -1,6 +1,6 @@
 package httpapi
 
-// Invite-link handlers of the generated per-persona group surface.
+// Invite-link handlers of the group surface.
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// inviteLinkCreateRequest is the body for POST /<persona>/<instance_slug>/invites/links.
+// inviteLinkCreateRequest is the body for POST /groups/{group_id}/invites/links.
 // role is required; expires_in_seconds overrides the default lifetime.
 type inviteLinkCreateRequest struct {
 	Role             string `json:"role"`
@@ -20,7 +20,7 @@ type inviteLinkCreateRequest struct {
 }
 
 // groupInviteLinkMint mints a link issued by the caller; the code is returned once.
-func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
+func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
 	if s.rateLimited(w, r, RLInviteCreate) {
 		return
 	}
@@ -33,7 +33,7 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
 		l.ExpiresIn = time.Duration(*body.ExpiresInSeconds) * time.Second
 	}
-	created, err := s.svc.CreateInviteLink(r.Context(), actor, group, l)
+	created, err := s.svc.CreateInviteLink(r.Context(), actor, iam.GroupByID(g.ID), l)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -48,8 +48,8 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 
 // groupInviteLinkList lists the group's links, newest first (?cursor=,
 // ?limit=), never their codes.
-func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	page, err := s.svc.InviteLinks(r.Context(), group, pageQuery(r))
+func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g iam.Group) {
+	page, err := s.svc.InviteLinks(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -79,12 +79,12 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 }
 
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
-func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, linkID string) {
+func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, linkID string) {
 	if linkID == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeInviteLink(r.Context(), actor, group, linkID); err != nil {
+	if err := s.svc.RevokeInviteLink(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -116,9 +116,9 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":            true,
-		"persona":       res.Persona,
-		"instance_slug": res.InstanceSlug,
-		"role":          res.Role,
+		"ok":       true,
+		"group_id": res.GroupID,
+		"persona":  res.Persona,
+		"role":     res.Role,
 	})
 }

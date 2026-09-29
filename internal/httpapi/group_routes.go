@@ -1,90 +1,125 @@
 package httpapi
 
 import (
+	"net/http"
+
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
-// Route-surface generation (#111): the auto-generated management routes are
-// DERIVED from each configured group persona. Public routes
-// and permission strings call that configured name the persona: a `merchant` persona
-// emits `/merchant/:instance_slug/...` routes gated by `merchant:<area>:<action>`.
-// A disabled capability emits NO route, so calling it 404s, which is stronger
-// than a runtime 403. Group ids never appear in a path.
+// Group-management routes live under /groups/:group_id and are gated by a
+// built-in permission of the addressed group's persona (`<persona>:members:
+// manage`, ...). A route whose capability no persona enables is not mounted
+// (404); a group whose persona lacks it is refused like an unknown group.
 
-// GeneratedRoute is one auto-generated management endpoint: addressed by the
-// RESOURCE's own id (:instance_slug), gated by Perm (a concrete
-// <persona>:<res>:<act>). OrPerm, when set, also admits the caller.
-type GeneratedRoute struct {
-	Persona iam.Persona
-	Method  string
-	Path    string // e.g. /merchant/:instance_slug/members
-	Perm    iam.Perm
-	OrPerm  iam.Perm
+// GroupRoute is one group-management endpoint.
+type GroupRoute struct {
+	Method string
+	Path   string // e.g. /groups/:group_id/members
+	Op     GroupOp
 }
 
-// GeneratedRoutes returns the full management surface implied by the schema's
-// per-persona definition. The HTTP layer mounts exactly these; disabled
-// capabilities are simply absent (→ 404).
-func GeneratedRoutes(s *rbac.Schema) []GeneratedRoute {
-	var out []GeneratedRoute
-	for _, persona := range s.Personas() {
-		td, _ := s.Persona(persona)
-		base := "/" + string(persona) + "/:instance_slug"
-		add := func(method, path string, perm iam.Perm) {
-			out = append(out, GeneratedRoute{Persona: persona, Method: method, Path: base + path, Perm: perm})
-		}
-		memberRoutes := persona != iam.RootPersona
+// GroupOp is the operation a group route performs.
+type GroupOp int
 
-		if memberRoutes {
-			rd, mg := iam.PermMembersRead(persona), iam.PermMembersManage(persona)
-			add("GET", "/members", rd)
-			add("POST", "/members", mg)
-			add("DELETE", "/members/:user", mg)
-			add("PUT", "/members/:user/roles/:role", mg)
-			// #264: the group itself — slug rename (tombstone-forwarding)
-			// and display-name changes. Owner-controlled via the wildcard.
-			add("PATCH", "", iam.PermSelfUpdate(persona))
-			// #269: the instance's own identity descriptor, and the only
-			// place a caller outside the process learns the group's uuid.
-			add("GET", "", iam.PermSelfRead(persona))
-			// The recoverable (soft) delete.
-			add("DELETE", "", iam.PermSelfDelete(persona))
+const (
+	OpMembersList GroupOp = iota + 1
+	OpMemberAdd
+	OpMemberRemove
+	OpMemberRoleAssign
+	OpRolesList
+	OpRoleDefine
+	OpRoleDelete
+	OpAPIKeysList
+	OpAPIKeyMint
+	OpAPIKeyRevoke
+	OpRemoteAppsList
+	OpRemoteAppRegister
+	OpRemoteAppDelete
+	OpRemoteAppRoleAssign
+	OpInviteLinkList
+	OpInviteLinkMint
+	OpInviteLinkRevoke
+)
+
+// GroupRoutes is the whole group-management surface.
+var GroupRoutes = []GroupRoute{
+	{http.MethodGet, "/groups/:group_id/members", OpMembersList},
+	{http.MethodPost, "/groups/:group_id/members", OpMemberAdd},
+	{http.MethodDelete, "/groups/:group_id/members/:user", OpMemberRemove},
+	{http.MethodPut, "/groups/:group_id/members/:user/roles/:role", OpMemberRoleAssign},
+	{http.MethodGet, "/groups/:group_id/roles", OpRolesList},
+	{http.MethodPost, "/groups/:group_id/roles", OpRoleDefine},
+	{http.MethodDelete, "/groups/:group_id/roles/:role", OpRoleDelete},
+	{http.MethodGet, "/groups/:group_id/api-keys", OpAPIKeysList},
+	{http.MethodPost, "/groups/:group_id/api-keys", OpAPIKeyMint},
+	{http.MethodDelete, "/groups/:group_id/api-keys/:key", OpAPIKeyRevoke},
+	{http.MethodGet, "/groups/:group_id/remote-applications", OpRemoteAppsList},
+	{http.MethodPost, "/groups/:group_id/remote-applications", OpRemoteAppRegister},
+	{http.MethodDelete, "/groups/:group_id/remote-applications/:app", OpRemoteAppDelete},
+	{http.MethodPut, "/groups/:group_id/remote-applications/:app/roles/:role", OpRemoteAppRoleAssign},
+	{http.MethodGet, "/groups/:group_id/invites/links", OpInviteLinkList},
+	{http.MethodPost, "/groups/:group_id/invites/links", OpInviteLinkMint},
+	{http.MethodDelete, "/groups/:group_id/invites/links/:link", OpInviteLinkRevoke},
+}
+
+// Available reports whether groups of persona p have the operation. Root's
+// members are managed through the admin routes.
+func (op GroupOp) Available(p rbac.Persona) bool {
+	switch op {
+	case OpMembersList, OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkList, OpInviteLinkMint, OpInviteLinkRevoke:
+		return p.Name != iam.RootPersona
+	case OpRolesList:
+		return p.Name != iam.RootPersona || p.CustomRoles
+	case OpRoleDefine, OpRoleDelete:
+		return p.CustomRoles
+	case OpAPIKeysList, OpAPIKeyMint, OpAPIKeyRevoke:
+		return p.APIKeys
+	case OpRemoteAppsList, OpRemoteAppRegister, OpRemoteAppDelete, OpRemoteAppRoleAssign:
+		return p.RemoteApplications
+	}
+	return false
+}
+
+// Perms returns the permissions of persona p that admit the operation: any
+// one of them suffices.
+func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
+	switch op {
+	case OpMembersList, OpInviteLinkList:
+		return []iam.Perm{iam.PermMembersRead(p.Name)}
+	case OpRolesList:
+		if p.CustomRoles {
+			return []iam.Perm{iam.PermMembersRead(p.Name), iam.PermRolesManage(p.Name)}
 		}
-		// The role catalog is visible to member readers and custom-role managers.
-		if memberRoutes || td.CustomRoles {
-			roles := GeneratedRoute{Persona: persona, Method: "GET", Path: base + "/roles", Perm: iam.PermMembersRead(persona)}
-			if td.CustomRoles {
-				roles.OrPerm = iam.PermRolesManage(persona)
+		return []iam.Perm{iam.PermMembersRead(p.Name)}
+	case OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkMint, OpInviteLinkRevoke:
+		return []iam.Perm{iam.PermMembersManage(p.Name)}
+	case OpRoleDefine, OpRoleDelete:
+		return []iam.Perm{iam.PermRolesManage(p.Name)}
+	case OpAPIKeysList, OpRemoteAppsList:
+		return []iam.Perm{iam.PermCredentialsRead(p.Name)}
+	case OpAPIKeyMint, OpAPIKeyRevoke, OpRemoteAppRegister, OpRemoteAppDelete, OpRemoteAppRoleAssign:
+		return []iam.Perm{iam.PermCredentialsManage(p.Name)}
+	}
+	return nil
+}
+
+// catalogPermission names the gate in the route catalog, where no persona is
+// known yet: `<persona>:members:manage`.
+func (op GroupOp) catalogPermission() iam.Perm {
+	perms := op.Perms(rbac.Persona{Name: "<persona>"})
+	return perms[0]
+}
+
+// MountedGroupRoutes returns the group routes some persona of s has.
+func MountedGroupRoutes(s *rbac.Schema) []GroupRoute {
+	var out []GroupRoute
+	for _, gr := range GroupRoutes {
+		for _, name := range s.Personas() {
+			if p, _ := s.Persona(name); gr.Op.Available(p) {
+				out = append(out, gr)
+				break
 			}
-			out = append(out, roles)
-		}
-		if td.CustomRoles {
-			mg := iam.PermRolesManage(persona)
-			add("POST", "/roles", mg)
-			add("DELETE", "/roles/:role", mg)
-		}
-		if td.APIKeys {
-			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
-			add("GET", "/api-keys", rd)
-			add("POST", "/api-keys", mg)
-			add("DELETE", "/api-keys/:key", mg)
-		}
-		if td.RemoteApplications {
-			rd, mg := iam.PermCredentialsRead(persona), iam.PermCredentialsManage(persona)
-			add("GET", "/remote-applications", rd)
-			add("POST", "/remote-applications", mg)
-			add("DELETE", "/remote-applications/:app", mg)
-			// #263: the SubjectKindRemoteApplication symmetric of the member-role route.
-			add("PUT", "/remote-applications/:app/roles/:role", mg)
-		}
-		// Invite-LINK routes (#134). Redemption is the persona-agnostic POST
-		// /invites/redeem, mounted as a fixed route.
-		if memberRoutes {
-			rd, mg := iam.PermMembersRead(persona), iam.PermMembersManage(persona)
-			add("POST", "/invites/links", mg)
-			add("GET", "/invites/links", rd)
-			add("DELETE", "/invites/links/:link", mg)
 		}
 	}
 	return out
