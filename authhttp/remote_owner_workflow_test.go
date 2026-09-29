@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -31,20 +31,20 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 		w := postOrg(srv, ownerToken, `{"slug":"`+slug+`"}`)
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	}
-	group := authkit.GroupRef{Persona: "org", Instance: "remote-owned"}
+	group := iam.GroupRef{Persona: "org", Instance: "remote-owned"}
 	gid, err := client.ResolveGroupIDForSlug(ctx, group)
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
+	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{
 		Slug: "operable-owner", PermissionGroupID: gid, Issuer: "https://operable-owner.test", Enabled: true,
-		PublicKeys: []authkit.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
+		PublicKeys: []iam.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
 	require.NoError(t, err)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, authkit.RemoteAppSubject(app.ID), "owner"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
 	mint := func(perms []string) string {
 		t.Helper()
-		token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
+		token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
 		require.NoError(t, err)
 		return token
 	}
@@ -55,9 +55,9 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	// Verification is not a lease on database authority: a change between
 	// verification and mutation must be seen inside the mutation transaction.
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, authkit.RemoteAppSubject(app.ID), "member"))
-	require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, verified, group, authkit.UserSubject(peer), "member"), authkit.ErrInsufficientRoleAuthority)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, authkit.RemoteAppSubject(app.ID), "owner"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "member"))
+	require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, verified, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
 	for _, mutate := range []func(*verify.Claims){
 		func(c *verify.Claims) { c.Issuer = "https://another-issuer.test" },
 		func(c *verify.Claims) { c.PermissionGroupAuthorityIssuer = "https://another-authority.test" },
@@ -67,7 +67,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	} {
 		invalid := verified
 		mutate(&invalid)
-		require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, invalid, group, authkit.UserSubject(peer), "member"), authkit.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, invalid, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
 	}
 	call := func(method, path, body, bearer string, status int) {
 		t.Helper()
@@ -118,20 +118,20 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 		w := postOrg(srv, token, `{"slug":"`+slug+`"}`)
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	}
-	first := authkit.GroupRef{Persona: "org", Instance: "control-one"}
-	second := authkit.GroupRef{Persona: "org", Instance: "control-two"}
+	first := iam.GroupRef{Persona: "org", Instance: "control-one"}
+	second := iam.GroupRef{Persona: "org", Instance: "control-two"}
 	gid, err := client.ResolveGroupIDForSlug(ctx, first)
 	require.NoError(t, err)
 	other, err := client.ResolveGroupIDForSlug(ctx, second)
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{Slug: "wrong-control", PermissionGroupID: gid, Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
+	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "wrong-control", PermissionGroupID: gid, Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
-	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, second, authkit.RemoteAppSubject(app.ID), "owner"), authkit.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, second, iam.RemoteAppSubject(app.ID), "owner"), iam.ErrInsufficientRoleAuthority)
 	// Simulate an old invalid assignment: it must not allow the real owner to
 	// depart, although ordinary non-owner ancestor assignments remain valid.
 	_, err = client.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(authkit.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(iam.CodeCannotRemoveLastOwner))
 }

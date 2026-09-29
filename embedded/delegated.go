@@ -8,8 +8,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -27,7 +27,7 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // (DelegatedSubject) acting under the resource account that the VALIDATED
 // `iss` resolves to in the receiver's issuer registry. It NEVER carries a
 // normal `sub` — no local account is implied in the receiving service.
-type DelegatedAccessParams = authkit.DelegatedAccessParams
+type DelegatedAccessParams = iam.DelegatedAccessParams
 
 // MintDelegatedAccessToken signs a canonical delegated access token using the
 // Runtime's internal signer. The host passes claims/params only and NEVER
@@ -51,12 +51,12 @@ func (s *engine) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccess
 // the host's own vocabulary remain the DelegationAuthorizer's decision.
 func (s *engine) CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
 	for _, perm := range permissions {
-		held, err := s.delegatedPermissionHeld(ctx, userID, authkit.Perm(strings.TrimSpace(perm)))
+		held, err := s.delegatedPermissionHeld(ctx, userID, iam.Perm(strings.TrimSpace(perm)))
 		if err != nil {
 			return err
 		}
 		if !held {
-			return authkit.ErrDelegationRefused
+			return iam.ErrDelegationRefused
 		}
 	}
 	return nil
@@ -65,22 +65,22 @@ func (s *engine) CheckDelegatedGrant(ctx context.Context, userID string, permiss
 // DelegatedPermissionLive re-checks, on use, a delegated token this deployment
 // minted: its delegated subject must still hold any AuthKit permission it
 // carries. Tokens from other issuers keep their issuer-trust contract.
-func (s *engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm authkit.Perm) (bool, error) {
+func (s *engine) DelegatedPermissionLive(ctx context.Context, cl verify.Claims, perm iam.Perm) (bool, error) {
 	if !cl.IsDelegatedAccessToken() || strings.TrimSpace(cl.Issuer) != strings.TrimSpace(s.cfg.Token.Issuer) {
 		return true, nil
 	}
 	return s.delegatedPermissionHeld(ctx, cl.DelegatedSubject, perm)
 }
 
-func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, perm authkit.Perm) (bool, error) {
+func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, perm iam.Perm) (bool, error) {
 	namespace, _, _ := strings.Cut(string(perm), ":")
-	if _, ok := s.groupSchemaOrDefault().Persona(authkit.Persona(namespace)); !ok && namespace != "*" {
+	if _, ok := s.groupSchemaOrDefault().Persona(iam.Persona(namespace)); !ok && namespace != "*" {
 		return true, nil
 	}
 	if strings.TrimSpace(userID) == "" {
 		return false, nil
 	}
-	return s.Can(ctx, authkit.UserSubject(userID), authkit.RootGroup(), perm)
+	return s.Can(ctx, iam.UserSubject(userID), iam.RootGroup(), perm)
 }
 
 // MintDelegatedAccessToken signs a canonical delegated access token with an

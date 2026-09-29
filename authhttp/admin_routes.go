@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -16,26 +16,26 @@ import (
 // cursor, limit, search, root_role, status, sort, order, entitlement (#313).
 // The cursor is opaque to clients; it encodes the next page's offset and the
 // page size it was produced with, so a page walk never straddles a size change.
-func adminUserListOptionsFromQuery(r *http.Request) (authkit.AdminUserListOptions, bool) {
+func adminUserListOptionsFromQuery(r *http.Request) (iam.AdminUserListOptions, bool) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	page := 1
 	if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
 		offset, size, ok := decodeAdminUsersCursor(cursor)
 		if !ok || (limit != 0 && limit != size) {
-			return authkit.AdminUserListOptions{}, false
+			return iam.AdminUserListOptions{}, false
 		}
 		limit, page = size, offset/size+1
 	}
-	sort := authkit.AdminUserSort(strings.TrimSpace(q.Get("sort")))
+	sort := iam.AdminUserSort(strings.TrimSpace(q.Get("sort")))
 	// Default newest-first; only an explicit order=asc flips it.
 	desc := !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc")
-	return authkit.AdminUserListOptions{
+	return iam.AdminUserListOptions{
 		Page:        page,
 		PageSize:    limit,
 		Search:      strings.TrimSpace(q.Get("search")),
-		Role:        authkit.Role(strings.TrimSpace(q.Get("root_role"))),
-		Status:      authkit.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
+		Role:        iam.Role(strings.TrimSpace(q.Get("root_role"))),
+		Status:      iam.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
 		Sort:        sort,
 		Desc:        desc,
 		Entitlement: strings.TrimSpace(q.Get("entitlement")),
@@ -79,12 +79,12 @@ func decodeAdminUsersCursor(cursor string) (offset, size int, ok bool) {
 // There is deliberately NO special "admin" authorization tier: admin authority
 // over the user directory is simply the `root:users:*` permissions on the root
 // group, gated here the same way every other permission is. Callers that gate an
-// inherently root-scoped intrinsic route pass (authkit.RootPersona, "", perm).
-func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, next http.Handler) http.Handler {
+// inherently root-scoped intrinsic route pass (iam.RootPersona, "", perm).
+func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
-			unauthorized(w, authkit.CodeNotAuthenticated)
+			unauthorized(w, iam.CodeNotAuthenticated)
 			return
 		}
 		group, err := s.svc.GroupInstanceForSlug(r.Context(), group)
@@ -94,15 +94,15 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 		}
 		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		switch {
-		case claims.PrincipalKind() != authkit.PrincipalKindUser:
+		case claims.PrincipalKind() != iam.PrincipalKindUser:
 			if claims.HasPermission(perm) && claims.PermissionGroupAllows(scope) {
 				next.ServeHTTP(w, r)
 				return
 			}
 		case strings.TrimSpace(claims.UserID) != "":
-			allowed, err := s.svc.CanOnGroup(r.Context(), authkit.UserSubject(claims.UserID), group.ID, perm)
+			allowed, err := s.svc.CanOnGroup(r.Context(), iam.UserSubject(claims.UserID), group.ID, perm)
 			if err != nil {
-				serverErr(w, authkit.CodeDatabaseError, err)
+				serverErr(w, iam.CodeDatabaseError, err)
 				return
 			}
 			if allowed {
@@ -112,7 +112,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 				return
 			}
 		}
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 	})
 }
 
@@ -123,7 +123,7 @@ func (s *Service) requirePermission(group authkit.GroupRef, perm authkit.Perm, n
 func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return "", false
 	}
 	return claims.UserID, true
@@ -132,7 +132,7 @@ func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	opts, ok := adminUserListOptionsFromQuery(r)
 	if !ok {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
@@ -151,7 +151,7 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	u, err := s.svc.AdminGetUser(r.Context(), id)
 	if err != nil || u == nil {
-		notFound(w, authkit.CodeNotFound)
+		notFound(w, iam.CodeNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -164,7 +164,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		Until  *string `json:"until"`
 	}
 	if err := decodeOptionalJSON(r, &req); err != nil || userID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -173,23 +173,23 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	}
 	var untilPtr *time.Time
 	if req.Until == nil {
-		badRequest(w, authkit.CodeInvalidUntil)
+		badRequest(w, iam.CodeInvalidUntil)
 		return
 	}
 	untilStr := strings.TrimSpace(*req.Until)
 	if untilStr == "" {
-		badRequest(w, authkit.CodeInvalidUntil)
+		badRequest(w, iam.CodeInvalidUntil)
 		return
 	}
 	if !strings.EqualFold(untilStr, "infinite") {
 		parsed, err := time.Parse(time.RFC3339, untilStr)
 		if err != nil {
-			badRequest(w, authkit.CodeInvalidUntil)
+			badRequest(w, iam.CodeInvalidUntil)
 			return
 		}
 		parsed = parsed.UTC()
 		if !parsed.After(time.Now().UTC()) {
-			badRequest(w, authkit.CodeInvalidUntil)
+			badRequest(w, iam.CodeInvalidUntil)
 			return
 		}
 		untilPtr = &parsed
@@ -204,7 +204,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -212,11 +212,11 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.svc.UnbanUserAs(r.Context(), actor, userID); err != nil {
-		if errors.Is(err, authkit.ErrInsufficientRoleAuthority) || errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
+		if errors.Is(err, iam.ErrInsufficientRoleAuthority) || errors.Is(err, iam.ErrAccountAuthorityEscalation) {
 			writeError(w, err)
 			return
 		}
-		serverErr(w, authkit.CodeFailedToUnban, err)
+		serverErr(w, iam.CodeFailedToUnban, err)
 		return
 	}
 	noContent(w)
@@ -225,7 +225,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -242,7 +242,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)
@@ -260,7 +260,7 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("user_id"))
 	if id == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := actorUserID(w, r)

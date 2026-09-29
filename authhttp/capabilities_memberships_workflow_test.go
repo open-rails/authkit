@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	require.NoError(t, json.Unmarshal(wire["external_login_providers"], &providers))
 	require.Equal(t, []AuthProviderSummary{{ID: "discord", Name: "Discord", SupportsLogin: true, SupportsRegistration: true, SupportsLink: true}, {ID: "google", Name: "Google", SupportsLogin: true, SupportsRegistration: true, SupportsLink: true}}, providers)
 	f.expect(http.StatusUnauthorized, f.request(http.MethodGet, "/me/groups", "", nil))
-	register := func(name string) authkit.TokenSet {
+	register := func(name string) iam.TokenSet {
 		t.Helper()
 		response := f.expect(http.StatusAccepted, f.post("/register", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-membership-password-1"}))
 		return response.Tokens
@@ -52,13 +52,13 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	require.Empty(t, groups(alice.AccessToken, ""))
 	claims, err := f.service.Verifier().Verify(t.Context(), alice.AccessToken)
 	require.NoError(t, err)
-	require.NoError(t, f.service.svc.OperatorAssignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(claims.UserID), "reader"))
+	require.NoError(t, f.service.svc.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(claims.UserID), "reader"))
 	got := groups(alice.AccessToken, "")
 	require.Len(t, got, 1)
 	require.NotEmpty(t, got[0].GroupID)
 	require.Equal(t, "root", got[0].Persona)
 	require.Equal(t, "reader", got[0].Role)
 	require.Empty(t, groups(bob.AccessToken, "?user_id="+claims.UserID), "caller cannot select another user's memberships")
-	require.NoError(t, f.service.svc.OperatorUnassignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(claims.UserID), "reader"))
+	require.NoError(t, f.service.svc.OperatorUnassignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(claims.UserID), "reader"))
 	require.Empty(t, groups(alice.AccessToken, ""), "membership discovery reads current assignments")
 }

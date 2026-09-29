@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // GroupInstanceByID reads the identity already resolved by a host. It never
@@ -32,7 +32,7 @@ func (s *engine) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (ma
 
 // EffectivePermissionsForGroups resolves one subject's grant patterns on many
 // exact groups in one query; a rename cannot redirect any of them.
-func (s *engine) EffectivePermissionsForGroups(ctx context.Context, subject authkit.Subject, groupIDs []string) (map[string][]authkit.Perm, error) {
+func (s *engine) EffectivePermissionsForGroups(ctx context.Context, subject iam.Subject, groupIDs []string) (map[string][]iam.Perm, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -44,11 +44,11 @@ func (s *engine) EffectivePermissionsForGroups(ctx context.Context, subject auth
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string][]authkit.Perm, len(grants))
+	out := make(map[string][]iam.Perm, len(grants))
 	for gid, patterns := range grants {
-		perms := make([]authkit.Perm, len(patterns))
+		perms := make([]iam.Perm, len(patterns))
 		for i, p := range patterns {
-			perms[i] = authkit.Perm(p)
+			perms[i] = iam.Perm(p)
 		}
 		out[gid] = perms
 	}
@@ -64,15 +64,15 @@ func groupBatch(groupIDs []string) ([]string, error) {
 			ids = append(ids, id)
 		}
 	}
-	if len(ids) > authkit.MaxGroupBatch {
-		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), authkit.MaxGroupBatch)
+	if len(ids) > iam.MaxGroupBatch {
+		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), iam.MaxGroupBatch)
 	}
 	return ids, nil
 }
 
 // CanOnGroup evaluates live assignments for the exact resolved group. A rename
 // or reclaimed name cannot redirect this check to a different owner.
-func (s *engine) CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error) {
+func (s *engine) CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -107,8 +107,8 @@ func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 
 // SoftDeleteGroupInstanceByID retains the entire subtree while making it
 // inactive. Group retirement and account deletion share the authority lock.
-func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (authkit.GroupInstance, error) {
-	var out authkit.GroupInstance
+func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
+	var out iam.GroupInstance
 	groupID = strings.TrimSpace(groupID)
 	err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
 		ids, err := st.lockGroupSubtree(ctx, groupID)
@@ -123,7 +123,7 @@ func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string
 			return err
 		}
 		for _, id := range surviving {
-			if err := s.requireRemainingOwner(ctx, st, id, authkit.Subject{}); err != nil {
+			if err := s.requireRemainingOwner(ctx, st, id, iam.Subject{}); err != nil {
 				return err
 			}
 		}

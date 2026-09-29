@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // OperatorRestoreUsers restores accounts under explicit trusted host authority.
 // It never revives old sessions, device keys or an expired deletion generation.
-func (s *engine) OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	out := make([]authkit.OpResult, 0, len(userIDs))
+func (s *engine) OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]iam.OpResult, error) {
+	out := make([]iam.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
-		out = append(out, authkit.OpResult{ID: id, Err: s.restoreUser(ctx, "", id)})
+		out = append(out, iam.OpResult{ID: id, Err: s.restoreUser(ctx, "", id)})
 	}
 	return out, nil
 }
@@ -62,27 +62,27 @@ func (s *engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 	}
 	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return authkit.E(authkit.CodeUserNotFound)
+		return iam.E(iam.CodeUserNotFound)
 	}
 	if err != nil {
 		return err
 	}
 	if user.DeletedAt == nil {
 		if generation != "" {
-			return authkit.E(authkit.CodeAccountRecoveryExpired)
+			return iam.E(iam.CodeAccountRecoveryExpired)
 		}
 		return nil
 	}
 	var id string
 	err = tx.QueryRow(ctx, "SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state IN ('deleted','finalizing')", userID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return authkit.E(authkit.CodeAccountRecoveryExpired)
+		return iam.E(iam.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
 		return err
 	}
 	if generation != "" && generation != id {
-		return authkit.E(authkit.CodeAccountRecoveryExpired)
+		return iam.E(iam.CodeAccountRecoveryExpired)
 	}
 	record, err := loadAccountDeletion(ctx, tx, id)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, userID
 		return err
 	}
 	if record.state != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
-		return authkit.E(authkit.CodeAccountRecoveryExpired)
+		return iam.E(iam.CodeAccountRecoveryExpired)
 	}
 	// Clearing deleted_at uses the same credential-version invalidation trigger
 	// as deletion; no proof from the deleted state becomes a normal login proof.

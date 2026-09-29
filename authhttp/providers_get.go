@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 // AuthCapabilities is the public, static auth feature-discovery response.
@@ -102,7 +102,7 @@ func (s *Service) capabilities() AuthCapabilities {
 		Username: AuthUsernameCapabilities{
 			MinLength: cfg.Username.MinLength,
 			MaxLength: cfg.Username.MaxLength,
-			Pattern:   authkit.UsernamePattern,
+			Pattern:   iam.UsernamePattern,
 		},
 		Password: AuthPasswordCapabilities{
 			Login:            true,

@@ -2,9 +2,9 @@ package authhttp
 
 import (
 	"context"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"net"
 	"time"
@@ -24,8 +24,8 @@ type fixtureEngine interface {
 	IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error)
 	SeedPermissionGroupContainment(ctx context.Context) error
 	EnsureRootGroup(ctx context.Context) (string, error)
-	AssignGroupRole(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
-	AssignGroupRoleGenesis(ctx context.Context, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
+	AssignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error
+	AssignGroupRoleGenesis(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error
 	Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode embedded.FactorEnrollmentMode) ([]string, error)
 	List2FAFactors(ctx context.Context, userID string) ([]embedded.TwoFactorFactor, error)
 }

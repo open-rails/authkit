@@ -13,7 +13,7 @@ import (
 	"errors"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *PermissionGroupStore, actorUserID, targetUserID string) error {
@@ -43,14 +43,14 @@ func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *Permission
 		return err
 	}
 	sch := s.groupSchemaOrDefault()
-	targetGrants, err := st.GrantsOnGroup(ctx, sch, authkit.UserSubject(targetUserID), gid)
+	targetGrants, err := st.GrantsOnGroup(ctx, sch, iam.UserSubject(targetUserID), gid)
 	if err != nil {
 		return err
 	}
 	if len(targetGrants) == 0 {
 		return nil
 	}
-	actorGrants, err := st.GrantsOnGroup(ctx, sch, authkit.UserSubject(actorUserID), gid)
+	actorGrants, err := st.GrantsOnGroup(ctx, sch, iam.UserSubject(actorUserID), gid)
 	if err != nil {
 		return err
 	}
@@ -69,9 +69,9 @@ func (s *engine) SoftDeleteUserAs(ctx context.Context, actorUserID, userID strin
 }
 
 // AdminRevokeAccountSessionsAs is the actor-aware AdminRevokeAccountSessions.
-func (s *engine) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (iam.AccountSessionRevocation, error) {
 	if strings.TrimSpace(actorUserID) == "" {
-		return authkit.AccountSessionRevocation{}, ErrInsufficientRoleAuthority
+		return iam.AccountSessionRevocation{}, ErrInsufficientRoleAuthority
 	}
 	return s.revokeAccountSessions(ctx, actorUserID, userID)
 }

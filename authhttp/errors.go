@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -19,15 +19,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // writeError is the ONE error writer (ak#290): err goes through
-// authkit.WriteError, which takes status, code, param and metadata from the
+// iam.WriteError, which takes status, code, param and metadata from the
 // error itself and collapses every 500 to internal_error on the wire. A 5xx
 // is logged with its real code and cause, which is where the operation name
 // lives now.
 func writeError(w http.ResponseWriter, err error) {
-	if status, _ := authkit.ErrorEnvelopeFor(err); status >= 500 {
+	if status, _ := iam.ErrorEnvelopeFor(err); status >= 500 {
 		slog.Default().Error("authkit: request failed", slog.Int("status", status), slog.String("error", errorString(err)))
 	}
-	authkit.WriteError(w, err)
+	iam.WriteError(w, err)
 }
 
 func errorString(err error) string {
@@ -39,11 +39,11 @@ func errorString(err error) string {
 
 // remap re-tags err with a route-specific wire code when it matches one of the
 // listed identities; every other error passes through to the catalog.
-func remap(err error, maps ...map[error]authkit.Code) error {
+func remap(err error, maps ...map[error]iam.Code) error {
 	for _, m := range maps {
 		for target, code := range m {
 			if errors.Is(err, target) {
-				return authkit.Recode(err, code)
+				return iam.Recode(err, code)
 			}
 		}
 	}
@@ -52,73 +52,73 @@ func remap(err error, maps ...map[error]authkit.Code) error {
 
 // fallback re-tags anything the catalog would answer as a 5xx with a
 // route-level code, for paths that must not leak a server failure.
-func fallback(err error, code authkit.Code) error {
-	if e := authkit.AsError(err); e != nil && e.Status < 500 {
+func fallback(err error, code iam.Code) error {
+	if e := iam.AsError(err); e != nil && e.Status < 500 {
 		return err
 	}
-	return authkit.Recode(err, code)
+	return iam.Recode(err, code)
 }
 
 // wireCode is the status and code writeError would put on the wire for err.
-func wireCode(err error) (int, authkit.Code) {
-	status, env := authkit.ErrorEnvelopeFor(err)
-	return status, authkit.Code(env.Error.Code)
+func wireCode(err error) (int, iam.Code) {
+	status, env := iam.ErrorEnvelopeFor(err)
+	return status, iam.Code(env.Error.Code)
 }
 
 // notFoundCodes: the resource-not-found family answers one generic not_found.
-var notFoundCodes = map[error]authkit.Code{
-	authkit.ErrGroupNotFound:             authkit.CodeNotFound,
-	authkit.ErrRemoteApplicationNotFound: authkit.CodeNotFound,
-	authkit.ErrInviteLinkNotFound:        authkit.CodeNotFound,
-	authkit.ErrPasskeyNotFound:           authkit.CodeNotFound,
+var notFoundCodes = map[error]iam.Code{
+	iam.ErrGroupNotFound:             iam.CodeNotFound,
+	iam.ErrRemoteApplicationNotFound: iam.CodeNotFound,
+	iam.ErrInviteLinkNotFound:        iam.CodeNotFound,
+	iam.ErrPasskeyNotFound:           iam.CodeNotFound,
 }
 
-func sendErr(w http.ResponseWriter, status int, code authkit.Code) {
-	writeError(w, authkit.E(code, authkit.WithStatus(status)))
+func sendErr(w http.ResponseWriter, status int, code iam.Code) {
+	writeError(w, iam.E(code, iam.WithStatus(status)))
 }
 
 // sendErrData attaches machine-readable context under error.metadata.
-func sendErrData(w http.ResponseWriter, status int, code authkit.Code, data map[string]any) {
-	writeError(w, authkit.E(code, authkit.WithStatus(status), authkit.WithMetadata(data)))
+func sendErrData(w http.ResponseWriter, status int, code iam.Code, data map[string]any) {
+	writeError(w, iam.E(code, iam.WithStatus(status), iam.WithMetadata(data)))
 }
 
 // badRequestParam emits a 400 naming the offending request field in error.param.
-func badRequestParam(w http.ResponseWriter, code authkit.Code, param string) {
-	writeError(w, authkit.E(code, authkit.WithStatus(http.StatusBadRequest), authkit.WithParam(param)))
+func badRequestParam(w http.ResponseWriter, code iam.Code, param string) {
+	writeError(w, iam.E(code, iam.WithStatus(http.StatusBadRequest), iam.WithParam(param)))
 }
 
 // badRequest emits a 400; a validation code carries its catalogued param.
-func badRequest(w http.ResponseWriter, code authkit.Code) { sendErr(w, http.StatusBadRequest, code) }
-func unauthorized(w http.ResponseWriter, code authkit.Code) {
+func badRequest(w http.ResponseWriter, code iam.Code) { sendErr(w, http.StatusBadRequest, code) }
+func unauthorized(w http.ResponseWriter, code iam.Code) {
 	sendErr(w, http.StatusUnauthorized, code)
 }
 
 // codeRejection distinguishes a retryable wrong code from one with no live code.
-func codeRejection(err error) authkit.Code {
-	if errors.Is(err, authkit.ErrTwoFACodeExpired) {
-		return authkit.CodeTwoFACodeExpired
+func codeRejection(err error) iam.Code {
+	if errors.Is(err, iam.ErrTwoFACodeExpired) {
+		return iam.CodeTwoFACodeExpired
 	}
-	return authkit.CodeInvalidCode
+	return iam.CodeInvalidCode
 }
 
-func forbidden(w http.ResponseWriter, code authkit.Code) { sendErr(w, http.StatusForbidden, code) }
-func notFound(w http.ResponseWriter, code authkit.Code)  { sendErr(w, http.StatusNotFound, code) }
+func forbidden(w http.ResponseWriter, code iam.Code) { sendErr(w, http.StatusForbidden, code) }
+func notFound(w http.ResponseWriter, code iam.Code)  { sendErr(w, http.StatusNotFound, code) }
 
 // serverErr emits a 500: on the wire always internal_error, in the log the
 // code names the failed operation and cause says why.
-func serverErr(w http.ResponseWriter, code authkit.Code, cause error) {
-	writeError(w, authkit.E(code, authkit.WithStatus(http.StatusInternalServerError), authkit.WithCause(cause)))
+func serverErr(w http.ResponseWriter, code iam.Code, cause error) {
+	writeError(w, iam.E(code, iam.WithStatus(http.StatusInternalServerError), iam.WithCause(cause)))
 }
 
 // registrationDisabled writes the stable registration-disabled rejection used by
 // every public user-creation path when NativeUserRegistrationMode is set.
 func registrationDisabled(w http.ResponseWriter) {
-	sendErr(w, http.StatusForbidden, authkit.CodeRegistrationDisabled)
+	sendErr(w, http.StatusForbidden, iam.CodeRegistrationDisabled)
 }
 
 func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	if len(retryAfter) == 0 || retryAfter[0] <= 0 {
-		sendErr(w, http.StatusTooManyRequests, authkit.CodeRateLimited)
+		sendErr(w, http.StatusTooManyRequests, iam.CodeRateLimited)
 		return
 	}
 	seconds := int(math.Ceil(retryAfter[0].Seconds()))
@@ -126,12 +126,12 @@ func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 		seconds = 1
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	sendErrData(w, http.StatusTooManyRequests, authkit.CodeRateLimited, map[string]any{"retry_after_seconds": seconds})
+	sendErrData(w, http.StatusTooManyRequests, iam.CodeRateLimited, map[string]any{"retry_after_seconds": seconds})
 }
 
-func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError authkit.Code) {
+func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError iam.Code) {
 	if legacyError == "" {
-		legacyError = authkit.CodeRateLimited
+		legacyError = iam.CodeRateLimited
 	}
 	if availability.RetryAfterSeconds > 0 {
 		seconds := int(availability.RetryAfterSeconds)
@@ -185,5 +185,5 @@ func accepted(w http.ResponseWriter) { w.WriteHeader(http.StatusAccepted) }
 
 // writeList answers the one list envelope: {object:"list", data, next_cursor?}.
 func writeList[T any](w http.ResponseWriter, items []T, nextCursor string) {
-	writeJSON(w, http.StatusOK, authkit.NewListPage(items, nextCursor))
+	writeJSON(w, http.StatusOK, iam.NewListPage(items, nextCursor))
 }

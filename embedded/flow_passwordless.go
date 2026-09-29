@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
@@ -28,9 +28,9 @@ const (
 	keyPasswordlessAttempts = "passwordless:attempts:"
 )
 
-type PasswordlessStartRequest = authkit.PasswordlessStartRequest
+type PasswordlessStartRequest = iam.PasswordlessStartRequest
 
-type PasswordlessStartResult = authkit.PasswordlessStartResult
+type PasswordlessStartResult = iam.PasswordlessStartResult
 
 type passwordlessChallenge struct {
 	Version           int64  `json:"version,omitempty"`

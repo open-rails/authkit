@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Root permission-group role helpers. "Root roles" are a user's assignments in
@@ -16,12 +16,12 @@ import (
 // ErrCannotRemoveLastAdminRole is returned by the permission-group last-owner
 // guard (refuseOwnerLoss) and mapped to a stable HTTP code by the admin
 // adapter. Aliased from the root package so core can return it unqualified.
-var ErrCannotRemoveLastAdminRole = authkit.ErrCannotRemoveLastAdminRole
+var ErrCannotRemoveLastAdminRole = iam.ErrCannotRemoveLastAdminRole
 
 // normalizeRootRoleSlug canonicalises a root role slug. "admin" is not special:
 // apps declare their own bounded `admin` catalog role when they need one.
-func normalizeRootRoleSlug(role authkit.Role) authkit.Role {
-	return authkit.Role(strings.ToLower(strings.TrimSpace(string(role))))
+func normalizeRootRoleSlug(role iam.Role) iam.Role {
+	return iam.Role(strings.ToLower(strings.TrimSpace(string(role))))
 }
 
 func (s *engine) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
@@ -44,7 +44,7 @@ func (s *engine) splitConfiguredRootRoles(roles []string) (live []string, remove
 	liveSeen := map[string]struct{}{}
 	removedSeen := map[string]struct{}{}
 	for _, raw := range roles {
-		role := string(normalizeRootRoleSlug(authkit.Role(raw)))
+		role := string(normalizeRootRoleSlug(iam.Role(raw)))
 		if role == "" {
 			continue
 		}
@@ -76,7 +76,7 @@ func (s *engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 	if err != nil {
 		return nil, nil
 	}
-	asg, err := st.WalkAssignments(ctx, gid, authkit.UserSubject(strings.TrimSpace(userID)))
+	asg, err := st.WalkAssignments(ctx, gid, iam.UserSubject(strings.TrimSpace(userID)))
 	if err != nil {
 		return nil, nil
 	}
@@ -95,21 +95,21 @@ func (s *engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 // MFA-required-role enrollment gate is a subject-state invariant and STILL
 // applies — assigning an MFA-required role to a non-enrolled user fails closed
 // with ErrTwoFAEnrollmentRequired.
-func (s *engine) AssignRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *engine) AssignRoleBySlug(ctx context.Context, userID string, role iam.Role) error {
 	if s.pg == nil {
 		return nil
 	}
 	if _, err := s.EnsureRootGroup(ctx); err != nil {
 		return err
 	}
-	return s.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
+	return s.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }
 
 // UpsertRoleBySlug is a no-op under the permission-group model: catalog roles
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
 // "define" at runtime. name and description are ignored; it validates the slug
 // is a known root catalog role, ensures the root group exists, and returns.
-func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role authkit.Role, description *string) error {
+func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role iam.Role, description *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -127,9 +127,9 @@ func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role authkit
 }
 
 // RemoveRoleBySlug revokes a user's role in the root permission-group.
-func (s *engine) RemoveRoleBySlug(ctx context.Context, userID string, role authkit.Role) error {
+func (s *engine) RemoveRoleBySlug(ctx context.Context, userID string, role iam.Role) error {
 	if s.pg == nil {
 		return nil
 	}
-	return s.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
+	return s.UnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }

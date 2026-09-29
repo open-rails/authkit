@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -14,7 +14,7 @@ import (
 // serializes every revocation path. Linking never mints a replacement session.
 func (s *engine) completeProviderLink(ctx context.Context, link ExternalLinkAuthorization, id ExternalIdentity, email *string) error {
 	if s.pg == nil || link.UserID == "" || link.SessionID == "" || link.AuthenticatedAt.IsZero() {
-		return authkit.E(authkit.CodeAuthRequiredForLink)
+		return iam.E(iam.CodeAuthRequiredForLink)
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
@@ -41,7 +41,7 @@ func (s *engine) completeProviderLink(ctx context.Context, link ExternalLinkAuth
 	}
 	session, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: link.UserID, SessionID: link.SessionID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return authkit.E(authkit.CodeAuthRequiredForLink)
+		return iam.E(iam.CodeAuthRequiredForLink)
 	}
 	if err != nil {
 		return err

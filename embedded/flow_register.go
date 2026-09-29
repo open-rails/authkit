@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -70,7 +70,7 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	identifier := strings.TrimSpace(in.Identifier)
 	username := strings.TrimSpace(in.Username)
 	if identifier == "" || username == "" {
-		return RegisterOutcome{}, authkit.ErrInvalidIdentifier
+		return RegisterOutcome{}, iam.ErrInvalidIdentifier
 	}
 	if err := s.ValidatePassword(in.Password, username, identifier); err != nil {
 		return RegisterOutcome{}, err
@@ -84,7 +84,7 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	isPhone := ValidatePhone(identifier) == nil
 	isEmail := ValidateEmail(identifier) == nil
 	if isPhone == isEmail {
-		return RegisterOutcome{}, authkit.ErrInvalidIdentifier
+		return RegisterOutcome{}, iam.ErrInvalidIdentifier
 	}
 	phc, err := password.HashArgon2id(in.Password)
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 	if isPhone {
 		phone := NormalizePhone(identifier)
 		if requiresVerification && !s.SMSAvailable() {
-			return RegisterOutcome{}, authkit.ErrPhoneRegistrationUnavailable
+			return RegisterOutcome{}, iam.ErrPhoneRegistrationUnavailable
 		}
 		phoneTaken, usernameTaken, err := s.CheckPhoneRegistrationConflict(ctx, phone, username)
 		if err != nil {
@@ -132,7 +132,7 @@ func (s *engine) Register(ctx context.Context, in RegisterInput) (RegisterOutcom
 
 	email := NormalizeEmail(identifier)
 	if requiresVerification && !s.HasEmailSender() {
-		return RegisterOutcome{}, authkit.ErrEmailRegistrationUnavailable
+		return RegisterOutcome{}, iam.ErrEmailRegistrationUnavailable
 	}
 	emailTaken, usernameTaken, err := s.CheckPendingRegistrationConflict(ctx, email, username)
 	if err != nil {

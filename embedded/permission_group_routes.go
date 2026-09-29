@@ -7,49 +7,49 @@ package embedded
 // A disabled capability emits NO route, so calling it 404s, which is stronger
 // than a runtime 403. Group ids never appear in a path.
 
-import authkit "github.com/open-rails/authkit"
+import "github.com/open-rails/authkit/iam"
 
 // Built-in per-persona group-management permissions (authkit-provisioned in
 // every persona's catalog). All are 3-segment <persona>:<area>:<action>. The owner
 // role (=<persona>:*) covers them all; an app may grant them to other roles.
-func PermMembersManage(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":members:manage")
+func PermMembersManage(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":members:manage")
 }
-func PermMembersRead(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":members:read")
+func PermMembersRead(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":members:read")
 }
-func PermRolesManage(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":roles:manage")
+func PermRolesManage(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":roles:manage")
 }
-func PermRolesRead(p authkit.Persona) authkit.Perm { return authkit.Perm(string(p) + ":roles:read") }
-func PermCredentialsManage(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":credentials:manage")
+func PermRolesRead(p iam.Persona) iam.Perm { return iam.Perm(string(p) + ":roles:read") }
+func PermCredentialsManage(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":credentials:manage")
 }
-func PermCredentialsRead(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":credentials:read")
+func PermCredentialsRead(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":credentials:read")
 }
 
 // PermSettingsManage gates the group's own settings surface (#264): slug
 // rename and display-name changes. Held by the owner via `<persona>:*`;
 // grant it to other roles deliberately.
-func PermSettingsManage(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":settings:manage")
+func PermSettingsManage(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":settings:manage")
 }
 
 // PermSettingsRead gates reading the group's own identity descriptor (#269):
 // GET /<persona>/:instance_slug — id, slug, display name. The read symmetric of
 // PermSettingsManage; held by the owner via `<persona>:*`.
-func PermSettingsRead(p authkit.Persona) authkit.Perm {
-	return authkit.Perm(string(p) + ":settings:read")
+func PermSettingsRead(p iam.Persona) iam.Perm {
+	return iam.Perm(string(p) + ":settings:read")
 }
 
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
 // RESOURCE's own id (:instance_slug), gated by Perm (a concrete <persona>:<res>:<act>).
 type GeneratedRoute struct {
-	Persona authkit.Persona
+	Persona iam.Persona
 	Method  string
 	Path    string // e.g. /merchant/:instance_slug/members
-	Perm    authkit.Perm
+	Perm    iam.Perm
 }
 
 // GeneratedRoutes returns the full management surface implied by the schema's

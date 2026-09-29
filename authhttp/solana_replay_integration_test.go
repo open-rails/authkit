@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -62,7 +62,7 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 
 	replay := serveJSON(srv, http.MethodPost, "/solana/login", body)
 	require.Equal(t, http.StatusUnauthorized, replay.Code, replay.Body.String())
-	require.Contains(t, replay.Body.String(), string(authkit.CodeChallengeExpired))
+	require.Contains(t, replay.Body.String(), string(iam.CodeChallengeExpired))
 
 	var found bool
 	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))

@@ -35,10 +35,10 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -163,15 +163,15 @@ END $$`)
 	return response
 }
 
-func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email string) (string, authkit.AccountRegistrationInviteCreated) {
+func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email string) (string, iam.AccountRegistrationInviteCreated) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := fixtureBackend(srv.svc).EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	inviter, err := srv.svc.CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.svc).AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(inviter.ID), authkit.OwnerRole))
-	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{
+	require.NoError(t, fixtureBackend(srv.svc).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole))
+	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,
 	})
@@ -324,12 +324,12 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
-	_, err = coreSvc.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
+	_, err = coreSvc.UpsertRemoteApplication(ctx, iam.RemoteApplication{
 		Slug:              slug,
 		PermissionGroupID: rootGID,
 		Issuer:            issuer,
 		Enabled:           true,
-		PublicKeys: []authkit.RemoteAppKey{{
+		PublicKeys: []iam.RemoteAppKey{{
 			KID:          signer.KID(),
 			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
 		}},
@@ -339,7 +339,7 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 
 	// A remote application addresses its token to THIS platform (ak#324: the
 	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
-	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{
+	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{
 		Issuer:    issuer,
 		Audiences: []string{"test-app"},
 		TTL:       time.Minute,
@@ -373,7 +373,7 @@ type nestedTokenBody struct {
 
 func (b *nestedTokenBody) UnmarshalJSON(raw []byte) error {
 	var env struct {
-		TokenSet authkit.TokenSet `json:"token_set"`
+		TokenSet iam.TokenSet `json:"token_set"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return err
@@ -387,7 +387,7 @@ func (b *nestedTokenBody) UnmarshalJSON(raw []byte) error {
 // Replaces the old flat `{"error":"<code>"}` JSONEq assertions.
 func requireErrorCode(t *testing.T, body, code string) {
 	t.Helper()
-	var env authkit.ErrorEnvelope
+	var env iam.ErrorEnvelope
 	require.NoError(t, json.Unmarshal([]byte(body), &env), "error body: %s", body)
 	require.Equal(t, code, env.Error.Code, "error body: %s", body)
 	require.NotEmpty(t, env.Error.Type, "error.type must be set")
@@ -868,12 +868,12 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 func instanceCreateTestConfig() embedded.Config {
 	cfg := newServerTestConfig()
 	cfg.RBAC = []embedded.PersonaDef{
-		{Name: authkit.RootPersona, Roles: []embedded.RoleDef{
+		{Name: iam.RootPersona, Roles: []embedded.RoleDef{
 			{Name: "site-admin", Permissions: []string{"root:resources:read"}},
 		}},
 		{
 			Name:         "org",
-			Parent:       authkit.RootPersona,
+			Parent:       iam.RootPersona,
 			Capabilities: embedded.PersonaCapabilities{RemoteApplications: true},
 			Roles: []embedded.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},

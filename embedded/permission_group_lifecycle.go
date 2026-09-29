@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -34,7 +34,7 @@ func (s *engine) withLockedGroup(ctx context.Context, groupID string, apply func
 
 // A role must exist when a durable reference is created. Catalog definitions
 // are immutable configuration; custom definitions are read under the group lock.
-func (s *engine) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) error {
+func (s *engine) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona iam.Persona, role iam.Role) error {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return nil
 	}
@@ -43,7 +43,7 @@ func (s *engine) requireDefinedGroupRole(ctx context.Context, st *PermissionGrou
 		return err
 	}
 	if _, ok := resolver(groupID, role); !ok {
-		return authkit.ErrUnknownRole
+		return iam.ErrUnknownRole
 	}
 	return nil
 }

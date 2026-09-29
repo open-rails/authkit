@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -57,13 +57,13 @@ type delegatedTokenResponse struct {
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	// A delegated token outlives its parent, so the parent must still be a live
 	// account and, when session-bound, a live session (ak#392).
 	if live, _, err := s.verifier.IsLive(r.Context(), claims); err != nil || !live {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	if (claims.SessionID != "" || claims.DeviceKeyID != "") && !s.requireLiveCredential(w, r, claims) {
@@ -71,20 +71,20 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	}
 	authorize := s.svc.DelegationAuthorizer()
 	if authorize == nil {
-		sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegationAuthorizerUnavailable)
+		sendErr(w, http.StatusServiceUnavailable, iam.CodeDelegationAuthorizerUnavailable)
 		return
 	}
 
 	var req delegatedTokenRequest
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 
 	cfg := s.svc.Config().Delegated
 	audiences, err := resolveDelegatedAudiences(cfg.Audiences, req.Audiences)
 	if err != nil {
-		badRequest(w, authkit.CodeInvalidAudiences)
+		badRequest(w, iam.CodeInvalidAudiences)
 		return
 	}
 	ttl := clampDelegatedTTL(cfg, req.TTLSeconds)
@@ -97,12 +97,12 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	tokenType := ""
 	if len(r.Header.Values("DPoP")) > 0 {
 		if !cfg.AllowDPoP || req.DelegateCertificateDERB64URL != "" {
-			badRequest(w, authkit.CodeInvalidRequest)
+			badRequest(w, iam.CodeInvalidRequest)
 			return
 		}
 		parent := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
 		if len(parent) != 2 || !strings.EqualFold(parent[0], "Bearer") {
-			unauthorized(w, authkit.CodeUnauthorized)
+			unauthorized(w, iam.CodeUnauthorized)
 			return
 		}
 		target := ""
@@ -114,10 +114,10 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		thumbprint, err = dpop.VerifyRequest(r, target, parent[1], nil, s.svc.ClaimDPoPProof)
 		if err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
-				serverErr(w, authkit.CodeInternalError, err)
+				serverErr(w, iam.CodeInternalError, err)
 			} else {
 				w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
-				unauthorized(w, authkit.CodeSenderProofRequired)
+				unauthorized(w, iam.CodeSenderProofRequired)
 			}
 			return
 		}
@@ -125,22 +125,22 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	} else {
 		certificate, err = parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
 		if err != nil {
-			badRequestParam(w, authkit.CodeInvalidDelegateCertificate, "delegate_certificate_der_b64url")
+			badRequestParam(w, iam.CodeInvalidDelegateCertificate, "delegate_certificate_der_b64url")
 			return
 		}
 		if expiresAt.After(certificate.NotAfter) {
-			badRequestParam(w, authkit.CodeTTLExceedsDelegateCertificate, "ttl_seconds")
+			badRequestParam(w, iam.CodeTTLExceedsDelegateCertificate, "ttl_seconds")
 			return
 		}
 		certificateThumbprint = jwtkit.CertificateSHA256(certificate.Raw)
 		certificateBinding = &certificateThumbprint
 	}
 	if !validRequestedGrant(req.RequestedGrant) {
-		badRequestParam(w, authkit.CodeInvalidRequestedGrant, "requested_grant")
+		badRequestParam(w, iam.CodeInvalidRequestedGrant, "requested_grant")
 		return
 	}
 
-	grant, err := authorize(r.Context(), authkit.DelegationRequest{
+	grant, err := authorize(r.Context(), iam.DelegationRequest{
 		UserID:                          claims.UserID,
 		Audiences:                       audiences,
 		TTL:                             ttl,
@@ -150,13 +150,13 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		RequestedGrant:                  req.RequestedGrant,
 	})
 	if err != nil {
-		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
+		writeError(w, fallback(err, iam.CodeDelegationAuthorizerUnavailable))
 		return
 	}
 	// The grant is host policy, but never more AuthKit authority than the
 	// user holds (ak#394).
 	if err := s.svc.CheckDelegatedGrant(r.Context(), claims.UserID, grant.Permissions); err != nil {
-		writeError(w, fallback(err, authkit.CodeDelegationAuthorizerUnavailable))
+		writeError(w, fallback(err, iam.CodeDelegationAuthorizerUnavailable))
 		return
 	}
 
@@ -170,13 +170,13 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	for _, p := range s.documentProviders {
 		ref := p.Reference()
 		if existing, dup := references[ref.Type]; dup && existing != ref.Digest {
-			sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
+			sendErr(w, http.StatusServiceUnavailable, iam.CodeDelegatedDocumentUnavailable)
 			return
 		}
 		references[ref.Type] = ref.Digest
 	}
 
-	token, err := s.svc.MintDelegatedAccessToken(r.Context(), authkit.DelegatedAccessParams{
+	token, err := s.svc.MintDelegatedAccessToken(r.Context(), iam.DelegatedAccessParams{
 		Audiences:                       audiences,
 		DelegatedSubject:                claims.UserID,
 		Permissions:                     grant.Permissions,
@@ -187,11 +187,11 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		ConfirmationJWKThumbprintSHA256: jwkBinding,
 	})
 	if err != nil {
-		serverErr(w, authkit.CodeDelegatedMintFailed, err)
+		serverErr(w, iam.CodeDelegatedMintFailed, err)
 		return
 	}
 	if len(token) > maxDelegatedTokenBytes {
-		serverErr(w, authkit.CodeDelegatedTokenTooLarge, nil)
+		serverErr(w, iam.CodeDelegatedTokenTooLarge, nil)
 		return
 	}
 
@@ -202,17 +202,17 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	if len(s.documentProviders) > 0 {
 		kid, err := delegatedTokenSigningKID(token)
 		if err != nil {
-			sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
+			sendErr(w, http.StatusServiceUnavailable, iam.CodeDelegatedDocumentUnavailable)
 			return
 		}
 		for _, p := range s.documentProviders {
 			if err := p.EnsureSigningKID(r.Context(), kid); err != nil {
-				sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
+				sendErr(w, http.StatusServiceUnavailable, iam.CodeDelegatedDocumentUnavailable)
 				return
 			}
 			digest, err := p.CurrentDigest(r.Context())
 			if err != nil || digest != references[p.Reference().Type] {
-				sendErr(w, http.StatusServiceUnavailable, authkit.CodeDelegatedDocumentUnavailable)
+				sendErr(w, http.StatusServiceUnavailable, iam.CodeDelegatedDocumentUnavailable)
 				return
 			}
 		}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -29,7 +29,7 @@ type deviceKeyListResponse struct {
 }
 
 type deviceKeyTokenResponse struct {
-	TokenSet  authkit.TokenSet  `json:"token_set"`
+	TokenSet  iam.TokenSet      `json:"token_set"`
 	DeviceKey deviceKeyResponse `json:"device_key"`
 }
 
@@ -44,12 +44,12 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		Label     string `json:"label,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	email := embedded.NormalizeEmail(req.Email)
 	if len(email) > 320 || embedded.ValidateEmail(email) != nil || len(strings.TrimSpace(req.PublicKey)) != 43 || len(strings.TrimSpace(req.Label)) > 128 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, email) ||
@@ -59,7 +59,7 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 	result, err := s.svc.BeginDeviceKeyEnrollment(r.Context(), email, req.PublicKey, req.Label)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
-			badRequest(w, authkit.CodeInvalidRequest)
+			badRequest(w, iam.CodeInvalidRequest)
 			return
 		}
 		writeError(w, err)
@@ -80,11 +80,11 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		SecondFactor string `json:"code_2fa"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.EnrollmentID)) != 43 || len(strings.TrimSpace(req.Code)) != 6 || len(strings.TrimSpace(req.Signature)) != 86 || len(strings.TrimSpace(req.SecondFactor)) > 32 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollFinish, req.EnrollmentID) {
@@ -97,17 +97,17 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a
 			// retry that carries the second factor in code_2fa.
-			sendErrData(w, http.StatusForbidden, authkit.CodeStepUpRequired, map[string]any{"method": secondFactor.Method, "param": "code_2fa"})
+			sendErrData(w, http.StatusForbidden, iam.CodeStepUpRequired, map[string]any{"method": secondFactor.Method, "param": "code_2fa"})
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			s.svc.RecordFailedDeviceKeyEnrollment(r.Context(), req.EnrollmentID)
-			badRequest(w, authkit.CodeInvalidOrExpiredCode)
+			badRequest(w, iam.CodeInvalidOrExpiredCode)
 		default:
-			writeError(w, remap(err, map[error]authkit.Code{authkit.ErrUserBanned: authkit.CodeInvalidCredentials}))
+			writeError(w, remap(err, map[error]iam.Code{iam.ErrUserBanned: iam.CodeInvalidCredentials}))
 		}
 		return
 	}
 	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		TokenSet:  authkit.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
+		TokenSet:  iam.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
 		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }
@@ -117,11 +117,11 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 		DeviceKeyID string `json:"device_key_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.DeviceKeyID)) != 36 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyLoginBegin, req.DeviceKeyID) {
@@ -130,7 +130,7 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 	result, err := s.svc.BeginDeviceKeyLogin(r.Context(), req.DeviceKeyID)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
-			badRequest(w, authkit.CodeInvalidRequest)
+			badRequest(w, iam.CodeInvalidRequest)
 			return
 		}
 		writeError(w, err)
@@ -149,11 +149,11 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		Signature   string `json:"signature"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.ChallengeID)) != 43 || len(strings.TrimSpace(req.Signature)) != 86 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyLoginFinish, req.ChallengeID) {
@@ -161,18 +161,18 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 	}
 	result, err := s.svc.FinishDeviceKeyLogin(r.Context(), req.ChallengeID, req.Signature)
 	if err != nil {
-		if errors.Is(err, authkit.ErrDeviceKeysDisabled) {
-			forbidden(w, authkit.CodeDeviceKeysDisabled)
+		if errors.Is(err, iam.ErrDeviceKeysDisabled) {
+			forbidden(w, iam.CodeDeviceKeysDisabled)
 			return
 		}
-		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, authkit.ErrUserBanned) {
+		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, iam.ErrUserBanned) {
 			s.logInternalError(r, "device_key_login_finish", "finish", "device_key_login_finish_failed", err)
 		}
-		unauthorized(w, authkit.CodeInvalidCredentials)
+		unauthorized(w, iam.CodeInvalidCredentials)
 		return
 	}
 	writeJSON(w, http.StatusOK, deviceKeyTokenResponse{
-		TokenSet:  authkit.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
+		TokenSet:  iam.TokenSet{AccessToken: result.AccessToken, TokenType: "Bearer", ExpiresIn: int64(time.Until(result.ExpiresAt).Seconds())},
 		DeviceKey: deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }
@@ -185,12 +185,12 @@ func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
 func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	keys, err := s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
 	if err != nil {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	answer := make([]deviceKeyListResponse, 0, len(keys))
@@ -207,16 +207,16 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	target := strings.TrimSpace(r.PathValue("id"))
 	if len(target) != 36 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.RevokeDeviceKey(r.Context(), claims.UserID, claims.DeviceKeyID, target); err != nil {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	noContent(w)
@@ -225,24 +225,24 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	// The enrollment finish token is the bounded recovery-root proof: it
 	// carries both the device-key and verified-email authentication methods.
 	if !claims.HasAMR("email") {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
 		var empty map[string]json.RawMessage
 		if err := decodeJSON(r, &empty); err != nil || len(empty) != 0 {
-			badRequest(w, authkit.CodeInvalidRequest)
+			badRequest(w, iam.CodeInvalidRequest)
 			return
 		}
 	}
 	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	noContent(w)

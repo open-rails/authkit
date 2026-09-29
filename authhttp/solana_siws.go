@@ -10,7 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/verify"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/siws"
 )
 
@@ -75,17 +75,17 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		ChainID  string `json:"chain_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 
 	address := strings.TrimSpace(req.Address)
 	if address == "" {
-		badRequest(w, authkit.CodeAddressRequired)
+		badRequest(w, iam.CodeAddressRequired)
 		return
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		badRequest(w, authkit.CodeInvalidAddress)
+		badRequest(w, iam.CodeInvalidAddress)
 		return
 	}
 
@@ -103,7 +103,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), domain, address, req.Username)
 	if err != nil {
-		serverErr(w, authkit.CodeChallengeFailed, err)
+		serverErr(w, iam.CodeChallengeFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -121,7 +121,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 
 	out, err := s.svc.VerifySIWSAndLogin(r.Context(), output, nil)
 	if err != nil {
-		writeError(w, fallback(remap(err, siwsCodes), authkit.CodeAuthenticationFailed))
+		writeError(w, fallback(remap(err, siwsCodes), iam.CodeAuthenticationFailed))
 		return
 	}
 
@@ -144,7 +144,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeAuthenticationRequired)
+		unauthorized(w, iam.CodeAuthenticationRequired)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -167,14 +167,14 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 // siwsCodes: the wire codes a SIWS ceremony failure answers.
-var siwsCodes = map[error]authkit.Code{
-	authkit.ErrSIWSChallengeNotFound: authkit.CodeChallengeExpired,
-	authkit.ErrSIWSChallengeExpired:  authkit.CodeChallengeExpired,
-	authkit.ErrSIWSTimestampInvalid:  authkit.CodeChallengeExpired,
-	authkit.ErrSIWSSignatureInvalid:  authkit.CodeInvalidSignature,
-	authkit.ErrSIWSAddressMismatch:   authkit.CodeAddressMismatch,
-	authkit.ErrSIWSDomainInvalid:     authkit.CodeAuthenticationFailed,
-	authkit.ErrSIWSChallengeMismatch: authkit.CodeAuthenticationFailed,
+var siwsCodes = map[error]iam.Code{
+	iam.ErrSIWSChallengeNotFound: iam.CodeChallengeExpired,
+	iam.ErrSIWSChallengeExpired:  iam.CodeChallengeExpired,
+	iam.ErrSIWSTimestampInvalid:  iam.CodeChallengeExpired,
+	iam.ErrSIWSSignatureInvalid:  iam.CodeInvalidSignature,
+	iam.ErrSIWSAddressMismatch:   iam.CodeAddressMismatch,
+	iam.ErrSIWSDomainInvalid:     iam.CodeAuthenticationFailed,
+	iam.ErrSIWSChallengeMismatch: iam.CodeAuthenticationFailed,
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —
@@ -201,17 +201,17 @@ func decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput
 		} `json:"output"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return siws.SignInOutput{}, false
 	}
 	signature, err := decodeSIWSB64(req.Output.Signature)
 	if err != nil {
-		badRequest(w, authkit.CodeInvalidSignatureEncoding)
+		badRequest(w, iam.CodeInvalidSignatureEncoding)
 		return siws.SignInOutput{}, false
 	}
 	signedMessage, err := decodeSIWSB64(req.Output.SignedMessage)
 	if err != nil {
-		badRequest(w, authkit.CodeInvalidMessageEncoding)
+		badRequest(w, iam.CodeInvalidMessageEncoding)
 		return siws.SignInOutput{}, false
 	}
 	// Public key is optional and best-effort (the address is authoritative).

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -259,8 +259,8 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) {
 		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
 	}), func(c *hostConfig) {
-		c.deps.DelegatedAuthorization = func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
-			return authkit.DelegationGrant{Permissions: []string{"resource:read"}}, nil
+		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
 		}
 	})
 	ctx := context.Background()
@@ -306,17 +306,17 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
 		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
 	}), func(c *hostConfig) {
-		c.deps.DelegatedAuthorization = func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			return authkit.DelegationGrant{Permissions: append([]string(nil), grant...)}, nil
+			return iam.DelegationGrant{Permissions: append([]string(nil), grant...)}, nil
 		}
 	})
 	ctx := context.Background()
 	manager, moderator := h.newAccount("delegmanager"), h.newAccount("delegmod")
 	group, _ := h.newOrg("delegate", h.newAccount("delegowner"))
 	h.grant(group, manager, "manager")
-	h.grant(authkit.RootGroup(), moderator, "moderator")
+	h.grant(iam.RootGroup(), moderator, "moderator")
 	mint := func(a account, perms ...string) response {
 		mu.Lock()
 		grant = perms
@@ -348,12 +348,12 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
-		perm := authkit.Perm(embedded.PermRootUsersBan)
+		perm := iam.Perm(embedded.PermRootUsersBan)
 		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: verify.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
 		ok, err := verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.NoError(t, h.client.OperatorUnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(moderator.id), "moderator"))
+		require.NoError(t, h.client.OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator"))
 		ok, err = verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)
 		require.False(t, ok, "a delegated token kept root authority its user lost")

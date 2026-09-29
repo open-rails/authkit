@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 // Two-factor policy vocabulary (#148). Shared public contract for embedded and
 // future remote: hosts declare 2FA policy with a TwoFactorMode plus the set of

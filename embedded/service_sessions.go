@@ -15,13 +15,13 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 // Session is defined in the lean authkit contract package (#138 inversion);
 // aliased here so engine code keeps using the bare name.
-type Session = authkit.Session
+type Session = iam.Session
 
 const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
@@ -30,7 +30,7 @@ const (
 	AssuranceLevelMFA      = "urn:authkit:loa:2"
 )
 
-var ErrStepUpRequired = authkit.ErrStepUpRequired
+var ErrStepUpRequired = iam.ErrStepUpRequired
 
 type SessionFreshness struct {
 	LastAuthenticatedAt           time.Time
@@ -599,16 +599,16 @@ func (s *engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSe
 
 // AdminRevokeAccountSessions is the unchecked account-wide emergency revoke;
 // hosts authorize the actor. See AdminRevokeAccountSessionsAs.
-func (s *engine) AdminRevokeAccountSessions(ctx context.Context, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) AdminRevokeAccountSessions(ctx context.Context, userID string) (iam.AccountSessionRevocation, error) {
 	return s.revokeAccountSessions(ctx, "", userID)
 }
 
 // revokeAccountSessions revokes refresh sessions on every account issuer and
 // all device keys in one transaction under the account lock, so nothing that
 // can mint a new access token survives. Issued access tokens expire on TTL.
-func (s *engine) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error) {
+func (s *engine) revokeAccountSessions(ctx context.Context, actorUserID, userID string) (iam.AccountSessionRevocation, error) {
 	issuers := s.accountIssuers()
-	out := authkit.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
+	out := iam.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
 	for _, issuer := range issuers {
 		out.RevokedSessions[issuer] = 0
 	}

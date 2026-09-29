@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,7 +78,7 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 		rec := httptest.NewRecorder()
 		start := time.Now()
 		h.ServeHTTP(rec, req)
-		var env authkit.ErrorEnvelope
+		var env iam.ErrorEnvelope
 		_ = json.Unmarshal(rec.Body.Bytes(), &env)
 		return rec.Code, env.Error.Code, time.Since(start)
 	}
@@ -95,13 +95,13 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	provider.mode.Store("hang")
 	code, errCode, took := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
 	require.Less(t, took, 2*time.Second)
 	provider.mode.Store("reset")
 	for range 5 {
 		code, errCode, took = call(peerToken)
 		require.Equal(t, http.StatusServiceUnavailable, code)
-		require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+		require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
 		require.Less(t, took, 200*time.Millisecond)
 	}
 	code, _, _ = call(localToken)
@@ -175,7 +175,7 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		var env authkit.ErrorEnvelope
+		var env iam.ErrorEnvelope
 		_ = json.Unmarshal(rec.Body.Bytes(), &env)
 		return rec.Code, env.Error.Code
 	}
@@ -201,7 +201,7 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	offset.Store(int64(61 * time.Minute)) // past MaxStale
 	code, errCode := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
-	require.Equal(t, string(authkit.CodeIssuerKeysUnavailable), errCode)
+	require.Equal(t, string(iam.CodeIssuerKeysUnavailable), errCode)
 	code, _ = call(localToken)
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, status().Expired)

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +60,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &refused))
-	require.Equal(t, string(authkit.CodeStepUpRequired), refused.Error.Code)
+	require.Equal(t, string(iam.CodeStepUpRequired), refused.Error.Code)
 	require.Equal(t, "totp", refused.Error.Metadata["method"])
 	require.Equal(t, "code_2fa", refused.Error.Metadata["param"])
 
@@ -96,9 +96,9 @@ func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, status)
 
 	_, err := srv.svc.BeginDeviceKeyEnrollment(ctx, uniqueEmail("device-key-off"), publicKey, "")
-	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
+	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 	_, err = srv.svc.BeginDeviceKeyLogin(ctx, "00000000-0000-0000-0000-000000000000")
-	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
+	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 	_, err = srv.svc.ActiveDeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
-	require.True(t, errors.Is(err, authkit.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
+	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 }

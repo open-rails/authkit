@@ -9,7 +9,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -134,11 +134,11 @@ func (s *engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 	}
 	firstFactor := len(factors) == 0
 	if mode == FirstFactorOnly && !firstFactor {
-		return nil, false, authkit.ErrTwoFAFactorExists
+		return nil, false, iam.ErrTwoFAFactorExists
 	}
 	for _, factor := range factors {
 		if factor.Method == method {
-			return nil, false, authkit.ErrTwoFAFactorExists
+			return nil, false, iam.ErrTwoFAFactorExists
 		}
 	}
 	makeDefault = makeDefault || firstFactor

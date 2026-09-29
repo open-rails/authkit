@@ -20,9 +20,9 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
@@ -41,18 +41,18 @@ type accountFlow struct {
 type flowResponse struct {
 	status int
 	raw    string
-	authkit.TokenSet
-	Tokens      authkit.TokenSet `json:"token_set"`
-	ReturnTo    string           `json:"return_to"`
-	Secret      string           `json:"secret"`
-	BackupCodes []string         `json:"backup_codes"`
+	iam.TokenSet
+	Tokens      iam.TokenSet `json:"token_set"`
+	ReturnTo    string       `json:"return_to"`
+	Secret      string       `json:"secret"`
+	BackupCodes []string     `json:"backup_codes"`
 	Error       struct {
 		Code     string `json:"code"`
 		Metadata struct {
 			UserID           string                    `json:"user_id"`
 			Challenge        string                    `json:"challenge"`
 			Method           string                    `json:"method"`
-			TokenSet         authkit.TokenSet          `json:"token_set"`
+			TokenSet         iam.TokenSet              `json:"token_set"`
 			AllowedMethods   []string                  `json:"allowed_methods"`
 			AvailableFactors []twoFactorFactorResponse `json:"available_factors"`
 			BackupCodes      []string                  `json:"backup_codes"`
@@ -128,7 +128,7 @@ func (f *accountFlow) expect(status int, r flowResponse) flowResponse {
 	require.Equal(f.t, status, r.status, r.raw)
 	return r
 }
-func (f *accountFlow) session(tokens authkit.TokenSet, amr ...string) {
+func (f *accountFlow) session(tokens iam.TokenSet, amr ...string) {
 	f.t.Helper()
 	require.NotEmpty(f.t, tokens.RefreshToken)
 	require.Greater(f.t, tokens.ExpiresIn, int64(0))
@@ -197,7 +197,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					channel = method
 				}
 				f.expect(403, f.post(start, body))
-				invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{Email: uniqueEmail("invite"), InvitedBy: inviter})
+				invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: uniqueEmail("invite"), InvitedBy: inviter})
 				require.NoError(t, err)
 				require.Equal(t, invite.URL, f.email.lastInviteURL())
 				body["account_invite_token"] = invite.Code
@@ -234,7 +234,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 				}
 				wg.Wait()
 				winners := 0
-				var tokens authkit.TokenSet
+				var tokens iam.TokenSet
 				for _, reply := range replies {
 					if reply.status == 200 {
 						winners++
@@ -270,7 +270,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	// revoked invitation must leave no account or password behind.
 	for _, start := range []string{"/register", "/passwordless/start"} {
 		email := uniqueEmail("revoked")
-		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
 		require.NoError(t, err)
 		payload := map[string]any{"identifier": email, "account_invite_token": invite.Code}
 		if start == "/register" {
@@ -310,7 +310,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	_, err := f.service.svc.CreateUser(ctx, uniqueEmail("collision"), username)
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
-	invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{Email: collisionEmail, InvitedBy: inviter})
+	invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: collisionEmail, InvitedBy: inviter})
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite.Code}))
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": f.email.verificationCode(t)}))
@@ -342,7 +342,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	cfg.TwoFactor.Mode = embedded.TwoFactorRequired
 	cfg.Registration.Verification = embedded.RegistrationVerificationRequired
 	cfg.Passkeys = embedded.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
-	cfg.RBAC = []embedded.PersonaDef{{Name: authkit.RootPersona, Roles: []embedded.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
+	cfg.RBAC = []embedded.PersonaDef{{Name: iam.RootPersona, Roles: []embedded.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := context.Background()
 	// Registration proof reaches a restricted enrollment token. Complete an
@@ -465,7 +465,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	passkeyUser, err := bootstrap.CreateUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, bootstrap.MarkEmailVerified(ctx, passkeyUser.ID))
-	require.NoError(t, bootstrap.AssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(passkeyUser.ID), "admin"))
+	require.NoError(t, bootstrap.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(passkeyUser.ID), "admin"))
 	authn := passkeytest.New(t, "https://app.example")
 	creation, err := f.service.svc.BeginPasskeyRegistration(ctx, passkeyUser.ID)
 	require.NoError(t, err)
@@ -643,7 +643,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
+		invite, err := f.service.svc.CreateAccountRegistrationInvite(ctx, iam.CreateAccountRegistrationInviteRequest{Email: email, InvitedBy: inviter})
 		require.NoError(t, err)
 		var failed flowResponse
 		if flow == "oidc" || flow == "oauth2" {

@@ -31,36 +31,36 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
 // Re-exported sentinels (defined in authkit, core-free).
 var (
-	ErrApplicationRegistrationDisabled = authkit.ErrApplicationRegistrationDisabled
-	ErrApplicationDomainInvalid        = authkit.ErrApplicationDomainInvalid
-	ErrApplicationDomainConflict       = authkit.ErrApplicationDomainConflict
-	ErrApplicationDocumentFetchFailed  = authkit.ErrApplicationDocumentFetchFailed
-	ErrApplicationDocumentInvalid      = authkit.ErrApplicationDocumentInvalid
-	ErrApplicationSlugConflict         = authkit.ErrApplicationSlugConflict
-	ErrApplicationIssuerConflict       = authkit.ErrApplicationIssuerConflict
+	ErrApplicationRegistrationDisabled = iam.ErrApplicationRegistrationDisabled
+	ErrApplicationDomainInvalid        = iam.ErrApplicationDomainInvalid
+	ErrApplicationDomainConflict       = iam.ErrApplicationDomainConflict
+	ErrApplicationDocumentFetchFailed  = iam.ErrApplicationDocumentFetchFailed
+	ErrApplicationDocumentInvalid      = iam.ErrApplicationDocumentInvalid
+	ErrApplicationSlugConflict         = iam.ErrApplicationSlugConflict
+	ErrApplicationIssuerConflict       = iam.ErrApplicationIssuerConflict
 )
 
 // Re-exported tier/trust-root constants and document types.
 const (
-	ApplicationTierRegistered = authkit.ApplicationTierRegistered
-	ApplicationTierApproved   = authkit.ApplicationTierApproved
+	ApplicationTierRegistered = iam.ApplicationTierRegistered
+	ApplicationTierApproved   = iam.ApplicationTierApproved
 
-	ApplicationTrustRootManual = authkit.ApplicationTrustRootManual
-	ApplicationTrustRootDomain = authkit.ApplicationTrustRootDomain
-	ApplicationTrustRootUser   = authkit.ApplicationTrustRootUser
+	ApplicationTrustRootManual = iam.ApplicationTrustRootManual
+	ApplicationTrustRootDomain = iam.ApplicationTrustRootDomain
+	ApplicationTrustRootUser   = iam.ApplicationTrustRootUser
 
-	ApplicationWellKnownPath = authkit.ApplicationWellKnownPath
+	ApplicationWellKnownPath = iam.ApplicationWellKnownPath
 )
 
-type ApplicationDocument = authkit.ApplicationDocument
-type RegisteredApplication = authkit.RegisteredApplication
+type ApplicationDocument = iam.ApplicationDocument
+type RegisteredApplication = iam.RegisteredApplication
 
 const (
 	// maxApplicationDocumentBytes caps the application.json (and JWKS) fetch.
@@ -263,7 +263,7 @@ func (s *engine) applicationsEnabled() (PersonaDef, error) {
 	if !s.cfg.Applications.SelfRegistration {
 		return PersonaDef{}, ErrApplicationRegistrationDisabled
 	}
-	persona := authkit.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
+	persona := iam.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
 	if !ok || persona == RootPersona || td.Parent != RootPersona {
 		return PersonaDef{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared persona parented by root", ErrApplicationRegistrationDisabled, persona)
@@ -356,7 +356,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 			if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, app.DisplayName); err != nil {
 				return nil, err
 			}
-			if err := st.AssignRole(ctx, row.PermissionGroupID, authkit.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
+			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
 				return nil, err
 			}
 		}
@@ -391,7 +391,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if available, err := st.InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: td.Name, Instance: app.Slug}); err != nil {
+	if available, err := st.InstanceSlugAvailable(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}); err != nil {
 		return nil, err
 	} else if !available {
 		return nil, ErrApplicationSlugConflict
@@ -403,7 +403,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
 	}
-	gid, err := st.CreateGroupNamed(ctx, authkit.GroupRef{Persona: td.Name, Instance: app.Slug}, rootGID, app.DisplayName)
+	gid, err := st.CreateGroupNamed(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}, rootGID, app.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +430,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	// Runtime-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
-	if err := st.AssignRole(ctx, gid, authkit.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
+	if err := st.AssignRole(ctx, gid, iam.RemoteAppSubject(row.ID), OwnerRoleName); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -444,7 +444,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}, nil
 }
 
-func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (persona authkit.Persona, instanceSlug string, err error) {
+func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (persona iam.Persona, instanceSlug string, err error) {
 	if groupID == "" {
 		return "", "", nil
 	}

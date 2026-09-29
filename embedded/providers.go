@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -156,10 +156,10 @@ func linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, pr
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, authkit.ErrProviderAlreadyLinked
+			return false, iam.ErrProviderAlreadyLinked
 		}
 		if isUniqueViolation(err, "user_providers_user_id_issuer_key") {
-			return false, authkit.ErrProviderChangeRequiresUnlink
+			return false, iam.ErrProviderChangeRequiresUnlink
 		}
 		return false, err
 	}

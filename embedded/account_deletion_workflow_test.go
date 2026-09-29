@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
@@ -27,8 +27,8 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	var runtime *Runtime
 	var mu sync.Mutex
 	var events []string
-	hook := func(stage string) func(context.Context, authkit.UserDeletion) error {
-		return func(ctx context.Context, deletion authkit.UserDeletion) error {
+	hook := func(stage string) func(context.Context, iam.UserDeletion) error {
+		return func(ctx context.Context, deletion iam.UserDeletion) error {
 			// A callback may reenter the same one-slot AuthKit pool. It must
 			// execute outside the mutation/delivery receipt transaction.
 			user, err := runtime.Client().AdminGetUser(ctx, deletion.UserID)
@@ -56,15 +56,15 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}
-	current := func() authkit.UserDeletion {
+	current := func() iam.UserDeletion {
 		t.Helper()
-		var deletion authkit.UserDeletion
+		var deletion iam.UserDeletion
 		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id::text,user_id::text,deleted_at,purge_at FROM profiles.account_deletions WHERE user_id=$1::uuid AND state='deleted'", user.ID).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt))
 		return deletion
 	}
 	remove()
 	first := current()
-	require.Equal(t, authkit.UserRecoveryPeriod, first.PurgeAt.Sub(first.DeletedAt))
+	require.Equal(t, iam.UserRecoveryPeriod, first.PurgeAt.Sub(first.DeletedAt))
 	var scheduled time.Time
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT scheduled_at FROM public.river_job WHERE kind='authkit_account_finalize' AND args->>'deletion_id'=$1`, first.ID).Scan(&scheduled))
 	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
@@ -157,8 +157,8 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = issuers
 		cfg.River.Schema = schema
-		hook := func(stage string) func(context.Context, authkit.UserDeletion) error {
-			return func(_ context.Context, deletion authkit.UserDeletion) error {
+		hook := func(stage string) func(context.Context, iam.UserDeletion) error {
+			return func(_ context.Context, deletion iam.UserDeletion) error {
 				mu.Lock()
 				defer mu.Unlock()
 				events[issuer] = append(events[issuer], stage+":"+deletion.ID)

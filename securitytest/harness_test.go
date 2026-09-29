@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/redis/go-redis/v9"
@@ -48,7 +48,7 @@ type host struct {
 	t       *testing.T
 	cfg     hostConfig
 	runtime *embedded.Runtime
-	client  authkit.Client
+	client  iam.Client
 	pool    *pgxpool.Pool
 	server  *httptest.Server
 	mail    *outbox
@@ -147,7 +147,7 @@ type response struct {
 func (r response) String() string { return string(r.body) }
 
 func (r response) errorCode() string {
-	var env authkit.ErrorEnvelope
+	var env iam.ErrorEnvelope
 	_ = json.Unmarshal(r.body, &env)
 	return env.Error.Code
 }

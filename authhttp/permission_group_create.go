@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -21,17 +21,17 @@ type groupInstanceCreateRequest struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona authkit.Persona) {
+func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona iam.Persona) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		// Instance ownership needs a user subject; machine principals cannot
 		// create through this route.
-		unauthorized(w, authkit.CodeNotAuthenticated)
+		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
 	var body groupInstanceCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	// Anti-squat velocity: a create IS a claim — capped per IP and per user
@@ -42,7 +42,7 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, claims.UserID) {
 		return
 	}
-	res, err := s.svc.CreateInstanceForSubject(r.Context(), authkit.GroupRef{Persona: persona, Instance: body.Slug}, body.DisplayName, claims.UserID)
+	res, err := s.svc.CreateInstanceForSubject(r.Context(), iam.GroupRef{Persona: persona, Instance: body.Slug}, body.DisplayName, claims.UserID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

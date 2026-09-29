@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Mount anchors. JWKS and browser OIDC are root-anchored by spec/convention
@@ -76,7 +76,7 @@ type MountedRoute struct {
 	Path       string
 	Group      RouteGroup
 	Auth       RouteAuthTier
-	Permission authkit.Perm
+	Permission iam.Perm
 }
 
 // Mount is the canonical HTTP handler and its route catalog. Framework adapters

@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -59,7 +59,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	member, err := svc.CreateUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
 	create := func(persona, name, parent string) string {
-		id, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: authkit.Persona(persona), InstanceSlug: name, ParentInstanceSlug: parent, OwnerSubjectID: owner.ID})
+		id, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: iam.Persona(persona), InstanceSlug: name, ParentInstanceSlug: parent, OwnerSubjectID: owner.ID})
 		require.NoError(t, err)
 		return id
 	}
@@ -72,7 +72,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			child := create("repo", childName, parentName)
 			leaf := create("leaf", leafName, childName)
 			renamed := childName + "-renamed"
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, authkit.GroupInstanceUpdate{Slug: &renamed})
+			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, iam.GroupInstanceUpdate{Slug: &renamed})
 			require.NoError(t, err)
 			var deadline time.Time
 			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, child, childName).Scan(&deadline))
@@ -83,7 +83,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.Zero(t, remaining)
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=ANY($1::uuid[])`, []string{parent, child, leaf}).Scan(&remaining))
 			require.Zero(t, remaining, "descendant authority rows cascade with the subtree")
-			for _, ref := range []authkit.GroupRef{{Persona: "org", Instance: parentName}, {Persona: "repo", Instance: renamed}, {Persona: "leaf", Instance: leafName}} {
+			for _, ref := range []iam.GroupRef{{Persona: "org", Instance: parentName}, {Persona: "repo", Instance: renamed}, {Persona: "leaf", Instance: leafName}} {
 				available, err := svc.groupStore().InstanceSlugAvailable(ctx, ref)
 				require.NoError(t, err)
 				require.Equal(t, release, available)
@@ -121,12 +121,12 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		// after deletion began but before the child row can be locked/traversed.
 		// Public creation queues behind the authority lock. This direct store
 		// insertion still exercises the subtree traversal's FK race boundary.
-		_, err = svc.groupStore().CreateGroup(ctx, authkit.GroupRef{Persona: "leaf", Instance: "late-leaf"}, child)
+		_, err = svc.groupStore().CreateGroup(ctx, iam.GroupRef{Persona: "leaf", Instance: "late-leaf"}, child)
 		require.NoError(t, err)
 		renamed := make(chan error, 1)
 		newName := "fault-child-renamed"
 		go func() {
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, authkit.GroupInstanceUpdate{Slug: &newName})
+			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, child, iam.GroupInstanceUpdate{Slug: &newName})
 			renamed <- err
 		}()
 		require.Eventually(t, func() bool {
@@ -137,29 +137,29 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
 		renameErr := <-renamed
-		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: "repo", Instance: newName})
+		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "repo", Instance: newName})
 		require.NoError(t, err)
 		require.Equal(t, renameErr != nil, newAvailable, "a completed concurrent rename must be reserved; a losing rename leaves no claim")
-		available, err := svc.groupStore().InstanceSlugAvailable(ctx, authkit.GroupRef{Persona: "leaf", Instance: "late-leaf"})
+		available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "leaf", Instance: "late-leaf"})
 		require.NoError(t, err)
 		require.False(t, available, "late committed descendants must be reserved too")
 	})
 
 	gid := create("org", "role-lifecycle", "")
-	group := authkit.GroupRef{Persona: "org", Instance: "role-lifecycle"}
-	role := authkit.Role("auditor")
+	group := iam.GroupRef{Persona: "org", Instance: "role-lifecycle"}
+	role := iam.Role("auditor")
 	define := func(permission string) {
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, authkit.CustomRoleDef{Role: role, Permissions: []string{permission}}))
+		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, iam.CustomRoleDef{Role: role, Permissions: []string{permission}}))
 	}
 	define("org:billing:read")
 	app, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", PermissionGroupID: gid, Enabled: true})
 	require.NoError(t, err)
-	require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, authkit.UserSubject(member.ID), role))
+	require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role))
 	require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role))
 	mint := func() (string, string) {
 		_, token, err := svc.MintAPIKeyWithOptions(ctx, group, APIKeyMintOptions{Name: "lifecycle-key", Role: role, CreatedBy: owner.ID})
 		require.NoError(t, err)
-		key, secret, ok := authkit.ParseAPIKey(svc.cfg.APIKeys.Prefix, token)
+		key, secret, ok := iam.ParseAPIKey(svc.cfg.APIKeys.Prefix, token)
 		require.True(t, ok)
 		return key, secret
 	}
@@ -169,7 +169,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	invite, err := svc.CreateAccountRegistrationInvite(ctx, CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
-	allowed, err := svc.Can(ctx, authkit.UserSubject(member.ID), group, "org:billing:write")
+	allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
 	require.NoError(t, err)
 	require.True(t, allowed)
 	resolved, err := svc.ResolveAPIKeyDetailed(ctx, key, secret)
@@ -185,7 +185,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
 	define("org:billing:write")
-	allowed, err = svc.Can(ctx, authkit.UserSubject(member.ID), group, "org:billing:write")
+	allowed, err = svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
 	require.NoError(t, err)
 	require.False(t, allowed)
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, app.ID)
@@ -202,7 +202,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	for _, reader := range []string{"member", "application", "key"} {
 		t.Run("snapshot_"+reader, func(t *testing.T) {
 			define("org:billing:read")
-			require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, authkit.UserSubject(member.ID), role))
+			require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role))
 			require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role))
 			key, secret := mint()
 			swap := func() {
@@ -212,7 +212,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			trace.swap.Store(&swap)
 			switch reader {
 			case "member":
-				allowed, err := svc.Can(ctx, authkit.UserSubject(member.ID), group, "org:billing:write")
+				allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
 				require.NoError(t, err)
 				require.False(t, allowed)
 			case "application":
@@ -238,7 +238,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, svc.lockAuthority(ctx, q))
 		require.NoError(t, lockPermissionGroup(ctx, q, gid))
 		writers := []func() error{
-			func() error { return svc.AssignGroupRoleAs(ctx, owner.ID, group, authkit.UserSubject(member.ID), role) },
+			func() error { return svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role) },
 			func() error { return svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role) },
 			func() error {
 				_, _, err := svc.MintAPIKeyWithOptions(ctx, group, APIKeyMintOptions{Name: "waiting", Role: role, CreatedBy: owner.ID})
@@ -268,7 +268,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.Error(t, <-results)
 		}
 		define("org:billing:write")
-		allowed, err := svc.Can(ctx, authkit.UserSubject(member.ID), group, "org:billing:write")
+		allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
 		require.NoError(t, err)
 		require.False(t, allowed)
 	})

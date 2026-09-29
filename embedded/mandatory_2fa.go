@@ -6,16 +6,16 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/internal/db"
 )
 
-var ErrTwoFAEnrollmentRequired = authkit.ErrTwoFAEnrollmentRequired
+var ErrTwoFAEnrollmentRequired = iam.ErrTwoFAEnrollmentRequired
 
-var ErrTwoFARequired = authkit.E(authkit.CodeTwoFARequired)
+var ErrTwoFARequired = iam.E(iam.CodeTwoFARequired)
 
 // MFAContinuationRequiredError identifies the already-validated refresh session
 // that needs a first-factor continuation. It never authorizes an arbitrary user.
@@ -30,30 +30,30 @@ func (e *MFAContinuationRequiredError) Unwrap() error { return e.Reason }
 
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
-	Persona           authkit.Persona
+	Persona           iam.Persona
 	InstanceSlug      string
-	Role              authkit.Role
+	Role              iam.Role
 	RemovedAt         time.Time
 }
 
-type MFAStatus = authkit.MFAStatus
+type MFAStatus = iam.MFAStatus
 
 // Two-factor policy vocabulary is defined in authkit (core-free) and re-exported
 // here (#148).
-type TwoFactorMode = authkit.TwoFactorMode
+type TwoFactorMode = iam.TwoFactorMode
 
 const (
-	TwoFactorDisabled = authkit.TwoFactorDisabled
-	TwoFactorOptional = authkit.TwoFactorOptional
-	TwoFactorRequired = authkit.TwoFactorRequired
+	TwoFactorDisabled = iam.TwoFactorDisabled
+	TwoFactorOptional = iam.TwoFactorOptional
+	TwoFactorRequired = iam.TwoFactorRequired
 )
 
-type TwoFactorMethod = authkit.TwoFactorMethod
+type TwoFactorMethod = iam.TwoFactorMethod
 
 const (
-	TwoFactorEmail = authkit.TwoFactorEmail
-	TwoFactorSMS   = authkit.TwoFactorSMS
-	TwoFactorTOTP  = authkit.TwoFactorTOTP
+	TwoFactorEmail = iam.TwoFactorEmail
+	TwoFactorSMS   = iam.TwoFactorSMS
+	TwoFactorTOTP  = iam.TwoFactorTOTP
 )
 
 func (s *engine) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
@@ -142,9 +142,9 @@ func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 // per-group custom role's stored requires_mfa flag, looked up in gid. gid may
 // be empty when the role is known to be a catalog role at the call site (the
 // custom-role branch is then simply skipped, reporting false).
-func (s *engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, role authkit.Role) (bool, error) {
-	persona = authkit.Persona(strings.TrimSpace(string(persona)))
-	role = authkit.Role(strings.TrimSpace(string(role)))
+func (s *engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, role iam.Role) (bool, error) {
+	persona = iam.Persona(strings.TrimSpace(string(persona)))
+	role = iam.Role(strings.TrimSpace(string(role)))
 	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return def.RequiresMFA, nil
 	}
@@ -176,8 +176,8 @@ func (s *engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 	// cannot run while rows is open on a single-connection DBTX.
 	type assignment struct {
 		gid     string
-		persona authkit.Persona
-		role    authkit.Role
+		persona iam.Persona
+		role    iam.Role
 	}
 	var assignments []assignment
 	for rows.Next() {
@@ -202,7 +202,7 @@ func (s *engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 	return false, nil
 }
 
-func (s *engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona authkit.Persona, subject authkit.Subject, role authkit.Role) error {
+func (s *engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, subject iam.Subject, role iam.Role) error {
 	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
 	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
 	// its root owner. Mirrors requireSessionMFAState's gate.
@@ -297,12 +297,12 @@ func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	}
 	st := NewPermissionGroupStore(q)
 	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
-		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 			return nil, err
 		}
 	}
 	for _, r := range removals {
-		if err := s.refuseOwnerLoss(ctx, st, r.PermissionGroupID, authkit.UserSubject(userID)); err != nil {
+		if err := s.refuseOwnerLoss(ctx, st, r.PermissionGroupID, iam.UserSubject(userID)); err != nil {
 			return nil, err
 		}
 	}

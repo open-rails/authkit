@@ -17,9 +17,9 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/dpop"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -30,7 +30,7 @@ const MaxDelegatedRoles = 64
 
 // errPermissionNotGranted rejects a token whose `permissions` claim names a
 // permission outside the issuer remote application's stored grant.
-var errPermissionNotGranted = authkit.E(authkit.CodePermissionNotGranted)
+var errPermissionNotGranted = iam.E(iam.CodePermissionNotGranted)
 
 // Verifier validates JWTs from one or more issuers.
 //
@@ -76,7 +76,7 @@ type Verifier struct {
 	mfaEnrollmentExemptRoutes map[string]bool
 
 	// Remote-application lazy-load coherence state. fedSource is the store the
-	// lazy-load-on-miss path consults; it defaults to enrich (*authkit.Service) but
+	// lazy-load-on-miss path consults; it defaults to enrich (*iam.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
 	// issuer is registered with the SAME audiences the bulk LoadRemoteApplications
 	// used. fedKnown records which issuers were sourced from the remote-application
@@ -91,7 +91,7 @@ type Verifier struct {
 	// refreshes it at most once per fedSnapshotTTL, so attacker-chosen issuers
 	// never reach the store and no map grows with them (ak#297).
 	// fedSnapshotFlight single-flights the refresh.
-	fedSnapshot       map[string]authkit.RemoteApplication
+	fedSnapshot       map[string]iam.RemoteApplication
 	fedSnapshotAt     time.Time
 	fedSnapshotTTL    time.Duration
 	fedSnapshotFlight chan struct{}
@@ -124,7 +124,7 @@ type Verifier struct {
 	permValidator PermissionValidator
 }
 
-// issuerEntry describes a trusted issuer (private — replaces authkit.IssuerAccept).
+// issuerEntry describes a trusted issuer (private — replaces iam.IssuerAccept).
 type issuerEntry struct {
 	issuer    string
 	audiences []string
@@ -140,7 +140,7 @@ type issuerEntry struct {
 	managed    bool
 	publicKeys func() map[string]crypto.PublicKey
 	// application is a per-verification live snapshot, never registry state.
-	application *authkit.RemoteApplication
+	application *iam.RemoteApplication
 }
 
 // issuerKeys is one issuer's key cache. Everything but pubByKID is meaningful
@@ -261,29 +261,29 @@ func WithPermissions(fn PermissionValidator) VerifierOption {
 // API-key principal Claims on success or a sanitized error on failure. When the
 // token is not an API key, matched is false and the caller proceeds to JWT verify.
 func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, matched bool, err error) {
-	if !authkit.HasAPIKeyPrefix(v.tokenPrefix, token) {
+	if !iam.HasAPIKeyPrefix(v.tokenPrefix, token) {
 		return Claims{}, false, nil
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
-		return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
+		return Claims{}, true, iam.E(iam.CodeInvalidToken)
 	}
-	keyID, secret, ok := authkit.ParseAPIKey(v.tokenPrefix, token)
+	keyID, secret, ok := iam.ParseAPIKey(v.tokenPrefix, token)
 	if !ok {
-		return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
+		return Claims{}, true, iam.E(iam.CodeInvalidToken)
 	}
 	resolved, rerr := v.enrich.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
-		case errors.Is(rerr, authkit.ErrAccessTokenRevoked):
-			return Claims{}, true, authkit.ErrAccessTokenRevoked
-		case errors.Is(rerr, authkit.ErrAccessTokenExpired):
-			return Claims{}, true, authkit.ErrAccessTokenExpired
-		case errors.Is(rerr, authkit.ErrInvalidAccessToken):
-			return Claims{}, true, authkit.ErrInvalidAccessToken
+		case errors.Is(rerr, iam.ErrAccessTokenRevoked):
+			return Claims{}, true, iam.ErrAccessTokenRevoked
+		case errors.Is(rerr, iam.ErrAccessTokenExpired):
+			return Claims{}, true, iam.ErrAccessTokenExpired
+		case errors.Is(rerr, iam.ErrInvalidAccessToken):
+			return Claims{}, true, iam.ErrInvalidAccessToken
 		default:
 			// Never leak DB/internal errors through the auth response.
-			return Claims{}, true, authkit.E(authkit.CodeInvalidToken)
+			return Claims{}, true, iam.E(iam.CodeInvalidToken)
 		}
 	}
 	return Claims{
@@ -299,10 +299,10 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 }
 
 // remoteApplication maps a validated issuer to its remote_application.
-func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error) {
+func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
-		return nil, authkit.E(authkit.CodeBadIssuer)
+		return nil, iam.E(iam.CodeBadIssuer)
 	}
 	v.mu.RLock()
 	var src RemoteApplicationSource
@@ -313,12 +313,12 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authk
 	}
 	v.mu.RUnlock()
 	if src == nil {
-		return nil, authkit.E(authkit.CodeInvalidToken)
+		return nil, iam.E(iam.CodeInvalidToken)
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
 	if err != nil || ra == nil || !ra.Enabled || ra.Issuer != issuer {
-		return nil, authkit.E(authkit.CodeBadIssuer)
+		return nil, iam.E(iam.CodeBadIssuer)
 	}
 	return ra, nil
 }
@@ -336,7 +336,7 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 		}
 		ok := false
 		for _, grant := range authorityPerms {
-			if authkit.Perm(p).Matches(authkit.Perm(grant)) {
+			if iam.Perm(p).Matches(iam.Perm(grant)) {
 				ok = true
 				break
 			}
@@ -356,13 +356,13 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 // resolveRemoteApplicationSelf resolves the stored permission ceiling and group
 // binding shared by application self tokens and delegated tokens. A nil claim
 // uses the full ceiling; a present claim must be a subset or the token fails.
-func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *authkit.RemoteApplication, tokenTyp string, claimedPerms []string) (Claims, error) {
+func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *iam.RemoteApplication, tokenTyp string, claimedPerms []string) (Claims, error) {
 	if v.enrich == nil || ra.ID == "" {
-		return Claims{}, authkit.E(authkit.CodeInvalidToken)
+		return Claims{}, iam.E(iam.CodeInvalidToken)
 	}
 	authority, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
-		return Claims{}, authkit.E(authkit.CodeInvalidToken)
+		return Claims{}, iam.E(iam.CodeInvalidToken)
 	}
 
 	perms, err := permissionsWithinAuthority(claimedPerms, authority.Permissions)
@@ -398,7 +398,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		issuers:          map[string]issuerEntry{},
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
-		fedSnapshot:      map[string]authkit.RemoteApplication{},
+		fedSnapshot:      map[string]iam.RemoteApplication{},
 		fedSnapshotTTL:   5 * time.Second,
 		negCache:         map[string]time.Time{},
 		negCacheTTL:      5 * time.Second,
@@ -577,13 +577,13 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // Enricher resolves API keys and stored application authority. Local access
 // tokens remain stateless; account liveness uses the separate LivenessSource.
 type Enricher interface {
-	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
-	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
-	ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error)
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error)
+	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (iam.ResolvedAPIKey, error)
+	GetRemoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error)
+	ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (iam.RemoteApplicationAuthority, error)
 	// (#215/#220: the former per-request enrichment methods — provider username,
 	// role slugs, user refs, live ban gate — are gone from this seam; the request
-	// path is stateless and those reads live on authkit.Client.)
+	// path is stateless and those reads live on iam.Client.)
 }
 
 // WithService installs the API-key/application backend and default lazy source.
@@ -606,9 +606,9 @@ func (v *Verifier) WithService(svc Enricher) *Verifier {
 // remoteAppOptions maps a stored remote_application to verifier options for its
 // trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
 // the human-managed PEM list (no URL fetching ever for static principals).
-func remoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
+func remoteAppOptions(ra iam.RemoteApplication) IssuerOptions {
 	opts := IssuerOptions{managed: true}
-	if ra.Mode == authkit.RemoteAppModeStatic {
+	if ra.Mode == iam.RemoteAppModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
 		}
@@ -619,16 +619,16 @@ func remoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
 }
 
 // RemoteApplicationSource is the minimal store contract the Verifier needs to
-// load remote_application principals (#74). *authkit.Service satisfies it. An
+// load remote_application principals (#74). *iam.Service satisfies it. An
 // embedding app may supply its own implementation in tests.
 type RemoteApplicationSource interface {
-	ListEnabledRemoteApplications(ctx context.Context) ([]authkit.RemoteApplication, error)
+	ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error)
 	// GetRemoteApplication fetches a SINGLE remote_application by its issuer,
 	// used after signature verification to resolve a service principal
 	// (remoteApplication). The lazy-load-on-miss path never calls it: it answers
-	// from the ListEnabledRemoteApplications snapshot (ak#297). *authkit.Service already
+	// from the ListEnabledRemoteApplications snapshot (ak#297). *iam.Service already
 	// implements this.
-	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
+	GetRemoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error)
 }
 
 // LoadRemoteApplications registers enabled store-managed issuers and removes
@@ -704,8 +704,8 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 
 // setSnapshotLocked replaces the enabled-issuer snapshot and sweeps negCache
 // entries that expired or left the enabled set. Caller holds v.mu.
-func (v *Verifier) setSnapshotLocked(apps []authkit.RemoteApplication) {
-	snap := make(map[string]authkit.RemoteApplication, len(apps))
+func (v *Verifier) setSnapshotLocked(apps []iam.RemoteApplication) {
+	snap := make(map[string]iam.RemoteApplication, len(apps))
 	for _, ra := range apps {
 		if id := strings.TrimSpace(ra.Issuer); id != "" && ra.Enabled {
 			snap[id] = ra
@@ -740,7 +740,7 @@ func (v *Verifier) FederationStats() FederationStats {
 // from the in-memory snapshot when it is fresh, otherwise after ONE
 // single-flighted ListRemoteApplications refresh. A refresh that fails still
 // stamps the snapshot so a failing store is consulted at most once per TTL.
-func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicationSource, issuer string) (authkit.RemoteApplication, bool) {
+func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicationSource, issuer string) (iam.RemoteApplication, bool) {
 	v.mu.Lock()
 	if ra, ok := v.fedSnapshot[issuer]; ok {
 		v.mu.Unlock()
@@ -748,7 +748,7 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 	}
 	if time.Since(v.fedSnapshotAt) < v.fedSnapshotTTL {
 		v.mu.Unlock()
-		return authkit.RemoteApplication{}, false
+		return iam.RemoteApplication{}, false
 	}
 	ttl := v.fedSnapshotTTL
 	if wait := v.fedSnapshotFlight; wait != nil {
@@ -758,9 +758,9 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 		select {
 		case <-wait:
 		case <-ctx.Done():
-			return authkit.RemoteApplication{}, false
+			return iam.RemoteApplication{}, false
 		case <-time.After(ttl):
-			return authkit.RemoteApplication{}, false
+			return iam.RemoteApplication{}, false
 		}
 		v.mu.RLock()
 		ra, ok := v.fedSnapshot[issuer]
@@ -800,7 +800,7 @@ func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicatio
 // Returns true if the issuer is now registered (caller should retry matchIssuer).
 func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 	issuer = strings.TrimSpace(issuer)
-	if !authkit.ValidRemoteApplicationIssuer(issuer) {
+	if !iam.ValidRemoteApplicationIssuer(issuer) {
 		return false
 	}
 
@@ -929,7 +929,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
 	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
 	if hasSub && hasDelegatedSub {
-		return Claims{}, authkit.E(authkit.CodeConflictingSubject)
+		return Claims{}, iam.E(iam.CodeConflictingSubject)
 	}
 
 	// Remote application access token (#76): a remote_application acting AS
@@ -941,7 +941,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// DOWN-SCOPE the stored authority (#76 amendment), never widen it.
 	if isRemoteAppTyp {
 		if hasSub || hasDelegatedSub {
-			return Claims{}, authkit.E(authkit.CodeRemoteApplicationAccessHasSubject)
+			return Claims{}, iam.E(iam.CodeRemoteApplicationAccessHasSubject)
 		}
 		var claimedPerms []string
 		if _, ok := mapClaims["permissions"]; ok {
@@ -951,7 +951,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 			}
 		}
 		if issuer.application == nil {
-			return Claims{}, authkit.E(authkit.CodeBadIssuer)
+			return Claims{}, iam.E(iam.CodeBadIssuer)
 		}
 		return v.resolveRemoteApplicationSelf(ctx, issuer.application, tokenTyp, claimedPerms)
 	}
@@ -960,38 +960,38 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// local account may be implied. Reject it explicitly so a misconfigured
 	// issuer can't slip a local subject into a API key.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
-		return Claims{}, authkit.E(authkit.CodeAccessTokenHasSub)
+		return Claims{}, iam.E(iam.CodeAccessTokenHasSub)
 	}
 
 	switch {
 	case hasDelegatedSub && !isDelegatedAccessTyp:
-		return Claims{}, authkit.E(authkit.CodeDelegatedAccessWrongTyp)
+		return Claims{}, iam.E(iam.CodeDelegatedAccessWrongTyp)
 	case hasSub && !isAccessTyp:
-		return Claims{}, authkit.E(authkit.CodeAccessTokenWrongTyp)
+		return Claims{}, iam.E(iam.CodeAccessTokenWrongTyp)
 	case tokenTyp == "":
-		return Claims{}, authkit.E(authkit.CodeMissingTokenTyp)
+		return Claims{}, iam.E(iam.CodeMissingTokenTyp)
 	case !isAccessTyp && !isDelegatedAccessTyp:
-		return Claims{}, authkit.E(authkit.CodeUnsupportedTokenTyp)
+		return Claims{}, iam.E(iam.CodeUnsupportedTokenTyp)
 	case isDelegatedAccessTyp && !hasDelegatedSub:
-		return Claims{}, authkit.E(authkit.CodeMissingDelegatedSub)
+		return Claims{}, iam.E(iam.CodeMissingDelegatedSub)
 	case isAccessTyp && !hasSub:
-		return Claims{}, authkit.E(authkit.CodeMissingSub)
+		return Claims{}, iam.E(iam.CodeMissingSub)
 	}
 
 	if isDelegatedAccessTyp {
 		// A delegated access token carries tier/roles under `attributes`, never as
 		// top-level claims; reject the top-level forms as token hygiene.
 		if strClaim(mapClaims, "user_tier") != "" {
-			return Claims{}, authkit.E(authkit.CodeDelegatedAccessHasUserTier)
+			return Claims{}, iam.E(iam.CodeDelegatedAccessHasUserTier)
 		}
 		if len(strSliceClaim(mapClaims, "roles")) > 0 {
-			return Claims{}, authkit.E(authkit.CodeDelegatedAccessHasRoles)
+			return Claims{}, iam.E(iam.CodeDelegatedAccessHasRoles)
 		}
 	}
 	cl := v.extractClaims(mapClaims)
 	if isAccessTyp {
 		if issuer.managed {
-			return Claims{}, authkit.E(authkit.CodeBadIssuer)
+			return Claims{}, iam.E(iam.CodeBadIssuer)
 		}
 		if issuer.isLocal {
 			// Native JWTs establish identity, never group/role/permission
@@ -1042,7 +1042,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	if confirmationKind == jwtkit.JWKThumbprintMember {
 		if _, err := dpop.VerifyRequest(r, v.dpopRequestURL(r), tokenStr, confirmation, v.dpopReplay); err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
-				return Claims{}, authkit.E(authkit.CodeInternalError, authkit.WithCause(err))
+				return Claims{}, iam.E(iam.CodeInternalError, iam.WithCause(err))
 			}
 			return Claims{}, errDPoPProofRequired
 		}
@@ -1071,7 +1071,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r
 	}
 	dp, ok := cl.DelegatedAccess()
 	if !ok {
-		return Claims{}, DelegatedPrincipal{}, authkit.E(authkit.CodeNotDelegatedAccessToken)
+		return Claims{}, DelegatedPrincipal{}, iam.E(iam.CodeNotDelegatedAccessToken)
 	}
 	return cl, dp, nil
 }
@@ -1081,7 +1081,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r
 func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, *issuerEntry, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return nil, "", nil, authkit.E(authkit.CodeMissingToken)
+		return nil, "", nil, iam.E(iam.CodeMissingToken)
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
@@ -1114,7 +1114,7 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
-		if unavailable := authkit.AsError(err); unavailable != nil && unavailable.Code == authkit.CodeIssuerKeysUnavailable {
+		if unavailable := iam.AsError(err); unavailable != nil && unavailable.Code == iam.CodeIssuerKeysUnavailable {
 			// An expired or foreign-audience token is rejected as such, not 503.
 			if cerr := v.checkClaims(mapClaims, match); cerr != nil {
 				return nil, "", nil, cerr
@@ -1122,7 +1122,7 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 			return nil, "", nil, unavailable
 		}
 		if err != nil || tok == nil || !tok.Valid {
-			return nil, "", nil, authkit.E(authkit.CodeInvalidToken)
+			return nil, "", nil, iam.E(iam.CodeInvalidToken)
 		}
 	}
 
@@ -1138,25 +1138,25 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 // checkClaims enforces issuer match, audience and exp/nbf/iat with skew.
 func (v *Verifier) checkClaims(mapClaims jwt.MapClaims, match *issuerEntry) error {
 	if match == nil {
-		return authkit.E(authkit.CodeBadIssuer)
+		return iam.E(iam.CodeBadIssuer)
 	}
 	if !audContainsAny(mapClaims["aud"], match.audiences) {
-		return authkit.E(authkit.CodeBadAudience)
+		return iam.E(iam.CodeBadAudience)
 	}
 	skew := v.skew
 	now := time.Now()
 	expUnix, ok := toUnix(mapClaims["exp"])
 	if !ok {
-		return authkit.E(authkit.CodeMissingExp)
+		return iam.E(iam.CodeMissingExp)
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return authkit.E(authkit.CodeAccessTokenExpired)
+		return iam.E(iam.CodeAccessTokenExpired)
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok && time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-		return authkit.E(authkit.CodeTokenNotYetValid)
+		return iam.E(iam.CodeTokenNotYetValid)
 	}
 	if iatUnix, ok := toUnix(mapClaims["iat"]); ok && time.Unix(iatUnix, 0).After(now.Add(skew)) {
-		return authkit.E(authkit.CodeTokenNotYetValid)
+		return iam.E(iam.CodeTokenNotYetValid)
 	}
 	return nil
 }
@@ -1333,7 +1333,7 @@ func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEnt
 		match = v.matchIssuer(issuer)
 	}
 	if match == nil {
-		return nil, authkit.E(authkit.CodeBadIssuer)
+		return nil, iam.E(iam.CodeBadIssuer)
 	}
 	if match.managed {
 		ra, err := v.remoteApplication(ctx, issuer)
@@ -1343,14 +1343,14 @@ func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEnt
 		match.application = ra
 		match.jwksURL = ""
 		switch ra.Mode {
-		case authkit.RemoteAppModeJWKS:
+		case iam.RemoteAppModeJWKS:
 			match.jwksURL = strings.TrimSpace(ra.JWKSURI)
 			if match.jwksURL == "" {
-				return nil, authkit.E(authkit.CodeBadIssuer)
+				return nil, iam.E(iam.CodeBadIssuer)
 			}
-		case authkit.RemoteAppModeStatic:
+		case iam.RemoteAppModeStatic:
 		default:
-			return nil, authkit.E(authkit.CodeBadIssuer)
+			return nil, iam.E(iam.CodeBadIssuer)
 		}
 	}
 	return match, nil
@@ -1382,13 +1382,13 @@ func (v *Verifier) algAllowed(alg string) bool {
 func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string) (crypto.PublicKey, error) {
 	iss := ie.issuer
 	if iss == "" {
-		return nil, authkit.E(authkit.CodeBadIssuer)
+		return nil, iam.E(iam.CodeBadIssuer)
 	}
 
 	if ie.publicKeys != nil {
 		return selectPublicKey(ie.publicKeys(), kid)
 	}
-	if ie.application != nil && ie.application.Mode == authkit.RemoteAppModeStatic {
+	if ie.application != nil && ie.application.Mode == iam.RemoteAppModeStatic {
 		v.mu.Lock()
 		delete(v.byIss, iss)
 		v.mu.Unlock()
@@ -1476,7 +1476,7 @@ func (c *issuerKeys) pastMaxStale(now time.Time) bool {
 }
 
 func issuerKeysUnavailable(cause error) error {
-	return authkit.E(authkit.CodeIssuerKeysUnavailable, authkit.WithCause(cause))
+	return iam.E(iam.CodeIssuerKeysUnavailable, iam.WithCause(cause))
 }
 
 // startRefreshLocked starts the issuer's background refresh loop unless one is
@@ -1791,14 +1791,14 @@ func selectPublicKey(keys map[string]crypto.PublicKey, kid string) (crypto.Publi
 	key := keys[kid]
 	if kid == "" {
 		if len(keys) != 1 {
-			return nil, authkit.E(authkit.CodeMissingKID)
+			return nil, iam.E(iam.CodeMissingKID)
 		}
 		for _, candidate := range keys {
 			key = candidate
 		}
 	}
 	if key == nil {
-		return nil, authkit.E(authkit.CodeUnknownKID)
+		return nil, iam.E(iam.CodeUnknownKID)
 	}
 	if err := jwtkit.ValidatePublicKey(key); err != nil {
 		return nil, err

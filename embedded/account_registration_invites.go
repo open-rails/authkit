@@ -11,13 +11,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
 
-var ErrAccountRegistrationInviteNotFound = authkit.ErrAccountRegistrationInviteNotFound
+var ErrAccountRegistrationInviteNotFound = iam.ErrAccountRegistrationInviteNotFound
 
 type accountInviteTokenContextKey struct{}
 
@@ -46,9 +46,9 @@ func accountRegistrationInviteTokenFromContext(ctx context.Context) string {
 	return strings.TrimSpace(token)
 }
 
-type AccountRegistrationInvite = authkit.AccountRegistrationInvite
-type CreateAccountRegistrationInviteRequest = authkit.CreateAccountRegistrationInviteRequest
-type AccountRegistrationInviteCreated = authkit.AccountRegistrationInviteCreated
+type AccountRegistrationInvite = iam.AccountRegistrationInvite
+type CreateAccountRegistrationInviteRequest = iam.CreateAccountRegistrationInviteRequest
+type AccountRegistrationInviteCreated = iam.AccountRegistrationInviteCreated
 
 func (s *engine) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
@@ -70,7 +70,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req Create
 	}
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if invitedBy == "" {
-		return AccountRegistrationInviteCreated{}, authkit.ErrInvalidInvite
+		return AccountRegistrationInviteCreated{}, iam.ErrInvalidInvite
 	}
 
 	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
@@ -80,9 +80,9 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req Create
 	//     same mint gate as CreateGroupInviteLink). A member-manager may attach a
 	//     registration credential scoped to THIS invite without gaining general
 	//     root:users:invite authority.
-	group := authkit.GroupRef{Persona: authkit.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
+	group := iam.GroupRef{Persona: iam.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
 	persona := group.Persona
-	role := authkit.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
+	role := iam.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	carriesRole := persona != "" && role != ""
 
 	var groupID *string
@@ -93,7 +93,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req Create
 		st := s.groupStore()
 		sch := s.groupSchemaOrDefault()
 		if !s.validRoleForPersona(sch, persona, role) {
-			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
+			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 		}
 		gid, err := s.resolveGroupID(ctx, st, group)
 		if err != nil {
@@ -101,7 +101,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req Create
 		}
 		groupID = &gid
 	} else if requireRootInvitePermission {
-		ok, err := s.Can(ctx, authkit.UserSubject(invitedBy), authkit.RootGroup(), PermRootUsersInvite)
+		ok, err := s.Can(ctx, iam.UserSubject(invitedBy), iam.RootGroup(), PermRootUsersInvite)
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
 		}
@@ -117,7 +117,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req Create
 	expiresAt := time.Now().UTC().Add(ttl)
 	code := RandB64(32)
 	codeHash := sha256Hex(code)
-	var roleParam *authkit.Role
+	var roleParam *iam.Role
 	if carriesRole {
 		roleParam = &role
 	}
@@ -200,8 +200,8 @@ func (s *engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 type registrationInvite struct {
 	ID      string
 	GroupID *string
-	Role    *authkit.Role
-	Persona *authkit.Persona
+	Role    *iam.Role
+	Persona *iam.Persona
 }
 
 func (s *engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*registrationInvite, error) {
@@ -257,7 +257,7 @@ func (s *engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 		return err
 	}
 	if invite.GroupID != nil && invite.Role != nil {
-		var persona authkit.Persona
+		var persona iam.Persona
 		if invite.Persona != nil {
 			persona = *invite.Persona
 		}

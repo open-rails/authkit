@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	var calls atomic.Int32
 	entered, release := make(chan struct{}), make(chan struct{})
-	runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ authkit.UserDeletion) error {
+	runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ iam.UserDeletion) error {
 		switch calls.Add(1) {
 		case 1:
 			return errors.New("host storage unavailable")

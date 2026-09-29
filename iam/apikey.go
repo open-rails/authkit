@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 import (
 	"strings"

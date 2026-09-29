@@ -5,16 +5,16 @@ import (
 	"errors"
 	"net/http"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // LivenessSource resolves account liveness — and the identity fields that are
 // fresh as of that same lookup — for verified user principals (#267).
-// authkit.Client satisfies it, embedded or remote, so wiring is
+// iam.Client satisfies it, embedded or remote, so wiring is
 // `v.WithLiveness(client)`; verify declares the port rather than importing the
 // engine, exactly as it does for PermissionChecker.
 type LivenessSource interface {
-	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error)
+	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error)
 }
 
 // ErrLivenessUnconfigured is returned by VerifyRequestLive when no
@@ -26,7 +26,7 @@ type LivenessSource interface {
 var ErrLivenessUnconfigured = errors.New("verify: liveness gate used without a LivenessSource (call Verifier.WithLiveness)")
 
 // WithLiveness wires the account-liveness backend used by VerifyRequestLive and
-// the RequiredLive and OptionalLive middleware. Pass the authkit.Client the host already holds.
+// the RequiredLive and OptionalLive middleware. Pass the iam.Client the host already holds.
 func (v *Verifier) WithLiveness(src LivenessSource) *Verifier {
 	v.mu.Lock()
 	v.liveness = src
@@ -103,9 +103,9 @@ func (v *Verifier) VerifyRequestLive(r *http.Request) (Claims, error) {
 	case errors.Is(err, ErrLivenessUnconfigured):
 		return Claims{}, err
 	case err != nil:
-		return Claims{}, authkit.E(authkit.CodeLivenessUnavailable, authkit.WithStatus(http.StatusUnauthorized))
+		return Claims{}, iam.E(iam.CodeLivenessUnavailable, iam.WithStatus(http.StatusUnauthorized))
 	case !live:
-		return Claims{}, authkit.E(authkit.CodeAccountDisabled, authkit.WithStatus(http.StatusUnauthorized))
+		return Claims{}, iam.E(iam.CodeAccountDisabled, iam.WithStatus(http.StatusUnauthorized))
 	}
 	// Machine and delegated principals carry no UserID and no user row; there is
 	// nothing fresh to write onto their claims.
@@ -126,21 +126,21 @@ func (v *Verifier) VerifyRequestLive(r *http.Request) (Claims, error) {
 // Non-user principals (no UserID) are live by definition here — their liveness
 // lives on their own credential — and come back with a zero UserLiveness.
 // Fail-closed: an error, or an id the directory does not return, is false.
-func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, authkit.UserLiveness, error) {
+func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, iam.UserLiveness, error) {
 	src := v.livenessSource()
 	if src == nil {
-		return false, authkit.UserLiveness{}, ErrLivenessUnconfigured
+		return false, iam.UserLiveness{}, ErrLivenessUnconfigured
 	}
 	if cl.UserID == "" {
-		return true, authkit.UserLiveness{}, nil
+		return true, iam.UserLiveness{}, nil
 	}
 	live, err := src.UserLivenessByIDs(ctx, []string{cl.UserID})
 	if err != nil {
-		return false, authkit.UserLiveness{}, err
+		return false, iam.UserLiveness{}, err
 	}
 	l, ok := live[cl.UserID]
 	if !ok || !l.Allowed {
-		return false, authkit.UserLiveness{}, nil
+		return false, iam.UserLiveness{}, nil
 	}
 	return true, l, nil
 }
@@ -156,7 +156,7 @@ func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, authkit.UserLiv
 //
 // Fail-closed throughout: a liveness error, a dead account, or a Can error all
 // deny (the error is returned; callers must deny on a non-nil error).
-func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm, scope PermissionScope) (bool, error) {
+func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm, scope PermissionScope) (bool, error) {
 	live, _, err := v.IsLive(ctx, cl)
 	if err != nil || !live {
 		return false, err

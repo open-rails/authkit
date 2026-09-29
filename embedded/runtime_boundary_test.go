@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +30,7 @@ func (s *testHTTPSurface) Close()                     { s.closed.Add(1) }
 func TestRuntimeClientOwnsNoLocalResources(t *testing.T) {
 	runtime := &engine{}
 	client := runtime.Client()
-	var _ authkit.Client = client
+	var _ iam.Client = client
 	require.NotNil(t, client)
 	typ := reflect.TypeOf(client)
 	for _, name := range []string{"Close", "Start", "Postgres", "Config", "Schema", "JWKS", "Genesis", "RiverJobs", "ConfigureHTTP", "SetEntitlementsProvider", "EnsureRootGroup", "SeedPermissionGroupContainment", "ApplyBootstrapManifest", "HasEmailSender", "HasSMSSender", "SMSAvailable", "CheckSMSHealth", "CleanupExpiredAuthState", "ValidateVerificationConfiguration", "ExternalInvitesEnabled"} {

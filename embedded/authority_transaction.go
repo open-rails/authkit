@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -54,8 +54,8 @@ func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*Permissi
 func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *PermissionGroupStore, touched ...authorityTouch) error {
 	type credential struct {
 		table, id, groupID, creator string
-		persona                     authkit.Persona
-		role                        authkit.Role
+		persona                     iam.Persona
+		role                        iam.Role
 	}
 	seen := map[authorityTouch]bool{}
 	var creds []credential
@@ -126,12 +126,12 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 	return nil
 }
 
-func (st *PermissionGroupStore) directRole(ctx context.Context, gid string, subject authkit.Subject) (authkit.Role, error) {
+func (st *PermissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return "", err
 	}
-	var role authkit.Role
+	var role iam.Role
 	err = st.q.QueryRow(ctx, fmt.Sprintf(`SELECT role FROM %s WHERE permission_group_id=$1::uuid AND %s=$2::uuid`, table, column), gid, subject.ID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -139,7 +139,7 @@ func (st *PermissionGroupStore) directRole(ctx context.Context, gid string, subj
 	return role, err
 }
 
-func subjectUsable(ctx context.Context, q db.DBTX, subject authkit.Subject) (bool, error) {
+func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, error) {
 	var query string
 	switch subject.Kind {
 	case SubjectKindUser:
@@ -167,13 +167,13 @@ func authorizationActorPresent(ctx context.Context, q db.DBTX, userID string) (b
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
 // from the remaining live owners. Removing an already unusable principal does
 // not create an ownership loss; empty bootstrap groups also remain possible.
-func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, gid string, subject authkit.Subject) error {
+func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, gid string, subject iam.Subject) error {
 	role, err := st.directRole(ctx, gid, subject)
 	if err != nil || role != OwnerRoleName {
 		return err
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
-	if err == nil && live && subject.Kind == authkit.SubjectKindRemoteApp {
+	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApp {
 		err = st.q.QueryRow(ctx, `SELECT permission_group_id=$2::uuid FROM remote_applications WHERE id=$1::uuid`, subject.ID, gid).Scan(&live)
 	}
 	if err != nil || !live {
@@ -182,8 +182,8 @@ func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, 
 	return s.requireRemainingOwner(ctx, st, gid, subject)
 }
 
-func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding authkit.Subject) error {
-	var persona authkit.Persona
+func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding iam.Subject) error {
+	var persona iam.Persona
 	var inactive bool
 	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona, &inactive); err != nil {
 		return err
@@ -212,7 +212,7 @@ func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupS
 	return nil
 }
 
-func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroupStore, subject authkit.Subject) error {
+func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroupStore, subject iam.Subject) error {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -245,8 +245,8 @@ func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroup
 
 // An invitation is a bounded bearer grant, not the inviter's current authority.
 // Redemption can retain or increase its recipient's role, never strip grants.
-func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore, gid string, persona authkit.Persona, userID string, role authkit.Role) error {
-	subject := authkit.UserSubject(userID)
+func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
+	subject := iam.UserSubject(userID)
 	old, err := st.directRole(ctx, gid, subject)
 	if err != nil {
 		return err
@@ -312,7 +312,7 @@ func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *PermissionGro
 	return surviving, nil
 }
 
-func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts authkit.DeletePermissionGroupOptions) error {
+func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts iam.DeletePermissionGroupOptions) error {
 	surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err
@@ -321,7 +321,7 @@ func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gi
 		return err
 	}
 	for _, id := range surviving {
-		if err := s.requireRemainingOwner(ctx, st, id, authkit.Subject{}); err != nil {
+		if err := s.requireRemainingOwner(ctx, st, id, iam.Subject{}); err != nil {
 			return err
 		}
 	}

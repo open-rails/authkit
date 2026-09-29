@@ -8,12 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/riverqueue/river"
 )
 
 type accountDeletionRecord struct {
-	authkit.UserDeletion
+	iam.UserDeletion
 	state      string
 	recipients []string
 }
@@ -29,7 +29,7 @@ func (s *engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 	if len(issuers) == 0 {
 		return errors.New("authkit: account deletion requires Token.Issuer")
 	}
-	var deletion authkit.UserDeletion
+	var deletion iam.UserDeletion
 	err := tx.QueryRow(ctx, `INSERT INTO account_deletions(user_id,deleted_at,purge_at,recipients)
  SELECT id,deleted_at,deleted_at+interval '720 hours',$2 FROM users WHERE id=$1::uuid
  RETURNING id::text,user_id::text,deleted_at,purge_at`, userID, issuers).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
@@ -39,7 +39,7 @@ func (s *engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 	return s.scheduleAccountDeletion(ctx, tx, client, deletion, issuers)
 }
 
-func (s *engine) scheduleAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, issuers []string) error {
+func (s *engine) scheduleAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string) error {
 	if err := s.enqueueAccountDeliveries(ctx, tx, client, deletion, issuers, "soft"); err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (s *engine) requireOwnersAfterAccountPurge(ctx context.Context, store *Perm
 		return err
 	}
 	for _, groupID := range groups {
-		if err := s.requireRemainingOwner(ctx, store, groupID, authkit.UserSubject(userID)); err != nil {
+		if err := s.requireRemainingOwner(ctx, store, groupID, iam.UserSubject(userID)); err != nil {
 			return err
 		}
 	}

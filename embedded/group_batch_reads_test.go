@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -65,17 +65,17 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	require.NoError(t, err)
 	member, err := client.CreateUser(ctx, "batch-member@example.test", "batch-member")
 	require.NoError(t, err)
-	subject := authkit.UserSubject(member.ID)
-	create := func(persona authkit.Persona, slug, parent string) (string, authkit.GroupRef) {
-		req := authkit.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID}
+	subject := iam.UserSubject(member.ID)
+	create := func(persona iam.Persona, slug, parent string) (string, iam.GroupRef) {
+		req := iam.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID}
 		if parent != "" {
 			req.ParentPersona, req.ParentInstanceSlug = "channel", parent
 		}
 		id, err := client.CreatePermissionGroup(ctx, req)
 		require.NoError(t, err)
-		return id, authkit.GroupRef{Persona: persona, Instance: slug}
+		return id, iam.GroupRef{Persona: persona, Instance: slug}
 	}
-	assign := func(ref authkit.GroupRef, role authkit.Role) {
+	assign := func(ref iam.GroupRef, role iam.Role) {
 		require.NoError(t, client.OperatorAssignGroupRole(ctx, ref, subject, role))
 	}
 
@@ -86,7 +86,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	section, sectionRef := create("section", "batch-section", "batch-moderated")
 	assign(sectionRef, "editor")
 	curated, curatedRef := create("channel", "batch-curated", "")
-	require.NoError(t, rt.engine.DefineGroupCustomRole(ctx, owner.ID, curatedRef, authkit.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
+	require.NoError(t, rt.engine.DefineGroupCustomRole(ctx, owner.ID, curatedRef, iam.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
 	assign(curatedRef, "curator")
 	retired, retiredRef := create("channel", "batch-retired", "")
 	assign(retiredRef, "reader")
@@ -96,9 +96,9 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	unknown := uuid.NewString()
 
 	ids := []string{reader, moderated, section, curated, retired, unassigned, unknown, "not-a-uuid", reader}
-	refs := map[string]authkit.GroupRef{reader: readerRef, moderated: moderatedRef, section: sectionRef, curated: curatedRef, retired: retiredRef, unassigned: unassignedRef}
+	refs := map[string]iam.GroupRef{reader: readerRef, moderated: moderatedRef, section: sectionRef, curated: curatedRef, retired: retiredRef, unassigned: unassignedRef}
 
-	var instances map[string]authkit.GroupInstance
+	var instances map[string]iam.GroupInstance
 	require.EqualValues(t, 1, counter.during(t, func() {
 		instances, err = client.GroupInstancesByIDs(ctx, ids)
 	}))
@@ -112,14 +112,14 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.Equal(t, single, instances[id])
 	}
 	_, err = client.GroupInstanceByID(ctx, unknown)
-	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
+	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 
-	var perms map[string][]authkit.Perm
+	var perms map[string][]iam.Perm
 	require.EqualValues(t, 1, counter.during(t, func() {
 		perms, err = client.EffectivePermissionsForGroups(ctx, subject, ids)
 	}))
 	require.NoError(t, err)
-	want := map[string][]authkit.Perm{
+	want := map[string][]iam.Perm{
 		reader:    {"channel:posts:read"},
 		moderated: {"channel:posts:read", "channel:posts:write"},
 		section:   {"channel:posts:read", "channel:posts:write", "section:pages:write"},
@@ -133,7 +133,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		single, err := client.ListEffectivePermissions(ctx, subject, ref)
 		require.NoError(t, err)
 		require.ElementsMatch(t, single, perms[id], "group %s", ref.Instance)
-		for _, perm := range []authkit.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
+		for _, perm := range []iam.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
 			allowed, err := client.CanOnGroup(ctx, subject, id, perm)
 			require.NoError(t, err)
 			covered := false
@@ -144,11 +144,11 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		}
 	}
 
-	ownerPerms, err := client.EffectivePermissionsForGroups(ctx, authkit.UserSubject(owner.ID), ids)
+	ownerPerms, err := client.EffectivePermissionsForGroups(ctx, iam.UserSubject(owner.ID), ids)
 	require.NoError(t, err)
 	require.NotContains(t, ownerPerms, retired)
 	for _, id := range []string{reader, section, unassigned} {
-		single, err := client.ListEffectivePermissions(ctx, authkit.UserSubject(owner.ID), refs[id])
+		single, err := client.ListEffectivePermissions(ctx, iam.UserSubject(owner.ID), refs[id])
 		require.NoError(t, err)
 		require.NotEmpty(t, single)
 		require.ElementsMatch(t, single, ownerPerms[id])
@@ -157,7 +157,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	empty, err := client.EffectivePermissionsForGroups(ctx, subject, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
-	tooMany := make([]string, authkit.MaxGroupBatch+1)
+	tooMany := make([]string, iam.MaxGroupBatch+1)
 	for i := range tooMany {
 		tooMany[i] = uuid.NewString()
 	}

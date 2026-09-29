@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -54,7 +54,7 @@ func (s *engine) PatchUserMetadata(ctx context.Context, userID string, patch map
 	}
 	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
 		if metadataMarksReserved(raw) {
-			if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
+			if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 				return err
 			}
 		}

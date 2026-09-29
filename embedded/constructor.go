@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
@@ -286,7 +286,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	// service-owned orgs off; a bad reference fails construction, not the
 	// first registration.
 	if norm.Applications.SelfRegistration {
-		persona := authkit.Persona(strings.TrimSpace(string(norm.Applications.OrgPersona)))
+		persona := iam.Persona(strings.TrimSpace(string(norm.Applications.OrgPersona)))
 		td, ok := gs.Persona(persona)
 		if !ok || persona == RootPersona {
 			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)

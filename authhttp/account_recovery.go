@@ -3,7 +3,7 @@ package authhttp
 import (
 	"net/http"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *http.Request) {
@@ -11,11 +11,11 @@ func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *htt
 		Token string `json:"token"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Token == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.ConfirmAccountRecovery(r.Context(), body.Token); err != nil {
-		writeError(w, fallback(err, authkit.CodeInvalidCredentials))
+		writeError(w, fallback(err, iam.CodeInvalidCredentials))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

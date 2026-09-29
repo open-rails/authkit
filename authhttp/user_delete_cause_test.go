@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -67,7 +67,7 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var tokens authkit.TokenSet
+	var tokens iam.TokenSet
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 
 	r = httptest.NewRequest(http.MethodDelete, "/user", nil)

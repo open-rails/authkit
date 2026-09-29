@@ -14,19 +14,19 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 var (
-	ErrInvalidTwoFAMethod       = authkit.ErrInvalidTwoFAMethod
-	ErrPhoneNumberRequired      = authkit.ErrPhoneNumberRequired
-	ErrPhoneNumberMustBeE164    = authkit.ErrPhoneNumberMustBeE164
-	ErrInvalidCode              = authkit.ErrInvalidCode
-	ErrTwoFACodeExpired         = authkit.ErrTwoFACodeExpired
-	ErrPhoneTwoFAUnavailable    = authkit.ErrPhoneTwoFAUnavailable
-	ErrTwoFASetupCodeSendFailed = authkit.ErrTwoFASetupCodeSendFailed
-	ErrTwoFAEnableFailed        = authkit.ErrTwoFAEnableFailed
-	ErrTwoFAFactorExists        = authkit.ErrTwoFAFactorExists
+	ErrInvalidTwoFAMethod       = iam.ErrInvalidTwoFAMethod
+	ErrPhoneNumberRequired      = iam.ErrPhoneNumberRequired
+	ErrPhoneNumberMustBeE164    = iam.ErrPhoneNumberMustBeE164
+	ErrInvalidCode              = iam.ErrInvalidCode
+	ErrTwoFACodeExpired         = iam.ErrTwoFACodeExpired
+	ErrPhoneTwoFAUnavailable    = iam.ErrPhoneTwoFAUnavailable
+	ErrTwoFASetupCodeSendFailed = iam.ErrTwoFASetupCodeSendFailed
+	ErrTwoFAEnableFailed        = iam.ErrTwoFAEnableFailed
+	ErrTwoFAFactorExists        = iam.ErrTwoFAFactorExists
 )
 
 // TwoFactorEnrollmentScope is what an enrollment call may do: the factor
@@ -214,7 +214,7 @@ func enrollmentProofError(stage string, err error) error {
 	if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
 		return ErrInvalidCode
 	}
-	if known := authkit.AsError(err); known != nil && known.Status < 500 {
+	if known := iam.AsError(err); known != nil && known.Status < 500 {
 		return err
 	}
 	return stageErr(stage, fmt.Errorf("%w: %w", ErrTwoFAEnableFailed, err))

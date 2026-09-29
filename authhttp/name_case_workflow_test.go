@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -117,9 +117,9 @@ func TestGroupInstanceSlugCaseWorkflow(t *testing.T) {
 	require.Contains(t, permissions.Body.String(), "org:*")
 
 	client := runtime.Runtime.Client()
-	hosted, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "Host-Made", OwnerSubjectID: ownerID})
+	hosted, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "Host-Made", OwnerSubjectID: ownerID})
 	require.NoError(t, err)
-	resolved, err := client.ResolveGroupIDForSlug(ctx, authkit.GroupRef{Persona: "org", Instance: "host-MADE"})
+	resolved, err := client.ResolveGroupIDForSlug(ctx, iam.GroupRef{Persona: "org", Instance: "host-MADE"})
 	require.NoError(t, err)
 	require.Equal(t, hosted, resolved)
 	var groups int

@@ -3,7 +3,7 @@ package embedded
 import (
 	"context"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -18,8 +18,8 @@ import (
 // NOT exposed here on purpose: username/email writes go through UpdateUsername/
 // UpdateEmail, which enforce the rename cooldown + validation that raw table
 // writes (the old identity.Store) silently skipped.
-func (s *engine) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
-	out := map[string]authkit.UserRef{}
+func (s *engine) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserRef, error) {
+	out := map[string]iam.UserRef{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
@@ -29,7 +29,7 @@ func (s *engine) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 		return nil, err
 	}
 	for _, r := range rows {
-		ref := authkit.UserRef{ID: r.ID}
+		ref := iam.UserRef{ID: r.ID}
 		if r.Username != nil {
 			ref.Username = *r.Username
 		}
@@ -43,7 +43,7 @@ func (s *engine) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 
 // PublicUsersByIDs resolves many user IDs to the PUBLIC-safe display projection
 // in ONE query (#268): the batch read for "render N comment authors" that is
-// safe to nest directly into a response body, because authkit.PublicUserRef has
+// safe to nest directly into a response body, because iam.PublicUserRef has
 // no email field at all.
 //
 // Deleted/banned policy, decided once here so three hosts stop each inventing
@@ -60,10 +60,10 @@ func (s *engine) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 //     retroactively rewrite public history and would leak moderation state to
 //     anyone who diffed the page.
 //   - An id that matches no row at all is ABSENT from the map, like UsersByIDs.
-//     authkit.PublicDisplayName covers that case for callers that want one
+//     iam.PublicDisplayName covers that case for callers that want one
 //     branch-free lookup.
-func (s *engine) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]authkit.PublicUserRef, error) {
-	out := map[string]authkit.PublicUserRef{}
+func (s *engine) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]iam.PublicUserRef, error) {
+	out := map[string]iam.PublicUserRef{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
@@ -77,10 +77,10 @@ func (s *engine) PublicUsersByIDs(ctx context.Context, ids []string) (map[string
 			// A tombstone carries the id and nothing else: the reference resolves,
 			// and no attribute of the deleted account — not even its join date —
 			// is published.
-			out[r.ID] = authkit.PublicUserRef{ID: r.ID, Deleted: true}
+			out[r.ID] = iam.PublicUserRef{ID: r.ID, Deleted: true}
 			continue
 		}
-		ref := authkit.PublicUserRef{ID: r.ID, CreatedAt: r.CreatedAt}
+		ref := iam.PublicUserRef{ID: r.ID, CreatedAt: r.CreatedAt}
 		if r.Username != nil {
 			ref.Username = *r.Username
 		}
@@ -106,8 +106,8 @@ func (s *engine) PublicUsersByIDs(ctx context.Context, ids []string) (map[string
 // lookup failure rather than read an outage as "allowed" — the same contract
 // RoleSlugsByUsers carries. IDs that match no row are absent from the map,
 // which a gate must also treat as a denial.
-func (s *engine) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
-	out := map[string]authkit.UserLiveness{}
+func (s *engine) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
+	out := map[string]iam.UserLiveness{}
 	if s.pg == nil || len(ids) == 0 {
 		return out, nil
 	}
@@ -134,7 +134,7 @@ func (s *engine) UserLivenessByIDs(ctx context.Context, ids []string) (map[strin
 		if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 			return nil, err
 		}
-		l := authkit.UserLiveness{
+		l := iam.UserLiveness{
 			ID:            r.ID,
 			Allowed:       livenessAllowed(u, r.Reserved),
 			EmailVerified: r.EmailVerified,

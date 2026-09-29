@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 type groupRequestScopeKey struct{}
 type groupRequestScope struct {
-	persona       authkit.Persona
+	persona       iam.Persona
 	reference, id string
 }
 
@@ -20,11 +20,11 @@ type groupRequestScope struct {
 // Only this exact persona/reference matches. Parent and other-target lookups keep
 // normal resolution. Every use rechecks target liveness and never falls back to
 // the name if the captured group has been deleted.
-func WithResolvedGroup(ctx context.Context, instance authkit.GroupInstance, reference string) context.Context {
+func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, reference string) context.Context {
 	return context.WithValue(ctx, groupRequestScopeKey{}, groupRequestScope{persona: instance.Persona, reference: strings.ToLower(strings.TrimSpace(reference)), id: instance.ID})
 }
 
-func (st *PermissionGroupStore) requestGroupID(ctx context.Context, g authkit.GroupRef) (string, bool, error) {
+func (st *PermissionGroupStore) requestGroupID(ctx context.Context, g iam.GroupRef) (string, bool, error) {
 	scope, ok := ctx.Value(groupRequestScopeKey{}).(groupRequestScope)
 	if !ok || scope.persona != g.Persona || scope.reference != strings.ToLower(strings.TrimSpace(g.Instance)) {
 		return "", false, nil

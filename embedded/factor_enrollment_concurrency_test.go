@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +48,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 					successes++
 					issuedCodes = results[i]
 				} else {
-					require.ErrorIs(t, err, authkit.ErrTwoFAFactorExists)
+					require.ErrorIs(t, err, iam.ErrTwoFAFactorExists)
 				}
 			}
 			require.Equal(t, 1, successes)
@@ -64,7 +64,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 			// Authenticated management may add another method, but cannot replace the winner.
 			phone := "+15559876543"
 			_, err = svc.Enable2FADefault(ctx, user.ID, settings.Factors[0].Method, &phone, AllowAdditionalFactors)
-			require.ErrorIs(t, err, authkit.ErrTwoFAFactorExists)
+			require.ErrorIs(t, err, iam.ErrTwoFAFactorExists)
 			preserved, err := svc.Get2FASettings(ctx, user.ID)
 			require.NoError(t, err)
 			require.Equal(t, settings, preserved)

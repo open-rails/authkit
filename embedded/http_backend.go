@@ -5,7 +5,7 @@ import (
 	crypto "crypto"
 	protocol "github.com/go-webauthn/webauthn/protocol"
 	pgxpool "github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	siws "github.com/open-rails/authkit/internal/siws"
 	jwtkit "github.com/open-rails/authkit/jwtkit"
 	oidckit "github.com/open-rails/authkit/oidckit"
@@ -18,17 +18,17 @@ import (
 // HTTPConfiguration.BuildHTTP. It is not the portable application Client, and
 // Runtime deliberately provides no accessor for it.
 type HTTPBackend interface {
-	authkit.Client
+	iam.Client
 	verify.Enricher
-	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject, role authkit.Role) error
-	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, subject authkit.Subject) error
+	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject, role iam.Role) error
+	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject) error
 	CheckDelegatedGrant(ctx context.Context, userID string, permissions []string) error
-	RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, tokenID string) (bool, error)
-	RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, linkID string) error
-	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (authkit.AccountSessionRevocation, error)
+	RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, tokenID string) (bool, error)
+	RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, linkID string) error
+	AdminRevokeAccountSessionsAs(ctx context.Context, actorUserID, userID string) (iam.AccountSessionRevocation, error)
 	UnbanUserAs(ctx context.Context, actorUserID, userID string) error
 	RequireProvenContact(ctx context.Context, userID string) error
-	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error
+	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, appSlug string, role iam.Role) error
 	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error)
 	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error)
 	BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error)
@@ -47,16 +47,16 @@ type HTTPBackend interface {
 	ConfirmVerification(ctx context.Context, in VerificationInput) (LoginOutcome, error)
 	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error)
 	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
-	CreateInstanceForSubject(ctx context.Context, group authkit.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error)
-	DefineGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, def authkit.CustomRoleDef) error
+	CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error)
+	DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def iam.CustomRoleDef) error
 	DelegationAuthorizer() DelegationAuthorizer
-	DeleteGroupCustomRole(ctx context.Context, actorUserID string, group authkit.GroupRef, role authkit.Role) error
+	DeleteGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, role iam.Role) error
 	DeletePasskey(ctx context.Context, userID, id string) error
 	DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error
 	DeletePendingRegistrationByEmail(ctx context.Context, email string) error
 	DeleteRemoteApplication(ctx context.Context, issuer string) error
-	DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, slug string) error
-	UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, in authkit.RemoteApplication) (*authkit.RemoteApplication, error)
+	DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, slug string) error
+	UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error)
 	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error)
 	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error)
 	EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error)
@@ -73,7 +73,7 @@ type HTTPBackend interface {
 	GetPreferredLanguage(ctx context.Context, userID string) (PreferredLanguage, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
 	GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error)
-	GroupNamingState(ctx context.Context, id string) (authkit.NamingState, error)
+	GroupNamingState(ctx context.Context, id string) (iam.NamingState, error)
 	HasEmailSender() bool
 	HasPassword(ctx context.Context, userID string) (bool, error)
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
@@ -81,14 +81,14 @@ type HTTPBackend interface {
 	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error)
 	ListPasskeys(ctx context.Context, userID string) ([]Passkey, error)
-	ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error)
+	ListRemoteApplicationsForGroup(ctx context.Context, group iam.GroupRef) ([]RemoteApplication, error)
 	ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error)
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
 	MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error
 	MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error)
-	NamingPolicy() authkit.NamingPolicy
+	NamingPolicy() iam.NamingPolicy
 	PasskeysEnabled() bool
 	PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error)
 	PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error)
@@ -133,9 +133,9 @@ type HTTPBackend interface {
 	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)
-	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error)
-	UserNamingState(ctx context.Context, id string) (authkit.NamingState, error)
-	UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error)
+	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update iam.GroupInstanceUpdate) (iam.GroupInstance, error)
+	UserNamingState(ctx context.Context, id string) (iam.NamingState, error)
+	UserProfile(ctx context.Context, in ProfileInput) (iam.UserProfile, error)
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)

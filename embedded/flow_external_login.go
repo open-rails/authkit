@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // ExternalIdentity is a provider-verified identity.
@@ -46,11 +46,11 @@ type ExternalLinkAuthorization struct {
 }
 
 var (
-	ErrAccountExistsLinkRequired    = authkit.ErrAccountExistsLinkRequired
-	ErrProviderLinkFailed           = authkit.ErrProviderLinkFailed
-	ErrUserCreationFailed           = authkit.ErrUserCreationFailed
-	ErrProviderAlreadyLinked        = authkit.ErrProviderAlreadyLinked
-	ErrProviderChangeRequiresUnlink = authkit.ErrProviderChangeRequiresUnlink
+	ErrAccountExistsLinkRequired    = iam.ErrAccountExistsLinkRequired
+	ErrProviderLinkFailed           = iam.ErrProviderLinkFailed
+	ErrUserCreationFailed           = iam.ErrUserCreationFailed
+	ErrProviderAlreadyLinked        = iam.ErrProviderAlreadyLinked
+	ErrProviderChangeRequiresUnlink = iam.ErrProviderChangeRequiresUnlink
 )
 
 // CompleteExternalLogin resolves the identity to a user and signs it in.

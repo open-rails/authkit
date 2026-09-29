@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -13,12 +13,12 @@ import (
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	sessions, err := s.svc.ListUserSessions(r.Context(), cl.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeFailedToList, err)
+		serverErr(w, iam.CodeFailedToList, err)
 		return
 	}
 	arr := make([]map[string]any, 0, len(sessions))
@@ -39,17 +39,17 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	sid := strings.TrimSpace(r.PathValue("id"))
 	if sid == "" {
-		badRequest(w, authkit.CodeMissingSessionID)
+		badRequest(w, iam.CodeMissingSessionID)
 		return
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
-		serverErr(w, authkit.CodeFailedToRevoke, err)
+		serverErr(w, iam.CodeFailedToRevoke, err)
 		return
 	}
 	noContent(w)
@@ -58,12 +58,12 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, nil); err != nil {
-		serverErr(w, authkit.CodeFailedToRevokeAll, err)
+		serverErr(w, iam.CodeFailedToRevokeAll, err)
 		return
 	}
 	noContent(w)

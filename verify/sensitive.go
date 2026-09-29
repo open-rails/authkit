@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 const DefaultSensitiveMaxAge = 15 * time.Minute
@@ -23,7 +23,7 @@ func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil || !SensitiveClaims(cl, opts) {
-				authkit.WriteError(w, authkit.E(authkit.CodeStepUpRequired, authkit.WithMetadata(sensitiveMetadata(opts, cl))))
+				iam.WriteError(w, iam.E(iam.CodeStepUpRequired, iam.WithMetadata(sensitiveMetadata(opts, cl))))
 				return
 			}
 			next.ServeHTTP(w, r)

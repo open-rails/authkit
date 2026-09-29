@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/jwtkit"
@@ -31,17 +31,17 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
 	var authorizations atomic.Int32
-	var observed authkit.DelegationRequest
+	var observed iam.DelegationRequest
 	var mu sync.Mutex
-	opts := []coreOpt{withDelegatedAuthorization(func(_ context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+	opts := []coreOpt{withDelegatedAuthorization(func(_ context.Context, req iam.DelegationRequest) (iam.DelegationGrant, error) {
 		authorizations.Add(1)
 		mu.Lock()
 		observed = req
 		mu.Unlock()
 		if string(req.RequestedGrant) == `{"refuse":true}` {
-			return authkit.DelegationGrant{}, authkit.ErrDelegationRefused
+			return iam.DelegationGrant{}, iam.ErrDelegationRefused
 		}
-		return authkit.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}, Documents: map[string]string{"example.policy/v1": documents.Digest([]byte("policy"))}}, nil
+		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}, Documents: map[string]string{"example.policy/v1": documents.Digest([]byte("policy"))}}, nil
 	})}
 	engine := newServerClient(t, cfg, pg.Pool, opts...)
 	service, err := newTestService(engine, Config{DirectPeerIP: true, DisableRateLimiting: true})
@@ -56,7 +56,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.NoError(t, engine.AdminSetPassword(ctx, user.ID, "Browser-profile-pass1!"))
 	login, err := issuer.Client().Post(issuer.URL+"/api/v1/password/login", "application/json", strings.NewReader(`{"identifier":"`+*user.Email+`","password":"Browser-profile-pass1!"}`))
 	require.NoError(t, err)
-	var session authkit.TokenSet
+	var session iam.TokenSet
 	require.NoError(t, json.NewDecoder(login.Body).Decode(&session))
 	login.Body.Close()
 	require.Equal(t, 200, login.StatusCode)
@@ -182,11 +182,11 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, 401, call("DPoP", minted.Token, testdpop.Proof(t, testdpop.Key(t), "GET", resource.URL+"/tasks", minted.Token, nil), "/tasks"))
 	_, err = verifier.Verify(ctx, minted.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	detached, err := engine.MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{Audiences: []string{"platform"}, DelegatedSubject: user.ID, Permissions: []string{"resource:read"}})
+	detached, err := engine.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{Audiences: []string{"platform"}, DelegatedSubject: user.ID, Permissions: []string{"resource:read"}})
 	require.NoError(t, err)
 	require.Equal(t, 401, call("DPoP", detached, resourceProof(detached), "/tasks"))
 	certHash := [32]byte{1}
-	_, err = engine.MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{DelegatedSubject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
+	_, err = engine.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{DelegatedSubject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
 	var successes atomic.Int32
@@ -242,7 +242,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		req.Header.Set("DPoP", resourceProof(minted.Token))
 		_, err = v.VerifyRequest(req)
 		require.Error(t, err)
-		require.Equal(t, authkit.CodeInternalError, authkit.AsError(err).Code)
+		require.Equal(t, iam.CodeInternalError, iam.AsError(err).Code)
 		rejected := httptest.NewRecorder()
 		verify.Required(v)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("storage outage admitted request") })).ServeHTTP(rejected, req)
 		require.Equal(t, 500, rejected.Code)

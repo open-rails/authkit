@@ -5,17 +5,17 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
 const (
-	ActionUpdateUsername       = authkit.ActionUpdateUsername
-	ActionRequestPasswordReset = authkit.ActionRequestPasswordReset
-	ActionRequestVerification  = authkit.ActionRequestVerification
+	ActionUpdateUsername       = iam.ActionUpdateUsername
+	ActionRequestPasswordReset = iam.ActionRequestPasswordReset
+	ActionRequestVerification  = iam.ActionRequestVerification
 )
 
-type ActionAvailability = authkit.ActionAvailability
+type ActionAvailability = iam.ActionAvailability
 
 func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.Time) ActionAvailability {
 	out := ActionAvailability{

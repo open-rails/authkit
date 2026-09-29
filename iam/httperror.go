@@ -1,10 +1,8 @@
-package authkit
+package iam
 
 import (
 	"encoding/json"
 	"net/http"
-
-	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Stripe-style HTTP error envelope, shared by authhttp and the core-free verify
@@ -72,13 +70,13 @@ func ErrorEnvelopeFor(err error) (int, ErrorEnvelope) {
 	}
 	param := e.Param
 	if param == "" {
-		param = errmodel.DefaultParam(code)
+		param = defaultParam(code)
 	}
 	return status, envelope(status, code, param, e.Meta)
 }
 
 func envelope(status int, code Code, param string, metadata map[string]any) ErrorEnvelope {
-	_, message, _ := errmodel.Describe(code)
+	_, message, _ := DescribeCode(code)
 	if message == "" {
 		message = "Request failed."
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -40,7 +40,7 @@ func (s *engine) registerAccount(ctx context.Context, in accountRegistration) (r
 	if err != nil {
 		return registeredAccount{}, mapUserUniqueViolation(err)
 	}
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: user.ID, RequestedName: in.User.Username, Operation: authkit.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: user.ID, RequestedName: in.User.Username, Operation: iam.NameCreate}); err != nil {
 		return registeredAccount{}, err
 	}
 	if in.User.PasswordHash != "" {

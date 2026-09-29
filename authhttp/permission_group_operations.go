@@ -15,8 +15,8 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 // memberRequest is the body for POST /<persona>/<instance_slug>/members.
@@ -28,21 +28,21 @@ type memberRequest struct {
 
 // groupMemberAdd assigns a subject (user) a role in the group. Idempotent at the
 // store layer.
-func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	userID := strings.TrimSpace(body.UserID)
 	email := embedded.NormalizeEmail(body.Email)
 	if (userID == "") == (email == "") {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	role := authkit.Role(strings.TrimSpace(body.Role))
+	role := iam.Role(strings.TrimSpace(body.Role))
 	if role == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if email != "" {
@@ -53,7 +53,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	if email != "" {
@@ -62,14 +62,14 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 			u = nil
 		} else if err != nil {
 			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
-			serverErr(w, authkit.CodeDatabaseError, nil)
+			serverErr(w, iam.CodeDatabaseError, nil)
 			return
 		}
 		if u == nil {
 			// Account-registration invitations currently require a native inviter.
 			// A remote owner can manage existing users, but cannot invent one.
 			if actor.UserID == "" {
-				forbidden(w, authkit.CodeForbidden)
+				forbidden(w, iam.CodeForbidden)
 				return
 			}
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
@@ -80,7 +80,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 			// role on consume — one link covers register + join. Authorized by THIS
 			// group's members:manage (the role-carrying create path), which does not
 			// grant general root:users:invite authority.
-			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), authkit.CreateAccountRegistrationInviteRequest{
+			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), iam.CreateAccountRegistrationInviteRequest{
 				Email:        email,
 				InvitedBy:    actor.UserID,
 				Persona:      group.Persona,
@@ -109,7 +109,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 		userID = u.ID
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
-	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, authkit.UserSubject(userID), role); err != nil {
+	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, iam.UserSubject(userID), role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -123,19 +123,19 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group a
 }
 
 // groupMemberRemove revokes the user's role in the group.
-func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, userID string) {
+func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, group iam.GroupRef, userID string) {
 	if userID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// #136: actor-aware removal enforces no-escalation across every role the
 	// target holds — a non-owner cannot strip an owner's roles.
-	if err := s.svc.RemoveGroupSubjectFromClaims(r.Context(), actor, group, authkit.UserSubject(userID)); err != nil {
+	if err := s.svc.RemoveGroupSubjectFromClaims(r.Context(), actor, group, iam.UserSubject(userID)); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -148,19 +148,19 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, grou
 }
 
 // groupMemberRole assigns or replaces the user's single role in the group.
-func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, userID string, role authkit.Role) {
-	role = authkit.Role(strings.TrimSpace(string(role)))
+func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, userID string, role iam.Role) {
+	role = iam.Role(strings.TrimSpace(string(role)))
 	if userID == "" || role == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
-	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, authkit.UserSubject(userID), role); err != nil {
+	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, iam.UserSubject(userID), role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -174,7 +174,7 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group 
 }
 
 // groupMembersList lists the role assignments in a group.
-func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	members, err := s.svc.ListGroupMembers(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -195,10 +195,10 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group
 // groupRolesList returns the role catalog declared for a persona (always
 // available per the generator). This is pure schema data — no DB, no group
 // resolution beyond the already-passed authorization.
-func (s *Service) groupRolesList(w http.ResponseWriter, persona authkit.Persona) {
+func (s *Service) groupRolesList(w http.ResponseWriter, persona iam.Persona) {
 	roles, ok := s.svc.PermissionGroupSchema().Roles(persona)
 	if !ok {
-		notFound(w, authkit.CodeNotFound)
+		notFound(w, iam.CodeNotFound)
 		return
 	}
 	data := make([]map[string]any, 0, len(roles))
@@ -221,10 +221,10 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona authkit.Persona)
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeNotAuthenticated)
+		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
-	groups, err := s.svc.ListSubjectGroups(r.Context(), authkit.UserSubject(claims.UserID))
+	groups, err := s.svc.ListSubjectGroups(r.Context(), iam.UserSubject(claims.UserID))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -245,7 +245,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 // handleMePermissionsGET is the permission-introspection endpoint (#421): it
 // returns the authenticated subject's effective grant PATTERNS within ONE group
 // instance, so a client can gate UI on permission strings (glob-matching with
-// authkit.Perm.Matches, the same matcher the server enforces with) instead of
+// iam.Perm.Matches, the same matcher the server enforces with) instead of
 // re-deriving authority from role slugs. Scoped by ?persona= (default "root") and
 // ?instance= (default "" — the singleton root group); a per-instance scope is
 // required because perms are persona-namespaced. Globs like `root:*` (held by an
@@ -253,17 +253,17 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeNotAuthenticated)
+		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
-	group := authkit.GroupRef{
-		Persona:  authkit.Persona(strings.TrimSpace(r.URL.Query().Get("persona"))),
+	group := iam.GroupRef{
+		Persona:  iam.Persona(strings.TrimSpace(r.URL.Query().Get("persona"))),
 		Instance: strings.TrimSpace(r.URL.Query().Get("instance")),
 	}
 	if group.Persona == "" {
-		group.Persona = authkit.RootPersona
+		group.Persona = iam.RootPersona
 	}
-	perms, err := s.svc.ListEffectivePermissions(r.Context(), authkit.UserSubject(claims.UserID), group)
+	perms, err := s.svc.ListEffectivePermissions(r.Context(), iam.UserSubject(claims.UserID), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -290,15 +290,15 @@ type apiKeyMintRequest struct {
 // groupAPIKeyMint mints a new API key for the group, returning the plaintext
 // secret ONCE (it is never recoverable afterward). The created-by attribution is
 // the authenticated caller.
-func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, createdBy string) {
+func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, createdBy string) {
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	key, secret, err := s.svc.MintAPIKeyWithOptions(r.Context(), group, authkit.APIKeyMintOptions{
+	key, secret, err := s.svc.MintAPIKeyWithOptions(r.Context(), group, iam.APIKeyMintOptions{
 		Name:      strings.TrimSpace(body.Name),
-		Role:      authkit.Role(strings.TrimSpace(body.Role)),
+		Role:      iam.Role(strings.TrimSpace(body.Role)),
 		CreatedBy: createdBy,
 		ExpiresAt: body.ExpiresAt,
 	})
@@ -318,7 +318,7 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group 
 
 // groupAPIKeyList lists the group's API keys. The secret is NEVER returned here
 // (only on mint).
-func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	keys, err := s.svc.ListAPIKeys(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -355,9 +355,9 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group 
 
 // groupAPIKeyRevoke revokes the group's API key by token id (the :key path
 // param). 404 if no matching, not-already-revoked key exists in this group.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, actor verify.Claims, tokenID string) {
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor verify.Claims, tokenID string) {
 	if tokenID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	ok, err := s.svc.RevokeAPIKeyFromClaims(r.Context(), actor, group, tokenID)
@@ -366,7 +366,7 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, grou
 		return
 	}
 	if !ok {
-		notFound(w, authkit.CodeNotFound)
+		notFound(w, iam.CodeNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": tokenID})
@@ -379,11 +379,11 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, grou
 // permission_group_id is the addressed group (never request-supplied), so the
 // body carries only the issuer/trust-source fields.
 type remoteAppRegisterRequest struct {
-	Slug       string                 `json:"slug"`
-	Issuer     string                 `json:"issuer"`
-	JWKSURI    string                 `json:"jwks_uri"`
-	Mode       string                 `json:"mode"`
-	PublicKeys []authkit.RemoteAppKey `json:"public_keys"`
+	Slug       string             `json:"slug"`
+	Issuer     string             `json:"issuer"`
+	JWKSURI    string             `json:"jwks_uri"`
+	Mode       string             `json:"mode"`
+	PublicKeys []iam.RemoteAppKey `json:"public_keys"`
 	// Enabled is a pointer so an omitted field ("enabled" absent) is
 	// distinguishable from an explicit false. Omitted defaults to true on this
 	// register/upsert endpoint; an explicit false still disables the issuer.
@@ -393,15 +393,15 @@ type remoteAppRegisterRequest struct {
 // groupRemoteAppRegister registers (upserts) a remote_application owned by the
 // addressed group. The group's internal id becomes the controlling
 // permission_group_id.
-func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	var body remoteAppRegisterRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// Default to enabled when the field is omitted; preserve an explicit
@@ -411,7 +411,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	ra, err := s.svc.UpsertRemoteApplicationFromClaims(r.Context(), claims, group, authkit.RemoteApplication{
+	ra, err := s.svc.UpsertRemoteApplicationFromClaims(r.Context(), claims, group, iam.RemoteApplication{
 		Slug:       strings.TrimSpace(body.Slug),
 		Issuer:     strings.TrimSpace(body.Issuer),
 		JWKSURI:    strings.TrimSpace(body.JWKSURI),
@@ -428,7 +428,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 
 // groupRemoteAppList lists the remote_applications controlled by the addressed
 // group (only this group's — not every group's).
-func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	apps, err := s.svc.ListRemoteApplicationsForGroup(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -449,14 +449,14 @@ func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, gro
 // groupRemoteAppDelete removes a remote_application. The :app path param is the
 // remote_application's slug; it is resolved to its issuer (scoped to this group)
 // before deletion so a manager cannot delete another group's issuer.
-func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, slug string) {
+func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, slug string) {
 	if slug == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	if err := s.svc.DeleteRemoteApplicationFromClaims(r.Context(), claims, group, slug); err != nil {
@@ -470,15 +470,15 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 // in the group (#263) — the SubjectKindRemoteApp symmetric of the member-role
 // route, gated <persona>:credentials:manage by the generated route table. The
 // :app slug must resolve to an application controlled by the addressed group.
-func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, appSlug string, role authkit.Role) {
-	role = authkit.Role(strings.TrimSpace(string(role)))
+func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, appSlug string, role iam.Role) {
+	role = iam.Role(strings.TrimSpace(string(role)))
 	if appSlug == "" || role == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// Actor-aware assignment: capability (credentials:manage) + no-escalation.
@@ -495,7 +495,7 @@ func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, gro
 	})
 }
 
-func remoteAppJSON(ra *authkit.RemoteApplication) map[string]any {
+func remoteAppJSON(ra *iam.RemoteApplication) map[string]any {
 	return map[string]any{
 		"id":       ra.ID,
 		"slug":     ra.Slug,
@@ -516,19 +516,19 @@ type inviteLinkCreateRequest struct {
 }
 
 // groupInviteLinkMint mints an invite link; the plaintext code is returned ONCE.
-func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, invitedBy string) {
+func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, invitedBy string) {
 	if s.rateLimited(w, r, RLInviteCreate) {
 		return
 	}
 	var body inviteLinkCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	req := authkit.CreateGroupInviteLinkRequest{
+	req := iam.CreateGroupInviteLinkRequest{
 		Persona:      group.Persona,
 		InstanceSlug: group.Instance,
-		Role:         authkit.Role(strings.TrimSpace(body.Role)),
+		Role:         iam.Role(strings.TrimSpace(body.Role)),
 		InvitedBy:    invitedBy,
 	}
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
@@ -547,7 +547,7 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 }
 
 // groupInviteLinkList lists the group's invite links (never returns the code).
-func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	links, err := s.svc.ListGroupInviteLinks(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -581,9 +581,9 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 }
 
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
-func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, actor verify.Claims, linkID string) {
+func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor verify.Claims, linkID string) {
 	if linkID == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.RevokeGroupInviteLinkFromClaims(r.Context(), actor, group, linkID); err != nil {
@@ -604,12 +604,12 @@ type inviteRedeemRequest struct {
 func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeNotAuthenticated)
+		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
 	var body inviteRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.RedeemGroupInviteLink(r.Context(), strings.TrimSpace(body.Code), claims.UserID)
@@ -629,7 +629,7 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 // refusal carries the enrollment metadata, everything else is the catalog's
 // status and code through notFoundCodes/groupOpCodes.
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
-	if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
+	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
 		s.send2FAEnrollmentRequiredError(w)
 		return
 	}
@@ -639,27 +639,27 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 // groupOpCodes: where a group operation's wire code differs from the catalog
 // — one forbidden and one invalid_request per family, and the last-owner
 // refusal (#193: unsafe, not unauthorised, so 409).
-var groupOpCodes = map[error]authkit.Code{
-	authkit.ErrCannotRemoveLastAdminRole:     authkit.CodeCannotRemoveLastOwner,
-	authkit.ErrExternalInvitesDisabled:       authkit.CodeForbidden,
-	authkit.ErrInsufficientRoleAuthority:     authkit.CodeForbidden,
-	authkit.ErrRoleAssignmentEscalation:      authkit.CodeForbidden,
-	authkit.ErrInvalidRemoteApplication:      authkit.CodeInvalidRequest,
-	authkit.ErrReservedIssuer:                authkit.CodeInvalidRequest,
-	authkit.ErrInviteLinkExpired:             authkit.CodeInvalidRequest,
-	authkit.ErrInviteLinkRevoked:             authkit.CodeInvalidRequest,
-	authkit.ErrRoleNotAssignable:             authkit.CodeInvalidRequest,
-	authkit.ErrInvalidRole:                   authkit.CodeInvalidRequest,
-	authkit.ErrUnknownRole:                   authkit.CodeInvalidRequest,
-	authkit.ErrMissingName:                   authkit.CodeInvalidRequest,
-	authkit.ErrInvalidInvite:                 authkit.CodeInvalidRequest,
-	authkit.ErrInvalidExpiry:                 authkit.CodeInvalidRequest,
-	authkit.ErrUnknownGroupPersona:           authkit.CodeInvalidRequest,
-	authkit.ErrCustomRolesNotSupported:       authkit.CodeInvalidRequest,
-	authkit.ErrCustomRoleNameInvalid:         authkit.CodeInvalidRequest,
-	authkit.ErrCustomRoleIsCatalogRole:       authkit.CodeInvalidRequest,
-	authkit.ErrCustomRoleGrantCrossPersona:   authkit.CodeInvalidRequest,
-	authkit.ErrCustomRoleGrantOutsideCatalog: authkit.CodeInvalidRequest,
+var groupOpCodes = map[error]iam.Code{
+	iam.ErrCannotRemoveLastAdminRole:     iam.CodeCannotRemoveLastOwner,
+	iam.ErrExternalInvitesDisabled:       iam.CodeForbidden,
+	iam.ErrInsufficientRoleAuthority:     iam.CodeForbidden,
+	iam.ErrRoleAssignmentEscalation:      iam.CodeForbidden,
+	iam.ErrInvalidRemoteApplication:      iam.CodeInvalidRequest,
+	iam.ErrReservedIssuer:                iam.CodeInvalidRequest,
+	iam.ErrInviteLinkExpired:             iam.CodeInvalidRequest,
+	iam.ErrInviteLinkRevoked:             iam.CodeInvalidRequest,
+	iam.ErrRoleNotAssignable:             iam.CodeInvalidRequest,
+	iam.ErrInvalidRole:                   iam.CodeInvalidRequest,
+	iam.ErrUnknownRole:                   iam.CodeInvalidRequest,
+	iam.ErrMissingName:                   iam.CodeInvalidRequest,
+	iam.ErrInvalidInvite:                 iam.CodeInvalidRequest,
+	iam.ErrInvalidExpiry:                 iam.CodeInvalidRequest,
+	iam.ErrUnknownGroupPersona:           iam.CodeInvalidRequest,
+	iam.ErrCustomRolesNotSupported:       iam.CodeInvalidRequest,
+	iam.ErrCustomRoleNameInvalid:         iam.CodeInvalidRequest,
+	iam.ErrCustomRoleIsCatalogRole:       iam.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantCrossPersona:   iam.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantOutsideCatalog: iam.CodeInvalidRequest,
 }
 
 // customRoleRequest is the body for defining a per-group custom role.
@@ -679,19 +679,19 @@ type customRoleRequest struct {
 // assignment — DefineGroupCustomRole enforces it. Validation failures (bad
 // perm, cross-persona, persona disallows custom roles) are client errors (400);
 // an unknown resource is 404; an escalation attempt is 403.
-func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	var body customRoleRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
-	role := authkit.Role(strings.TrimSpace(body.Role))
-	if err := s.svc.DefineGroupCustomRole(r.Context(), actor.UserID, group, authkit.CustomRoleDef{Role: role, Permissions: body.Permissions, RequiresMFA: body.RequiresMFA}); err != nil {
+	role := iam.Role(strings.TrimSpace(body.Role))
+	if err := s.svc.DefineGroupCustomRole(r.Context(), actor.UserID, group, iam.CustomRoleDef{Role: role, Permissions: body.Permissions, RequiresMFA: body.RequiresMFA}); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -707,14 +707,14 @@ func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, 
 // groupCustomRoleDelete removes a custom role from the group. #247 SECURITY:
 // deleting a role is a deferred REVOKE from every current holder, gated by the
 // same actor-authz as define.
-func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, group authkit.GroupRef, role authkit.Role) {
+func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, role iam.Role) {
 	if role == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	if err := s.svc.DeleteGroupCustomRole(r.Context(), actor.UserID, group, role); err != nil {
@@ -732,7 +732,7 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 // here and an address nowhere. A tombstoned slug forwards, and the descriptor
 // reports the group's CURRENT live slug — so a caller holding an old reference
 // learns the new one in the same call.
-func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	inst, err := s.svc.GroupInstanceForSlug(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -757,18 +757,18 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 // display-name changes and slug renames, gated by <persona>:settings:manage
 // (the owner holds it via the wildcard). The captured UUID is retained through
 // authorization, slug rename and display-name mutation in one transaction.
-func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group authkit.GroupRef) {
+func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
 	var req struct {
 		Slug        *string `json:"slug"`
 		DisplayName *string `json:"display_name"`
 	}
 	if err := decodeJSON(r, &req); err != nil || (req.Slug == nil && req.DisplayName == nil) {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		forbidden(w, authkit.CodeForbidden)
+		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// #264 anti-squat velocity: a slug rename is a CLAIM — capped per IP and
@@ -779,7 +779,7 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group auth
 		}
 	}
 	if req.DisplayName != nil && len(*req.DisplayName) > 256 {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	inst, err := s.svc.GroupInstanceForSlug(r.Context(), group)
@@ -787,7 +787,7 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group auth
 		s.writeGroupOpError(w, err)
 		return
 	}
-	updated, err := s.svc.UpdateGroupInstanceAs(r.Context(), claims.UserID, inst.ID, authkit.GroupInstanceUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
+	updated, err := s.svc.UpdateGroupInstanceAs(r.Context(), claims.UserID, inst.ID, iam.GroupInstanceUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

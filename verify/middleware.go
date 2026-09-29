@@ -6,18 +6,18 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // unauthorizedError is the 401 an out-of-band verification failure becomes:
-// an *authkit.Error keeps its own code and status; anything else is
+// an *iam.Error keeps its own code and status; anything else is
 // invalid_token. VerifyRequest returns it and both Required (which writes it)
 // and out-of-band callers (which inspect err != nil) share one pipeline.
 func unauthorizedError(err error) error {
-	if e := authkit.AsError(err); e != nil {
+	if e := iam.AsError(err); e != nil {
 		return err
 	}
-	return authkit.E(authkit.CodeInvalidToken, authkit.WithCause(err))
+	return iam.E(iam.CodeInvalidToken, iam.WithCause(err))
 }
 
 // VerifyRequest runs the full Required authentication pipeline — bearer parse,
@@ -37,7 +37,7 @@ func unauthorizedError(err error) error {
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := requestToken(r)
 	if tokenStr == "" {
-		return Claims{}, authkit.E(authkit.CodeMissingToken, authkit.WithStatus(http.StatusUnauthorized))
+		return Claims{}, iam.E(iam.CodeMissingToken, iam.WithStatus(http.StatusUnauthorized))
 	}
 
 	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is
@@ -58,7 +58,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 		return Claims{}, unauthorizedError(err)
 	}
 	if cl.TwoFAEnrollment && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, authkit.E(authkit.CodeForbidden, authkit.WithStatus(http.StatusForbidden))
+		return Claims{}, iam.E(iam.CodeForbidden, iam.WithStatus(http.StatusForbidden))
 	}
 	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
 	// native user whose token shows they are not yet enrolled (mfa_enrolled absent)
@@ -67,7 +67,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
 	// principals can't enroll TOTP and bypass (note d).
 	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
-		return Claims{}, authkit.E(authkit.CodeTwoFAEnrollmentRequired, authkit.WithStatus(http.StatusForbidden))
+		return Claims{}, iam.E(iam.CodeTwoFAEnrollmentRequired, iam.WithStatus(http.StatusForbidden))
 	}
 
 	return cl, nil
@@ -77,7 +77,7 @@ func writeRequestError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, errDPoPProofRequired) || (isDPoPRequest(r) && errors.Is(err, ErrSenderProofRequired)) {
 		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
 	}
-	authkit.WriteError(w, unauthorizedError(err))
+	iam.WriteError(w, unauthorizedError(err))
 }
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.

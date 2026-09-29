@@ -6,32 +6,32 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/password"
 )
 
 // validationCodes are the identity-policy codes ValidationErrorCode reports:
 // a 400 whose param names the offending field.
-var validationCodes = map[authkit.Code]bool{
-	authkit.CodeUsernameTooShort: true, authkit.CodeUsernameTooLong: true, authkit.CodeUsernameMustStartWithLetter: true,
-	authkit.CodeUsernameCannotContainAt: true, authkit.CodeUsernameCannotStartWithPlus: true, authkit.CodeUsernameInvalidCharacters: true,
-	authkit.CodeOwnerSlugTaken: true, authkit.CodeUsernameNotAllowed: true, authkit.CodeRenameRateLimited: true,
-	authkit.CodeInvalidEmail: true, authkit.CodeInvalidPhoneNumber: true, authkit.CodePasswordTooShort: true, authkit.CodePasswordTooLong: true,
-	authkit.CodePasswordTooCommon: true, authkit.CodePasswordContainsIdentifier: true, authkit.CodePasswordRequirementsUnmet: true,
-	authkit.CodeInvalidPreferredLanguage: true,
+var validationCodes = map[iam.Code]bool{
+	iam.CodeUsernameTooShort: true, iam.CodeUsernameTooLong: true, iam.CodeUsernameMustStartWithLetter: true,
+	iam.CodeUsernameCannotContainAt: true, iam.CodeUsernameCannotStartWithPlus: true, iam.CodeUsernameInvalidCharacters: true,
+	iam.CodeOwnerSlugTaken: true, iam.CodeUsernameNotAllowed: true, iam.CodeRenameRateLimited: true,
+	iam.CodeInvalidEmail: true, iam.CodeInvalidPhoneNumber: true, iam.CodePasswordTooShort: true, iam.CodePasswordTooLong: true,
+	iam.CodePasswordTooCommon: true, iam.CodePasswordContainsIdentifier: true, iam.CodePasswordRequirementsUnmet: true,
+	iam.CodeInvalidPreferredLanguage: true,
 }
 
 // ValidationErrorCode returns the identity-policy code err carries, or "" when
 // err is not a validation failure.
-func ValidationErrorCode(err error) authkit.Code {
-	if e := authkit.AsError(err); e != nil && validationCodes[e.Code] {
+func ValidationErrorCode(err error) iam.Code {
+	if e := iam.AsError(err); e != nil && validationCodes[e.Code] {
 		return e.Code
 	}
 	return ""
 }
 
 // ValidateUsername applies the configured username policy and fixed
-// authkit.UsernamePattern.
+// iam.UsernamePattern.
 func (s *engine) ValidateUsername(username string) error {
 	return s.cfg.Username.Validate(username)
 }
@@ -43,15 +43,15 @@ func NormalizeEmail(email string) string {
 func ValidateEmail(email string) error {
 	email = NormalizeEmail(email)
 	if email == "" || strings.ContainsAny(email, " \t\r\n") {
-		return authkit.E(authkit.CodeInvalidEmail)
+		return iam.E(iam.CodeInvalidEmail)
 	}
 	at := strings.IndexByte(email, '@')
 	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
-		return authkit.E(authkit.CodeInvalidEmail)
+		return iam.E(iam.CodeInvalidEmail)
 	}
 	domain := email[at+1:]
 	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || !strings.Contains(domain, ".") {
-		return authkit.E(authkit.CodeInvalidEmail)
+		return iam.E(iam.CodeInvalidEmail)
 	}
 	return nil
 }
@@ -63,14 +63,14 @@ func NormalizePhone(phone string) string {
 func ValidatePhone(phone string) error {
 	phone = NormalizePhone(phone)
 	if len(phone) < 3 || len(phone) > 16 || phone[0] != '+' {
-		return authkit.E(authkit.CodeInvalidPhoneNumber)
+		return iam.E(iam.CodeInvalidPhoneNumber)
 	}
 	if phone[1] < '1' || phone[1] > '9' {
-		return authkit.E(authkit.CodeInvalidPhoneNumber)
+		return iam.E(iam.CodeInvalidPhoneNumber)
 	}
 	for i := 2; i < len(phone); i++ {
 		if phone[i] < '0' || phone[i] > '9' {
-			return authkit.E(authkit.CodeInvalidPhoneNumber)
+			return iam.E(iam.CodeInvalidPhoneNumber)
 		}
 	}
 	return nil
@@ -97,17 +97,17 @@ func validatePassword(p password.Policy, value string, identifiers ...string) er
 	case err == nil:
 		return nil
 	case errors.As(err, &unmet):
-		return authkit.E(authkit.CodePasswordRequirementsUnmet, authkit.WithMeta("missing", unmet.Missing))
+		return iam.E(iam.CodePasswordRequirementsUnmet, iam.WithMeta("missing", unmet.Missing))
 	case errors.Is(err, password.ErrTooCommon):
-		return authkit.E(authkit.CodePasswordTooCommon)
+		return iam.E(iam.CodePasswordTooCommon)
 	case errors.Is(err, password.ErrContainsIdentifier):
-		return authkit.E(authkit.CodePasswordContainsIdentifier)
+		return iam.E(iam.CodePasswordContainsIdentifier)
 	}
-	code := authkit.CodePasswordTooShort
+	code := iam.CodePasswordTooShort
 	if errors.Is(err, password.ErrTooLong) {
-		code = authkit.CodePasswordTooLong
+		code = iam.CodePasswordTooLong
 	}
-	return authkit.E(code, authkit.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
+	return iam.E(code, iam.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
 }
 
 // passwordIdentifiers loads the account identifiers a new password may not contain.
@@ -146,7 +146,7 @@ func (s *engine) validateUsernameForUser(ctx context.Context, username, userID s
 		return "", "", err
 	}
 	if existing != nil && strings.TrimSpace(existing.ID) != strings.TrimSpace(userID) {
-		return "", "", authkit.E(authkit.CodeOwnerSlugTaken)
+		return "", "", iam.E(iam.CodeOwnerSlugTaken)
 	}
 	return slug, "", nil
 }

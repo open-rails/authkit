@@ -1,18 +1,8 @@
-package authkit
+package iam
 
-import (
-	"time"
+import "time"
 
-	"github.com/open-rails/authkit/documents"
-)
-
-// Shared operation inputs and results belong to the root contract so hosts
-// can use them without importing the embedded engine. Signed-document types
-// retain the identity of their definitions in the documents package.
-
-type DocumentReference = documents.Reference
-type DocumentEnvelope = documents.Envelope
-type SignedDocument = documents.SignedDocument
+// Shared operation inputs and results, importable without the engine.
 
 type APIKey struct {
 	ID          string

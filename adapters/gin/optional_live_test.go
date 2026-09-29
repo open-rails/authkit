@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +19,9 @@ type ginLiveDirectory struct {
 	allowed bool
 }
 
-func (s *ginLiveDirectory) UserLivenessByIDs(_ context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+func (s *ginLiveDirectory) UserLivenessByIDs(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 	s.calls++
-	return map[string]authkit.UserLiveness{ids[0]: {ID: ids[0], Allowed: s.allowed, Username: "fresh"}}, nil
+	return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: s.allowed, Username: "fresh"}}, nil
 }
 
 func TestOptionalLive(t *testing.T) {

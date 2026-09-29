@@ -6,7 +6,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 type serviceJWTVerifyConfig struct {
@@ -26,64 +26,64 @@ func WithServiceJWTMaxLifetime(d time.Duration) ServiceJWTVerifyOption {
 // verifier's registered issuer/JWKS store and returns the requested
 // permissions. AuthKit does not grant those permissions; the host must
 // intersect them with server-side grants for the issuer/subject/resource.
-func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (authkit.ServiceJWTClaims, error) {
-	cfg := serviceJWTVerifyConfig{maxLifetime: authkit.DefaultServiceJWTLifetime}
+func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
+	cfg := serviceJWTVerifyConfig{maxLifetime: iam.DefaultServiceJWTLifetime}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
 	if cfg.maxLifetime <= 0 {
-		cfg.maxLifetime = authkit.DefaultServiceJWTLifetime
+		cfg.maxLifetime = iam.DefaultServiceJWTLifetime
 	}
 
 	mc, err := v.VerifyClaims(ctx, tokenStr)
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, err
+		return iam.ServiceJWTClaims{}, err
 	}
 	claims, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, err
+		return iam.ServiceJWTClaims{}, err
 	}
 	return claims, nil
 }
 
-func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (authkit.ServiceJWTClaims, error) {
+func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (iam.ServiceJWTClaims, error) {
 	issuer := strings.TrimSpace(strClaim(mc, "iss"))
 	subject := strings.TrimSpace(strClaim(mc, "sub"))
 	tokenUse := strings.TrimSpace(strClaim(mc, "token_use"))
 	jti := strings.TrimSpace(strClaim(mc, "jti"))
-	if issuer == "" || subject == "" || tokenUse != authkit.ServiceJWTTokenUse || jti == "" {
-		return authkit.ServiceJWTClaims{}, authkit.ErrInvalidServiceJWT
+	if issuer == "" || subject == "" || tokenUse != iam.ServiceJWTTokenUse || jti == "" {
+		return iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
 	}
 	if strings.TrimSpace(strClaim(mc, "delegated_sub")) != "" {
-		return authkit.ServiceJWTClaims{}, authkit.ErrInvalidServiceJWT
+		return iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
 	}
 	iatUnix, ok := toUnix(mc["iat"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingIAT)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingIAT)
 	}
 	nbfUnix, ok := toUnix(mc["nbf"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingNBF)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingNBF)
 	}
 	expUnix, ok := toUnix(mc["exp"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingExp)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingExp)
 	}
 	iat := time.Unix(iatUnix, 0).UTC()
 	nbf := time.Unix(nbfUnix, 0).UTC()
 	exp := time.Unix(expUnix, 0).UTC()
 	if exp.Sub(iat) > maxLifetime {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeServiceJWTLifetimeExceeded)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeServiceJWTLifetimeExceeded)
 	}
 	audiences := audSlice(mc["aud"])
 	if len(audiences) == 0 {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeMissingAudience)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeMissingAudience)
 	}
 	permissions, err := stringArrayClaim(mc, "permissions")
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, err
+		return iam.ServiceJWTClaims{}, err
 	}
 	if len(permissions) == 0 {
 		permissions = scopeSlice(mc["scope"])
@@ -91,9 +91,9 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
-		return authkit.ServiceJWTClaims{}, authkit.E(authkit.CodeBadIssuer)
+		return iam.ServiceJWTClaims{}, iam.E(iam.CodeBadIssuer)
 	}
-	claims := authkit.ServiceJWTClaims{
+	claims := iam.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: iat, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
 		TokenUse: tokenUse, Permissions: permissions,
@@ -164,7 +164,7 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		for _, value := range values {
 			s, ok := value.(string)
 			if !ok {
-				return nil, authkit.E(authkit.CodeMalformedPermissions)
+				return nil, iam.E(iam.CodeMalformedPermissions)
 			}
 			if strings.TrimSpace(s) != "" {
 				out = append(out, strings.TrimSpace(s))
@@ -180,6 +180,6 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 		}
 		return out, nil
 	default:
-		return nil, authkit.E(authkit.CodeMalformedPermissions)
+		return nil, iam.E(iam.CodeMalformedPermissions)
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -25,10 +25,10 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	owner, token := newInstanceTestUser(t, srv, "ownerflow")
 	manager, managerToken := newInstanceTestUser(t, srv, "managerflow")
 	peer, _ := newInstanceTestUser(t, srv, "peerflow")
-	group := authkit.GroupRef{Persona: "org", Instance: "owner-flow"}
+	group := iam.GroupRef{Persona: "org", Instance: "owner-flow"}
 	w := postOrg(srv, token, `{"slug":"owner-flow"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, authkit.UserSubject(manager), "manager"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.UserSubject(manager), "manager"))
 	assign := func(actor, id, role string) int {
 		w := serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/members/"+id+"/roles/"+role, "", actor)
 		return w.Code
@@ -40,10 +40,10 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"role":"owner"`)
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(authkit.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(iam.CodeCannotRemoveLastOwner))
 	gid, err := client.ResolveGroupIDForSlug(ctx, group)
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{Slug: "owner-app", PermissionGroupID: gid, Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
+	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "owner-app", PermissionGroupID: gid, Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	w = serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/remote-applications/owner-app/roles/owner", "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -55,7 +55,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	allowed, err := client.Can(ctx, authkit.UserSubject(peer), group, "org:members:manage")
+	allowed, err := client.Can(ctx, iam.UserSubject(peer), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, allowed)
 }

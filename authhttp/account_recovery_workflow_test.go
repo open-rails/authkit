@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -41,7 +41,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	loginBody := `{"identifier":"recoverable@example.test","password":"Fresh-recovery-password-1"}`
 	login := call("/password/login", loginBody)
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-	var old authkit.TokenSet
+	var old iam.TokenSet
 	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &old))
 	remove := func() {
 		t.Helper()
@@ -64,7 +64,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 			} `json:"error"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		require.Equal(t, string(authkit.CodeAccountRecoveryRequired), body.Error.Code)
+		require.Equal(t, string(iam.CodeAccountRecoveryRequired), body.Error.Code)
 		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
 		return body.Error.Metadata.Recovery.Token
 	}
@@ -106,7 +106,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, err = core.EnsureRootGroup(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, core.OperatorAssignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(admin.ID), "owner"))
+	require.NoError(t, core.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(admin.ID), "owner"))
 	require.NoError(t, core.BanUser(t.Context(), user.ID, nil, nil, admin.ID))
 	require.Equal(t, http.StatusUnauthorized, confirm(bannedProof).Code)
 	require.Equal(t, http.StatusUnauthorized, call("/password/login", loginBody).Code)

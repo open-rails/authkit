@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
@@ -32,11 +32,11 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	allowed, err := checker.Can(ctx, scope, "root:resources:read")
 	require.NoError(t, err)
 	require.False(t, allowed)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(userID), "site-admin"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(userID), "site-admin"))
 	allowed, err = checker.Can(ctx, scope, "root:resources:read")
 	require.NoError(t, err)
 	require.True(t, allowed, "runtime must wire live authority without host glue")
-	require.NoError(t, client.OperatorUnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(userID), "site-admin"))
+	require.NoError(t, client.OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(userID), "site-admin"))
 	allowed, err = checker.Can(ctx, scope, "root:resources:read")
 	require.NoError(t, err)
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
@@ -52,8 +52,8 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	ctx := t.Context()
 	client := runtime.Runtime.Client()
 	owner, token := newInstanceTestUser(t, service, "retirednative")
-	group := authkit.GroupRef{Persona: "org", Instance: "retained-native"}
-	id, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner})
+	group := iam.GroupRef{Persona: "org", Instance: "retained-native"}
+	id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://example.com/org/retained-native", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -66,7 +66,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	require.True(t, allowed)
 	before, err := client.SoftDeleteUsers(ctx, []string{owner})
 	require.NoError(t, err)
-	require.ErrorIs(t, before[0].Err, authkit.ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, before[0].Err, iam.ErrCannotRemoveLastAdminRole)
 	descriptor, err := client.SoftDeleteGroupInstanceByID(ctx, id)
 	require.NoError(t, err)
 	require.NotNil(t, descriptor.DeletedAt)

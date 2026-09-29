@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -41,9 +41,9 @@ const (
 func (s *engine) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
 
 var (
-	ErrPasskeyNotFound                 = authkit.ErrPasskeyNotFound
-	ErrPasskeyUserVerificationRequired = authkit.ErrPasskeyUserVerificationRequired
-	ErrPasskeyCloneDetected            = authkit.ErrPasskeyCloneDetected
+	ErrPasskeyNotFound                 = iam.ErrPasskeyNotFound
+	ErrPasskeyUserVerificationRequired = iam.ErrPasskeyUserVerificationRequired
+	ErrPasskeyCloneDetected            = iam.ErrPasskeyCloneDetected
 )
 
 type Passkey struct {

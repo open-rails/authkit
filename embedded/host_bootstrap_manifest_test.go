@@ -9,7 +9,7 @@ import (
 
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -89,7 +89,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	roles, err = svc.RoleSlugsByUsers(ctx, []string{recoveryUser.ID})
 	require.NoError(t, err)
 	require.NotContains(t, roles[recoveryUser.ID], string(OwnerRoleName))
-	require.ErrorIs(t, svc.UnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(user.ID), OwnerRoleName), ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, svc.UnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(user.ID), OwnerRoleName), ErrCannotRemoveLastAdminRole)
 	// Only explicit out-of-band database repair can create this recovery state.
 	_, err = pg.Pool.Exec(ctx, `DELETE FROM group_user_roles WHERE user_id=$1::uuid`, user.ID)
 	require.NoError(t, err)
@@ -115,5 +115,5 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.Contains(t, appRoles, string(OwnerRoleName))
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, stored.ID)
 	require.NoError(t, err)
-	require.Contains(t, authority.Permissions, string(authkit.Persona(RootPersona).OwnerGrant()))
+	require.Contains(t, authority.Permissions, string(iam.Persona(RootPersona).OwnerGrant()))
 }

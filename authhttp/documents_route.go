@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -64,18 +64,18 @@ func (s *Service) documentsHandler() http.Handler {
 	}
 	authorize := func(r *http.Request) error {
 		claims, ok := verify.ClaimsFromContext(r.Context())
-		if !ok || claims.PrincipalKind() != authkit.PrincipalKindRemoteApplication {
+		if !ok || claims.PrincipalKind() != iam.PrincipalKindRemoteApplication {
 			return documents.ErrUnauthorized
 		}
-		if claims.RemoteApplicationTier != authkit.ApplicationTierApproved && !cfg.AllowRegisteredTier {
+		if claims.RemoteApplicationTier != iam.ApplicationTierApproved && !cfg.AllowRegisteredTier {
 			return documents.ErrUnauthorized
 		}
 		switch {
 		case byID[claims.RemoteApplicationID]:
-		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootDomain &&
+		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootDomain &&
 			byDomain[strings.ToLower(claims.RemoteApplicationDomain)]:
-		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootManual &&
-			authkit.Persona(claims.PermissionGroupPersona) == authkit.RootPersona && byIssuer[claims.Issuer]:
+		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootManual &&
+			iam.Persona(claims.PermissionGroupPersona) == iam.RootPersona && byIssuer[claims.Issuer]:
 		default:
 			return documents.ErrUnauthorized
 		}

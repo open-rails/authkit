@@ -16,7 +16,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -34,8 +34,8 @@ type IssuedSession struct {
 }
 
 // TokenSet is the wire shape of an IssuedSession.
-func (s IssuedSession) TokenSet() authkit.TokenSet {
-	return authkit.NewTokenSet(s.AccessToken, s.RefreshToken, s.AccessExpiresAt)
+func (s IssuedSession) TokenSet() iam.TokenSet {
+	return iam.NewTokenSet(s.AccessToken, s.RefreshToken, s.AccessExpiresAt)
 }
 
 // LoginSessionInput describes the session a completed authentication earns.
@@ -102,7 +102,7 @@ type TwoFactorChallenge struct {
 // Verification and Challenge is set, per Kind; Reason is set for LoginRejected.
 type LoginOutcome struct {
 	Recovery       *AccountRecoveryConfirmation
-	Enrollment     *authkit.TokenSet
+	Enrollment     *iam.TokenSet
 	AllowedMethods []string
 	ReturnTo       string
 	Created        bool
@@ -181,9 +181,9 @@ func (s *engine) PasswordLogin(ctx context.Context, in PasswordLoginInput) (Logi
 
 // Password-login errors shared with the transport.
 var (
-	ErrInvalidCredentials          = authkit.ErrInvalidCredentials
-	ErrEmailVerificationSendFailed = authkit.ErrEmailVerificationSendFailed
-	ErrPhoneVerificationSendFailed = authkit.ErrPhoneVerificationSendFailed
+	ErrInvalidCredentials          = iam.ErrInvalidCredentials
+	ErrEmailVerificationSendFailed = iam.ErrEmailVerificationSendFailed
+	ErrPhoneVerificationSendFailed = iam.ErrPhoneVerificationSendFailed
 )
 
 // loginRejection maps a credential/liveness failure to its rejection reason.

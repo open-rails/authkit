@@ -3,7 +3,7 @@ package embedded
 import (
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -11,7 +11,7 @@ import (
 func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.Username = authkit.UsernamePolicy{MinLength: 8, MaxLength: 10}
+	cfg.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
 	rt, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
@@ -25,12 +25,12 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	require.NoError(t, rt.engine.ValidateUsername(second))
 
 	_, err = rt.Client().CreateUser(t.Context(), "short@example.test", "shorty")
-	e := authkit.AsError(err)
+	e := iam.AsError(err)
 	require.NotNil(t, e, "%v", err)
-	require.Equal(t, authkit.CodeUsernameTooShort, e.Code)
+	require.Equal(t, iam.CodeUsernameTooShort, e.Code)
 	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Meta, "imports keep the 64-character import ceiling")
 
-	cfg.Username = authkit.UsernamePolicy{MinLength: 9, MaxLength: 8}
+	cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
 	_, err = New(cfg, Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "invalid username policy")
 }

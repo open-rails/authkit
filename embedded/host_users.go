@@ -11,7 +11,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -20,7 +20,7 @@ import (
 
 // User is defined in the lean authkit contract package (#138 inversion); aliased
 // here so engine code keeps using the bare name.
-type User = authkit.User
+type User = iam.User
 
 func userFromByIDRow(r db.UserByIDRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
@@ -34,7 +34,7 @@ func userFromByPhoneRow(r db.UserByPhoneRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
 }
 
-type ImportUserInput = authkit.ImportUserInput
+type ImportUserInput = iam.ImportUserInput
 
 func (s *engine) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	if s.pg == nil {
@@ -178,7 +178,7 @@ func (s *engine) createUser(ctx context.Context, email, username string) (*User,
 	if err != nil {
 		return nil, err
 	}
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: authkit.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return nil, err
 	}
 	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
@@ -316,7 +316,7 @@ func (s *engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 	}
 	reserved := metadataMarksReserved([]byte(metadata))
 	if banned || reserved {
-		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(tx), authkit.UserSubject(userID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, s.groupStoreFor(tx), iam.UserSubject(userID)); err != nil {
 			return nil, err
 		}
 	}
@@ -418,7 +418,7 @@ func (s *engine) BanUser(ctx context.Context, userID string, reason *string, unt
 	if err := s.authorizeAccountAuthorityOn(ctx, st, bannedBy, userID); err != nil {
 		return err
 	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(userID)); err != nil {
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 		return err
 	}
 	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
@@ -468,7 +468,7 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 			return err
 		}
 	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.UserSubject(id)); err != nil {
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(id)); err != nil {
 		return err
 	}
 	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, id)
@@ -571,7 +571,7 @@ func (s *engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 			return err
 		}
 	}
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: authkit.NameRename}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
 	if err := renameNameClaim(ctx, q, "user", "", id, oldName, username, now, policy); err != nil {
@@ -634,7 +634,7 @@ func (s *engine) UpdateAvatarURL(ctx context.Context, id string, avatarURL *stri
 			avatarURL = nil
 		} else {
 			if len(trimmed) > maxAvatarURLLen || strings.ContainsAny(trimmed, "\n\r") {
-				return authkit.ErrAvatarURLInvalid
+				return iam.ErrAvatarURLInvalid
 			}
 			avatarURL = &trimmed
 		}

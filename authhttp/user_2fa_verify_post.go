@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +19,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 
@@ -27,7 +27,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	code := strings.TrimSpace(req.Code)
 	challenge := strings.TrimSpace(req.Challenge)
 	if userID == "" || code == "" || challenge == "" {
-		badRequest(w, authkit.CodeMissingFields)
+		badRequest(w, iam.CodeMissingFields)
 		return
 	}
 
@@ -57,14 +57,14 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 		FactorID  string `json:"factor_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	userID := strings.TrimSpace(req.UserID)
 	challenge := strings.TrimSpace(req.Challenge)
 	factorID := strings.TrimSpace(req.FactorID)
 	if userID == "" || challenge == "" || factorID == "" {
-		badRequest(w, authkit.CodeMissingFields)
+		badRequest(w, iam.CodeMissingFields)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, loginProofKey(userID, challenge)) {
@@ -72,10 +72,10 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 	}
 	out, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
 	if err != nil {
-		unauthorized(w, authkit.CodeInvalidChallenge)
+		unauthorized(w, iam.CodeInvalidChallenge)
 		return
 	}
-	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, loginChallengeMetadata(userID, out))
+	sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, loginChallengeMetadata(userID, out))
 }
 
 func loginProofKey(userID, challenge string) string {

@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,7 +98,7 @@ func contactOf(t *testing.T, r response) (string, string) {
 		} `json:"error"`
 	}
 	r.json(t, &env)
-	require.Equal(t, string(authkit.CodeVerificationRequired), env.Error.Code, r.String())
+	require.Equal(t, string(iam.CodeVerificationRequired), env.Error.Code, r.String())
 	require.Equal(t, "contact_unproven", env.Error.Metadata.Reason)
 	return env.Error.Metadata.Identifier, env.Error.Metadata.Channel
 }
@@ -286,7 +286,7 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 	t.Run("control: trusted provider matches the existing address", func(t *testing.T) {
 		resp := h.providerCallback("trustedidp")
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
-		require.Equal(t, string(authkit.CodeAccountExistsLinkRequired), resp.errorCode())
+		require.Equal(t, string(iam.CodeAccountExistsLinkRequired), resp.errorCode())
 	})
 	t.Run("control: trusted provider creates a verified account", func(t *testing.T) {
 		resp := h.providerCallback("trustedfresh")

@@ -16,7 +16,7 @@ import (
 const RouteNamePrefix = "authkit."
 
 // Mount registers AuthKit's configured routes directly on app. Each route is
-// visible through app.GetRoutes() and named "authkit.METHOD /path". Call Mount
+// visible through app.GetRoutes() and named "iam.METHOD /path". Call Mount
 // during application setup, before serving requests.
 //
 // The optional MountOptions selects route groups, exclusions, the API prefix,

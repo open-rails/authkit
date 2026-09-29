@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -75,7 +75,7 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, authkit.CodeRateLimited)
+		tooManyAvailability(w, *result.Availability, iam.CodeRateLimited)
 		return true
 	}
 	tooMany(w, result.RetryAfter)
@@ -101,7 +101,7 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, authkit.CodeRateLimited)
+		tooManyAvailability(w, *result.Availability, iam.CodeRateLimited)
 		return true
 	}
 	tooMany(w, result.RetryAfter)

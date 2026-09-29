@@ -8,7 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // AccountRecoveryConfirmation is an opaque proof, never an access token or
@@ -49,7 +49,7 @@ func (s *engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *Us
 	var id string
 	err := tx.QueryRow(ctx, `SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state='deleted' AND deleted_at=$2 AND purge_at>statement_timestamp()`, user.ID, user.DeletedAt).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return authkit.E(authkit.CodeAccountRecoveryExpired)
+		return iam.E(iam.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
 		return err

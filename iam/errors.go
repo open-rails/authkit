@@ -1,50 +1,8 @@
-package authkit
+package iam
 
-// The one error model (ak#290): a Code, an Error carrying code + HTTP status +
-// param + metadata + cause, and ONE catalog fixing every code's status and
-// message. Engine, documents, verify and authhttp all return E(CodeX);
-// authhttp/verify write the wire envelope with WriteError. Every 500 collapses
-// to internal_error on the wire (the specific code stays in the log).
+// The catalog: every AuthKit wire code with its HTTP status and message. The
+// error model itself lives in error.go.
 
-import (
-	"github.com/open-rails/authkit/internal/errmodel"
-)
-
-type (
-	Code        = errmodel.Code
-	Error       = errmodel.Error
-	ErrorOption = errmodel.Option
-)
-
-// E builds an Error for a catalogued code; the status comes from the catalog.
-func E(code Code, opts ...ErrorOption) *Error { return errmodel.E(code, opts...) }
-
-func WithParam(param string) ErrorOption         { return errmodel.WithParam(param) }
-func WithStatus(status int) ErrorOption          { return errmodel.WithStatus(status) }
-func WithCause(cause error) ErrorOption          { return errmodel.WithCause(cause) }
-func WithMeta(key string, value any) ErrorOption { return errmodel.WithMeta(key, value) }
-func WithMetadata(m map[string]any) ErrorOption  { return errmodel.WithMetadata(m) }
-
-// AsError returns the *Error in err's chain, or nil.
-func AsError(err error) *Error { return errmodel.As(err) }
-
-// Recode re-tags err with a route-specific code, keeping err as the cause.
-func Recode(err error, code Code, opts ...ErrorOption) *Error {
-	return errmodel.Recode(err, code, opts...)
-}
-
-// DescribeCode reports a code's catalog status and message.
-func DescribeCode(code Code) (status int, message string, ok bool) { return errmodel.Describe(code) }
-
-// Codes lists every catalogued code (authkit + documents), sorted.
-func Codes() []Code { return errmodel.Codes() }
-
-func def(code string, status int, message string) Code { return errmodel.Define(code, status, message) }
-func defParam(code string, status int, param, message string) Code {
-	return errmodel.DefineParam(code, status, param, message)
-}
-
-// The catalog: every wire code with its HTTP status and message.
 var (
 	CodeTwoFACodeExpired                  = def("2fa_code_expired", 400, "The code has expired or was used up. Request a new one.")
 	CodeTwoFAEnrollmentRequired           = def("2fa_enrollment_required", 403, "Two-factor authentication must be enrolled to continue.")
@@ -284,6 +242,36 @@ var (
 	CodeVerificationRequired              = def("verification_required", 403, "Verify your contact details to continue.")
 	CodeWalletAlreadyLinked               = def("wallet_already_linked", 409, "That wallet is already linked to another account.")
 	CodeWalletChangeRequiresUnlink        = def("wallet_change_requires_unlink", 409, "Unlink your current wallet before connecting another.")
+)
+
+// Signed-document codes (package documents).
+var (
+	CodeInvalidDocumentReference     = def("invalid_document_reference", 400, "The document reference is invalid.")
+	CodeInvalidDocumentType          = def("invalid_document_type", 400, "The document type is invalid.")
+	CodeInvalidDocumentDigest        = def("invalid_document_digest", 400, "The document digest is invalid.")
+	CodeDuplicateDocumentReference   = def("duplicate_document_reference", 400, "The document reference is duplicated.")
+	CodeTooManyDocumentReferences    = def("too_many_document_references", 400, "Too many document references.")
+	CodeDocumentReferencesTooLarge   = def("document_references_too_large", 400, "The document references are too large.")
+	CodeDocumentsWrongTokenType      = def("documents_wrong_token_type", 400, "The token type is wrong for documents.")
+	CodeReservedDocumentAttribute    = def("reserved_document_attribute", 400, "The document uses a reserved attribute.")
+	CodeInvalidDocumentEnvelope      = def("invalid_document_envelope", 400, "The document envelope is invalid.")
+	CodeDocumentPayloadTooLarge      = def("document_payload_too_large", 400, "The document payload is too large.")
+	CodeMalformedDocumentJWS         = def("malformed_document_jws", 400, "The document JWS is malformed.")
+	CodeWrongDocumentJOSEType        = def("wrong_document_jose_type", 400, "The document JOSE type is wrong.")
+	CodeUnsupportedDocumentAlgorithm = def("unsupported_document_algorithm", 400, "The document algorithm is not supported.")
+	CodeUnsupportedDocumentSigner    = def("unsupported_document_signer", 400, "The document signer is not supported.")
+	CodeUnknownDocumentKey           = def("unknown_document_key", 400, "The document names an unknown key.")
+	CodeInvalidDocumentSignature     = def("invalid_document_signature", 400, "The document signature is invalid.")
+	CodeDocumentDigestMismatch       = def("document_digest_mismatch", 400, "The document digest does not match.")
+	CodeDocumentIssuerMismatch       = def("document_issuer_mismatch", 400, "The document issuer does not match.")
+	CodeDocumentAudienceMismatch     = def("document_audience_mismatch", 400, "The document audience does not match.")
+	CodeDocumentTypeMismatch         = def("document_type_mismatch", 400, "The document type does not match.")
+	CodeUntrustedDocumentIssuer      = def("untrusted_document_issuer", 403, "The document issuer is not trusted.")
+	CodeDocumentUnauthorized         = def("document_unauthorized", 401, "The document request is not authorized.")
+	CodeDocumentNotFound             = def("document_not_found", 404, "The document was not found.")
+	CodeDocumentFetchFailed          = def("document_fetch_failed", 502, "The document could not be fetched.")
+	CodeDocumentRedirectRejected     = def("document_redirect_rejected", 502, "The document redirect was rejected.")
+	CodeDocumentDigestCollision      = def("document_digest_collision", 409, "A different document already exists under that digest.")
 )
 
 // Sentinels — the identities Go callers match with errors.Is.

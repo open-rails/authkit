@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
@@ -94,7 +94,7 @@ func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) 
 	require.NoError(t, json.Unmarshal([]byte(caps.raw), &wire))
 	require.Equal(t, map[string]any{"login": true, "min_length": float64(8), "max_length": float64(128),
 		"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
-	require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": authkit.UsernamePattern}, wire.Username)
+	require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": iam.UsernamePattern}, wire.Username)
 
 	register := func(email, username, pass string) flowResponse {
 		return f.post("/register", map[string]any{"identifier": email, "username": username, "password": pass})
@@ -119,7 +119,7 @@ func TestHostPasswordCompositionAndUsernameBounds(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.Password = password.Policy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
-	cfg.Username = authkit.UsernamePolicy{MinLength: 6, MaxLength: 12}
+	cfg.Username = iam.UsernamePolicy{MinLength: 6, MaxLength: 12}
 	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 	entered := make(chan struct{})
 	var runtime *Runtime
 	var err error
-	runtime, err = New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ authkit.UserDeletion) error {
+	runtime, err = New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ iam.UserDeletion) error {
 		close(entered)
 		<-ctx.Done()
 		// A lifecycle worker may check its producer binding while shutdown is

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // VerificationMessage is the payload AuthKit hands a sender: a code, a link, or
@@ -30,8 +30,8 @@ func (m VerificationMessage) Validate() error {
 }
 
 var (
-	ErrEmailDeliveryFailed = authkit.ErrEmailDeliveryFailed
-	ErrSMSDeliveryFailed   = authkit.ErrSMSDeliveryFailed
+	ErrEmailDeliveryFailed = iam.ErrEmailDeliveryFailed
+	ErrSMSDeliveryFailed   = iam.ErrSMSDeliveryFailed
 )
 
 // ContactChange is delivered to the PREVIOUS address after a recovery

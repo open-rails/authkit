@@ -10,22 +10,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/siws"
 )
 
-type ImportUnverifiedSolanaLinkStatus = authkit.ImportUnverifiedSolanaLinkStatus
+type ImportUnverifiedSolanaLinkStatus = iam.ImportUnverifiedSolanaLinkStatus
 
 const (
-	ImportUnverifiedSolanaLinkInserted = authkit.ImportUnverifiedSolanaLinkInserted
-	ImportUnverifiedSolanaLinkSkipped  = authkit.ImportUnverifiedSolanaLinkSkipped
-	ImportUnverifiedSolanaLinkRejected = authkit.ImportUnverifiedSolanaLinkRejected
+	ImportUnverifiedSolanaLinkInserted = iam.ImportUnverifiedSolanaLinkInserted
+	ImportUnverifiedSolanaLinkSkipped  = iam.ImportUnverifiedSolanaLinkSkipped
+	ImportUnverifiedSolanaLinkRejected = iam.ImportUnverifiedSolanaLinkRejected
 )
 
-type ImportUnverifiedSolanaLinkInput = authkit.ImportUnverifiedSolanaLinkInput
-type ImportUnverifiedSolanaLinkResult = authkit.ImportUnverifiedSolanaLinkResult
-type ImportUnverifiedSolanaLinksResult = authkit.ImportUnverifiedSolanaLinksResult
+type ImportUnverifiedSolanaLinkInput = iam.ImportUnverifiedSolanaLinkInput
+type ImportUnverifiedSolanaLinkResult = iam.ImportUnverifiedSolanaLinkResult
+type ImportUnverifiedSolanaLinksResult = iam.ImportUnverifiedSolanaLinksResult
 
 type importedSolanaLinkProfile struct {
 	MigrationSource      string     `json:"migration_source"`

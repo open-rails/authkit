@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -99,7 +99,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	victimID, victimEmail, victimPass := user("victim")
 	_, bystanderEmail, bystanderPass := user("bystander")
 	operatorID, operatorEmail, operatorPass := user("operator")
-	require.NoError(t, fixtureBackend(siteA.svc).AssignGroupRoleGenesis(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+	require.NoError(t, fixtureBackend(siteA.svc).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
 
 	bystanderA, bystanderB := login(siteA, bystanderEmail, bystanderPass), login(siteB, bystanderEmail, bystanderPass)
 	key := make([]byte, 32)
@@ -112,9 +112,9 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	victimA := login(siteA, victimEmail, victimPass)
 	w := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/sessions/revoke", operator.AccessToken, "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var result authkit.AccountSessionRevocation
+	var result iam.AccountSessionRevocation
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
-	require.Equal(t, authkit.AccountSessionRevocation{
+	require.Equal(t, iam.AccountSessionRevocation{
 		Issuers:                []string{issuerA, issuerB},
 		RevokedSessions:        map[string]int{issuerA: 1, issuerB: 1},
 		RevokedDeviceKeys:      1,
@@ -251,7 +251,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusOK, refresh(siteB, &onB))
 
 		_, err = siteC.svc.AdminRevokeAccountSessions(ctx, "00000000-0000-7000-8000-000000000000")
-		require.ErrorIs(t, err, authkit.ErrUserNotFound)
+		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 	t.Run("permissions stay live while native bans follow token lifetime", func(t *testing.T) {
 		elevated := login(siteB, operatorEmail, operatorPass)
@@ -268,10 +268,10 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &elevated), "ban prevents issuing another access token")
 		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+operatorEmail+`","password":"`+operatorPass+`"}`)
 		require.Equal(t, http.StatusUnauthorized, relogin.Code, relogin.Body.String())
-		require.NoError(t, siteA.svc.OperatorUnassignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+		require.NoError(t, siteA.svc.OperatorUnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
 		revoked := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, revoked.Code, revoked.Body.String())
-		require.NoError(t, siteA.svc.OperatorAssignGroupRole(ctx, authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+		require.NoError(t, siteA.svc.OperatorAssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
 		// The same credential remains valid on ordinary application routes.
 		before := queries.count.Load()
 		request := httptest.NewRequest(http.MethodGet, "/ordinary", nil)
@@ -289,7 +289,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.NoError(t, siteA.svc.SoftDeleteUser(ctx, operatorID))
 		deleted := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, deleted.Code, "deleted identities have no current permission authority")
-		latent, err := siteB.svc.ListEffectivePermissions(ctx, authkit.UserSubject(operatorID), authkit.RootGroup())
+		latent, err := siteB.svc.ListEffectivePermissions(ctx, iam.UserSubject(operatorID), iam.RootGroup())
 		require.NoError(t, err)
 		require.NotEmpty(t, latent, "introspection and no-escalation checks retain latent assigned grants")
 	})

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -28,7 +28,7 @@ func accountRecoveryToken(t *testing.T, raw string) string {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &body))
-	require.Equal(t, string(authkit.CodeAccountRecoveryRequired), body.Error.Code)
+	require.Equal(t, string(iam.CodeAccountRecoveryRequired), body.Error.Code)
 	require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
 	require.NotContains(t, raw, "access_token")
 	require.NotContains(t, raw, "refresh_token")
@@ -120,7 +120,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 		remove(id)
 		next, fragment := f.providerLogin(provider, identity, "", true)
 		f.expect(302, next)
-		require.Equal(t, string(authkit.CodeAccountRecoveryRequired), fragment.Get("error"))
+		require.Equal(t, string(iam.CodeAccountRecoveryRequired), fragment.Get("error"))
 		require.Empty(t, fragment.Get("access_token"))
 		var recovery embedded.AccountRecoveryConfirmation
 		require.NoError(t, json.Unmarshal([]byte(fragment.Get("recovery")), &recovery))

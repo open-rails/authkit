@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
 )
@@ -102,8 +102,8 @@ func (r defaultSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, addres
 	return name, nil
 }
 
-// SolanaLinkedAccount is the wire type; see authkit.SolanaLinkedAccount.
-type SolanaLinkedAccount = authkit.SolanaLinkedAccount
+// SolanaLinkedAccount is the wire type; see iam.SolanaLinkedAccount.
+type SolanaLinkedAccount = iam.SolanaLinkedAccount
 
 type solanaSNSProfile struct {
 	PrimaryName      *string    `json:"sns_primary_name"`

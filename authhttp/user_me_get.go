@@ -3,8 +3,8 @@ package authhttp
 import (
 	"net/http"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -14,7 +14,7 @@ import (
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeUnauthorized)
+		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
 	profile, err := s.svc.UserProfile(r.Context(), embedded.ProfileInput{

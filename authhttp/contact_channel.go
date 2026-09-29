@@ -8,8 +8,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -31,10 +31,10 @@ type contactChannel struct {
 	isVerified           func(*embedded.User) bool
 	pendingExists        func(context.Context, string) (bool, error)
 
-	errVerifyUnavailable authkit.Code
-	errResetUnavailable  authkit.Code
-	errResendUnavailable authkit.Code
-	errAlreadyVerified   authkit.Code
+	errVerifyUnavailable iam.Code
+	errResetUnavailable  iam.Code
+	errResendUnavailable iam.Code
+	errAlreadyVerified   iam.Code
 }
 
 func (s *Service) emailChannel() contactChannel {
@@ -55,10 +55,10 @@ func (s *Service) emailChannel() contactChannel {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
 		},
-		errVerifyUnavailable: authkit.CodeEmailVerificationUnavailable,
-		errResetUnavailable:  authkit.CodeEmailPasswordResetUnavailable,
-		errResendUnavailable: authkit.CodeEmailUnavailable,
-		errAlreadyVerified:   authkit.CodeEmailAlreadyVerified,
+		errVerifyUnavailable: iam.CodeEmailVerificationUnavailable,
+		errResetUnavailable:  iam.CodeEmailPasswordResetUnavailable,
+		errResendUnavailable: iam.CodeEmailUnavailable,
+		errAlreadyVerified:   iam.CodeEmailAlreadyVerified,
 	}
 }
 
@@ -80,10 +80,10 @@ func (s *Service) phoneChannel() contactChannel {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
 		},
-		errVerifyUnavailable: authkit.CodePhoneVerificationUnavailable,
-		errResetUnavailable:  authkit.CodeSMSSenderUnavailable,
-		errResendUnavailable: authkit.CodePhoneUnavailable,
-		errAlreadyVerified:   authkit.CodePhoneAlreadyVerified,
+		errVerifyUnavailable: iam.CodePhoneVerificationUnavailable,
+		errResetUnavailable:  iam.CodeSMSSenderUnavailable,
+		errResendUnavailable: iam.CodePhoneUnavailable,
+		errAlreadyVerified:   iam.CodePhoneAlreadyVerified,
 	}
 }
 
@@ -105,7 +105,7 @@ func (s *Service) contactChannelFor(identifier string) (contactChannel, string, 
 // identifier is invalid_request, a malformed one gets its validation code.
 func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string) (contactChannel, string, bool) {
 	if strings.TrimSpace(identifier) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return contactChannel{}, "", false
 	}
 	ch, id, err := s.contactChannelFor(identifier)
@@ -125,7 +125,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	ch, id, ok := s.requireContactChannel(w, req.Identifier)
@@ -137,7 +137,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, authkit.E(ch.errVerifyUnavailable))
+		writeError(w, iam.E(ch.errVerifyUnavailable))
 		return
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
@@ -174,12 +174,12 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		Token      string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	in := embedded.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	var target *contactChannel
@@ -201,11 +201,11 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims) {
 			writeError(w, err)
 		} else if in.Token == "" {
-			badRequest(w, authkit.CodeInvalidOrExpiredCode)
+			badRequest(w, iam.CodeInvalidOrExpiredCode)
 		} else if target != nil {
 			s.classifyVerifyLinkFailure(w, r.Context(), *target, in.Identifier)
 		} else {
-			badRequest(w, authkit.CodeInvalidOrExpiredToken)
+			badRequest(w, iam.CodeInvalidOrExpiredToken)
 		}
 		return
 	}
@@ -228,14 +228,14 @@ func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.C
 			sendErr(w, http.StatusConflict, ch.errAlreadyVerified)
 			return
 		}
-		sendErr(w, http.StatusGone, authkit.CodeVerificationLinkExpired)
+		sendErr(w, http.StatusGone, iam.CodeVerificationLinkExpired)
 		return
 	}
 	if exists, err := ch.pendingExists(ctx, id); err == nil && exists {
-		badRequest(w, authkit.CodeInvalidOrExpiredToken)
+		badRequest(w, iam.CodeInvalidOrExpiredToken)
 		return
 	}
-	sendErr(w, http.StatusGone, authkit.CodeVerificationLinkExpired)
+	sendErr(w, http.StatusGone, iam.CodeVerificationLinkExpired)
 }
 
 // POST /password/reset/request — {identifier}; always 202 for a well-formed
@@ -257,7 +257,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, authkit.E(ch.errResetUnavailable))
+		writeError(w, iam.E(ch.errResetUnavailable))
 		return
 	}
 	ua, ip := r.UserAgent(), s.requestIP(r)
@@ -275,7 +275,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		NewPassword string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" || req.NewPassword == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.ValidatePassword(req.NewPassword); err != nil {
@@ -290,7 +290,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {
 			return
 		}
-		badRequest(w, authkit.CodeInvalidOrExpiredToken)
+		badRequest(w, iam.CodeInvalidOrExpiredToken)
 		return
 	}
 	noContent(w)
@@ -310,7 +310,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		Identifier string `json:"identifier"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	ch, id, ok := s.requireContactChannel(w, req.Identifier)
@@ -318,7 +318,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, authkit.E(ch.errResendUnavailable))
+		writeError(w, iam.E(ch.errResendUnavailable))
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLRegisterResend, id) {
@@ -326,7 +326,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 	}
 	found, err := s.svc.ResendRegistration(r.Context(), id)
 	if !found {
-		notFound(w, authkit.CodePendingRegistrationNotFound)
+		notFound(w, iam.CodePendingRegistrationNotFound)
 		return
 	}
 	if err != nil {

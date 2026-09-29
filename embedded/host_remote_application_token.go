@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/jwtkit"
@@ -39,7 +39,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 // (permission-group role membership only), resolved at verify from the validated
 // `iss`. The token therefore carries NO authority role claims of its own — and
 // even if a caller adds them, the verifier ignores them.
-type RemoteApplicationAccessParams = authkit.RemoteApplicationAccessParams
+type RemoteApplicationAccessParams = iam.RemoteApplicationAccessParams
 
 // MintRemoteApplicationAccessToken signs a remote application access token using the
 // Runtime's internal signer. When p.Issuer is empty it defaults to the Runtime's

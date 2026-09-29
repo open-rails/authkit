@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/siws"
 )
@@ -17,15 +17,15 @@ import (
 // SIWS sentinel aliases (root authkit sentinels) so the SIWS verification path
 // returns typed errors the HTTP layer maps with errors.Is — see http/solana_siws.go.
 var (
-	ErrSIWSChallengeNotFound      = authkit.ErrSIWSChallengeNotFound
-	ErrSIWSChallengeExpired       = authkit.ErrSIWSChallengeExpired
-	ErrSIWSChallengeMismatch      = authkit.ErrSIWSChallengeMismatch
-	ErrSIWSAddressMismatch        = authkit.ErrSIWSAddressMismatch
-	ErrSIWSDomainInvalid          = authkit.ErrSIWSDomainInvalid
-	ErrSIWSTimestampInvalid       = authkit.ErrSIWSTimestampInvalid
-	ErrSIWSSignatureInvalid       = authkit.ErrSIWSSignatureInvalid
-	ErrWalletAlreadyLinked        = authkit.ErrWalletAlreadyLinked
-	ErrWalletChangeRequiresUnlink = authkit.ErrWalletChangeRequiresUnlink
+	ErrSIWSChallengeNotFound      = iam.ErrSIWSChallengeNotFound
+	ErrSIWSChallengeExpired       = iam.ErrSIWSChallengeExpired
+	ErrSIWSChallengeMismatch      = iam.ErrSIWSChallengeMismatch
+	ErrSIWSAddressMismatch        = iam.ErrSIWSAddressMismatch
+	ErrSIWSDomainInvalid          = iam.ErrSIWSDomainInvalid
+	ErrSIWSTimestampInvalid       = iam.ErrSIWSTimestampInvalid
+	ErrSIWSSignatureInvalid       = iam.ErrSIWSSignatureInvalid
+	ErrWalletAlreadyLinked        = iam.ErrWalletAlreadyLinked
+	ErrWalletChangeRequiresUnlink = iam.ErrWalletChangeRequiresUnlink
 )
 
 // SolanaProviderSlug is the provider slug used for Solana wallets.

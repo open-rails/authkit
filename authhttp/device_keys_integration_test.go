@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ type deviceKeyTokenBody struct {
 // UnmarshalJSON lifts {"token_set": ..., "device_key": ...} (#313) into the flat fields.
 func (b *deviceKeyTokenBody) UnmarshalJSON(raw []byte) error {
 	var env struct {
-		TokenSet  authkit.TokenSet `json:"token_set"`
+		TokenSet  iam.TokenSet `json:"token_set"`
 		DeviceKey struct {
 			ID string `json:"id"`
 		} `json:"device_key"`

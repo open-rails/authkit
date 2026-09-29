@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 )
@@ -20,19 +20,19 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLPasswordlessStart, identifier) {
 		return
 	}
 
-	_, err := s.svc.StartPasswordless(r.Context(), authkit.PasswordlessStartRequest{
+	_, err := s.svc.StartPasswordless(r.Context(), iam.PasswordlessStartRequest{
 		Identifier:         identifier,
 		Mode:               req.Mode,
 		ReturnTo:           req.ReturnTo,
@@ -53,7 +53,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		Token      string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
@@ -66,10 +66,10 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
-			badRequest(w, authkit.CodeInvalidOrExpiredCode)
-		case errors.Is(err, authkit.ErrRegistrationDisabled), errors.Is(err, authkit.ErrPasswordlessDisabled):
+			badRequest(w, iam.CodeInvalidOrExpiredCode)
+		case errors.Is(err, iam.ErrRegistrationDisabled), errors.Is(err, iam.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
-			forbidden(w, authkit.CodePasswordlessDisabled)
+			forbidden(w, iam.CodePasswordlessDisabled)
 		default:
 			logLoginFailed(s, r, "", "passwordless_failed")
 			writeError(w, err)

@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -31,9 +31,9 @@ type Deps struct {
 	// deletion is finalization work after 30 days and before identity purge.
 	// Hooks must be idempotent and honor context cancellation. Nil means no
 	// application work for that stage. OnRestore undoes reversible soft work.
-	OnSoftDelete func(context.Context, authkit.UserDeletion) error
-	OnHardDelete func(context.Context, authkit.UserDeletion) error
-	OnRestore    func(context.Context, authkit.UserDeletion) error
+	OnSoftDelete func(context.Context, iam.UserDeletion) error
+	OnHardDelete func(context.Context, iam.UserDeletion) error
+	OnRestore    func(context.Context, iam.UserDeletion) error
 	// DelegatedAuthorization is the host's delegation authorizer for the
 	// delegated-token mint route (#261/#277); its grant is the complete
 	// authority AuthKit signs. Required when Delegated.Audiences is set.
@@ -43,10 +43,10 @@ type Deps struct {
 	ApplicationAdmission func(ctx context.Context, domain string) error
 	// InstanceAdmission is consulted before any generated persona-instance
 	// creation (#263) with the normalized slug; a non-nil error refuses.
-	InstanceAdmission func(ctx context.Context, group authkit.GroupRef, subject string) error
+	InstanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
 	// NameAdmission is the host's side-effect-free namespace policy for
 	// creation and rename.
-	NameAdmission func(context.Context, authkit.NameAdmissionRequest) error
+	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// SolanaSNSResolver replaces the SNS primary-name resolver used after a
 	// verified Solana link.
 	SolanaSNSResolver SolanaSNSResolver

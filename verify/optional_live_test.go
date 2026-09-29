@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -19,12 +19,12 @@ type optionalLiveSource struct {
 	err     error
 }
 
-func (s *optionalLiveSource) UserLivenessByIDs(_ context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+func (s *optionalLiveSource) UserLivenessByIDs(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
 	}
-	return map[string]authkit.UserLiveness{ids[0]: {ID: ids[0], Allowed: s.allowed, Username: "fresh"}}, nil
+	return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: s.allowed, Username: "fresh"}}, nil
 }
 
 func TestOptionalLive(t *testing.T) {

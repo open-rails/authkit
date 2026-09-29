@@ -6,53 +6,53 @@ import (
 	stdlog "log"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Admin user directory: the dashboard list/count/get. The list
 // and count share one runtime-assembled, fully-parameterized query
 // (adminUserDirectoryQuery); ordering is a closed enum.
 
-type AdminUser = authkit.AdminUser
+type AdminUser = iam.AdminUser
 
 // AdminListUsersResult contains paginated user list with total count
-type AdminListUsersResult = authkit.AdminListUsersResult
+type AdminListUsersResult = iam.AdminListUsersResult
 
 // AdminUserStatus filters the directory by account state.
-type AdminUserStatus = authkit.AdminUserStatus
+type AdminUserStatus = iam.AdminUserStatus
 
 const (
-	AdminUserStatusActive  = authkit.AdminUserStatusActive
-	AdminUserStatusBanned  = authkit.AdminUserStatusBanned
-	AdminUserStatusDeleted = authkit.AdminUserStatusDeleted
-	AdminUserStatusAny     = authkit.AdminUserStatusAny
+	AdminUserStatusActive  = iam.AdminUserStatusActive
+	AdminUserStatusBanned  = iam.AdminUserStatusBanned
+	AdminUserStatusDeleted = iam.AdminUserStatusDeleted
+	AdminUserStatusAny     = iam.AdminUserStatusAny
 	// "" (zero value) defaults to non-deleted (the historical "All users" behavior).
 )
 
 // AdminUserSort selects the directory ordering column.
-type AdminUserSort = authkit.AdminUserSort
+type AdminUserSort = iam.AdminUserSort
 
 const (
-	AdminUserSortCreatedAt = authkit.AdminUserSortCreatedAt
-	AdminUserSortLastLogin = authkit.AdminUserSortLastLogin
-	AdminUserSortUsername  = authkit.AdminUserSortUsername
-	AdminUserSortEmail     = authkit.AdminUserSortEmail
+	AdminUserSortCreatedAt = iam.AdminUserSortCreatedAt
+	AdminUserSortLastLogin = iam.AdminUserSortLastLogin
+	AdminUserSortUsername  = iam.AdminUserSortUsername
+	AdminUserSortEmail     = iam.AdminUserSortEmail
 )
 
 // AdminUserListOptions is the admin dashboard user-directory query. It carries
 // no host product knowledge: Role is the root_role query param, a singleton-root
 // permission-group role slug. Status/Sort are closed enums. Entitlement
 // filtering delegates to the billing provider, never a cross-schema join.
-type AdminUserListOptions = authkit.AdminUserListOptions
+type AdminUserListOptions = iam.AdminUserListOptions
 
 // ErrEntitlementFilterUnavailable is returned by AdminListUsers/AdminCountUsers
 // when an Entitlement filter is requested but no EntitlementFilterProvider is
 // configured — fail loud rather than silently return everyone.
-var ErrEntitlementFilterUnavailable = authkit.ErrEntitlementFilterUnavailable
+var ErrEntitlementFilterUnavailable = iam.ErrEntitlementFilterUnavailable
 
 // ErrUserReferenced: a host table references the user without ON DELETE
 // CASCADE, so the hard delete was rolled back in full.
-var ErrUserReferenced = authkit.ErrUserReferenced
+var ErrUserReferenced = iam.ErrUserReferenced
 
 func normalizeAdminUserListOptions(o AdminUserListOptions) AdminUserListOptions {
 	if o.Page <= 0 {

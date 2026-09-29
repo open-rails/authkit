@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Delegated mint defaults (#261). Applied to unset DelegatedConfig fields
@@ -21,9 +21,9 @@ const (
 // host decides the exact permissions/attributes/documents to sign. Required
 // whenever the route is mounted; an error refuses the mint.
 type (
-	DelegationAuthorizer = authkit.DelegationAuthorizer
-	DelegationRequest    = authkit.DelegationRequest
-	DelegationGrant      = authkit.DelegationGrant
+	DelegationAuthorizer = iam.DelegationAuthorizer
+	DelegationRequest    = iam.DelegationRequest
+	DelegationGrant      = iam.DelegationGrant
 )
 
 // normalizeDelegatedConfig applies defaults and refuses an impossible TTL

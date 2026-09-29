@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -26,9 +26,9 @@ import (
 // Token sentinel errors are defined in authkit and re-exported here for
 // backward compatibility (so core.X callers and errors.Is checks are unaffected).
 var (
-	ErrInvalidAccessToken = authkit.ErrInvalidAccessToken
-	ErrAccessTokenRevoked = authkit.ErrAccessTokenRevoked
-	ErrAccessTokenExpired = authkit.ErrAccessTokenExpired
+	ErrInvalidAccessToken = iam.ErrInvalidAccessToken
+	ErrAccessTokenRevoked = iam.ErrAccessTokenRevoked
+	ErrAccessTokenExpired = iam.ErrAccessTokenExpired
 )
 
 const (
@@ -41,10 +41,10 @@ const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 // API-key marker/parse/format helpers are defined in authkit (core-free) and
 // re-exported here for backward compatibility.
 var (
-	APIKeyMarker    = authkit.APIKeyMarker
-	HasAPIKeyPrefix = authkit.HasAPIKeyPrefix
-	FormatAPIKey    = authkit.FormatAPIKey
-	ParseAPIKey     = authkit.ParseAPIKey
+	APIKeyMarker    = iam.APIKeyMarker
+	HasAPIKeyPrefix = iam.HasAPIKeyPrefix
+	FormatAPIKey    = iam.FormatAPIKey
+	ParseAPIKey     = iam.ParseAPIKey
 )
 
 func randBase62(n int) (string, error) {
@@ -65,17 +65,17 @@ func randBase62(n int) (string, error) {
 // holds; Permissions is that role's RESOLVED effective permission set (a
 // convenience projection — the role is the source of truth, edit it to change
 // the key).
-type APIKey = authkit.APIKey
+type APIKey = iam.APIKey
 
 // ResolvedAPIKey is defined in authkit (core-free) and re-exported here.
-type ResolvedAPIKey = authkit.ResolvedAPIKey
+type ResolvedAPIKey = iam.ResolvedAPIKey
 
 // APIKeyMintOptions is the API-key mint request. The key references exactly ONE
 // role (Role) that must be valid for the owning group's persona catalog (or a
 // group custom role); its permissions are resolved from that role at use time.
-type APIKeyMintOptions = authkit.APIKeyMintOptions
+type APIKeyMintOptions = iam.APIKeyMintOptions
 
-func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona authkit.Persona, gid, actorUserID string, role authkit.Role) error {
+func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
 	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, PermCredentialsManage(persona), role)
 }
 
@@ -83,7 +83,7 @@ func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGro
 // set within a permission-group of persona: a catalog role from the schema
 // (core.Config), or a per-group custom role from group_custom_roles. The role —
 // not any snapshot — is the source of truth, so resolution repeats at use time.
-func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona authkit.Persona, role authkit.Role) ([]string, error) {
+func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona iam.Persona, role iam.Role) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	if def, ok := sch.Role(persona, role); ok {
 		perms := append([]string(nil), def.Permissions...)
@@ -103,27 +103,27 @@ func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *Permissi
 // MintAPIKeyWithOptions inserts a new API key. The key references exactly ONE
 // role (opts.Role) valid for the owning group's persona; its effective
 // permissions are resolved from the role at use time.
-func (s *engine) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupRef, opts APIKeyMintOptions) (APIKey, string, error) {
+func (s *engine) MintAPIKeyWithOptions(ctx context.Context, group iam.GroupRef, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
 	}
-	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return APIKey{}, "", err
 	}
 	name := strings.TrimSpace(opts.Name)
 	if name == "" {
-		return APIKey{}, "", authkit.ErrMissingName
+		return APIKey{}, "", iam.ErrMissingName
 	}
-	role := authkit.Role(strings.ToLower(strings.TrimSpace(string(opts.Role))))
+	role := iam.Role(strings.ToLower(strings.TrimSpace(string(opts.Role))))
 	if role == "" {
-		return APIKey{}, "", authkit.ErrInvalidRole
+		return APIKey{}, "", iam.ErrInvalidRole
 	}
 	now := time.Now().UTC()
 	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
-		return APIKey{}, "", authkit.ErrInvalidExpiry
+		return APIKey{}, "", iam.ErrInvalidExpiry
 	}
 	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)
@@ -182,7 +182,7 @@ func (s *engine) MintAPIKeyWithOptions(ctx context.Context, group authkit.GroupR
 // addressed by (persona, instanceSlug), including revoked/expired ones. The
 // secret is never returned. Terminal keys are retained for 90 days and removed
 // by CleanupExpiredAuthState in bounded batches.
-func (s *engine) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]APIKey, error) {
+func (s *engine) ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (s *engine) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]API
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := s.loadAPIKeyPermissions(ctx, gid, authkit.Persona(strings.TrimSpace(string(group.Persona))), out); err != nil {
+	if err := s.loadAPIKeyPermissions(ctx, gid, iam.Persona(strings.TrimSpace(string(group.Persona))), out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -222,7 +222,7 @@ func (s *engine) ListAPIKeys(ctx context.Context, group authkit.GroupRef) ([]API
 // RevokeAPIKey marks the API key revoked. It is scoped to the group so a token
 // cannot be revoked from a different group. Returns false if no matching,
 // not-already-revoked token exists.
-func (s *engine) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, tokenID string) (bool, error) {
+func (s *engine) RevokeAPIKey(ctx context.Context, group iam.GroupRef, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -244,7 +244,7 @@ func (s *engine) RevokeAPIKey(ctx context.Context, group authkit.GroupRef, token
 // RevokeAPIKeyFromClaims is the runtime revoke: the actor must be able to mint
 // the key's role, so a bounded credentials manager cannot revoke a key of a
 // role above their own. Returns false if no live key matches in the group.
-func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, tokenID string) (bool, error) {
+func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, tokenID string) (bool, error) {
 	actor, err := groupActorFromClaims(claims)
 	if err != nil {
 		return false, err
@@ -256,10 +256,10 @@ func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claim
 	if err != nil {
 		return false, err
 	}
-	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
 	revoked := false
 	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
-		var role authkit.Role
+		var role iam.Role
 		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, strings.TrimSpace(tokenID), gid).Scan(&role)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -302,11 +302,11 @@ func (s *engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 	var (
 		id                string
 		secretHash        []byte
-		role              authkit.Role
+		role              iam.Role
 		expiresAt         *time.Time
 		revokedAt         *time.Time
 		groupID           string
-		persona           authkit.Persona
+		persona           iam.Persona
 		instanceSlug      string
 		customPermissions []string
 	)
@@ -372,11 +372,11 @@ func (s *engine) touchAccessTokenAsync(id string) {
 
 // loadAPIKeyPermissions fills each key's Permissions with its ROLE resolved to
 // effective permissions (#111). Keys sharing a role resolve once (cached per role).
-func (s *engine) loadAPIKeyPermissions(ctx context.Context, groupID string, persona authkit.Persona, tokens []APIKey) error {
+func (s *engine) loadAPIKeyPermissions(ctx context.Context, groupID string, persona iam.Persona, tokens []APIKey) error {
 	if len(tokens) == 0 {
 		return nil
 	}
-	byRole := map[authkit.Role][]string{}
+	byRole := map[iam.Role][]string{}
 	for i := range tokens {
 		role := tokens[i].Role
 		perms, ok := byRole[role]

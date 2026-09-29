@@ -8,7 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -111,10 +111,10 @@ func Claims(c fiber.Ctx) (verify.Claims, bool) {
 }
 
 // Principal returns the typed user, API-key, or application principal.
-func Principal(c fiber.Ctx) (authkit.Principal, bool) {
+func Principal(c fiber.Ctx) (iam.Principal, bool) {
 	cl, ok := Claims(c)
 	if !ok {
-		return authkit.Principal{}, false
+		return iam.Principal{}, false
 	}
 	p := cl.Principal()
 	return p, p.Kind != ""
@@ -136,7 +136,7 @@ func UserClaims(c fiber.Ctx) (UserClaimsData, bool) {
 
 // RequirePermission checks the canonical permission policy using a
 // Fiber-native scope resolver. Mount after Required or RequiredLive.
-func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
+func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var resolver func(*http.Request) verify.PermissionScope
 		if resolve != nil {

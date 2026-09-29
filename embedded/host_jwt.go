@@ -8,30 +8,30 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
 const (
 	// ServiceJWTTokenUse + DefaultServiceJWTLifetime are defined in authkit
 	// (core-free) and re-exported here.
-	ServiceJWTTokenUse = authkit.ServiceJWTTokenUse
+	ServiceJWTTokenUse = iam.ServiceJWTTokenUse
 	// ServiceJWTType is the JOSE typ header AuthKit stamps on minted service JWTs.
 	ServiceJWTType            = "service+jwt"
-	DefaultServiceJWTLifetime = authkit.DefaultServiceJWTLifetime
+	DefaultServiceJWTLifetime = iam.DefaultServiceJWTLifetime
 )
 
 var (
 	// ErrInvalidServiceJWT is defined in authkit and re-exported here.
-	ErrInvalidServiceJWT = authkit.ErrInvalidServiceJWT
-	ErrMissingSigner     = authkit.ErrMissingSigner
+	ErrInvalidServiceJWT = iam.ErrInvalidServiceJWT
+	ErrMissingSigner     = iam.ErrMissingSigner
 )
 
 // ServiceJWTClaims is defined in authkit (core-free) and re-exported here.
-type ServiceJWTClaims = authkit.ServiceJWTClaims
+type ServiceJWTClaims = iam.ServiceJWTClaims
 
 // ServiceJWTMintOptions controls service-JWT minting for embedded hosts.
-type ServiceJWTMintOptions = authkit.ServiceJWTMintOptions
+type ServiceJWTMintOptions = iam.ServiceJWTMintOptions
 
 // MintServiceJWT creates a short-lived signed service JWT from AuthKit's active
 // signing key. It defaults to a 15-minute lifetime and stamps

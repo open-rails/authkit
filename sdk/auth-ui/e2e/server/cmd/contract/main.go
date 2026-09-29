@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/sdk/auth-ui/e2e/server/harness"
 )
@@ -32,8 +32,8 @@ type route struct {
 }
 
 type contract struct {
-	ErrorCodes     []errorCode `json:"error_codes"`
-	Routes         []route     `json:"routes"`
+	ErrorCodes []errorCode `json:"error_codes"`
+	Routes     []route     `json:"routes"`
 }
 
 func main() {
@@ -58,8 +58,8 @@ func run(out, dsn string) error {
 	defer rt.Close()
 
 	var c contract
-	for _, code := range authkit.Codes() {
-		status, _, _ := authkit.DescribeCode(code)
+	for _, code := range iam.Codes() {
+		status, _, _ := iam.DescribeCode(code)
 		c.ErrorCodes = append(c.ErrorCodes, errorCode{Code: code.String(), Status: status})
 	}
 	for _, r := range rt.Mount.Routes() {

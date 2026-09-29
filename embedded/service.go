@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
@@ -63,37 +63,37 @@ const HashAlgoLegacyResetRequired = "legacy-reset-required"
 
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
-	ErrUserBanned = authkit.ErrUserBanned
+	ErrUserBanned = iam.ErrUserBanned
 	// ErrPasswordResetRequired indicates the account's stored password hash is
 	// flagged HashAlgoLegacyResetRequired: no plaintext can ever verify against
 	// it, so the user must complete a password reset before password auth (login,
 	// step-up, change-password) can succeed. HTTP layers map this to the stable
 	// code "password_reset_required".
-	ErrPasswordResetRequired = authkit.ErrPasswordResetRequired
+	ErrPasswordResetRequired = iam.ErrPasswordResetRequired
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
-	ErrUserNotFound = authkit.ErrUserNotFound
+	ErrUserNotFound = iam.ErrUserNotFound
 	// ErrInvalidUntil indicates a time-limited operation has a non-future expiry.
-	ErrInvalidUntil = authkit.ErrInvalidUntil
+	ErrInvalidUntil = iam.ErrInvalidUntil
 	// ErrEmailAlreadyVerified indicates an email verification request targeted an already-verified email.
-	ErrEmailAlreadyVerified = authkit.ErrEmailAlreadyVerified
+	ErrEmailAlreadyVerified = iam.ErrEmailAlreadyVerified
 	// ErrPhoneAlreadyVerified indicates a phone verification request targeted an already-verified phone.
-	ErrPhoneAlreadyVerified = authkit.ErrPhoneAlreadyVerified
+	ErrPhoneAlreadyVerified = iam.ErrPhoneAlreadyVerified
 	// ErrPendingRegistrationNotFound indicates a registration resend request did not match a pending registration.
-	ErrPendingRegistrationNotFound = authkit.ErrPendingRegistrationNotFound
+	ErrPendingRegistrationNotFound = iam.ErrPendingRegistrationNotFound
 	// ErrRegistrationDisabled indicates a public user-creation path was attempted
 	// while native-user registration is bootstrap-only. Existing-user
 	// authentication is unaffected; only NEW account creation through
 	// public/auto-registration is blocked.
-	ErrRegistrationDisabled = authkit.ErrRegistrationDisabled
+	ErrRegistrationDisabled = iam.ErrRegistrationDisabled
 	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
-	ErrVerificationLinkExpired = authkit.ErrVerificationLinkExpired
-	ErrEmailInUse              = authkit.ErrEmailInUse
-	ErrPhoneInUse              = authkit.ErrPhoneInUse
-	ErrUsernameInUse           = authkit.ErrUsernameInUse
-	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
-	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
-	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
-	ErrDeviceKeysDisabled      = authkit.ErrDeviceKeysDisabled
+	ErrVerificationLinkExpired = iam.ErrVerificationLinkExpired
+	ErrEmailInUse              = iam.ErrEmailInUse
+	ErrPhoneInUse              = iam.ErrPhoneInUse
+	ErrUsernameInUse           = iam.ErrUsernameInUse
+	ErrEmailSenderUnavailable  = iam.ErrEmailSenderUnavailable
+	ErrSMSSenderUnavailable    = iam.ErrSMSSenderUnavailable
+	ErrPasswordlessDisabled    = iam.ErrPasswordlessDisabled
+	ErrDeviceKeysDisabled      = iam.ErrDeviceKeysDisabled
 )
 
 // (storage layer collapsed into direct Postgres helpers)
@@ -107,9 +107,9 @@ type engine struct {
 	closeOnce   sync.Once
 
 	maintenance  *riverMaintenance
-	onSoftDelete func(context.Context, authkit.UserDeletion) error
-	onHardDelete func(context.Context, authkit.UserDeletion) error
-	onRestore    func(context.Context, authkit.UserDeletion) error
+	onSoftDelete func(context.Context, iam.UserDeletion) error
+	onHardDelete func(context.Context, iam.UserDeletion) error
+	onRestore    func(context.Context, iam.UserDeletion) error
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
@@ -137,7 +137,7 @@ type engine struct {
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.
-	nameAdmission  func(context.Context, authkit.NameAdmissionRequest) error
+	nameAdmission  func(context.Context, iam.NameAdmissionRequest) error
 	cfg            Config
 	verifyWarnOnce sync.Once
 
@@ -153,7 +153,7 @@ type engine struct {
 	// instance creation (#263) — MayCreateInstance consults it. Same anti-squat
 	// split as appAdmission: authkit owns velocity limits, the host owns cost
 	// gates. Nil = allow.
-	instanceAdmission func(ctx context.Context, group authkit.GroupRef, subject string) error
+	instanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
 
 	smsHealth smsHealth
 }

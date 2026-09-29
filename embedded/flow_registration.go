@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -14,20 +14,20 @@ import (
 // re-exported here (#147). The former AdminOnly/AdminBootstrapOnly/ManifestOnly
 // modes were removed — RegistrationMode is now public self-registration policy
 // only (Open/InviteOnly/Closed).
-type RegistrationVerificationPolicy = authkit.RegistrationVerificationPolicy
+type RegistrationVerificationPolicy = iam.RegistrationVerificationPolicy
 
 const (
-	RegistrationVerificationNone     = authkit.RegistrationVerificationNone
-	RegistrationVerificationOptional = authkit.RegistrationVerificationOptional
-	RegistrationVerificationRequired = authkit.RegistrationVerificationRequired
+	RegistrationVerificationNone     = iam.RegistrationVerificationNone
+	RegistrationVerificationOptional = iam.RegistrationVerificationOptional
+	RegistrationVerificationRequired = iam.RegistrationVerificationRequired
 )
 
-type RegistrationMode = authkit.RegistrationMode
+type RegistrationMode = iam.RegistrationMode
 
 const (
-	RegistrationModeOpen       = authkit.RegistrationModeOpen
-	RegistrationModeInviteOnly = authkit.RegistrationModeInviteOnly
-	RegistrationModeClosed     = authkit.RegistrationModeClosed
+	RegistrationModeOpen       = iam.RegistrationModeOpen
+	RegistrationModeInviteOnly = iam.RegistrationModeInviteOnly
+	RegistrationModeClosed     = iam.RegistrationModeClosed
 )
 
 func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {

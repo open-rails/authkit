@@ -6,8 +6,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 // confirmBackendError reports whether a verify/reset confirm failure is the
@@ -18,7 +18,7 @@ func confirmBackendError(err error) bool {
 	if err == nil {
 		return false
 	}
-	for _, known := range []error{jwt.ErrTokenUnverifiable, jwt.ErrTokenInvalidClaims, jwt.ErrTokenExpired, authkit.ErrRegistrationDisabled, authkit.ErrUserBanned} {
+	for _, known := range []error{jwt.ErrTokenUnverifiable, jwt.ErrTokenInvalidClaims, jwt.ErrTokenExpired, iam.ErrRegistrationDisabled, iam.ErrUserBanned} {
 		if errors.Is(err, known) {
 			return false
 		}
@@ -33,6 +33,6 @@ func (s *Service) confirmBackendFailed(w http.ResponseWriter, r *http.Request, r
 		return false
 	}
 	s.logInternalError(r, route, stage, "database_error", err)
-	serverErr(w, authkit.CodeDatabaseError, nil)
+	serverErr(w, iam.CodeDatabaseError, nil)
 	return true
 }

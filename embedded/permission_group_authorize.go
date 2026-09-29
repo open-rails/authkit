@@ -6,22 +6,22 @@ package embedded
 // parent chain + the subject's assignments from the database and feeds them
 // here, which keeps the authz-critical matching in one place.
 
-import authkit "github.com/open-rails/authkit"
+import "github.com/open-rails/authkit/iam"
 
 // GroupAssignment is a subject's SINGLE role assignment within ONE
 // permission-group (#247: one role per subject per group is a hard rule — no
 // per-group role unions), tagged with that group's persona. The slice order is
 // irrelevant — the union ACROSS groups is additive and order-independent.
 type GroupAssignment struct {
-	Persona           authkit.Persona
+	Persona           iam.Persona
 	PermissionGroupID string // opaque group id; used ONLY to scope custom-role lookups
-	Role              authkit.Role
+	Role              iam.Role
 }
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
 // (nil, false) if no such custom role exists. Consulted only for personas whose
 // CustomRoles is set; pass nil when the deployment defines no custom roles.
-type CustomRoleResolver func(groupID string, role authkit.Role) ([]string, bool)
+type CustomRoleResolver func(groupID string, role iam.Role) ([]string, bool)
 
 // ResolveGrants computes the additive, de-duplicated UNION of grant tokens a
 // subject holds across the given assignments. For each (persona, role): a
@@ -69,20 +69,20 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 // matches). Additive walk-up union; the caller constructs the exact perm to
 // check (e.g. for a resource of persona RT acted on from an ancestor of persona LT,
 // the perm is `LT:RT:<action>` — the two-persona rule, decision #5).
-func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolver, perm authkit.Perm) bool {
+func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolver, perm iam.Perm) bool {
 	return anyGrantCovers(s.ResolveGrants(assignments, custom), perm)
 }
 
-func anyGrantCovers(grants []string, perm authkit.Perm) bool {
+func anyGrantCovers(grants []string, perm iam.Perm) bool {
 	for _, g := range grants {
-		if perm.Matches(authkit.Perm(g)) {
+		if perm.Matches(iam.Perm(g)) {
 			return true
 		}
 	}
 	return false
 }
 
-func roleByName(roles []RoleDef, name authkit.Role) (RoleDef, bool) {
+func roleByName(roles []RoleDef, name iam.Role) (RoleDef, bool) {
 	for _, r := range roles {
 		if r.Name == name {
 			return r, true

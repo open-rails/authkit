@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -47,7 +47,7 @@ func (d *GroupDirectory) Close() {
 	}
 }
 
-func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit.GroupRef) (authkit.GroupInstance, error) {
+func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error) {
 	group = group.Canonical()
 	var id string
 	var err error
@@ -57,18 +57,18 @@ func (d *GroupDirectory) GroupInstanceForSlug(ctx context.Context, group authkit
 		id, err = d.store.GroupByInstanceSlug(ctx, group)
 	}
 	if err != nil {
-		return authkit.GroupInstance{}, err
+		return iam.GroupInstance{}, err
 	}
 	return d.store.GroupInstanceByID(ctx, id)
 }
 
-func (d *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (authkit.GroupInstance, error) {
+func (d *GroupDirectory) GroupInstanceByID(ctx context.Context, id string) (iam.GroupInstance, error) {
 	return d.store.GroupInstanceByID(ctx, strings.TrimSpace(id))
 }
 
 // SearchGroupInstances returns canonical slugs containing query (case insensitive,
 // literal substring), ordered by (slug,id). Empty cursor starts the search; later
 // pages use the last row's slug/id. Limit defaults to50 and is capped at200.
-func (d *GroupDirectory) SearchGroupInstances(ctx context.Context, persona authkit.Persona, query, afterSlug, afterID string, limit int) ([]authkit.GroupInstance, error) {
+func (d *GroupDirectory) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
 	return d.store.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)
 }

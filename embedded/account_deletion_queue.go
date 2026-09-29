@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -53,7 +53,7 @@ func (s *engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 	return s.maintenance.client, nil
 }
 
-func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, purge bool) error {
+func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, purge bool) error {
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (s *engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client 
 
 // The delivery receipt and River row are one transaction. An existing receipt
 // therefore already has its durable job; no independent polling queue exists.
-func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion authkit.UserDeletion, issuers []string, stage string) error {
+func (s *engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string, stage string) error {
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func (s *engine) deliverAccountEvent(ctx context.Context, id int64) error {
 	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock(hashtext(current_database()),hashtext($1))", key); err != nil {
 		return err
 	}
-	var deletion authkit.UserDeletion
+	var deletion iam.UserDeletion
 	var issuer, stage string
 	var completed *time.Time
 	err = s.pg.QueryRow(ctx, `SELECT d.id::text,d.user_id::text,d.deleted_at,d.purge_at,e.issuer,e.stage,e.completed_at
@@ -251,7 +251,7 @@ func (s *engine) deliverAccountEvent(ctx context.Context, id int64) error {
 	if preceding {
 		return river.JobSnooze(time.Second)
 	}
-	var hook func(context.Context, authkit.UserDeletion) error
+	var hook func(context.Context, iam.UserDeletion) error
 	switch stage {
 	case "soft":
 		hook = s.onSoftDelete
@@ -300,7 +300,7 @@ func (s *engine) deliverAccountEvent(ctx context.Context, id int64) error {
 	return tx.Commit(ctx)
 }
 
-func invokeAccountHook(ctx context.Context, hook func(context.Context, authkit.UserDeletion) error, deletion authkit.UserDeletion) (err error) {
+func invokeAccountHook(ctx context.Context, hook func(context.Context, iam.UserDeletion) error, deletion iam.UserDeletion) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("account lifecycle callback panicked: %v", recovered)

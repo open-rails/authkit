@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -31,8 +31,8 @@ const (
 // forbidden writes a 403 with the given code through the one authkit writer,
 // so responses are byte-identical whether a route is mounted through authhttp
 // or the verify package directly.
-func forbidden(w http.ResponseWriter, code authkit.Code) {
-	authkit.WriteError(w, authkit.E(code, authkit.WithStatus(http.StatusForbidden)))
+func forbidden(w http.ResponseWriter, code iam.Code) {
+	iam.WriteError(w, iam.E(code, iam.WithStatus(http.StatusForbidden)))
 }
 
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS

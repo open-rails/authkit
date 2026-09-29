@@ -3,8 +3,8 @@ package authhttp
 import (
 	"net/http"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 // writeLoginContinuation is the one JSON presentation of first-factor outcomes.
@@ -16,7 +16,7 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 		return false
 	case embedded.LoginRecoveryRequired:
 		w.Header().Set("Cache-Control", "no-store")
-		sendErrData(w, http.StatusConflict, authkit.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
+		sendErrData(w, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
 	case embedded.LoginTwoFactorRequired:
 		metadata := loginChallengeMetadata(out.UserID, out.Challenge)
 		for key, value := range extra {
@@ -25,9 +25,9 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 		if out.ReturnTo != "" {
 			metadata["return_to"] = out.ReturnTo
 		}
-		sendErrData(w, http.StatusForbidden, authkit.CodeTwoFARequired, metadata)
+		sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, metadata)
 	case embedded.LoginTwoFAEnrollmentRequired:
-		sendErrData(w, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, map[string]any{"user_id": out.UserID, "requires_2fa_enrollment": true, "allowed_methods": out.AllowedMethods, "token_set": out.Enrollment, "return_to": out.ReturnTo})
+		sendErrData(w, http.StatusForbidden, iam.CodeTwoFAEnrollmentRequired, map[string]any{"user_id": out.UserID, "requires_2fa_enrollment": true, "allowed_methods": out.AllowedMethods, "token_set": out.Enrollment, "return_to": out.ReturnTo})
 	case embedded.LoginVerificationRequired:
 		writeVerificationRequired(w, out.Verification.Identifier, out.Verification.Channel)
 	default:

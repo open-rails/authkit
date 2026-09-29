@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
@@ -43,14 +43,14 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.NoError(t, err)
 	peer, err := client.CreateUser(ctx, "active-owner@example.test", "active-owner")
 	require.NoError(t, err)
-	group := authkit.GroupRef{Persona: "channel", Instance: "retained"}
-	id, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
+	group := iam.GroupRef{Persona: "channel", Instance: "retained"}
+	id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
 	require.NoError(t, err)
-	child, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "retained-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
+	child, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "retained-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
 	require.NoError(t, err)
-	active, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "still-active", OwnerSubjectID: peer.ID})
+	active, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "still-active", OwnerSubjectID: peer.ID})
 	require.NoError(t, err)
-	key, token, err := client.MintAPIKeyWithOptions(ctx, group, authkit.APIKeyMintOptions{Name: "retained-key", Role: "reader", CreatedBy: owner.ID})
+	key, token, err := client.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "retained-key", Role: "reader", CreatedBy: owner.ID})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://maintenance.test/channel", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -64,7 +64,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.True(t, allowed)
 	result, err := client.SoftDeleteUsers(ctx, []string{owner.ID})
 	require.NoError(t, err)
-	require.ErrorIs(t, result[0].Err, authkit.ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, result[0].Err, iam.ErrCannotRemoveLastAdminRole)
 	deleted, err := client.SoftDeleteGroupInstanceByID(ctx, id)
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
@@ -75,7 +75,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 		descriptor, err := client.GroupInstanceByID(ctx, gid)
 		require.NoError(t, err)
 		require.Equal(t, deleted.DeletedAt, descriptor.DeletedAt)
-		allowed, err := client.CanOnGroup(ctx, authkit.UserSubject(owner.ID), gid, "channel:posts:read")
+		allowed, err := client.CanOnGroup(ctx, iam.UserSubject(owner.ID), gid, "channel:posts:read")
 		require.NoError(t, err)
 		require.False(t, allowed)
 	}
@@ -85,13 +85,13 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	_, err = verifier.AuthenticateRequest(ctx, request)
 	require.Error(t, err, "retired group's API key is unusable on subsequent requests")
 	_, err = client.GroupInstanceForSlug(ctx, group)
-	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
-	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, authkit.UserSubject(peer.ID), "reader"), authkit.ErrGroupNotFound)
-	_, err = client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "forbidden-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
+	require.ErrorIs(t, err, iam.ErrGroupNotFound)
+	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, iam.UserSubject(peer.ID), "reader"), iam.ErrGroupNotFound)
+	_, err = client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "section", InstanceSlug: "forbidden-child", ParentPersona: "channel", ParentInstanceSlug: group.Instance, OwnerSubjectID: owner.ID})
 	require.Error(t, err)
-	_, err = client.UpdateGroupInstanceAs(ctx, owner.ID, id, authkit.GroupInstanceUpdate{DisplayName: new("changed")})
+	_, err = client.UpdateGroupInstanceAs(ctx, owner.ID, id, iam.GroupInstanceUpdate{DisplayName: new("changed")})
 	require.Error(t, err)
-	_, _, err = client.MintAPIKeyWithOptions(ctx, group, authkit.APIKeyMintOptions{Name: "forbidden", Role: "reader"})
+	_, _, err = client.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "forbidden", Role: "reader"})
 	require.Error(t, err)
 	var roles, keys, names int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=ANY($1::uuid[])", []string{id, child}).Scan(&roles))
@@ -103,18 +103,18 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	result, err = client.SoftDeleteUsers(ctx, []string{owner.ID, peer.ID})
 	require.NoError(t, err)
 	require.NoError(t, result[0].Err)
-	require.ErrorIs(t, result[1].Err, authkit.ErrCannotRemoveLastAdminRole, "active sibling still requires its owner")
+	require.ErrorIs(t, result[1].Err, iam.ErrCannotRemoveLastAdminRole, "active sibling still requires its owner")
 	current, err := client.GroupInstanceByID(ctx, active)
 	require.NoError(t, err)
 	require.Nil(t, current.DeletedAt)
-	root, err := client.GroupInstanceForSlug(ctx, authkit.RootGroup())
+	root, err := client.GroupInstanceForSlug(ctx, iam.RootGroup())
 	require.NoError(t, err)
 	_, err = client.SoftDeleteGroupInstanceByID(ctx, root.ID)
 	require.Error(t, err)
-	require.NoError(t, client.DeleteGroupInstanceByID(ctx, id, authkit.DeletePermissionGroupOptions{}))
-	require.NoError(t, client.DeleteGroupInstanceByID(ctx, id, authkit.DeletePermissionGroupOptions{}))
+	require.NoError(t, client.DeleteGroupInstanceByID(ctx, id, iam.DeletePermissionGroupOptions{}))
+	require.NoError(t, client.DeleteGroupInstanceByID(ctx, id, iam.DeletePermissionGroupOptions{}))
 	_, err = client.GroupInstanceByID(ctx, id)
-	require.ErrorIs(t, err, authkit.ErrGroupNotFound)
+	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
 
 func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
@@ -125,7 +125,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 	for n := range 8 {
 		owner, err := client.CreateUser(ctx, fmt.Sprintf("race-%d@example.test", n), fmt.Sprintf("retirerace%d", n))
 		require.NoError(t, err)
-		id, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: fmt.Sprintf("race-%d", n), OwnerSubjectID: owner.ID})
+		id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: fmt.Sprintf("race-%d", n), OwnerSubjectID: owner.ID})
 		require.NoError(t, err)
 		start := make(chan struct{})
 		var wg sync.WaitGroup
@@ -143,7 +143,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		wg.Wait()
 		require.NoError(t, retireErr)
 		if deleteErr != nil {
-			require.ErrorIs(t, deleteErr, authkit.ErrCannotRemoveLastAdminRole)
+			require.ErrorIs(t, deleteErr, iam.ErrCannotRemoveLastAdminRole)
 		}
 		results, err := client.SoftDeleteUsers(ctx, []string{owner.ID})
 		require.NoError(t, err)
@@ -160,33 +160,33 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	ctx := t.Context()
 	owner, err := client.CreateUser(ctx, "external-owner@example.test", "external-owner")
 	require.NoError(t, err)
-	controller, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "controller", OwnerSubjectID: owner.ID})
+	controller, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "controller", OwnerSubjectID: owner.ID})
 	require.NoError(t, err)
-	survivor := authkit.GroupRef{Persona: "channel", Instance: "survivor"}
-	survivorID, err := client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: survivor.Persona, InstanceSlug: survivor.Instance})
+	survivor := iam.GroupRef{Persona: "channel", Instance: "survivor"}
+	survivorID, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: survivor.Persona, InstanceSlug: survivor.Instance})
 	require.NoError(t, err)
-	application, err := client.UpsertRemoteApplication(ctx, authkit.RemoteApplication{Slug: "retained-app", PermissionGroupID: controller, Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: authkit.RemoteAppModeJWKS, Enabled: true})
+	application, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "retained-app", PermissionGroupID: controller, Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteAppModeJWKS, Enabled: true})
 	require.NoError(t, err)
 	// Arrange a historical cross-control assignment that ordinary assignment APIs
 	// already refuse. Retirement must not count this departing app as a replacement.
 	_, err = pool.Exec(ctx, "INSERT INTO profiles.group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'owner')", survivorID, application.ID)
 	require.NoError(t, err)
 	_, err = client.SoftDeleteGroupInstanceByID(ctx, controller)
-	require.ErrorIs(t, err, authkit.ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, err, iam.ErrCannotRemoveLastAdminRole)
 	unchanged, err := client.GroupInstanceByID(ctx, controller)
 	require.NoError(t, err)
 	require.Nil(t, unchanged.DeletedAt, "failed retirement is atomic")
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, survivor, authkit.UserSubject(owner.ID), "owner"))
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, survivor, iam.UserSubject(owner.ID), "owner"))
 	_, err = client.SoftDeleteGroupInstanceByID(ctx, controller)
 	require.NoError(t, err)
 	_, err = client.GetRemoteApplication(ctx, application.Issuer)
 	require.Error(t, err)
 	_, err = client.ResolveRemoteApplicationAuthority(ctx, application.ID)
 	require.Error(t, err)
-	allowed, err := client.CanOnGroup(ctx, authkit.RemoteAppSubject(application.ID), survivorID, "channel:posts:read")
+	allowed, err := client.CanOnGroup(ctx, iam.RemoteAppSubject(application.ID), survivorID, "channel:posts:read")
 	require.NoError(t, err)
 	require.False(t, allowed)
 	application.Enabled = false
 	_, err = client.UpsertRemoteApplication(ctx, *application)
-	require.ErrorIs(t, err, authkit.ErrGroupNotFound, "retained application state cannot be rewritten")
+	require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 }

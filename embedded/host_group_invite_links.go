@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/jackc/pgx/v5"
 
@@ -43,27 +43,27 @@ const (
 
 var (
 	// ErrInviteLinkNotFound indicates no invite link matched the code/lookup.
-	ErrInviteLinkNotFound = authkit.ErrInviteLinkNotFound
+	ErrInviteLinkNotFound = iam.ErrInviteLinkNotFound
 	// ErrInviteLinkExpired indicates the link's expires_at has passed.
-	ErrInviteLinkExpired = authkit.ErrInviteLinkExpired
+	ErrInviteLinkExpired = iam.ErrInviteLinkExpired
 	// ErrInviteLinkRevoked indicates the link was revoked by a manager.
-	ErrInviteLinkRevoked = authkit.ErrInviteLinkRevoked
+	ErrInviteLinkRevoked = iam.ErrInviteLinkRevoked
 	// ErrExternalInvitesDisabled indicates invite links are off because the
 	// deployment's registration mode does not permit invited self-registration.
-	ErrExternalInvitesDisabled = authkit.ErrExternalInvitesDisabled
+	ErrExternalInvitesDisabled = iam.ErrExternalInvitesDisabled
 )
 
 // GroupInviteLink is the non-secret view of an invite link (never carries the
 // code or its hash).
-type GroupInviteLink = authkit.GroupInviteLink
+type GroupInviteLink = iam.GroupInviteLink
 
 // CreateGroupInviteLinkRequest mints an invite link for the group addressed by
 // (Persona, InstanceSlug) granting Role. ExpiresIn overrides the default lifetime.
-type CreateGroupInviteLinkRequest = authkit.CreateGroupInviteLinkRequest
+type CreateGroupInviteLinkRequest = iam.CreateGroupInviteLinkRequest
 
 // GroupInviteLinkCreated is the mint result: the plaintext Code (shown ONCE) and
 // the ready-to-send URL.
-type GroupInviteLinkCreated = authkit.GroupInviteLinkCreated
+type GroupInviteLinkCreated = iam.GroupInviteLinkCreated
 
 // externalInvitesEnabled reports whether invite LINKS may be minted. They make
 // sense only when AuthKit permits invited self-registration: open (anyone may
@@ -99,15 +99,15 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvit
 	if !s.externalInvitesEnabled() {
 		return GroupInviteLinkCreated{}, ErrExternalInvitesDisabled
 	}
-	role := authkit.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
+	role := iam.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if role == "" || invitedBy == "" {
-		return GroupInviteLinkCreated{}, authkit.ErrInvalidInvite
+		return GroupInviteLinkCreated{}, iam.ErrInvalidInvite
 	}
-	group := authkit.GroupRef{Persona: authkit.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
+	group := iam.GroupRef{Persona: iam.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, group.Persona, role) {
-		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, authkit.ErrRoleNotAssignable)
+		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, iam.ErrRoleNotAssignable)
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
@@ -138,7 +138,7 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvit
 
 // ListGroupInviteLinks lists the group's invite links (active and inactive),
 // newest first. Never returns the code or its hash.
-func (s *engine) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRef) ([]GroupInviteLink, error) {
+func (s *engine) ListGroupInviteLinks(ctx context.Context, group iam.GroupRef) ([]GroupInviteLink, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -171,13 +171,13 @@ func (s *engine) ListGroupInviteLinks(ctx context.Context, group authkit.GroupRe
 
 // RevokeGroupInviteLink revokes a link by id, scoped to the group addressed by
 // (persona, instanceSlug) so a manager cannot revoke another group's link.
-func (s *engine) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupRef, linkID string) error {
+func (s *engine) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, linkID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
 	linkID = strings.TrimSpace(linkID)
 	if linkID == "" {
-		return authkit.ErrInvalidInvite
+		return iam.ErrInvalidInvite
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
@@ -200,7 +200,7 @@ func (s *engine) RevokeGroupInviteLink(ctx context.Context, group authkit.GroupR
 // RevokeGroupInviteLinkFromClaims is the runtime revoke: the actor must be able
 // to mint the link's role, so a bounded manager cannot revoke a link of a role
 // above their own.
-func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, linkID string) error {
+func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, linkID string) error {
 	actor, err := groupActorFromClaims(claims)
 	if err != nil {
 		return err
@@ -210,15 +210,15 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 	}
 	linkID = strings.TrimSpace(linkID)
 	if linkID == "" {
-		return authkit.ErrInvalidInvite
+		return iam.ErrInvalidInvite
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return err
 	}
-	persona := authkit.Persona(strings.TrimSpace(string(group.Persona)))
+	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
 	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
-		var role authkit.Role
+		var role iam.Role
 		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, gid).Scan(&role)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInviteLinkNotFound
@@ -236,7 +236,7 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 
 // RedeemGroupInviteLinkResult reports which (persona, instance, role) a redemption
 // granted, so the caller/SPA can route the user to the right place.
-type RedeemGroupInviteLinkResult = authkit.RedeemGroupInviteLinkResult
+type RedeemGroupInviteLinkResult = iam.RedeemGroupInviteLinkResult
 
 // RedeemGroupInviteLink redeems code on behalf of the authenticated redeemerUserID:
 // it validates the link (live, not expired/revoked, unredeemed), assigns the role
@@ -250,7 +250,7 @@ func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	code = strings.TrimSpace(code)
 	redeemerUserID = strings.TrimSpace(redeemerUserID)
 	if code == "" || redeemerUserID == "" {
-		return zero, authkit.ErrInvalidInvite
+		return zero, iam.ErrInvalidInvite
 	}
 	codeHash := sha256Hex(code)
 
@@ -276,8 +276,8 @@ func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		return zero, err
 	}
 	var linkID, instanceSlug string
-	var persona authkit.Persona
-	var role authkit.Role
+	var persona iam.Persona
+	var role iam.Role
 	var redeemedAt, expiresAt, revokedAt *time.Time
 	err = q.QueryRow(ctx,
 		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
@@ -324,7 +324,7 @@ func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 }
 
 // subjectHasRole reports whether the user already holds role in the group.
-func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role authkit.Role) (bool, error) {
+func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role iam.Role) (bool, error) {
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM group_user_roles

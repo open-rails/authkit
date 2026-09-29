@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 // PersonaCapabilities are opt-in generated management capabilities for a persona.
 type PersonaCapabilities struct {

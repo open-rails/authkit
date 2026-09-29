@@ -3,7 +3,7 @@ package embedded
 import (
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/jwtkit"
@@ -23,8 +23,8 @@ type Config struct {
 	River RiverConfig
 
 	// Naming is the shared user/group rename policy, normalized at construction.
-	Naming       authkit.NamingConfig
-	namingPolicy authkit.NamingPolicy
+	Naming       iam.NamingConfig
+	namingPolicy iam.NamingPolicy
 
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig
@@ -37,9 +37,9 @@ type Config struct {
 	// default to 8..128 characters. Published by GET {api}/capabilities.
 	Password password.Policy
 	// Username bounds username length; zero fields default to 4..30. The
-	// character rule is fixed (authkit.UsernamePattern). Published by
+	// character rule is fixed (iam.UsernamePattern). Published by
 	// GET {api}/capabilities.
-	Username authkit.UsernamePolicy
+	Username iam.UsernamePolicy
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
 	// Identity declares external OAuth2/OIDC identity providers.
@@ -122,7 +122,7 @@ type ApplicationsConfig struct {
 	// application slug; the application principal is seeded as its owner).
 	// Required when SelfRegistration is set; must be a declared non-root
 	// persona whose Parent is the root persona.
-	OrgPersona authkit.Persona
+	OrgPersona iam.Persona
 }
 
 // DelegatedConfig configures the delegated-token mint route (#261/#277,

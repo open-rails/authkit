@@ -14,16 +14,16 @@ import (
 	"fmt"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Sentinel aliases (#263).
 var (
 	// ErrGroupSlugReserved: the slug is on the persona's reserved list and the
 	// caller does not hold the escalation role.
-	ErrGroupSlugReserved = authkit.ErrGroupSlugReserved
+	ErrGroupSlugReserved = iam.ErrGroupSlugReserved
 	// ErrGroupCreationRefused: the host admission seam refused the creation.
-	ErrGroupCreationRefused = authkit.ErrGroupCreationRefused
+	ErrGroupCreationRefused = iam.ErrGroupCreationRefused
 )
 
 // CreateInstanceResult reports a generated-creation outcome. Created is false
@@ -42,7 +42,7 @@ type CreateInstanceResult struct {
 // allows; a predicate error is wrapped as ErrGroupCreationRefused. The seam
 // sees the normalized slug (#269) so a host can refuse a specific namespace
 // outright, not merely price the attempt.
-func (s *engine) MayCreateInstance(ctx context.Context, group authkit.GroupRef, subject string) error {
+func (s *engine) MayCreateInstance(ctx context.Context, group iam.GroupRef, subject string) error {
 	if s.instanceAdmission == nil {
 		return nil
 	}
@@ -57,7 +57,7 @@ func (s *engine) MayCreateInstance(ctx context.Context, group authkit.GroupRef, 
 // role, consult the host admission seam, then create the group with ownerUserID
 // seeded as owner. If the slug is already held and the caller is a member of
 // that group, it returns Created=false instead of a conflict.
-func (s *engine) CreateInstanceForSubject(ctx context.Context, group authkit.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error) {
+func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error) {
 	var out CreateInstanceResult
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -70,7 +70,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group authkit.Gro
 
 	def, ok := sch.CreationDef(persona)
 	if !ok || !def.Enabled {
-		return out, fmt.Errorf("group persona %q does not allow generated instance creation: %w", persona, authkit.ErrUnknownGroupPersona)
+		return out, fmt.Errorf("group persona %q does not allow generated instance creation: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	if ownerUserID == "" {
 		return out, ErrInsufficientRoleAuthority
@@ -79,7 +79,7 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group authkit.Gro
 		return out, err
 	}
 
-	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "group", Persona: persona, ActorID: ownerUserID, RequestedName: slug, Operation: authkit.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "group", Persona: persona, ActorID: ownerUserID, RequestedName: slug, Operation: iam.NameCreate}); err != nil {
 		return out, err
 	}
 
@@ -124,17 +124,17 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group authkit.Gro
 // SlugPattern, and reserved slugs, which only a holder of the configured
 // root-group escalation role may take; with no role configured they are never
 // claimable.
-func (s *engine) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, group authkit.GroupRef, actorUserID string) error {
+func (s *engine) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, group iam.GroupRef, actorUserID string) error {
 	persona, slug := group.Persona, group.Instance
 	if err := validateGroupInstanceSlug(group); err != nil {
-		return fmt.Errorf("%w: %w", authkit.ErrGroupSlugInvalid, err)
+		return fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
 	}
 	if !sch.creationSlugAllowed(persona, slug) {
-		return fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, authkit.ErrGroupSlugInvalid)
+		return fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, iam.ErrGroupSlugInvalid)
 	}
 	def, _ := sch.CreationDef(persona)
 	if slugReserved(def.ReservedSlugs, slug) {
-		role := authkit.Role(strings.TrimSpace(string(def.ReservedEscalationRole)))
+		role := iam.Role(strings.TrimSpace(string(def.ReservedEscalationRole)))
 		if role == "" || strings.TrimSpace(actorUserID) == "" || !s.userHoldsRootRole(ctx, actorUserID, role) {
 			return ErrGroupSlugReserved
 		}
@@ -153,7 +153,7 @@ func slugReserved(reserved []string, slug string) bool {
 
 // userHoldsRootRole reports whether the user holds the named LIVE configured
 // role in the root group (the reserved-slug escalation check).
-func (s *engine) userHoldsRootRole(ctx context.Context, userID string, role authkit.Role) bool {
+func (s *engine) userHoldsRootRole(ctx context.Context, userID string, role iam.Role) bool {
 	roles, _ := s.rootRoleSlugsByUser(ctx, userID)
 	for _, r := range roles {
 		if r == string(role) {
@@ -165,8 +165,8 @@ func (s *engine) userHoldsRootRole(ctx context.Context, userID string, role auth
 
 // subjectMemberOfGroup reports whether the user holds a DIRECT role in the live
 // group addressed by (persona, slug), and that group's id when they do.
-func (s *engine) subjectMemberOfGroup(ctx context.Context, userID string, group authkit.GroupRef) (string, bool, error) {
-	groups, err := s.ListSubjectGroups(ctx, authkit.UserSubject(userID))
+func (s *engine) subjectMemberOfGroup(ctx context.Context, userID string, group iam.GroupRef) (string, bool, error) {
+	groups, err := s.ListSubjectGroups(ctx, iam.UserSubject(userID))
 	if err != nil {
 		return "", false, err
 	}
@@ -186,8 +186,8 @@ func (s *engine) subjectMemberOfGroup(ctx context.Context, userID string, group 
 // actor must hold the persona's credentials:manage capability plus every
 // permission the role confers (no-escalation), so nobody can grant an
 // application authority above their own.
-func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group authkit.GroupRef, appSlug string, role authkit.Role) error {
-	role = authkit.Role(strings.TrimSpace(string(role)))
+func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, appSlug string, role iam.Role) error {
+	role = iam.Role(strings.TrimSpace(string(role)))
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
 			return err
 		}
-		subject := authkit.RemoteAppSubject(ra.ID)
+		subject := iam.RemoteAppSubject(ra.ID)
 		old, err := st.directRole(ctx, gid, subject)
 		if err != nil {
 			return err
@@ -227,6 +227,6 @@ func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 				return err
 			}
 		}
-		return st.AssignRole(ctx, gid, authkit.RemoteAppSubject(ra.ID), role)
+		return st.AssignRole(ctx, gid, iam.RemoteAppSubject(ra.ID), role)
 	})
 }

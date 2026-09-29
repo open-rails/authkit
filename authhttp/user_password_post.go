@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -14,7 +14,7 @@ import (
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, authkit.CodeNotAuthenticated)
+		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
 
@@ -23,7 +23,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		NewPassword     string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if body.CurrentPassword != "" && s.rateLimited(w, r, RLPasswordStepUp) {
@@ -44,22 +44,22 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
-			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
-				unauthorized(w, authkit.CodePasswordResetRequired)
+			if errors.Is(verr, iam.ErrPasswordResetRequired) {
+				unauthorized(w, iam.CodePasswordResetRequired)
 				return
 			}
-			unauthorized(w, authkit.CodeInvalidPassword)
+			unauthorized(w, iam.CodeInvalidPassword)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, authkit.CodeStepUpFailed, err)
+			serverErr(w, iam.CodeStepUpFailed, err)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		var err error
 		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, authkit.CodeTokenIssueFailed, err)
+			serverErr(w, iam.CodeTokenIssueFailed, err)
 			return
 		}
 		delete(authMeta, "ok")
@@ -68,7 +68,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	keep := keepSession(claims)
 	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, authkit.CodeDatabaseError, err)
+		serverErr(w, iam.CodeDatabaseError, err)
 		return
 	}
 	var changeErr error
@@ -78,17 +78,17 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		changeErr = s.svc.ChangePassword(r.Context(), claims.UserID, body.CurrentPassword, body.NewPassword, keep)
 	}
 	if changeErr != nil {
-		if errors.Is(changeErr, authkit.ErrPasswordResetRequired) {
+		if errors.Is(changeErr, iam.ErrPasswordResetRequired) {
 			// The current password can never verify against a legacy
 			// reset-required hash; route the user to the reset flow.
-			badRequest(w, authkit.CodePasswordResetRequired)
+			badRequest(w, iam.CodePasswordResetRequired)
 			return
 		}
 		if embedded.ValidationErrorCode(changeErr) != "" {
 			writeError(w, changeErr)
 			return
 		}
-		badRequest(w, authkit.CodePasswordChangeFailed)
+		badRequest(w, iam.CodePasswordChangeFailed)
 		return
 	}
 

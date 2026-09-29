@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
@@ -19,8 +19,8 @@ import (
 const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 
 var (
-	ErrInvalidBootstrapManifest  = authkit.ErrInvalidBootstrapManifest
-	ErrBootstrapDatabaseNotEmpty = authkit.ErrBootstrapDatabaseNotEmpty
+	ErrInvalidBootstrapManifest  = iam.ErrInvalidBootstrapManifest
+	ErrBootstrapDatabaseNotEmpty = iam.ErrBootstrapDatabaseNotEmpty
 )
 
 const defaultBootstrapApplyName = "default"
@@ -34,17 +34,17 @@ const defaultBootstrapApplyName = "default"
 // root:*, present by default on every group) is seeded SEED-IF-ABSENT via the
 // genesis path; any other name must be a catalog role of the root persona
 // (declared in core.Config, e.g. an app's bounded "admin").
-type BootstrapManifest = authkit.BootstrapManifest
+type BootstrapManifest = iam.BootstrapManifest
 
-type BootstrapManifestUser = authkit.BootstrapManifestUser
+type BootstrapManifestUser = iam.BootstrapManifestUser
 
-type BootstrapManifestRemoteApplication = authkit.BootstrapManifestRemoteApplication
+type BootstrapManifestRemoteApplication = iam.BootstrapManifestRemoteApplication
 
-type BootstrapUserPassword = authkit.BootstrapUserPassword
+type BootstrapUserPassword = iam.BootstrapUserPassword
 
-type BootstrapReconcileOptions = authkit.BootstrapReconcileOptions
+type BootstrapReconcileOptions = iam.BootstrapReconcileOptions
 
-type BootstrapManifestResult = authkit.BootstrapManifestResult
+type BootstrapManifestResult = iam.BootstrapManifestResult
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	var manifest BootstrapManifest
@@ -94,9 +94,9 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 	}
 	schema := s.groupSchemaOrDefault()
 	checkRole := func(raw string) error {
-		role := normalizeRootRoleSlug(authkit.Role(raw))
+		role := normalizeRootRoleSlug(iam.Role(raw))
 		if role != "" && !s.validRoleForPersona(schema, RootPersona, role) {
-			return fmt.Errorf("bootstrap root role %q: %w", role, authkit.ErrRoleNotAssignable)
+			return fmt.Errorf("bootstrap root role %q: %w", role, iam.ErrRoleNotAssignable)
 		}
 		return nil
 	}
@@ -214,7 +214,7 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 				result.PasswordsKept++
 			}
 		}
-		role := normalizeRootRoleSlug(authkit.Role(user.RootRole))
+		role := normalizeRootRoleSlug(iam.Role(user.RootRole))
 		if role == "" {
 			continue
 		}
@@ -222,11 +222,11 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapM
 		// Bootstrap is the one role seed that bypasses MFA enrollment.
 		if role != OwnerRoleName || owners == 0 {
 			if role != OwnerRoleName {
-				if err = s.refuseOwnerLoss(ctx, groups, rootID, authkit.UserSubject(applied.ID)); err != nil {
+				if err = s.refuseOwnerLoss(ctx, groups, rootID, iam.UserSubject(applied.ID)); err != nil {
 					return result, err
 				}
 			}
-			if err = groups.AssignRole(ctx, rootID, authkit.UserSubject(applied.ID), role); err != nil {
+			if err = groups.AssignRole(ctx, rootID, iam.UserSubject(applied.ID), role); err != nil {
 				return result, err
 			}
 		}
@@ -312,16 +312,16 @@ func (s *engine) applyBootstrapRemoteApplication(ctx context.Context, groups *Pe
 	if err != nil {
 		return err
 	}
-	role := normalizeRootRoleSlug(authkit.Role(app.RootRole))
+	role := normalizeRootRoleSlug(iam.Role(app.RootRole))
 	if role == "" {
 		return nil
 	}
 	if role != OwnerRoleName {
-		if err := s.refuseOwnerLoss(ctx, groups, rootID, authkit.RemoteAppSubject(ra.ID)); err != nil {
+		if err := s.refuseOwnerLoss(ctx, groups, rootID, iam.RemoteAppSubject(ra.ID)); err != nil {
 			return err
 		}
 	}
-	return groups.AssignRole(ctx, rootID, authkit.RemoteAppSubject(ra.ID), role)
+	return groups.AssignRole(ctx, rootID, iam.RemoteAppSubject(ra.ID), role)
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {

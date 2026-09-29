@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	authkit "github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -150,7 +150,7 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 					t.Error("verified claims missing")
 				}
 				p, ok := authkitfiber.Principal(c)
-				if !ok || p.Kind != authkit.PrincipalKindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
+				if !ok || p.Kind != iam.PrincipalKindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
 					t.Errorf("principal = %+v, present = %v", p, ok)
 				}
 				user, ok := authkitfiber.UserClaims(c)
@@ -438,9 +438,9 @@ func TestUseAbortAndFiberErrors(t *testing.T) {
 	})
 }
 
-type permissionChecker func(context.Context, authkit.Subject, string, authkit.Perm) (bool, error)
+type permissionChecker func(context.Context, iam.Subject, string, iam.Perm) (bool, error)
 
-func (f permissionChecker) CanOnGroup(ctx context.Context, subject authkit.Subject, group string, perm authkit.Perm) (bool, error) {
+func (f permissionChecker) CanOnGroup(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
 	return f(ctx, subject, group, perm)
 }
 
@@ -449,9 +449,9 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	scope := verify.PermissionScope{GroupID: "group-uuid", AuthorityIssuer: issuer.URL(), Persona: "blog", Instance: "writers"}
 	for _, allow := range []bool{true, false} {
 		calls := 0
-		checker := permissionChecker(func(ctx context.Context, subject authkit.Subject, group string, perm authkit.Perm) (bool, error) {
+		checker := permissionChecker(func(ctx context.Context, subject iam.Subject, group string, perm iam.Perm) (bool, error) {
 			calls++
-			if subject != authkit.UserSubject("user-1") || group != scope.GroupID || perm != "blog:posts:write" {
+			if subject != iam.UserSubject("user-1") || group != scope.GroupID || perm != "blog:posts:write" {
 				t.Errorf("permission input = %v %q %q", subject, group, perm)
 			}
 			return allow, nil
@@ -483,9 +483,9 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	}
 }
 
-type livenessSource func(context.Context, []string) (map[string]authkit.UserLiveness, error)
+type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)
 
-func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 	return f(ctx, ids)
 }
 
@@ -498,19 +498,19 @@ func TestRequiredLive(t *testing.T) {
 	}
 	cases := []struct {
 		name   string
-		live   map[string]authkit.UserLiveness
+		live   map[string]iam.UserLiveness
 		err    error
 		status int
 	}{
-		{"allowed", map[string]authkit.UserLiveness{"user-1": {Allowed: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
-		{"disabled", map[string]authkit.UserLiveness{"user-1": {Allowed: false}}, nil, http.StatusUnauthorized},
+		{"allowed", map[string]iam.UserLiveness{"user-1": {Allowed: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
+		{"disabled", map[string]iam.UserLiveness{"user-1": {Allowed: false}}, nil, http.StatusUnauthorized},
 		{"missing", nil, nil, http.StatusUnauthorized},
 		{"unavailable", nil, errors.New("directory unavailable"), http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 				calls++
 				if !reflect.DeepEqual(ids, []string{"user-1"}) {
 					t.Errorf("liveness IDs = %v", ids)
@@ -667,9 +667,9 @@ func TestOptionalLive(t *testing.T) {
 	issuer := newIssuer(t)
 	calls := 0
 	allowed := true
-	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]iam.UserLiveness, error) {
 		calls++
-		return map[string]authkit.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
+		return map[string]iam.UserLiveness{ids[0]: {ID: ids[0], Allowed: allowed, Username: "fresh"}}, nil
 	}))
 	middleware, err := authkitfiber.OptionalLive(verifier)
 	if err != nil {

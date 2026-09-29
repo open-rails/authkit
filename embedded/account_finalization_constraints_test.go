@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +44,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	client := runtime.Client()
 	user, err := client.CreateUser(t.Context(), "finalize-fk@example.test", "finalizefk")
 	require.NoError(t, err)
-	require.NoError(t, client.OperatorAssignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(user.ID), "member"))
+	require.NoError(t, client.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "member"))
 	_, err = pg.Pool.Exec(t.Context(), "CREATE TABLE public.host_reference(user_id uuid REFERENCES profiles.users(id))")
 	require.NoError(t, err)
 	_, err = pg.Pool.Exec(t.Context(), "INSERT INTO public.host_reference VALUES ($1::uuid)", user.ID)

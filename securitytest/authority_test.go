@@ -15,14 +15,14 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
-const orgPersona authkit.Persona = "org"
+const orgPersona iam.Persona = "org"
 
 func withRBAC(c *embedded.Config) {
 	c.RBAC = []embedded.PersonaDef{
@@ -33,7 +33,7 @@ func withRBAC(c *embedded.Config) {
 		),
 		{
 			Name:         orgPersona,
-			Parent:       authkit.RootPersona,
+			Parent:       iam.RootPersona,
 			Capabilities: embedded.PersonaCapabilities{RemoteApplications: true, APIKeys: true, CustomRoles: true},
 			Roles: []embedded.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
@@ -43,9 +43,9 @@ func withRBAC(c *embedded.Config) {
 	}
 }
 
-func (h *host) grant(group authkit.GroupRef, a account, role authkit.Role) {
+func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
 	h.t.Helper()
-	require.NoError(h.t, h.client.OperatorAssignGroupRole(context.Background(), group, authkit.UserSubject(a.id), role))
+	require.NoError(h.t, h.client.OperatorAssignGroupRole(context.Background(), group, iam.UserSubject(a.id), role))
 }
 
 func publicKeyPEM(t *testing.T) string {
@@ -63,7 +63,7 @@ func publicKeyPEM(t *testing.T) string {
 func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
-	root := authkit.RootGroup()
+	root := iam.RootGroup()
 	owner, admin := h.newAccount("owner"), h.newAccount("admin")
 	moderator, peer := h.newAccount("moderator"), h.newAccount("peermod")
 	h.grant(root, owner, "superadmin") // the root owner role requires MFA
@@ -109,9 +109,9 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
-	group := authkit.GroupRef{Persona: orgPersona, Instance: unique("org")}
-	_, err := h.client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: authkit.RootPersona, OwnerSubjectID: owner.id,
+	group := iam.GroupRef{Persona: orgPersona, Instance: unique("org")}
+	_, err := h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
@@ -170,14 +170,14 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
-	group := authkit.GroupRef{Persona: orgPersona, Instance: unique("esc")}
-	_, err := h.client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: authkit.RootPersona, OwnerSubjectID: owner.id,
+	group := iam.GroupRef{Persona: orgPersona, Instance: unique("esc")}
+	_, err := h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
-	other := authkit.GroupRef{Persona: orgPersona, Instance: unique("other")}
-	_, err = h.client.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: other.Instance, ParentPersona: authkit.RootPersona, OwnerSubjectID: owner.id,
+	other := iam.GroupRef{Persona: orgPersona, Instance: unique("other")}
+	_, err = h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+		Persona: orgPersona, InstanceSlug: other.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
@@ -217,20 +217,20 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.client.Can(ctx, authkit.UserSubject(manager.id), group, "org:*")
+	ownerAllowed, err := h.client.Can(ctx, iam.UserSubject(manager.id), group, "org:*")
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
-	stillOwner, err := h.client.Can(ctx, authkit.UserSubject(owner.id), group, "org:members:manage")
+	stillOwner, err := h.client.Can(ctx, iam.UserSubject(owner.id), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, stillOwner)
 }
 
 // newOrg creates an org whose founder is its owner.
-func (h *host) newOrg(prefix string, founder account) (authkit.GroupRef, string) {
+func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 	h.t.Helper()
-	group := authkit.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
-	_, err := h.client.CreatePermissionGroup(context.Background(), authkit.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: authkit.RootPersona, OwnerSubjectID: founder.id,
+	group := iam.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
+	_, err := h.client.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
+		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: founder.id,
 	})
 	require.NoError(h.t, err)
 	return group, "/" + string(orgPersona) + "/" + group.Instance
@@ -251,7 +251,7 @@ func (h *host) issue(path, token string, body map[string]any) issued {
 	return out
 }
 
-func liveKey(t *testing.T, h *host, group authkit.GroupRef, id string) bool {
+func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
 	keys, err := h.client.ListAPIKeys(context.Background(), group)
 	require.NoError(t, err)
@@ -264,7 +264,7 @@ func liveKey(t *testing.T, h *host, group authkit.GroupRef, id string) bool {
 	return false
 }
 
-func liveLink(t *testing.T, h *host, group authkit.GroupRef, id string) bool {
+func liveLink(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
 	links, err := h.client.ListGroupInviteLinks(context.Background(), group)
 	require.NoError(t, err)
@@ -297,7 +297,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.client.Can(ctx, authkit.UserSubject(creator.id), group, "org:*")
+		owner, err := h.client.Can(ctx, iam.UserSubject(creator.id), group, "org:*")
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))
@@ -365,11 +365,11 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	const victimIssuer = "https://victim-app.security.test"
 	resp := register("squatted-app", victimIssuer)
 	require.Equal(t, http.StatusCreated, resp.status, resp.String())
-	doc, err := json.Marshal(authkit.ApplicationDocument{Slug: unique("victim"), Issuer: victimIssuer,
-		PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+	doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("victim"), Issuer: victimIssuer,
+		PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
 	require.NoError(t, err)
 	domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != authkit.ApplicationWellKnownPath {
+		if r.URL.Path != iam.ApplicationWellKnownPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -381,7 +381,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.status, "the squatter kept the issuer from its domain: %s", resp)
 	app, err := h.client.GetRemoteApplication(ctx, victimIssuer)
 	require.NoError(t, err)
-	require.Equal(t, authkit.ApplicationTrustRootDomain, app.TrustRoot)
+	require.Equal(t, iam.ApplicationTrustRootDomain, app.TrustRoot)
 	resp = register("squatted-again", victimIssuer)
 	require.Equal(t, http.StatusConflict, resp.status, resp.String())
 }
@@ -405,7 +405,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	der, err := x509.MarshalPKIXPublicKey(&peerKey.PublicKey)
 	require.NoError(t, err)
 	peerPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-	keys := []authkit.RemoteAppKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
+	keys := []iam.RemoteAppKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
 
 	t.Run("no group or domain may claim the peer issuer", func(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
@@ -415,8 +415,8 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 				"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, h.login(squatter).AccessToken)
 			require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", iss, resp)
 		}
-		doc, err := json.Marshal(authkit.ApplicationDocument{Slug: unique("peerdomain"), Issuer: peerIssuer,
-			PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+		doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("peerdomain"), Issuer: peerIssuer,
+			PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
 		require.NoError(t, err)
 		domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -426,16 +426,16 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		resp := h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
 		_, err = h.client.GetRemoteApplication(ctx, peerIssuer)
-		require.ErrorIs(t, err, authkit.ErrRemoteApplicationNotFound)
+		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
 
 	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
 			_, err := h.client.OperatorApplyBootstrapManifest(ctx, embedded.BootstrapManifest{RemoteApplications: []embedded.BootstrapManifestRemoteApplication{
-				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []authkit.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
+				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, embedded.BootstrapReconcileOptions{})
-			require.ErrorIs(t, err, authkit.ErrReservedIssuer, iss)
+			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
 	})
 

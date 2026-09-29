@@ -3,7 +3,7 @@ package embedded
 import (
 	"context"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
 )
@@ -51,7 +51,7 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
 	return &Runtime{engine: engine}, nil
 }
 
-func (r *Runtime) Client() authkit.Client {
+func (r *Runtime) Client() iam.Client {
 	if r == nil {
 		return nil
 	}

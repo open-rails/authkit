@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
 	cfg.RBAC = []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "operator", Permissions: []string{embedded.PermRootUsersDelete, embedded.PermRootUsersRecover}})}
 	f := newAccountFlow(t, pg.Pool, cfg)
-	register := func(name string) (authkit.TokenSet, string) {
+	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
 		response := f.expect(http.StatusAccepted, f.post("/register", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
 		claims, err := f.service.Verifier().Verify(t.Context(), response.Tokens.AccessToken)
@@ -25,7 +25,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	}
 	operator, operatorID := register("restoreoperator")
 	target, targetID := register("restoretarget")
-	require.NoError(t, f.service.svc.OperatorAssignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+	require.NoError(t, f.service.svc.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
 	path := "/admin/users/" + targetID
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, path, operator.AccessToken, nil))
 	f.expect(http.StatusUnauthorized, f.request(http.MethodPost, path+"/restore", "", nil))
@@ -36,7 +36,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	require.Nil(t, user.DeletedAt)
 	f.expect(http.StatusUnauthorized, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": target.RefreshToken}))
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, path, operator.AccessToken, nil))
-	require.NoError(t, f.service.svc.OperatorUnassignGroupRole(t.Context(), authkit.RootGroup(), authkit.UserSubject(operatorID), "operator"))
+	require.NoError(t, f.service.svc.OperatorUnassignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
 	f.expect(http.StatusForbidden, f.request(http.MethodPost, path+"/restore", operator.AccessToken, nil))
 	user, err = f.service.svc.AdminGetUser(t.Context(), targetID)
 	require.NoError(t, err)

@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -88,13 +88,13 @@ func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	}
 }
 
-func Principal(c *gin.Context) (authkit.Principal, bool) {
+func Principal(c *gin.Context) (iam.Principal, bool) {
 	if c == nil || c.Request == nil {
-		return authkit.Principal{}, false
+		return iam.Principal{}, false
 	}
 	cl, ok := verify.ClaimsFromContext(c.Request.Context())
 	if !ok {
-		return authkit.Principal{}, false
+		return iam.Principal{}, false
 	}
 	p := cl.Principal()
 	return p, p.Kind != ""
@@ -113,7 +113,7 @@ func UserClaims(c *gin.Context) (UserClaimsData, bool) {
 	return verify.UserClaimsFromContext(c.Request.Context())
 }
 
-func RequirePermission(checker verify.PermissionChecker, perm authkit.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
+func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(*gin.Context) verify.PermissionScope) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var mw func(http.Handler) http.Handler
 		if resolve == nil {

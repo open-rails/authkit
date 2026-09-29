@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -43,14 +43,14 @@ import (
 // Rate-limit rejections (429) are deliberately left on the JSON path: they are
 // an abuse defense with Retry-After header semantics, not a user-flow outcome,
 // and the shared limiter helper serves every route group.
-func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code) {
+func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code iam.Code) {
 	s.failBrowserFlowExtra(w, r, sd, provider, status, code, nil)
 }
 
 // failBrowserFlowExtra is failBrowserFlow with additional payload fields
 // carried to the frontend (fragment params / postMessage keys) — e.g. the
 // 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code authkit.Code, extra map[string]any) {
+func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code iam.Code, extra map[string]any) {
 	if wantsJSONResponse(r) {
 		sendErr(w, status, code)
 		return
@@ -144,17 +144,17 @@ func wantsJSONResponse(r *http.Request) bool {
 // conservative token charset before it is reflected into a fragment, popup
 // payload, or JSON envelope. RFC 6749 codes (access_denied, invalid_scope, …)
 // pass through unchanged; anything else collapses to provider_error.
-func sanitizeProviderErrorCode(raw string) authkit.Code {
+func sanitizeProviderErrorCode(raw string) iam.Code {
 	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" || len(raw) > 64 {
-		return authkit.CodeProviderError
+		return iam.CodeProviderError
 	}
 	for _, c := range raw {
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
-			return authkit.CodeProviderError
+			return iam.CodeProviderError
 		}
 	}
-	return authkit.Code(raw)
+	return iam.Code(raw)
 }
 
 // logIdPCallbackError records the raw provider-reported callback error for
@@ -204,12 +204,12 @@ func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var extra map[string]any
-	code := authkit.CodeTwoFAEnrollmentRequired
+	code := iam.CodeTwoFAEnrollmentRequired
 	if out.Kind == embedded.LoginRecoveryRequired {
-		s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusConflict, authkit.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
+		s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
 		return
 	} else if out.Kind == embedded.LoginTwoFactorRequired {
-		code = authkit.CodeTwoFARequired
+		code = iam.CodeTwoFARequired
 		extra = loginChallengeMetadata(out.UserID, out.Challenge)
 	} else {
 		extra = map[string]any{"user_id": out.UserID, "enrollment_token": out.Enrollment.AccessToken, "enrollment_expires_in": out.Enrollment.ExpiresIn, "allowed_methods": out.AllowedMethods}

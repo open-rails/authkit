@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -23,7 +23,7 @@ const (
 type registrationResponse struct {
 	NextAction registrationNextAction `json:"next_action"`
 	User       registrationUser       `json:"user"`
-	TokenSet   *authkit.TokenSet      `json:"token_set,omitempty"`
+	TokenSet   *iam.TokenSet          `json:"token_set,omitempty"`
 }
 
 type registrationUser struct {
@@ -32,7 +32,7 @@ type registrationUser struct {
 	PhoneNumber *string `json:"phone_number"`
 }
 
-func newRegistrationResponse(username string, email, phone *string, nextAction registrationNextAction, tokens *authkit.TokenSet) registrationResponse {
+func newRegistrationResponse(username string, email, phone *string, nextAction registrationNextAction, tokens *iam.TokenSet) registrationResponse {
 	return registrationResponse{
 		NextAction: nextAction,
 		User:       registrationUser{Username: username, Email: email, PhoneNumber: phone},
@@ -44,7 +44,7 @@ func preferredLanguageFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	language, ok := authkit.LanguageFromContext(r.Context())
+	language, ok := iam.LanguageFromContext(r.Context())
 	if !ok {
 		return ""
 	}
@@ -67,12 +67,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || strings.TrimSpace(req.Username) == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	// Per-identifier check: prevents spamming verification emails to the same
@@ -90,7 +90,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		s.writeRegisterError(w, err)
 		return
 	}
-	var tokens *authkit.TokenSet
+	var tokens *iam.TokenSet
 	nextAction := registrationNextActionNone
 	switch out.Kind {
 	case embedded.RegisterLoginRequired:
@@ -108,7 +108,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) writeRegisterError(w http.ResponseWriter, err error) {
-	if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
+	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
 		s.send2FAEnrollmentRequiredError(w)
 		return
 	}
@@ -131,12 +131,12 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || req.Password == "" {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
@@ -150,7 +150,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, authkit.CodeAbandonFailed, nil)
+				serverErr(w, iam.CodeAbandonFailed, nil)
 				return
 			}
 		}
@@ -162,7 +162,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, authkit.CodeAbandonFailed, nil)
+			serverErr(w, iam.CodeAbandonFailed, nil)
 			return
 		}
 	}

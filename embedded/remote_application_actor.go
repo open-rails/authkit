@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/verify"
 )
@@ -19,7 +19,7 @@ import (
 
 // UpsertRemoteApplicationFromClaims registers or updates an application
 // controlled by group for the verified request actor.
-func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, in RemoteApplication) (*RemoteApplication, error) {
+func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, in RemoteApplication) (*RemoteApplication, error) {
 	actor, err := groupActorFromClaims(claims)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 
 // DeleteRemoteApplicationFromClaims deletes the application named by slug when
 // group controls it and the request actor covers its role.
-func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group authkit.GroupRef, slug string) error {
+func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, slug string) error {
 	actor, err := groupActorFromClaims(claims)
 	if err != nil {
 		return err
@@ -107,7 +107,7 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 		if err := s.authorizeApplicationControl(ctx, st, group.Persona, gid, actor, app.ID); err != nil {
 			return err
 		}
-		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(app.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(app.ID)); err != nil {
 			return err
 		}
 		_, err = q.RemoteApplicationDelete(ctx, app.Issuer)
@@ -117,11 +117,11 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 
 // authorizeApplicationControl requires credentials:manage in gid, plus coverage
 // of the role appID currently holds there (none for a new application).
-func (s *engine) authorizeApplicationControl(ctx context.Context, st *PermissionGroupStore, persona authkit.Persona, gid string, actor groupMutationActor, appID string) error {
+func (s *engine) authorizeApplicationControl(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor, appID string) error {
 	sch := s.groupSchemaOrDefault()
 	capability := PermCredentialsManage(persona)
 	if appID != "" {
-		role, err := st.directRole(ctx, gid, authkit.RemoteAppSubject(appID))
+		role, err := st.directRole(ctx, gid, iam.RemoteAppSubject(appID))
 		if err != nil {
 			return err
 		}

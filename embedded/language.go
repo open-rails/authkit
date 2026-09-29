@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -21,12 +21,12 @@ func NormalizePreferredLanguage(language string) (string, error) {
 		return "", nil
 	}
 	if !preferredLanguageRe.MatchString(language) {
-		return "", authkit.E(authkit.CodeInvalidPreferredLanguage)
+		return "", iam.E(iam.CodeInvalidPreferredLanguage)
 	}
 	return language, nil
 }
 
-type PreferredLanguage = authkit.PreferredLanguage
+type PreferredLanguage = iam.PreferredLanguage
 
 func (s *engine) SetPreferredLanguage(ctx context.Context, userID, language string) error {
 	if s.pg == nil {
@@ -55,7 +55,7 @@ func contextWithPreferredLanguage(ctx context.Context, language string) context.
 	if strings.TrimSpace(language) == "" {
 		return ctx
 	}
-	return authkit.WithLanguage(ctx, language)
+	return iam.WithLanguage(ctx, language)
 }
 
 func (s *engine) contextWithUserPreferredLanguage(ctx context.Context, userID string) context.Context {

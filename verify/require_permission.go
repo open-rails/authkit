@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	authprotocol "github.com/open-rails/helpers/auth"
 )
 
@@ -15,20 +15,20 @@ import (
 // Scoped machine checks additionally require GroupInstanceByID on the same
 // checker, so a retained inactive group cannot grant captured token authority.
 type PermissionChecker interface {
-	CanOnGroup(ctx context.Context, subject authkit.Subject, groupID string, perm authkit.Perm) (bool, error)
+	CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error)
 }
 
 // DelegatedAuthority is implemented by a checker that can re-check, on use, a
 // delegated token's permission against its subject's live authority (the
 // minting AuthKit deployment does).
 type DelegatedAuthority interface {
-	DelegatedPermissionLive(ctx context.Context, cl Claims, perm authkit.Perm) (bool, error)
+	DelegatedPermissionLive(ctx context.Context, cl Claims, perm iam.Perm) (bool, error)
 }
 
 // tokenPermission reports whether an unbound, non-user token grants perm,
 // re-checking delegated authority live when the checker can.
-func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm) (bool, error) {
-	if cl.PrincipalKind() == authkit.PrincipalKindUser || !cl.HasPermission(perm) {
+func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm) (bool, error) {
+	if cl.PrincipalKind() == iam.PrincipalKindUser || !cl.HasPermission(perm) {
 		return false, nil
 	}
 	if live, ok := checker.(DelegatedAuthority); ok && cl.IsDelegatedAccessToken() {
@@ -42,7 +42,7 @@ func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, 
 type PermissionScope struct {
 	GroupID         string
 	AuthorityIssuer string
-	Persona         authkit.Persona
+	Persona         iam.Persona
 	Instance        string
 }
 
@@ -50,19 +50,19 @@ type PermissionScope struct {
 // issuer. Unbound delegated permissions retain their explicit issuer-trust
 // contract. Human permissions always come from live assignments on GroupID.
 // A missing or mismatched machine binding never falls back to human authority.
-func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm authkit.Perm, scope PermissionScope) (bool, error) {
+func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm, scope PermissionScope) (bool, error) {
 	if cl.BoundToPermissionGroup() {
 		if !cl.HasPermission(perm) || !cl.PermissionGroupAllows(scope) {
 			return false, nil
 		}
 		reader, ok := checker.(interface {
-			GroupInstanceByID(context.Context, string) (authkit.GroupInstance, error)
+			GroupInstanceByID(context.Context, string) (iam.GroupInstance, error)
 		})
 		if !ok {
 			return false, fmt.Errorf("%w: scoped machine permissions require group liveness", authprotocol.ErrUnavailable)
 		}
 		group, err := reader.GroupInstanceByID(ctx, scope.GroupID)
-		if errors.Is(err, authkit.ErrGroupNotFound) {
+		if errors.Is(err, iam.ErrGroupNotFound) {
 			return false, nil
 		}
 		if err != nil {
@@ -70,46 +70,46 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm authk
 		}
 		return group.ID == scope.GroupID && group.DeletedAt == nil, nil
 	}
-	if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) {
+	if cl.PrincipalKind() != iam.PrincipalKindUser && cl.HasPermission(perm) {
 		return tokenPermission(ctx, checker, cl, perm)
 	}
 	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
 		return false, nil
 	}
-	return checker.CanOnGroup(ctx, authkit.UserSubject(cl.UserID), scope.GroupID, perm)
+	return checker.CanOnGroup(ctx, iam.UserSubject(cl.UserID), scope.GroupID, perm)
 }
 
 // RequirePermission authorizes the resolved group once and places that exact
 // scope in the request context for the downstream handler. Missing resolution or
 // any permission-check error denies. Unbound delegated authority is scope-free.
-func RequirePermission(checker PermissionChecker, perm authkit.Perm, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
+func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil {
-				forbidden(w, authkit.CodeForbidden)
+				forbidden(w, iam.CodeForbidden)
 				return
 			}
 			// Token-carried authority short-circuits without a scope ONLY for
 			// unbound principals (delegated access — issuer trust + permissions).
 			// A group-bound machine principal (#248) needs the resolved scope to
 			// check its instance binding, so it falls through to Allow.
-			if cl.PrincipalKind() != authkit.PrincipalKindUser && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
+			if cl.PrincipalKind() != iam.PrincipalKindUser && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
 				if ok, err := tokenPermission(r.Context(), checker, cl, perm); err != nil || !ok {
-					forbidden(w, authkit.CodeForbidden)
+					forbidden(w, iam.CodeForbidden)
 					return
 				}
 				next.ServeHTTP(w, r)
 				return
 			}
 			if resolve == nil {
-				forbidden(w, authkit.CodeForbidden)
+				forbidden(w, iam.CodeForbidden)
 				return
 			}
 			scope := resolve(r)
 			ok, err := Allow(r.Context(), checker, cl, perm, scope)
 			if err != nil || !ok {
-				forbidden(w, authkit.CodeForbidden)
+				forbidden(w, iam.CodeForbidden)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 // ProfileInput is what the transport knows that the engine does not: the
@@ -31,10 +31,10 @@ type ProfileInput struct {
 // UserProfile builds the caller's profile. Errors: the user row is missing
 // (stage "load_user"), or a store failure (stage "load_password" /
 // "load_2fa").
-func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.UserProfile, error) {
+func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (iam.UserProfile, error) {
 	u, err := s.AdminGetUser(ctx, in.UserID)
 	if err != nil || u == nil {
-		return authkit.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
+		return iam.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
 	}
 	username := ""
 	if u.Username != nil {
@@ -50,7 +50,7 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 	}
 	hasPassword, err := s.HasPassword(ctx, u.ID)
 	if err != nil {
-		return authkit.UserProfile{}, stageErr("load_password", err)
+		return iam.UserProfile{}, stageErr("load_password", err)
 	}
 	solanaLinkedAccount, slErr := s.GetSolanaLinkedAccount(ctx, u.ID)
 	solanaAddress := ""
@@ -107,7 +107,7 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 	settings, settingsErr := s.Get2FASettings(ctx, u.ID)
 	mfa, err := s.MFAStatusWith(settings, settingsErr)
 	if err != nil {
-		return authkit.UserProfile{}, stageErr("load_2fa", err)
+		return iam.UserProfile{}, stageErr("load_2fa", err)
 	}
 	email := ""
 	if u.Email != nil {
@@ -115,10 +115,10 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 	}
 	// Cooldown-gated action availability (#262): a lookup failure omits the
 	// entry rather than failing the profile.
-	var availability []authkit.ActionAvailability
+	var availability []iam.ActionAvailability
 	namingState, namingErr := s.UserNamingState(ctx, u.ID)
 	if namingErr == nil {
-		entry := authkit.ActionAvailability{Action: authkit.ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
+		entry := iam.ActionAvailability{Action: iam.ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
 		if !namingState.Policy.Enabled {
 			entry.Reason = "renames_disabled"
 		} else {
@@ -128,7 +128,7 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 		entry.CooldownSeconds = &seconds
 		availability = append(availability, entry)
 	}
-	return authkit.UserProfile{
+	return iam.UserProfile{
 		ID:                  u.ID,
 		Username:            username,
 		Email:               u.Email,
@@ -149,7 +149,7 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (authkit.User
 		CreatedAt:           createdAt,
 		Naming:              namingState,
 		Availability:        availability,
-		Security: authkit.UserSecurity{
+		Security: iam.UserSecurity{
 			LastAuthenticatedAt:               lastAuthenticatedAt,
 			TimeUntilStepUpRequired:           timeUntilStepUpRequired,
 			StepUpRequiredForSensitiveActions: !in.StepUpSatisfied,
@@ -193,7 +193,7 @@ func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs 
 
 // StepUpTwoFactorOptions lists the second factors a step-up can use, with the
 // code destination masked. Nil when 2FA is not enabled.
-func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *authkit.StepUpTwoFactorOptions {
+func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *iam.StepUpTwoFactorOptions {
 	if settings == nil || !settings.Enabled {
 		return nil
 	}
@@ -204,13 +204,13 @@ func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string
 	if len(factors) == 0 {
 		return nil
 	}
-	out := &authkit.StepUpTwoFactorOptions{}
+	out := &iam.StepUpTwoFactorOptions{}
 	for _, factor := range factors {
 		method := strings.ToLower(strings.TrimSpace(factor.Method))
 		if !factor.Enabled || !ValidTwoFactorStepUpMethod(method) {
 			continue
 		}
-		option := authkit.StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
+		option := iam.StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
 		switch method {
 		case "email":
 			if emailDestination != "" {

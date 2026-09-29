@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/embedded"
@@ -25,10 +25,10 @@ import (
 
 // groupScopeCodes: a group-scoped route answers an unknown group as forbidden,
 // not not_found, so it does not enumerate groups.
-var groupScopeCodes = map[error]authkit.Code{authkit.ErrGroupNotFound: authkit.CodeForbidden}
+var groupScopeCodes = map[error]iam.Code{iam.ErrGroupNotFound: iam.CodeForbidden}
 
-func (s *Service) groupCan(r *http.Request, subjectID string, group authkit.GroupRef, perm authkit.Perm) (bool, error) {
-	return s.svc.Can(r.Context(), authkit.UserSubject(subjectID), group, perm)
+func (s *Service) groupCan(r *http.Request, subjectID string, group iam.GroupRef, perm iam.Perm) (bool, error) {
+	return s.svc.Can(r.Context(), iam.UserSubject(subjectID), group, perm)
 }
 
 // PermissionGroupRoutes returns the auto-generated management routes implied by
@@ -112,7 +112,7 @@ func (s *Service) hasInviteLinkSupport() bool {
 	}
 	schema := s.svc.PermissionGroupSchema()
 	for _, persona := range schema.Personas() {
-		if persona != authkit.RootPersona {
+		if persona != iam.RootPersona {
 			return true
 		}
 	}
@@ -174,16 +174,16 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, verify.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
 		remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
 		if !ok || (claims.UserID == "" && !(remoteSelf && remoteOperation)) {
-			unauthorized(w, authkit.CodeNotAuthenticated)
+			unauthorized(w, iam.CodeNotAuthenticated)
 			return
 		}
 		instanceSlug := pathParam(r, "instance_slug")
 		if instanceSlug == "" {
-			badRequest(w, authkit.CodeInvalidRequest)
+			badRequest(w, iam.CodeInvalidRequest)
 			return
 		}
 
-		group := authkit.GroupRef{Persona: gr.Persona, Instance: instanceSlug}
+		group := iam.GroupRef{Persona: gr.Persona, Instance: instanceSlug}
 		instance, err := s.svc.GroupInstanceForSlug(r.Context(), group)
 		if err != nil {
 			writeError(w, remap(err, groupScopeCodes))
@@ -198,17 +198,17 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			allowed = claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.svc.Config().Token.Issuer, Persona: gr.Persona}) && claims.HasPermission(gr.Perm)
 			err = nil
 			if allowed {
-				allowed, err = s.svc.Can(r.Context(), authkit.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)
+				allowed, err = s.svc.Can(r.Context(), iam.RemoteAppSubject(claims.RemoteApplicationID), group, gr.Perm)
 			}
 		} else {
 			allowed, err = s.groupCan(r, claims.UserID, group, gr.Perm)
 		}
 		if err != nil {
-			serverErr(w, authkit.CodeDatabaseError, err)
+			serverErr(w, iam.CodeDatabaseError, err)
 			return
 		}
 		if !allowed {
-			forbidden(w, authkit.CodeForbidden)
+			forbidden(w, iam.CodeForbidden)
 			return
 		}
 
@@ -222,13 +222,13 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		case opMemberRemove:
 			s.groupMemberRemove(w, r, group, pathParam(r, "user"))
 		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, group, pathParam(r, "user"), authkit.Role(pathParam(r, "role")))
+			s.groupMemberRole(w, r, group, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
 		case opRoleDefine:
 			s.groupCustomRoleDefine(w, r, group)
 		case opRoleDelete:
-			s.groupCustomRoleDelete(w, r, group, authkit.Role(pathParam(r, "role")))
+			s.groupCustomRoleDelete(w, r, group, iam.Role(pathParam(r, "role")))
 		case opAPIKeysList:
 			s.groupAPIKeyList(w, r, group)
 		case opAPIKeyMint:
@@ -242,7 +242,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		case opRemoteAppDelete:
 			s.groupRemoteAppDelete(w, r, group, pathParam(r, "app"))
 		case opRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, group, pathParam(r, "app"), authkit.Role(pathParam(r, "role")))
+			s.groupRemoteAppRole(w, r, group, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
 		case opInviteLinkList:
 			s.groupInviteLinkList(w, r, group)
 		case opInviteLinkMint:
@@ -255,7 +255,7 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.groupInstanceDescriptor(w, r, group)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
-			sendErr(w, http.StatusNotImplemented, authkit.CodeNotImplemented)
+			sendErr(w, http.StatusNotImplemented, iam.CodeNotImplemented)
 		}
 	}
 }

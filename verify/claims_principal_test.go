@@ -3,20 +3,20 @@ package verify
 import (
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 )
 
 func TestClaimsPrincipalKindAndIsUser(t *testing.T) {
 	cases := []struct {
 		name string
 		cl   Claims
-		kind authkit.PrincipalKind
+		kind iam.PrincipalKind
 		user bool
 	}{
-		{name: "user", cl: Claims{UserID: "user-1"}, kind: authkit.PrincipalKindUser, user: true},
-		{name: "api key", cl: Claims{UserID: "not-a-user", TokenType: APIKeyPrincipalType}, kind: authkit.PrincipalKindAPIKey},
-		{name: "remote app", cl: Claims{TokenType: RemoteApplicationTokenType}, kind: authkit.PrincipalKindRemoteApplication},
-		{name: "delegated", cl: Claims{DelegatedSubject: "worker-1"}, kind: authkit.PrincipalKindDelegated},
+		{name: "user", cl: Claims{UserID: "user-1"}, kind: iam.PrincipalKindUser, user: true},
+		{name: "api key", cl: Claims{UserID: "not-a-user", TokenType: APIKeyPrincipalType}, kind: iam.PrincipalKindAPIKey},
+		{name: "remote app", cl: Claims{TokenType: RemoteApplicationTokenType}, kind: iam.PrincipalKindRemoteApplication},
+		{name: "delegated", cl: Claims{DelegatedSubject: "worker-1"}, kind: iam.PrincipalKindDelegated},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

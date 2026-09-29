@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 // Registration policy vocabulary (#147). Shared public contract for embedded and
 // future remote, so host docs and the `remote` package import the vocabulary from

@@ -8,13 +8,13 @@ import (
 	"io"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/iam"
 )
 
 var (
-	errMalformedPayload = authkit.E(authkit.CodeMalformedPayload)
-	errDuplicateClaim   = authkit.E(authkit.CodeDuplicateClaim)
+	errMalformedPayload = iam.E(iam.CodeMalformedPayload)
+	errDuplicateClaim   = iam.E(iam.CodeDuplicateClaim)
 )
 
 // rawTopLevelClaim reads one claim off the already-signature-verified JWT

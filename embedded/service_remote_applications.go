@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/netguard"
 )
@@ -28,17 +28,17 @@ func validateRemoteAppSlug(slug string) error {
 
 var (
 	// ErrRemoteApplicationIssuerConflict indicates the issuer belongs to another group.
-	ErrRemoteApplicationIssuerConflict = authkit.ErrRemoteApplicationIssuerConflict
+	ErrRemoteApplicationIssuerConflict = iam.ErrRemoteApplicationIssuerConflict
 	// ErrRemoteApplicationNotFound indicates no remote_application matched.
-	ErrRemoteApplicationNotFound = authkit.ErrRemoteApplicationNotFound
+	ErrRemoteApplicationNotFound = iam.ErrRemoteApplicationNotFound
 	// ErrInvalidRemoteApplication is defined in authkit and re-exported here.
-	ErrInvalidRemoteApplication = authkit.ErrInvalidRemoteApplication
+	ErrInvalidRemoteApplication = iam.ErrInvalidRemoteApplication
 	// ErrReservedIssuer indicates an attempt to register a remote_application
 	// under the platform's own issuer string. The platform issuer is the local,
 	// first-party signing identity; allowing a federated remote_application to
 	// claim it would overwrite the trusted local issuer entry (key-swap / auth
 	// DoS — see AK-AUTH-01).
-	ErrReservedIssuer = authkit.ErrReservedIssuer
+	ErrReservedIssuer = iam.ErrReservedIssuer
 )
 
 // Remote-application trust modes (#74). A remote_application is a federation
@@ -52,12 +52,12 @@ var (
 // Remote-application trust modes are defined in authkit (core-free) and
 // re-exported here.
 const (
-	RemoteAppModeJWKS   = authkit.RemoteAppModeJWKS
-	RemoteAppModeStatic = authkit.RemoteAppModeStatic
+	RemoteAppModeJWKS   = iam.RemoteAppModeJWKS
+	RemoteAppModeStatic = iam.RemoteAppModeStatic
 )
 
 // RemoteAppKey is defined in authkit (core-free) and re-exported here.
-type RemoteAppKey = authkit.RemoteAppKey
+type RemoteAppKey = iam.RemoteAppKey
 
 // NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of
 // a registration and returns the normalized mode. Empty mode is inferred: a key
@@ -192,7 +192,7 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 // RemoteApplication is a federation principal: an external system that
 // authenticates by signing JWTs verified against its JWKS/public keys. Defined
 // in authkit (core-free) and re-exported here.
-type RemoteApplication = authkit.RemoteApplication
+type RemoteApplication = iam.RemoteApplication
 
 // remoteAppRow is the canonical remote_application projection every sqlc query
 // returns; the per-query row structs are field-identical and convert directly.
@@ -237,8 +237,8 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 	if slug == "" || issuer == "" {
 		return nil, ErrInvalidRemoteApplication
 	}
-	if !authkit.ValidRemoteApplicationIssuer(issuer) {
-		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", ErrInvalidRemoteApplication, authkit.MaxRemoteApplicationIssuerLen)
+	if !iam.ValidRemoteApplicationIssuer(issuer) {
+		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", ErrInvalidRemoteApplication, iam.MaxRemoteApplicationIssuerLen)
 	}
 	// AK-AUTH-01: a remote_application must never claim the platform's own
 	// issuer or a provider's. The verifier keys issuers by string and upserts by issuer, so a
@@ -283,7 +283,7 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 
 	if err == nil && existing.Enabled && !in.Enabled {
 		// q is transaction-bound both here and during bootstrap reconciliation.
-		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(existing.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(existing.ID)); err != nil {
 			return nil, err
 		}
 	}
@@ -355,7 +355,7 @@ func (s *engine) evictSessionBoundIssuer(ctx context.Context, st *PermissionGrou
 	if err != nil || holder.TrustRoot != ApplicationTrustRootUser {
 		return err
 	}
-	if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(holder.ID)); err != nil {
+	if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(holder.ID)); err != nil {
 		if errors.Is(err, ErrCannotRemoveLastAdminRole) {
 			return ErrApplicationIssuerConflict
 		}
@@ -455,7 +455,7 @@ func (s *engine) ListEnabledRemoteApplications(ctx context.Context) ([]RemoteApp
 // instanceSlug) (#111). It resolves the group via the store, then filters
 // remote_applications by permission_group_id so a per-persona management caller
 // sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *engine) ListRemoteApplicationsForGroup(ctx context.Context, group authkit.GroupRef) ([]RemoteApplication, error) {
+func (s *engine) ListRemoteApplicationsForGroup(ctx context.Context, group iam.GroupRef) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -515,7 +515,7 @@ func (s *engine) DeleteRemoteApplication(ctx context.Context, issuer string) err
 		if err != nil {
 			return err
 		}
-		if err := s.refuseSubjectOwnerLoss(ctx, st, authkit.RemoteAppSubject(app.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(app.ID)); err != nil {
 			return err
 		}
 		_, err = q.RemoteApplicationDelete(ctx, issuer)

@@ -20,9 +20,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -179,17 +179,17 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 
 	delegate := newDelegateCertificate(t, nil)
 	hostDocument := documents.Digest([]byte("host-doc-" + suffix))
-	grant := authkit.DelegationGrant{
+	grant := iam.DelegationGrant{
 		Permissions: []string{"resource:read"},
 		Attributes:  map[string]any{"entitlement": "pro"},
 		Documents:   map[string]string{"example.host-doc/v1": hostDocument},
 	}
-	var requests []authkit.DelegationRequest
+	var requests []iam.DelegationRequest
 	var refuse error
-	authorizer := func(_ context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+	authorizer := func(_ context.Context, req iam.DelegationRequest) (iam.DelegationGrant, error) {
 		requests = append(requests, req)
 		if refuse != nil {
-			return authkit.DelegationGrant{}, refuse
+			return iam.DelegationGrant{}, refuse
 		}
 		return grant, nil
 	}
@@ -322,7 +322,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NotContains(t, body, `"bound"`)
 
 	// Trusted in-process minting stays unbound: a plain bearer over plain HTTP.
-	unbound, err := client.MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{
+	unbound, err := client.MintDelegatedAccessToken(ctx, iam.DelegatedAccessParams{
 		Audiences: []string{"tensorhub.net"}, DelegatedSubject: user.ID, TTL: time.Minute,
 	})
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Len(t, requests, authorizerCalls+1, "rejected requests never reach the authorizer")
 
 	// Host refusal produces no token; an authorizer outage is not a refusal.
-	refuse = fmt.Errorf("policy: %w", authkit.ErrDelegationRefused)
+	refuse = fmt.Errorf("policy: %w", iam.ErrDelegationRefused)
 	refused := postDelegatedToken(h, mintBody(delegate, ""), userToken)
 	require.Equal(t, http.StatusForbidden, refused.Code)
 	require.Contains(t, refused.Body.String(), "delegation_refused")
@@ -415,14 +415,14 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	refuse = nil
 
 	// Authorizer output is size-bounded: an unbounded grant never becomes a token.
-	grant = authkit.DelegationGrant{Attributes: map[string]any{"blob": strings.Repeat("a", maxDelegatedTokenBytes)}}
+	grant = iam.DelegationGrant{Attributes: map[string]any{"blob": strings.Repeat("a", maxDelegatedTokenBytes)}}
 	huge := postDelegatedToken(h, mintBody(delegate, ""), userToken)
 	require.Equal(t, http.StatusInternalServerError, huge.Code)
 	requireErrorCode(t, huge.Body.String(), "internal_error")
 
 	// A host document colliding with a registered provider's type on another
 	// digest is a wiring bug and fails loudly.
-	grant = authkit.DelegationGrant{Documents: map[string]string{documentsTestType: documents.Digest([]byte("stale-" + suffix))}}
+	grant = iam.DelegationGrant{Documents: map[string]string{documentsTestType: documents.Digest([]byte("stale-" + suffix))}}
 	collision := postDelegatedToken(h, mintBody(delegate, ""), userToken)
 	require.Equal(t, http.StatusServiceUnavailable, collision.Code)
 	require.Contains(t, collision.Body.String(), "delegated_document_unavailable")
@@ -455,8 +455,8 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
 	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(
-		func(context.Context, authkit.DelegationRequest) (authkit.DelegationGrant, error) {
-			return authkit.DelegationGrant{}, nil
+		func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+			return iam.DelegationGrant{}, nil
 		}))
 
 	docSvc, err := documents.NewService(ctx, documents.ServiceConfig{

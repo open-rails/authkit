@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -15,18 +15,18 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	// A browser with no refresh cookie is simply signed out: a quiet 401 the
 	// client settles on, not a malformed request.
 	if s.noRefreshCookie(r, body.RefreshToken) {
-		unauthorized(w, authkit.CodeNoSession)
+		unauthorized(w, iam.CodeNoSession)
 		return
 	}
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
-		badRequest(w, authkit.CodeInvalidRequest)
+		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
 	ua := r.UserAgent()
@@ -43,29 +43,29 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			s.writeLoginContinuation(w, r, out, nil)
 			return
 		}
-		if errors.Is(err, authkit.ErrUserBanned) {
+		if errors.Is(err, iam.ErrUserBanned) {
 			// Authoritative about the whole browser: the cookie goes.
 			s.clearRefreshCookie(w, r)
-			unauthorized(w, authkit.CodeUserBanned)
+			unauthorized(w, iam.CodeUserBanned)
 			return
 		}
 		// Deliberately NOT cleared here: an unknown token is indistinguishable
 		// from a stale one (a lost response after a committed rotation), and
 		// clearing would destroy a still-live jar value over a transient
 		// failure. The client re-authenticates; the cookie is overwritten then.
-		unauthorized(w, authkit.CodeInvalidRefreshToken)
+		unauthorized(w, iam.CodeInvalidRefreshToken)
 		return
 	}
 
 	// #180: the /token refresh response now emits the full §6.3 token-pair envelope
 	// (previously omitted token_type) — an additive, contract-conforming change.
-	s.writeTokenSet(w, r, http.StatusOK, authkit.NewTokenSet(accessToken, newRT, exp))
+	s.writeTokenSet(w, r, http.StatusOK, iam.NewTokenSet(accessToken, newRT, exp))
 }
 
 // send2FAEnrollmentRequiredError is the tokenless form for callers without a
 // user id (or a request).
 func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
-	sendErrData(w, http.StatusForbidden, authkit.CodeTwoFAEnrollmentRequired, map[string]any{
+	sendErrData(w, http.StatusForbidden, iam.CodeTwoFAEnrollmentRequired, map[string]any{
 		"requires_2fa_enrollment": true,
 		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
 	})

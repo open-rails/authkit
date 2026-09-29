@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestClientOperatorRoleOperations(t *testing.T) {
 	ctx := t.Context()
 	user, err := client.CreateUser(ctx, "operator@example.test", "operator")
 	require.NoError(t, err)
-	subject, group := authkit.UserSubject(user.ID), authkit.RootGroup()
+	subject, group := iam.UserSubject(user.ID), iam.RootGroup()
 	canEdit := func(want bool) {
 		t.Helper()
 		got, err := client.Can(ctx, subject, group, "root:posts:edit")
@@ -30,10 +30,10 @@ func TestClientOperatorRoleOperations(t *testing.T) {
 	canEdit(true)
 	require.NoError(t, client.OperatorUnassignGroupRole(ctx, group, subject, "editor"))
 	canEdit(false)
-	require.Error(t, client.OperatorAssignGroupRole(ctx, group, authkit.UserSubject(uuid.NewString()), "editor"))
+	require.Error(t, client.OperatorAssignGroupRole(ctx, group, iam.UserSubject(uuid.NewString()), "editor"))
 	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, subject, "unknown"), ErrRoleNotAssignable)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, subject, authkit.OwnerRole))
-	require.ErrorIs(t, client.OperatorUnassignGroupRole(ctx, group, subject, authkit.OwnerRole), ErrCannotRemoveLastAdminRole)
+	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, subject, iam.OwnerRole))
+	require.ErrorIs(t, client.OperatorUnassignGroupRole(ctx, group, subject, iam.OwnerRole), ErrCannotRemoveLastAdminRole)
 	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, subject, "editor"), ErrCannotRemoveLastAdminRole)
 	canEdit(true)
 	// Host authority does not bypass subject-state MFA requirements.
@@ -42,5 +42,5 @@ func TestClientOperatorRoleOperations(t *testing.T) {
 	require.NoError(t, err)
 	other, err := client.CreateUser(ctx, "unenrolled@example.test", "unenrolled")
 	require.NoError(t, err)
-	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, authkit.UserSubject(other.ID), "editor"), ErrTwoFAEnrollmentRequired)
+	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, group, iam.UserSubject(other.ID), "editor"), ErrTwoFAEnrollmentRequired)
 }

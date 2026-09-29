@@ -8,7 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -148,7 +148,7 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 			if err != nil {
 				return LoginOutcome{}, err
 			}
-			tokens := authkit.NewTokenSet(token, "", expires)
+			tokens := iam.NewTokenSet(token, "", expires)
 			out.Enrollment = &tokens
 		}
 		if err := tx.Commit(ctx); err != nil {

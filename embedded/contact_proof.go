@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -39,7 +39,7 @@ func readContactState(ctx context.Context, q db.DBTX, userID string, lock bool) 
 }
 
 func contactVerificationRequired(st contactState) error {
-	return authkit.E(authkit.CodeVerificationRequired, authkit.WithMetadata(map[string]any{
+	return iam.E(iam.CodeVerificationRequired, iam.WithMetadata(map[string]any{
 		"identifier": st.identifier,
 		"channel":    st.channel,
 		"reason":     "contact_unproven",
