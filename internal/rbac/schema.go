@@ -465,4 +465,3 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom C
 	}
 	return out
 }
-

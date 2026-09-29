@@ -32,7 +32,7 @@ Add a row and a test for every new attack class.
 | Token shape (typ, subject claims, sender binding, issuer kind) verifies as another actor or an operator | `TestSecurityTokenMatrix` |
 | Credentials manager re-keys or deletes an operator-registered application, or one holding roles they don't cover | `TestSecurityOperatorApplicationRekey` |
 | Group registers an application above tier `registered`, or a re-key keeps an approval | `TestSecurityGroupApplicationTier` |
-| Application holds an MFA-required role or stands in for an MFA owner | `TestSecurityApplicationMFARoles` |
+| Application holds an MFA-required role (assignment, bootstrap or a leftover row) or stands in for an MFA owner | `TestSecurityApplicationMFARoles` |
 | Unproven issuer claim, left as last owner, blocks the domain that proves the issuer | `TestSecurityIssuerSquatLastOwner` |
 | Application list paging repeats or skips rows, or accepts a forged cursor | `TestSecurityRemoteApplicationPaging` |
 | OAuth `scope` claim on a service JWT grants permissions | `TestSecurityServiceJWTPermissionsOnly` |
@@ -66,6 +66,18 @@ Add a row and a test for every new attack class.
 | Import reports a row without its account, stores an invalid hash, or merges into an account bound by username or unverified address | `TestSecurityImportUsers` |
 | Imported wallet becomes a login method or moves between accounts | `TestSecurityImportSolanaLinks` |
 | Non-operator links a provider identity; an operator link reaches another account | `TestSecurityLinkProvider` |
+| Stolen session plus password on an account with a second factor: password step-up, or a password-refreshed session, clears the fresh-auth gate (backup codes, passkey, factor, provider link, address change, host `Sensitive` route) | `TestSecurityPasswordStepUpNeedsSecondFactor` |
+| Device key enrolled before MFA signs in without it; an MFA-required role holder without a factor enrolls one; a password change leaves device keys | `TestSecurityDeviceKeyMFAGate` |
+| API key registers an application; an application outranks, or outlives the authority of, the user who registered it | `TestSecurityApplicationRegistrar` |
+| Squatter's invite links and account invitations survive the owner's first proof | `TestSecurityFirstProofRevokesSquatterInvitations` |
+| Signing in restores an account staff deleted | `TestSecurityDeletionRecoveryIsSelfOnly` |
+| Differently cased id slips a self-edit, self-ban or self-unban past the self rule | `TestSecuritySelfRulesUseCanonicalIDs` |
+| Enrollment-only token acts as the user through `Verify` and `Allow` | `TestSecurityEnrollmentTokenOutsideMiddleware` |
+| API key or application keeps a role after the host makes it need MFA | `TestSecurityMFARequirementRevokesMachineCredentials` |
+| Adding a member by email reveals the account or adds it without consent; a failed verification link reveals the address's state | `TestSecurityMemberEmailIsAnInvitation` |
+| Staff email change plus reset strips the second factor of an account holding no MFA role | `TestSecurityContactChangeKeepsEnrolledMFA` |
+| Banned account's live token creates a group | `TestSecurityBannedTokenCreatesNoGroup` |
+| API key minted for a persona that does not enable keys | `TestSecurityAPIKeysNeedPersonaOptIn` |
 
 The cookie compatibility guard `TestCookieRegistry` (`internal/engine`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).
@@ -79,8 +91,8 @@ code/link single winner and reset-grant invalidation
 2FA code retry semantics (`TestTwoFactorCodeSurvivesWrongGuess`); last-owner
 and role-owner races (`TestRoleOwnerWorkflow`); DPoP and delegated scope
 (`TestBrowserDelegationWorkflow`); per-address password limits and rate-limit
-backend outage (`TestWorkflowRateLimits`); adding a member by email never binds
-an unproven account (`TestAddMemberByEmailNeverBindsAnUnprovenAccount`);
+backend outage (`TestWorkflowRateLimits`); adding a member by email is an invitation
+only the proven address accepts (`TestAddMemberByEmailNeverBindsAnUnprovenAccount`);
 custom-role changes need the holders' authority
 (`TestCustomRoleChangesNeedHolderAuthority`); MFA follows permissions
 (`TestMFAFollowsPermissions`); no credential outlives its issuer, including

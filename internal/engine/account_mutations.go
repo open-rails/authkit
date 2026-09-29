@@ -475,8 +475,9 @@ func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string) error {
 }
 
 // DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
-// the fixed recovery window; an account may delete itself. Sessions, device
-// keys and every credential the account issued are revoked. A repeat call
+// the fixed recovery window; an account may delete itself, and only then can
+// signing in undo it. Sessions, device keys and every credential the account
+// issued are revoked. A repeat call
 // keeps the original window. Per-item results; the error is a whole-call
 // failure.
 func (s *Engine) DeleteUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error) {
