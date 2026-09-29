@@ -97,6 +97,7 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 // it back. Only binaries and test harnesses sit above the root.
 var rootImporters = map[string]bool{
 	rootPackage + "/cmd/authkit-migrate": true,
+	rootPackage + "/examples/reddit":     true, // a host program, like any app
 	rootPackage + "/internal/testhttp":   true,
 }
 
