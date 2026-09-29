@@ -41,6 +41,7 @@ const pendingSQL = "pending #414 group "
 // internal/db/queries/*.sql (sqlc); only SQL built at runtime stays inline,
 // with its reason here. #414 groups delete their pending entries.
 var inlineSQL = map[string]inlineSQLSite{
+	"authtest/authtest.go StaleSession":                               {1, "ages a session in a generated schema; identifiers cannot be bind parameters"},
 	"authtest/authtest.go scratchSchema":                              {1, "DDL on a generated schema name; identifiers cannot be bind parameters"},
 	"internal/engine/migration_access.go grantMigrationRuntimeAccess": {1, "GRANTs name the runtime role, schema and River objects; identifiers cannot be bind parameters"},
 	"internal/engine/migrations.go Migrate":                           {1, "CREATE SCHEMA names the River schema; identifiers cannot be bind parameters"},

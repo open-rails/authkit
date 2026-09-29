@@ -1,19 +1,21 @@
-package engine
+package httpapi_test
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/stretchr/testify/require"
 )
 
 // TestCookieRegistry is the cookie compatibility guard.
@@ -39,34 +41,35 @@ func TestCookieRegistry(t *testing.T) {
 	require.ElementsMatch(t, golden, registered,
 		"cookie variants are append-only: register a changed shape as a new variant and add it to testdata/cookie-registry.golden; never edit or remove one")
 
-	pg := testdb.ScratchPostgres(t)
 	for _, secure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("secure=%v", secure), func(t *testing.T) {
-			cfg := newServerTestConfig()
-			cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-			cfg.Frontend.BaseURL = "http://app.example.test"
-			if secure {
-				cfg.Frontend.BaseURL = "https://app.example.test"
+			auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+				c.TwoFactor.Mode = iam.TwoFactorDisabled
+				c.Frontend.BaseURL = "http://app.example.test"
+				if secure {
+					c.Frontend.BaseURL = "https://app.example.test"
+				}
+				c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("registry-client", "registry-secret")}
+				c.HTTP.RefreshCookie = true
+			}))
+			u := authtest.NewUser(t, auth)
+			serve := func(method, path, body string) *http.Response {
+				r := httptest.NewRequest(method, path, strings.NewReader(body))
+				r.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				auth.Handler().ServeHTTP(w, r)
+				return w.Result()
 			}
-			svc, err := newServer(newServerClient(t, cfg, pg.Pool), WithoutRateLimiter())
-			require.NoError(t, err)
-			t.Cleanup(svc.Close)
-			svc.SetProviders(authprovider.GitHub("registry-client", "registry-secret"))
-			mount, err := httpapi.NewMount(svc, httpapi.MountOptions{RefreshCookie: true})
-			require.NoError(t, err)
 
-			email, pass := newCookieTestUser(t, pg.Pool, svc, "registry")
-			body, err := json.Marshal(map[string]string{"identifier": email, "password": pass})
-			require.NoError(t, err)
-			login := mountCatalogRequest(mount, http.MethodPost, httpapi.DefaultAPIPath+"/password/login", string(body), "application/json")
-			require.Equal(t, http.StatusOK, login.Code, login.Body.String())
-			requireIssued(t, login.Result().Cookies(), httpapi.CurrentCookie(httpapi.CookieRefresh, secure), secure, func(name string) bool {
+			login := serve(http.MethodPost, httpapi.DefaultAPIPath+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
+			require.Equal(t, http.StatusOK, login.StatusCode)
+			requireIssued(t, login.Cookies(), httpapi.CurrentCookie(httpapi.CookieRefresh, secure), secure, func(name string) bool {
 				return strings.HasSuffix(name, "authkit_rt")
 			})
 
-			start := mountCatalogRequest(mount, http.MethodGet, httpapi.OIDCPath+"/github/login", "", "")
-			require.Equal(t, http.StatusFound, start.Code, start.Body.String())
-			requireIssued(t, start.Result().Cookies(), httpapi.CurrentCookie(httpapi.CookieOIDCState, secure), secure, func(name string) bool {
+			start := serve(http.MethodGet, httpapi.OIDCPath+"/github/login", "")
+			require.Equal(t, http.StatusFound, start.StatusCode)
+			requireIssued(t, start.Cookies(), httpapi.CurrentCookie(httpapi.CookieOIDCState, secure), secure, func(name string) bool {
 				return strings.Contains(name, httpapi.OIDCStatePrefix)
 			})
 		})

@@ -1,6 +1,7 @@
 package authtest_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,4 +98,37 @@ func TestEnrollDeviceKey(t *testing.T) {
 	claims, err := auth.Verifier().Verify(t.Context(), session.AccessToken)
 	require.NoError(t, err)
 	require.Equal(t, u.ID, claims.UserID)
+}
+
+// A replica serves the same accounts; a stale session must step up before a
+// sensitive change.
+func TestReplicaAndStaleSession(t *testing.T) {
+	auth, _ := authtest.New(t)
+	alice := authtest.NewUser(t, auth)
+	replica := authtest.Replica(t, auth)
+	tokens := authtest.SignIn(t, replica, alice)
+	sessions, err := auth.Sessions(t.Context(), alice.ID)
+	require.NoError(t, err)
+	require.Len(t, sessions, 1, "a session the replica issued is the deployment's")
+
+	api := httptest.NewServer(auth.Handler())
+	t.Cleanup(api.Close)
+	startTOTP := func(token string) (int, string) {
+		req, err := http.NewRequest(http.MethodPost, api.URL+"/api/v1/user/2fa", strings.NewReader(`{"method":"totp"}`))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return resp.StatusCode, string(body)
+	}
+	status, body := startTOTP(tokens.AccessToken)
+	require.Equal(t, http.StatusOK, status, body)
+	stale := authtest.StaleSession(t, auth, tokens.AccessToken)
+	status, body = startTOTP(stale)
+	require.Equal(t, http.StatusForbidden, status, body)
+	require.Contains(t, body, "step_up_required")
 }

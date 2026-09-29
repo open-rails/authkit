@@ -75,13 +75,3 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	require.Equal(t, 1, claimsHeld, "a case change leaves no alias")
 	f.expect(200, f.post("/password/login", map[string]any{"identifier": name, "password": pass}))
 }
-
-func meUsername(t *testing.T, f *accountFlow, token string) string {
-	t.Helper()
-	me := f.expect(200, f.request("GET", "/me", token, nil))
-	var body struct {
-		Username string `json:"username"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(me.raw), &body), me.raw)
-	return body.Username
-}

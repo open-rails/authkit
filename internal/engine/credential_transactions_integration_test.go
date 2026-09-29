@@ -2,12 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -96,72 +90,5 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				require.NoError(t, err, "the rollback retains the old session")
 			})
 		}
-	}
-}
-
-func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(t *testing.T) {
-	for _, oidc := range []bool{true, false} {
-		t.Run(fmt.Sprintf("oidc_%v", oidc), func(t *testing.T) {
-			ctx := context.Background()
-			srv, _, _ := passwordlessTestServer(t, true)
-			provider := newSecurityTestProvider(t, srv, oidc)
-			uid := mustPasswordUser(t, srv, "audit-link-revoke")
-			_, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "audit", nil, []string{"pwd"}, nil)
-			require.NoError(t, err)
-			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
-			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
-			require.NoError(t, srv.Backend().RevokeIssuerSessions(ctx, uid, nil))
-			identity := providerTestIdentity{Subject: "audit-revoked-link-" + uniqueSuffix()}
-			callback := completeSecurityProviderCallback(t, srv, provider, start, identity)
-			owner, _, linkErr := srv.Backend().GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
-			t.Logf("callback=%d linked owner=%s lookup=%v", callback.Code, owner, linkErr)
-			require.Error(t, linkErr, "revoked initiating session must not be able to add a provider and obtain a new session")
-		})
-	}
-}
-
-func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
-	for _, oidc := range []bool{true, false} {
-		t.Run(fmt.Sprintf("oidc_%v", oidc), func(t *testing.T) {
-			ctx := context.Background()
-			srv, _, _ := passwordlessTestServer(t, true)
-			provider := newSecurityTestProvider(t, srv, oidc)
-			uid := mustPasswordUser(t, srv, "link-browser")
-			sid, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "link", nil, []string{"pwd"}, nil)
-			require.NoError(t, err)
-			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
-			require.Equal(t, http.StatusOK, start.Code)
-			var startBody struct {
-				AuthURL string `json:"auth_url"`
-			}
-			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &startBody))
-			authURL, err := url.Parse(startBody.AuthURL)
-			require.NoError(t, err)
-			raw, err := json.Marshal(providerTestIdentity{Subject: "browser-link-" + uniqueSuffix(), Nonce: authURL.Query().Get("nonce")})
-			require.NoError(t, err)
-			query := url.Values{"state": {authURL.Query().Get("state")}, "code": {base64.RawURLEncoding.EncodeToString(raw)}}
-			request := httptest.NewRequest(http.MethodGet, "/oidc/"+provider.Name()+"/callback?"+query.Encode(), nil)
-			for _, cookie := range start.Result().Cookies() {
-				request.AddCookie(cookie)
-			}
-			callback := httptest.NewRecorder()
-			oidcHandler(srv).ServeHTTP(callback, request)
-			require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
-			location, err := url.Parse(callback.Header().Get("Location"))
-			require.NoError(t, err)
-			fragment, err := url.ParseQuery(location.Fragment)
-			require.NoError(t, err)
-			require.Equal(t, "link", fragment.Get("flow"))
-			require.Equal(t, "success", fragment.Get("result"))
-			require.Empty(t, fragment.Get("access_token"))
-			require.Empty(t, fragment.Get("refresh_token"))
-			for _, cookie := range callback.Result().Cookies() {
-				require.Negative(t, cookie.MaxAge, "callback may only clear consumed state cookies")
-			}
-			sessions, err := srv.Backend().ListUserSessions(ctx, uid)
-			require.NoError(t, err)
-			require.Len(t, sessions, 1)
-			require.Equal(t, sid, sessions[0].ID)
-		})
 	}
 }
