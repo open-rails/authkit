@@ -45,10 +45,6 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// self-heal consumers may retry, so the window is generous per hour
 		// but cooled down; each attempt costs the caller a domain fetch.
 		RLApplicationRegister: {Limit: 30, Window: time.Hour},
-		// Slug renames are claims — velocity-capped per user and per IP.
-		RLGroupSettings: {Limit: 12, Window: 24 * time.Hour},
-		// #263 instance creation is a claim too — same velocity class.
-		RLGroupCreate: {Limit: 12, Window: 24 * time.Hour},
 
 		// #261 delegated-token mint: authenticated, but each call is a signing
 		// operation — generous for clients refreshing short-lived tokens,

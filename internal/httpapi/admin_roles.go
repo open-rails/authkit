@@ -16,8 +16,13 @@ import (
 // roles it holds, never to owner), the last owner and MFA-required roles.
 
 // handleAdminRolesGET lists the root role catalog.
-func (s *Service) handleAdminRolesGET(w http.ResponseWriter, _ *http.Request) {
-	s.groupRolesList(w, iam.RootPersona)
+func (s *Service) handleAdminRolesGET(w http.ResponseWriter, r *http.Request) {
+	g, err := s.svc.Group(r.Context(), iam.RootGroup())
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	s.groupRolesList(w, g)
 }
 
 func (s *Service) handleAdminUserRolePUT(w http.ResponseWriter, r *http.Request) {

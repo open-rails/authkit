@@ -1,17 +1,9 @@
 package httpapi
 
-// Auto-generated per-persona group-management HTTP surface (#111, task #15).
-//
-// The route surface IS the capability spec: GeneratedRoutes
-// emits one GeneratedRoute per enabled management capability per persona,
-// addressed by the RESOURCE slug (:instance_slug) and gated by a concrete
-// <persona>:<area>:<action> perm. A disabled capability emits NO route here, so
-// calling it 404s — strictly stronger than a runtime 403.
-//
-// This file translates that data surface into RouteSpec handlers and mounts them
-// via the same APIRoutes/route-table mechanism the rest of httpapi uses. Group
-// ids stay internal: every handler resolves (persona, :instance_slug) -> group by
-// instance_slug inside the Service, then authorizes via svc.Can before acting.
+// The group-management HTTP surface (group_routes.go) and the caller's own
+// groups and permissions. Every group route resolves :group_id, refuses a
+// group whose persona lacks the route, and authorizes the route's permission
+// with the engine's live Can before the operation applies its own rules.
 
 import (
 	"errors"
@@ -19,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
@@ -28,12 +19,9 @@ import (
 // not not_found, so it does not enumerate groups.
 var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.CodeForbidden}
 
-// PermissionGroupRoutes returns the auto-generated management routes implied by
-// this Service's declared permission-group schema, plus the cross-persona
-// GET /me/groups discovery route. Mirrors APIRoutes: prefix-neutral RouteSpecs in
-// the RoutePermissionGroups group, language-wrapped and auth-required. The set is
-// fully config-derived from svc.PermissionGroupSchema().GeneratedRoutes(); a
-// capability a profile disables is simply absent (=> 404).
+// PermissionGroupRoutes returns the group-management routes some persona has,
+// plus the caller's own groups and permissions. Mirrors APIRoutes:
+// prefix-neutral RouteSpecs, language-wrapped and auth-required.
 func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return nil
@@ -49,9 +37,9 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 		Auth:    iam.AuthRequired,
 		Handler: http.HandlerFunc(s.handleMeGroupsGET),
 	})
-	// Permission-introspection (#421): the caller's effective grants in one group
-	// instance (?persona=, ?instance=; defaults to the singleton root group), so a
-	// client gates UI on permission strings instead of expanding role slugs.
+	// Permission introspection (#421): the caller's effective grants in one
+	// group (?group_id=; defaults to the root group), so a client gates UI on
+	// permission strings instead of expanding role names.
 	specs = append(specs, RouteSpec{
 		Method:  http.MethodGet,
 		Path:    "/me/permissions",
@@ -77,30 +65,22 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	return out
 }
 
-// permissionGroupRouteSpecs builds the management RouteSpecs (without middleware)
-// from the declared schema. Split out from PermissionGroupRoutes so the route
-// TABLE is unit-testable against a schema profile with no middleware/DB.
+// permissionGroupRouteSpecs builds the group-management RouteSpecs (without
+// middleware) from the declared schema.
 func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
-	schema := s.svc.PermissionGroupSchema()
-	specs := generatedRouteSpecs(s, GeneratedRoutes(schema))
-	// #263: the generated CREATION route — POST /<persona> — for personas that
-	// opt in. Not instance-addressed (no instance exists yet), so it is gated
-	// by authentication + velocity limits + the reserved-slug/admission policy
-	// in the core create path rather than an instance permission.
-	for _, persona := range schema.Personas() {
-		if !schema.CreationEnabled(persona) {
-			continue
-		}
-		persona := persona
-		specs = append(specs, RouteSpec{
-			Method:  http.MethodPost,
-			Path:    "/" + string(persona),
-			Group:   iam.RoutePermissionGroups,
-			Auth:    iam.AuthRequired,
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.groupInstanceCreate(w, r, persona) }),
+	routes := MountedGroupRoutes(s.svc.PermissionGroupSchema())
+	out := make([]RouteSpec, 0, len(routes))
+	for _, gr := range routes {
+		out = append(out, RouteSpec{
+			Method:     gr.Method,
+			Path:       MuxPath(gr.Path),
+			Group:      iam.RoutePermissionGroups,
+			Auth:       iam.AuthPermission,
+			Permission: gr.Op.catalogPermission(),
+			Handler:    s.GroupHandler(gr),
 		})
 	}
-	return specs
+	return out
 }
 
 func (s *Service) hasInviteLinkSupport() bool {
@@ -116,28 +96,8 @@ func (s *Service) hasInviteLinkSupport() bool {
 	return false
 }
 
-// generatedRouteSpecs translates core GeneratedRoutes into httpapi RouteSpecs,
-// binding a handler per route that gates on route.Perm and dispatches by the
-// route's path SHAPE (members / members-role / roles / api-keys / ...). The
-// generator's `:param` paths are converted to net/http ServeMux `{param}` syntax.
-func generatedRouteSpecs(s *Service, routes []GeneratedRoute) []RouteSpec {
-	out := make([]RouteSpec, 0, len(routes))
-	for _, gr := range routes {
-		gr := gr // capture per-iteration
-		out = append(out, RouteSpec{
-			Method:     gr.Method,
-			Path:       MuxPath(gr.Path),
-			Group:      iam.RoutePermissionGroups,
-			Auth:       iam.AuthPermission,
-			Permission: gr.Perm,
-			Handler:    s.GeneratedGroupHandler(gr),
-		})
-	}
-	return out
-}
-
-// muxPath rewrites the generator's colon-style params (":instance_slug", ":user",
-// ":role", ...) into net/http ServeMux wildcards ("{instance_slug}", "{user}", ...).
+// MuxPath rewrites colon-style params (":group_id", ":user", ...) into
+// net/http ServeMux wildcards ("{group_id}", "{user}", ...).
 // ServeMux wildcard names may not contain '-', so hyphens become underscores;
 // pathParam() reverses this when reading r.PathValue.
 func MuxPath(p string) string {
@@ -150,21 +110,20 @@ func MuxPath(p string) string {
 	return strings.Join(segs, "/")
 }
 
-// pathParam reads a ServeMux path value by the generator's colon name (e.g.
-// "instance_slug"), accounting for the hyphen->underscore wildcard rewrite.
+// pathParam reads a ServeMux path value by its colon name (e.g. "group_id"),
+// accounting for the hyphen->underscore wildcard rewrite.
 func pathParam(r *http.Request, name string) string {
 	return strings.TrimSpace(r.PathValue(strings.ReplaceAll(name, "-", "_")))
 }
 
-// generatedGroupHandler returns the handler for one generated route. It:
-//  1. derives the caller's actor once (401 if none; 403 for a delegation);
-//  2. resolves persona + :instance_slug from the route/path;
-//  3. authorizes route.Perm (or route.OrPerm when set) on the group with the
-//     engine's live Can, for every actor kind (403 on deny);
-//  4. performs the operation, passing the actor to the operation handler,
-//     where the engine applies the operation's own authority rules.
-func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
-	op := classifyGeneratedRoute(gr.Method, gr.Path)
+// GroupHandler returns the handler for one group route. It:
+//  1. derives the caller's actor (401 if none; 403 for a delegation);
+//  2. resolves :group_id to a live group;
+//  3. refuses a group whose persona lacks the route, like an unknown group;
+//  4. authorizes the route's permission on the group with the engine's live
+//     Can, for every actor kind (403 on deny);
+//  5. performs the operation, whose engine call applies its own rules.
+func (s *Service) GroupHandler(gr GroupRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := verify.ActorFromContext(r.Context())
 		if !ok {
@@ -176,24 +135,25 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		instanceSlug := pathParam(r, "instance_slug")
-		if instanceSlug == "" {
-			fail(w, errmodel.CodeInvalidRequest)
-			return
+		g, err := s.svc.Group(r.Context(), iam.GroupByID(pathParam(r, "group_id")))
+		if err == nil && g.DeletedAt != nil {
+			err = iam.ErrGroupNotFound
 		}
-
-		group := iam.GroupBySlug(gr.Persona, instanceSlug)
-		instance, err := s.svc.Group(r.Context(), group)
 		if err != nil {
 			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
-		// Later slug lookups in this request stay on the resolved group.
-		r = r.WithContext(authflow.WithResolvedGroup(r.Context(), instance, instanceSlug))
-		resolved := iam.GroupByID(instance.ID)
-		allowed, err := s.svc.Can(r.Context(), actor, resolved, gr.Perm)
-		if err == nil && !allowed && gr.OrPerm != "" {
-			allowed, err = s.svc.Can(r.Context(), actor, resolved, gr.OrPerm)
+		persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona)
+		if !ok || !gr.Op.Available(persona) {
+			fail(w, errmodel.CodeForbidden)
+			return
+		}
+		group := iam.GroupByID(g.ID)
+		allowed := false
+		for _, perm := range gr.Op.Perms(persona) {
+			if allowed, err = s.svc.Can(r.Context(), actor, group, perm); err != nil || allowed {
+				break
+			}
 		}
 		if err != nil {
 			serverErr(w, "database_error", err)
@@ -204,51 +164,42 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("X-AuthKit-Group-ID", instance.ID)
-		w.Header().Set("X-AuthKit-Canonical-Instance", instance.Slug)
-		switch op {
-		case opMembersList:
-			s.groupMembersList(w, r, group, actor)
-		case opMemberAdd:
-			s.groupMemberAdd(w, r, group, actor)
-		case opMemberRemove:
-			s.groupMemberRemove(w, r, group, actor, pathParam(r, "user"))
-		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, group, actor, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
-		case opRolesList:
-			s.groupRolesList(w, gr.Persona)
-		case opRoleDefine:
-			s.groupCustomRoleDefine(w, r, group, actor)
-		case opRoleDelete:
-			s.groupCustomRoleDelete(w, r, group, actor, iam.Role(pathParam(r, "role")))
-		case opAPIKeysList:
-			s.groupAPIKeyList(w, r, group, actor)
-		case opAPIKeyMint:
-			s.groupAPIKeyMint(w, r, group, actor)
-		case opAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, group, actor, pathParam(r, "key"))
-		case opRemoteAppsList:
-			s.groupRemoteAppList(w, r, group, actor)
-		case opRemoteAppRegister:
-			s.groupRemoteAppRegister(w, r, group, actor)
-		case opRemoteAppDelete:
-			s.groupRemoteAppDelete(w, r, group, actor, pathParam(r, "app"))
-		case opRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, group, actor, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
-		case opInviteLinkList:
-			s.groupInviteLinkList(w, r, group, actor)
-		case opInviteLinkMint:
-			s.groupInviteLinkMint(w, r, group, actor)
-		case opInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, group, actor, pathParam(r, "link"))
-		case opGroupUpdate:
-			s.groupUpdate(w, r, group, actor)
-		case opGroupRead:
-			s.groupInstanceDescriptor(w, r, group, actor)
-		case opGroupDelete:
-			s.groupDelete(w, r, group, actor)
+		switch gr.Op {
+		case OpMembersList:
+			s.groupMembersList(w, r, g)
+		case OpMemberAdd:
+			s.groupMemberAdd(w, r, g, actor)
+		case OpMemberRemove:
+			s.groupMemberRemove(w, r, g, actor, pathParam(r, "user"))
+		case OpMemberRoleAssign:
+			s.groupMemberRole(w, r, g, actor, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
+		case OpRolesList:
+			s.groupRolesList(w, g)
+		case OpRoleDefine:
+			s.groupCustomRoleDefine(w, r, g, actor)
+		case OpRoleDelete:
+			s.groupCustomRoleDelete(w, r, g, actor, iam.Role(pathParam(r, "role")))
+		case OpAPIKeysList:
+			s.groupAPIKeyList(w, r, g)
+		case OpAPIKeyMint:
+			s.groupAPIKeyMint(w, r, g, actor)
+		case OpAPIKeyRevoke:
+			s.groupAPIKeyRevoke(w, r, g, actor, pathParam(r, "key"))
+		case OpRemoteAppsList:
+			s.groupRemoteAppList(w, r, g)
+		case OpRemoteAppRegister:
+			s.groupRemoteAppRegister(w, r, g, actor)
+		case OpRemoteAppDelete:
+			s.groupRemoteAppDelete(w, r, g, actor, pathParam(r, "app"))
+		case OpRemoteAppRoleAssign:
+			s.groupRemoteAppRole(w, r, g, actor, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
+		case OpInviteLinkList:
+			s.groupInviteLinkList(w, r, g)
+		case OpInviteLinkMint:
+			s.groupInviteLinkMint(w, r, g, actor)
+		case OpInviteLinkRevoke:
+			s.groupInviteLinkRevoke(w, r, g, actor, pathParam(r, "link"))
 		default:
-			// roles-define (POST/DELETE /roles): not wired yet.
 			fail(w, errmodel.CodeNotImplemented)
 		}
 	}
@@ -274,101 +225,6 @@ func (s *Service) writeOpResult(w http.ResponseWriter, results []iam.OpResult, e
 		return false
 	}
 	return true
-}
-
-// generatedOp identifies the operation a generated route (method + path shape)
-// implies.
-type generatedOp int
-
-const (
-	opStub generatedOp = iota // not wired (501)
-	opMembersList
-	opMemberAdd
-	opMemberRemove
-	opMemberRoleAssign
-	opRolesList
-	opRoleDefine
-	opRoleDelete
-	opAPIKeysList
-	opAPIKeyMint
-	opAPIKeyRevoke
-	opRemoteAppsList
-	opRemoteAppRegister
-	opRemoteAppDelete
-	opRemoteAppRoleAssign
-	opInviteLinkList
-	opInviteLinkMint
-	opInviteLinkRevoke
-	opGroupUpdate
-	opGroupRead
-	opGroupDelete
-)
-
-// classifyGeneratedRoute maps a generator route (its method + colon-param path)
-// to a wired operation. The trailing path shape is stable across personas; the
-// method disambiguates GET vs POST /members. Unknown shapes are opStub (=> 501).
-func classifyGeneratedRoute(method, path string) generatedOp {
-	switch {
-	case strings.HasSuffix(path, "/:instance_slug"):
-		switch method {
-		case http.MethodPatch:
-			return opGroupUpdate // #264 group settings: slug rename + display name
-		case http.MethodGet:
-			return opGroupRead // #269 instance descriptor: id + slug + display name
-		case http.MethodDelete:
-			return opGroupDelete
-		}
-		return opStub
-	case strings.HasSuffix(path, "/members/:user/roles/:role"):
-		if method == http.MethodPut {
-			return opMemberRoleAssign
-		}
-		return opStub
-	// #263: must precede the generic "/roles/:role" (custom-role delete) case,
-	// which would otherwise swallow this longer suffix.
-	case strings.HasSuffix(path, "/remote-applications/:app/roles/:role"):
-		if method == http.MethodPut {
-			return opRemoteAppRoleAssign
-		}
-		return opStub
-	case strings.HasSuffix(path, "/members/:user"):
-		return opMemberRemove // DELETE
-	case strings.HasSuffix(path, "/members"):
-		if method == http.MethodPost {
-			return opMemberAdd
-		}
-		return opMembersList // GET
-	case strings.HasSuffix(path, "/roles/:role"):
-		return opRoleDelete // DELETE custom role
-	case strings.HasSuffix(path, "/roles"):
-		if method == http.MethodGet {
-			return opRolesList
-		}
-		return opRoleDefine // POST custom-role define
-	case strings.HasSuffix(path, "/api-keys/:key"):
-		return opAPIKeyRevoke // DELETE
-	case strings.HasSuffix(path, "/api-keys"):
-		if method == http.MethodPost {
-			return opAPIKeyMint
-		}
-		return opAPIKeysList // GET
-	case strings.HasSuffix(path, "/remote-applications/:app"):
-		return opRemoteAppDelete // DELETE
-	case strings.HasSuffix(path, "/remote-applications"):
-		if method == http.MethodPost {
-			return opRemoteAppRegister
-		}
-		return opRemoteAppsList // GET
-	case strings.HasSuffix(path, "/invites/links/:link"):
-		return opInviteLinkRevoke // DELETE
-	case strings.HasSuffix(path, "/invites/links"):
-		if method == http.MethodPost {
-			return opInviteLinkMint
-		}
-		return opInviteLinkList // GET
-	default:
-		return opStub
-	}
 }
 
 // writeGroupOpError answers a group-operation failure: the 2FA-enrollment

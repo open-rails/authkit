@@ -66,15 +66,15 @@ func (h *host) rootGroupID() string {
 	return g.ID
 }
 
-// TestSecurityOperatorApplicationRekey (M4): an application's keys are its
+// TestSecuritySystemApplicationRekey (M4): an application's keys are its
 // identity and authority. A credentials manager never re-keys or deletes an
-// application the operator registered, and never re-keys one holding a role
+// application the system registered, and never re-keys one holding a role
 // they do not cover in any group.
-func TestSecurityOperatorApplicationRekey(t *testing.T) {
+func TestSecuritySystemApplicationRekey(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withApps))
 	ctx := context.Background()
 	partner := newSigner(t, "partner-kid")
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, partner), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -91,12 +91,12 @@ func TestSecurityOperatorApplicationRekey(t *testing.T) {
 	h.grant(iam.RootGroup(), staff, "credentials-admin")
 	staffToken := h.login(staff).AccessToken
 	attacker := newSigner(t, "partner-kid")
-	resp := h.post("/root/x/remote-applications", map[string]any{"slug": "partner", "issuer": partnerIssuer,
+	resp := h.post("/groups/"+h.rootGroupID()+"/remote-applications", map[string]any{"slug": "partner", "issuer": partnerIssuer,
 		"public_keys": []map[string]string{{"kid": "partner-kid", "public_key_pem": pemOf(t, attacker.PublicKey())}}}, staffToken)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), iam.RemoteApplication{Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	resp = h.do(request{method: http.MethodDelete, path: "/root/x/remote-applications/partner", token: staffToken})
+	resp = h.do(request{method: http.MethodDelete, path: "/groups/" + h.rootGroupID() + "/remote-applications/partner", token: staffToken})
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 
 	stored, err := h.auth.RemoteApplication(ctx, partnerIssuer)
@@ -109,7 +109,7 @@ func TestSecurityOperatorApplicationRekey(t *testing.T) {
 
 	t.Run("a role held in another group needs coverage there", func(t *testing.T) {
 		owner, manager := h.newAccount("appowner"), h.newAccount("appmanager")
-		group, base := h.newOrg("rekey", owner)
+		group, base := h.newOrg(owner)
 		h.grant(group, manager, "manager")
 		managerToken := h.login(manager).AccessToken
 		register := func() response {
@@ -133,14 +133,14 @@ func TestSecurityOperatorApplicationRekey(t *testing.T) {
 	})
 }
 
-// TestSecurityGroupApplicationTier (L1): approval is the operator's act. A
+// TestSecurityGroupApplicationTier (L1): approval is the system's act. A
 // group registration starts at tier registered, and a group re-key of an
 // approved application drops it back.
 func TestSecurityGroupApplicationTier(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("tierowner")
-	group, base := h.newOrg("tier", owner)
+	group, base := h.newOrg(owner)
 	token := h.login(owner).AccessToken
 	key := publicKeyPEM(t)
 	register := func(key string, extra map[string]any) response {
@@ -168,7 +168,7 @@ func TestSecurityGroupApplicationTier(t *testing.T) {
 	require.Equal(t, iam.ApplicationTierRegistered, app.Tier, "a group actor cannot approve")
 
 	app.Tier = iam.ApplicationTierApproved
-	app, err = h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), group, app)
+	app, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTierApproved, app.Tier)
 	resp = register(key, map[string]any{"enabled": false})
@@ -187,11 +187,11 @@ func TestSecurityGroupApplicationTier(t *testing.T) {
 func TestSecurityApplicationMFARoles(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withApps))
 	ctx := context.Background()
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug: "root-app", Issuer: "https://root-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "root-app")), Enabled: true,
 	})
 	require.NoError(t, err)
-	res, err := h.auth.AssignGroupRoles(ctx, iam.OperatorActor(), iam.RootGroup(), []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, iam.OwnerRole)
+	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, iam.OwnerRole)
 	require.NoError(t, err)
 	require.ErrorIs(t, res[0].Err, iam.ErrRoleNotAssignable)
 	grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "credentials-admin")
@@ -202,7 +202,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	// An owner row for the application from before this rule.
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.group_remote_application_roles SET role='owner' WHERE remote_application_id=$1::uuid`, app.ID)
 	require.NoError(t, err)
-	res, err = h.auth.UnassignGroupRoles(ctx, iam.OperatorActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)}, iam.OwnerRole)
+	res, err = h.auth.UnassignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)}, iam.OwnerRole)
 	require.NoError(t, err)
 	require.ErrorIs(t, res[0].Err, iam.ErrLastOwner, "the application counted as the MFA owner")
 	roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)})
@@ -218,7 +218,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 
 	t.Run("bootstrap hands an application no MFA-required root role", func(t *testing.T) {
 		enabled := true
-		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
+		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
 			Slug: "boot-app", Issuer: "https://boot-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "boot-app")), Enabled: &enabled, RootRole: iam.OwnerRole,
 		}}}, iam.BootstrapOptions{})
 		require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
@@ -235,7 +235,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("regowner")
-	group, base := h.newOrg("registrar", owner)
+	group, base := h.newOrg(owner)
 	ownerToken := h.login(owner).AccessToken
 	type registered struct {
 		registrar account
@@ -306,7 +306,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 			require.Less(t, resp.status, 300, resp.String())
 		}},
 		{"the registrar is banned", bannedApp, func(a account) {
-			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{Reason: "abuse"}))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{Reason: "abuse"}))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 
 // TestSecurityDelegatedMintAuthority: the grant check runs on the Go path too.
 // A user mints only for itself and only AuthKit authority it holds live;
-// machine actors never mint; the operator is trusted.
+// machine actors never mint; the system is trusted.
 func TestSecurityDelegatedMintAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
@@ -382,8 +382,8 @@ func TestSecurityDelegatedMintAuthority(t *testing.T) {
 	for _, a := range []iam.Actor{{}, iam.APIKeyActor("0190f000-0000-7000-8000-000000000001"), iam.RemoteApplicationActor("0190f000-0000-7000-8000-000000000002")} {
 		require.Error(t, mint(a, iam.DelegatedAccess{Subject: moderator.id}), a.String())
 	}
-	require.Error(t, mint(iam.OperatorActor(), iam.DelegatedAccess{}), "the operator names the subject")
-	require.NoError(t, mint(iam.OperatorActor(), iam.DelegatedAccess{Subject: other.id, Permissions: []string{iam.PermRootUsersManage}}))
+	require.Error(t, mint(iam.SystemActor(), iam.DelegatedAccess{}), "the system names the subject")
+	require.NoError(t, mint(iam.SystemActor(), iam.DelegatedAccess{Subject: other.id, Permissions: []string{iam.PermRootUsersManage}}))
 
 	_, err := h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, moderator.id)
 	require.NoError(t, err)
@@ -399,7 +399,7 @@ func TestSecurityIssuerSquatLastOwner(t *testing.T) {
 	}))
 	ctx := context.Background()
 	squatter := h.newAccount("lastsquatter")
-	_, base := h.newOrg("lastsquat", squatter)
+	_, base := h.newOrg(squatter)
 	token := h.login(squatter).AccessToken
 	const victimIssuer = "https://last-owner-victim.security.test"
 	resp := h.post(base+"/remote-applications", map[string]any{"slug": "squat-app", "issuer": victimIssuer,
@@ -436,17 +436,17 @@ func TestSecurityIssuerSquatLastOwner(t *testing.T) {
 
 // TestSecurityTokenMatrix (invariant 7): typ × subject claims × sender binding
 // × issuer kind. Only the allowed shapes verify, each derives the one actor its
-// shape implies (never an operator), and AuthKit's management routes refuse
+// shape implies (never the system), and AuthKit's management routes refuse
 // every delegated principal that verifies.
 func TestSecurityTokenMatrix(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	user := h.newAccount("matrixuser")
 	h.grant(iam.RootGroup(), user, "admin")
-	_, base := h.newOrg("matrix", user)
+	_, base := h.newOrg(user)
 	managed, foreign := newSigner(t, "managed-kid"), newSigner(t, "foreign-kid")
 	const managedIssuer, foreignIssuer = "https://managed.security.test", "https://foreign.security.test"
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug: "managed", Issuer: managedIssuer, PublicKeys: staticKeys(t, managed), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -512,7 +512,7 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					}
 					require.NoError(t, err, name)
 					actor, ok := verify.ActorFromClaims(cl)
-					require.NotEqual(t, iam.ActorOperator, actor.Kind(), name)
+					require.NotEqual(t, iam.ActorSystem, actor.Kind(), name)
 					switch {
 					case typ == jwtkit.AccessTokenType && is.name == "local":
 						require.True(t, ok, name)
@@ -549,7 +549,7 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("pageowner")
-	group, base := h.newOrg("paging", owner)
+	group, base := h.newOrg(owner)
 	for _, slug := range []string{"page-a", "page-b", "page-c"} {
 		_, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
 			Slug: slug, Issuer: "https://" + slug + ".security.test", PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: true,

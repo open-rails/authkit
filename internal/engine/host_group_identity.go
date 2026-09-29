@@ -1,6 +1,6 @@
 package engine
 
-// Group reads and deletion.
+// Group reads.
 
 import (
 	"context"
@@ -15,24 +15,19 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Group reads one group. A slug resolves only a live group (a former slug
-// forwards to its group); an id also returns a soft-deleted group, with
-// DeletedAt set. Absence is ErrGroupNotFound.
+// Group reads one group, a soft-deleted one included, with DeletedAt set.
+// Absence is ErrGroupNotFound.
 func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.Group{}, err
 	}
 	st := s.groupStore()
 	id := ref.ID()
-	if id == "" {
-		if err := validateGroupSlug(ref); err != nil {
-			return iam.Group{}, iam.ErrGroupNotFound
-		}
-		g, err := s.resolveGroup(ctx, st, ref)
-		if err != nil {
+	if ref.IsRoot() {
+		var err error
+		if id, err = s.rootGroup(ctx, st); err != nil {
 			return iam.Group{}, err
 		}
-		id = g.ID
 	}
 	u, err := uuid.Parse(id)
 	if err != nil {
@@ -69,7 +64,7 @@ func groupBatch(groupIDs []string) ([]string, error) {
 	return ids, nil
 }
 
-// ListGroups lists groups by slug, then id. The root group is never listed.
+// ListGroups lists groups oldest first. The root group is never listed.
 func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
 	var out iam.ListPage[iam.Group]
 	if err := s.requirePG(); err != nil {
@@ -79,16 +74,15 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); persona != "" && (!ok || persona == iam.RootPersona) {
 		return out, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
-	after, err := decodePageCursor(q.Page.Cursor, 2)
+	after, err := decodePageCursor(q.Page.Cursor, 1)
 	if err != nil {
 		return out, err
 	}
 	limit := q.Page.PageLimit()
 	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups
- WHERE persona<>'root' AND instance_slug IS NOT NULL AND ($1='' OR persona=$1) AND ($2 OR deleted_at IS NULL)
- AND ($3='' OR strpos(instance_slug,$3)>0 OR strpos(lower(COALESCE(display_name,'')),$3)>0)
- AND ($4='' OR (instance_slug,id)>($4,NULLIF($5,'')::uuid))
- ORDER BY instance_slug,id LIMIT $6`, persona, q.IncludeDeleted, strings.ToLower(strings.TrimSpace(q.Search)), after[0], after[1], limit+1)
+ WHERE persona<>'root' AND ($1='' OR persona=$1) AND ($2 OR deleted_at IS NULL)
+ AND ($3='' OR id>$3::uuid)
+ ORDER BY id LIMIT $4`, persona, q.IncludeDeleted, after[0], limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -105,15 +99,14 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
-		last := out.Items[limit-1]
-		out.Next = encodePageCursor(last.Slug, last.ID)
+		out.Next = encodePageCursor(out.Items[limit-1].ID)
 	}
 	return out, nil
 }
 
 // OwnerlessGroups lists the live groups, root aside, that have no owner who
 // counts toward the last-owner rule (requireRemainingOwner), ordered by
-// persona, slug, then id: groups created without one, or left without one by
+// persona, then id: groups created without one, or left without one by
 // a credential sweep at boot. An owner whose required MFA enrollment is still
 // pending does not count.
 func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
@@ -121,7 +114,7 @@ func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.Li
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	after, err := decodePageCursor(p.Cursor, 3)
+	after, err := decodePageCursor(p.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
@@ -134,9 +127,9 @@ func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.Li
 	limit := p.PageLimit()
 	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups g
  WHERE g.persona<>'root' AND g.deleted_at IS NULL
- AND ($2='' OR (g.persona,COALESCE(g.instance_slug,''),g.id)>($2,$3,NULLIF($4,'')::uuid))
+ AND ($2='' OR (g.persona,g.id)>($2,NULLIF($3,'')::uuid))
  AND NOT `+usableOwner("g.id", "''", "NULL::uuid", "(g.persona=ANY($1::text[]))")+`
- ORDER BY g.persona,COALESCE(g.instance_slug,''),g.id LIMIT $5`, mfaPersonas, after[0], after[1], after[2], limit+1)
+ ORDER BY g.persona,g.id LIMIT $4`, mfaPersonas, after[0], after[1], limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -154,7 +147,7 @@ func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.Li
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1]
-		out.Next = encodePageCursor(string(last.Persona), last.Slug, last.ID)
+		out.Next = encodePageCursor(string(last.Persona), last.ID)
 	}
 	return out, nil
 }
@@ -234,7 +227,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 }
 
 // ListSubjectGroups lists the live groups a subject holds a role in, ordered
-// by persona, slug, then id.
+// by persona, then id.
 func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
 	var out iam.ListPage[iam.Membership]
 	if err := s.requirePG(); err != nil {
@@ -248,23 +241,23 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	if err != nil {
 		return out, err
 	}
-	after, err := decodePageCursor(p.Cursor, 3)
+	after, err := decodePageCursor(p.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
 	limit := p.PageLimit()
-	rows, err := s.pg.Query(ctx, fmt.Sprintf(`SELECT g.id::text, g.persona, COALESCE(g.instance_slug,''), COALESCE(g.display_name,''), g.deleted_at, a.role
+	rows, err := s.pg.Query(ctx, fmt.Sprintf(`SELECT g.id::text, g.persona, g.created_at, g.deleted_at, a.role
  FROM %s a JOIN permission_groups g ON g.id=a.permission_group_id
  WHERE a.%s=$1::uuid AND g.deleted_at IS NULL
- AND ($2='' OR (g.persona,COALESCE(g.instance_slug,''),g.id)>($2,$3,NULLIF($4,'')::uuid))
- ORDER BY g.persona,COALESCE(g.instance_slug,''),g.id LIMIT $5`, table, column), subject.ID, after[0], after[1], after[2], limit+1)
+ AND ($2='' OR (g.persona,g.id)>($2,NULLIF($3,'')::uuid))
+ ORDER BY g.persona,g.id LIMIT $4`, table, column), subject.ID, after[0], after[1], limit+1)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var m iam.Membership
-		if err := rows.Scan(&m.Group.ID, &m.Group.Persona, &m.Group.Slug, &m.Group.DisplayName, &m.Group.DeletedAt, &m.Role); err != nil {
+		if err := rows.Scan(&m.Group.ID, &m.Group.Persona, &m.Group.CreatedAt, &m.Group.DeletedAt, &m.Role); err != nil {
 			return out, err
 		}
 		out.Items = append(out.Items, m)
@@ -275,7 +268,7 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1].Group
-		out.Next = encodePageCursor(string(last.Persona), last.Slug, last.ID)
+		out.Next = encodePageCursor(string(last.Persona), last.ID)
 	}
 	return out, nil
 }
@@ -300,90 +293,4 @@ func decodePageCursor(cursor string, n int) ([]string, error) {
 		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithCause(errors.New("invalid page cursor")))
 	}
 	return key, nil
-}
-
-// DeleteGroup soft-deletes a group: it stops resolving and granting, while its
-// rows and name reservations stay. It needs <persona>:self:delete. The root
-// group cannot be deleted. An operator deleting an already deleted group by
-// id gets it back unchanged.
-func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef) (iam.Group, error) {
-	var out iam.Group
-	if err := requireActor(a); err != nil {
-		return out, err
-	}
-	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		auth, err := s.actorAuthority(ctx, st, a, g)
-		if err != nil {
-			return err
-		}
-		if g.Persona == iam.RootPersona {
-			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
-		}
-		if err := auth.requireCap(iam.PermSelfDelete(g.Persona)); err != nil {
-			return err
-		}
-		surviving, err := outsideApplicationOwnerGroups(ctx, st, g.ID)
-		if err != nil {
-			return err
-		}
-		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=$2,updated_at=$2 WHERE id=$1::uuid`, g.ID, st.now()); err != nil {
-			return err
-		}
-		if err := st.record(ctx, groupEvent(iam.EventGroupDeleted, g.ID, g.Persona)); err != nil {
-			return err
-		}
-		for _, id := range surviving {
-			if err := s.requireRemainingOwner(ctx, st, id, iam.Subject{}); err != nil {
-				return err
-			}
-		}
-		out, err = st.groupByID(ctx, g.ID)
-		return err
-	})
-	if errors.Is(err, iam.ErrGroupNotFound) && a.Kind() == iam.ActorOperator && ref.ID() != "" {
-		if g, gerr := s.Group(ctx, ref); gerr == nil && g.DeletedAt != nil {
-			return g, nil
-		}
-	}
-	return out, err
-}
-
-// PurgeGroup permanently deletes a group, live or soft-deleted, with every
-// role, custom role, key and link in it. Only an operator may purge. Purging
-// an unknown group is a no-op.
-func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, opts iam.PurgeGroupOptions) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientAuthority
-	}
-	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
-		id := ref.ID()
-		if id == "" {
-			g, err := s.resolveGroup(ctx, st, ref)
-			if err != nil {
-				return err
-			}
-			id = g.ID
-		} else if !isUUID(id) {
-			return iam.ErrGroupNotFound
-		}
-		return s.deleteGroupTx(ctx, st, strings.ToLower(id), opts)
-	})
-	if errors.Is(err, iam.ErrGroupNotFound) {
-		return nil
-	}
-	return err
-}
-
-// validateGroupSlug checks the slug of a by-slug reference.
-func validateGroupSlug(g iam.GroupRef) error {
-	if g.IsRoot() || g.ID() != "" {
-		return nil
-	}
-	if !iam.ValidSlug(g.Slug()) {
-		return fmt.Errorf("resource slug %q must be lowercase URL-safe", g.Slug())
-	}
-	return nil
 }

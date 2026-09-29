@@ -15,7 +15,7 @@ CREATE TABLE profiles.invitations (
   email public.citext,
   permission_group_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   role text,
-  invited_by uuid REFERENCES profiles.users(id) ON DELETE CASCADE, -- NULL: the operator
+  invited_by uuid REFERENCES profiles.users(id) ON DELETE CASCADE, -- NULL: the system
   code_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   redeemed_at timestamptz,

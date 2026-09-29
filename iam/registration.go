@@ -13,7 +13,7 @@ const (
 )
 
 // RegistrationMode is the public native-user self-registration policy (#147).
-// It governs ONLY public self-registration; operators can always create users
+// It governs ONLY public self-registration; the system can always create users
 // through privileged APIs, bootstrap, or manual DB operations regardless of mode.
 //
 //	Open       — anyone may self-register.
@@ -22,7 +22,7 @@ const (
 //	Closed      — no public self-registration at all.
 //
 // The former AdminOnly / AdminBootstrapOnly / ManifestOnly modes were removed
-// (#147): they described operator-side creation, not a public self-registration
+// (#147): they described host-side creation, not a public self-registration
 // policy, and are subsumed by "use the privileged APIs" under any mode.
 type RegistrationMode string
 

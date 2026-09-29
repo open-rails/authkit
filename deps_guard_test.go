@@ -119,9 +119,12 @@ func TestNothingBelowRootImportsRoot(t *testing.T) {
 
 // Request-facing code never builds an actor from path or body fields: the only
 // actor derivation is verify.ActorFromClaims, and nothing there may name the
-// operator or call an Operator* operation.
+// system actor or its kind, or call a host operation (they take no actor).
 func TestRequestSurfaceCannotBuildActors(t *testing.T) {
-	constructors := map[string]bool{"OperatorActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+	constructors := map[string]bool{"SystemActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+	hostOperations := map[string]bool{"CreateUser": true, "PurgeUsers": true, "ResetAccountMFA": true, "MintAccessToken": true,
+		"CreateGroup": true, "DeleteGroup": true, "PurgeGroup": true, "ApplyBootstrapManifest": true, "EnsureUserRole": true,
+		"ImportUsers": true, "ImportSolanaLinks": true, "LinkProvider": true}
 	derivation := filepath.Join("verify", "actor.go")
 	var violations []string
 	for _, root := range []string{"internal/httpapi", "verify", "adapters"} {
@@ -147,13 +150,13 @@ func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 				if !ok {
 					return true
 				}
-				if strings.HasPrefix(sel.Sel.Name, "Operator") {
+				if sel.Sel.Name == "SystemActor" || sel.Sel.Name == "ActorSystem" || hostOperations[sel.Sel.Name] {
 					violations = append(violations, path+": "+sel.Sel.Name)
 				}
 				if iamName == "" {
 					return true
 				}
-				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "OperatorActor" {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "SystemActor" {
 					if path != derivation {
 						violations = append(violations, path+": iam."+sel.Sel.Name)
 					}

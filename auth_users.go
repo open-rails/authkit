@@ -7,9 +7,11 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// Accounts. Reads take no actor: the host is the trust boundary. Every
-// mutation takes the actor right after ctx; iam.OperatorActor() is trusted
-// host authority. A non-operator needs rule ACCT: the named root:users:*
+// Accounts. Reads take no actor: the host is the trust boundary. Host
+// operations (CreateUser, PurgeUsers, ResetAccountMFA) take none either: your
+// code decides. Every other mutation takes the actor right after ctx;
+// iam.SystemActor() is trusted host authority, and any other actor needs rule
+// ACCT: the named root:users:*
 // permission and coverage of the target account's grants in root and in every
 // group it holds a role in.
 
@@ -62,14 +64,14 @@ func (a *Auth) UserMetadata(ctx context.Context, userID string) (map[string]any,
 	return a.engine.UserMetadata(ctx, userID)
 }
 
-// CreateUser creates a native account. Operator only.
-func (a *Auth) CreateUser(ctx context.Context, actor iam.Actor, u iam.NewUser) (iam.User, error) {
-	return a.engine.CreateUser(ctx, actor, u)
+// CreateUser creates a native account. Host operation: your code decides.
+func (a *Auth) CreateUser(ctx context.Context, u iam.NewUser) (iam.User, error) {
+	return a.engine.CreateUser(ctx, u)
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
 // change its own Username, AvatarURL and PreferredLanguage. Password,
-// PasswordHash and the verified flags are operator-only; setting a verified
+// PasswordHash and the verified flags are system-only; setting a verified
 // flag on an account with no proven contact first retires its pre-proof
 // credentials. An email change never moves the account's email factor.
 func (a *Auth) UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
@@ -109,9 +111,9 @@ func (a *Auth) RestoreUsers(ctx context.Context, actor iam.Actor, ids []string) 
 }
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the
-// host deletion callbacks complete. Operator only.
-func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
-	return a.engine.PurgeUsers(ctx, actor, ids)
+// host deletion callbacks complete. Host operation: your code decides.
+func (a *Auth) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, error) {
+	return a.engine.PurgeUsers(ctx, ids)
 }
 
 // ResetAccountMFA recovers an account that lost its second factors, such as a
@@ -119,9 +121,10 @@ func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([
 // passkeys, 2FA factors and backup codes, revokes its device keys and
 // sessions, and notifies its address through the email sender. Roles stay:
 // when one needs MFA, or 2FA is Required, the next sign-in enrolls a factor.
-// Operator only; verify who is asking before calling it.
-func (a *Auth) ResetAccountMFA(ctx context.Context, actor iam.Actor, userID string) error {
-	return a.engine.ResetAccountMFA(ctx, actor, userID)
+// Host operation: your code decides, so verify who is asking before calling
+// it.
+func (a *Auth) ResetAccountMFA(ctx context.Context, userID string) error {
+	return a.engine.ResetAccountMFA(ctx, userID)
 }
 
 // ActiveDeviceKeys returns the account's unrevoked device public keys in

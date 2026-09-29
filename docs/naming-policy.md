@@ -1,8 +1,8 @@
-# User and group naming
+# Username naming
 
-AuthKit identifies users and groups by immutable UUID. Usernames and
-`(persona, slug)` are separate namespaces. Routes resolve a current name or a
-live alias to one UUID; authorization and the operation keep that UUID.
+AuthKit identifies users by immutable UUID. A username resolves, as a current
+name or a live alias, to one UUID; authorization and the operation keep that
+UUID. Permission groups have no names: the app names what a group guards.
 
 ## Case
 
@@ -11,8 +11,7 @@ keeps the spelling its owner chose for display (`users.username` is `citext`),
 while uniqueness, login, availability, pending-registration holds and alias
 resolution use the lowercase key in `name_claims`: `Fidika` and `fidika` are
 one account. Renaming to another case of your own name changes only the display
-spelling (no claim, alias or cooldown). Group slugs are URL keys stored
-lowercase; any case a caller sends is folded before validation and lookup.
+spelling (no claim, alias or cooldown).
 
 ## Configuration
 
@@ -58,15 +57,14 @@ back to an owned alias follows the same policy. Policy changes affect future
 aliases, not issued ones. Disabling renames does not disable forwarding.
 
 Deletion does not forward to a dead identity or free its reservations early. A
-purged user's username stays reserved forever, like a purged group's slug.
+purged user's username stays reserved forever.
 Writes resolve aliases internally; there are no redirects. Credentials and jobs
 are UUID-bound.
 
 ## Storage
 
-`name_claims` owns each normalized `(owner_kind, persona, name)` key, with the
-owner UUID, canonical/alias state and alias deadline. One canonical name per
-owner. Creation claims the name and inserts the identity in one statement;
+`name_claims` owns each normalized username, with the owner UUID,
+canonical/alias state and alias deadline. One canonical name per owner. Creation claims the name and inserts the identity in one statement;
 triggers refuse direct name or UUID changes outside an atomic transition.
 Renames lock the owner, re-read its name, then change claims and identity in one
 transaction. Namespace locks use 256 ordered stripes. Resolver reads are
@@ -75,12 +73,6 @@ most 5000 expired aliases per run; it never decides forwarding or claims.
 
 ## API
 
-- Generated group routes capture the group's UUID before the permission check;
-  later lookups in the request re-check that group's liveness and never follow
-  its name to a new owner. Responses carry `X-AuthKit-Group-ID` and
-  `X-AuthKit-Canonical-Instance`.
-- `UpdateGroup(ctx, actor, ref, iam.GroupUpdate{Slug, DisplayName})` commits
-  slug and display name together (`<persona>:self:update`).
 - `User(ctx, iam.UserByUsername(name))` resolves live aliases to the owner;
   `ResolveUsername(ctx, name)` also says whether `name` is an alias and until
   when. Deleted and purged owners resolve nobody.
@@ -88,10 +80,6 @@ most 5000 expired aliases per run; it never decides forwarding or claims.
   policy's error, `username_in_use` for any claim (current, live alias,
   purged account, pending registration; identical whoever holds it), then
   `Deps.NameAdmission`. It is Go-only; rate-limit it before serving it.
-- `ListGroups(ctx, iam.GroupQuery{Persona, Search, Page})` searches slugs and
-  display names by case-insensitive substring, ordered by slug; aliases add no
-  duplicates.
-- `Deps.NameAdmission` is the host's side-effect-free namespace policy
-  (`iam.NameAdmissionRequest`), run on creation and rename.
-  `Deps.InstanceAdmission` runs only on group creation.
+- `Deps.NameAdmission` is the host's side-effect-free username policy
+  (`iam.NameAdmissionRequest`), run on account creation and rename.
 - `Deps.Clock` supplies naming timestamps.

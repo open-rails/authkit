@@ -220,7 +220,6 @@ func removedMFARolesResponse(removed []authflow.RemovedMFARoleAssignment) []map[
 		out = append(out, map[string]any{
 			"permission_group_id": r.PermissionGroupID,
 			"persona":             r.Persona,
-			"instance_slug":       r.InstanceSlug,
 			"role":                r.Role,
 			"removed_at":          r.RemovedAt.UTC().Format(time.RFC3339),
 		})

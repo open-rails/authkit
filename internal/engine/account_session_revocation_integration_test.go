@@ -38,7 +38,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = accountIssuers
 		cfg.Token.AccessTokenDuration = ttl
-		cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "operator", Permissions: iam.IntrinsicRootPermissions()}}}
+		cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "staff", Permissions: iam.IntrinsicRootPermissions()}}}
 		// root:users:manage needs MFA while 2FA is on; this test is about issuers.
 		cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
@@ -100,8 +100,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	}
 	victimID, victimEmail, victimPass := user("victim")
 	_, bystanderEmail, bystanderPass := user("bystander")
-	operatorID, operatorEmail, operatorPass := user("operator")
-	grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
+	staffID, staffEmail, staffPass := user("staff")
+	grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(staffID), "staff")
 
 	bystanderA, bystanderB := login(siteA, bystanderEmail, bystanderPass), login(siteB, bystanderEmail, bystanderPass)
 	key := make([]byte, 32)
@@ -109,10 +109,10 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO user_device_keys (user_id, public_key) VALUES ($1, $2)`, victimID, key)
 	require.NoError(t, err)
 	victimB, victimC := login(siteB, victimEmail, victimPass), login(siteC, victimEmail, victimPass)
-	operator := login(siteA, operatorEmail, operatorPass)
+	staff := login(siteA, staffEmail, staffPass)
 	// Site A's short access TTL starts here; its expiry is asserted below.
 	victimA := login(siteA, victimEmail, victimPass)
-	w := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/sessions/revoke", operator.AccessToken, "")
+	w := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/sessions/revoke", staff.AccessToken, "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var result iam.AccountSessionRevocation
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
@@ -171,7 +171,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		stepUp := call(siteA, http.MethodPost, "/step-up/password", victimA.AccessToken, `{"password":"`+victimPass+`"}`)
 		require.NotEqual(t, http.StatusOK, stepUp.Code, "a revoked session cannot regain step-up freshness: %s", stepUp.Body.String())
 
-		ban := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/ban", login(siteA, operatorEmail, operatorPass).AccessToken, `{"until":"infinite"}`)
+		ban := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/ban", login(siteA, staffEmail, staffPass).AccessToken, `{"until":"infinite"}`)
 		require.Equal(t, http.StatusNoContent, ban.Code, ban.Body.String())
 		require.Equal(t, http.StatusUnauthorized, probeLive(), "ban reaches held access tokens through the live gate immediately")
 		// Use the sibling site's hour-long token so the stateless assertion
@@ -236,15 +236,15 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	t.Run("ban revokes sibling sessions so unban cannot revive them", func(t *testing.T) {
 		id, email, pass := user("banned")
 		onB := login(siteB, email, pass)
-		require.NoError(t, siteA.Backend().Ban(ctx, iam.OperatorActor(), id, iam.Ban{}))
-		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.OperatorActor(), id))
+		require.NoError(t, siteA.Backend().Ban(ctx, iam.SystemActor(), id, iam.Ban{}))
+		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.SystemActor(), id))
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &onB))
 	})
 
 	t.Run("unconfigured deployment covers only its own issuer", func(t *testing.T) {
 		id, email, pass := user("solo")
 		onB, onC := login(siteB, email, pass), login(siteC, email, pass)
-		got, err := fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.OperatorActor(), id)
+		got, err := fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.SystemActor(), id)
 		require.NoError(t, err)
 		require.Equal(t, []string{issuerC}, got.Issuers)
 		require.Equal(t, map[string]int{issuerC: 1}, got.RevokedSessions)
@@ -252,14 +252,14 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(siteC, &onC))
 		require.Equal(t, http.StatusOK, refresh(siteB, &onB))
 
-		_, err = fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.OperatorActor(), "00000000-0000-7000-8000-000000000000")
+		_, err = fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.SystemActor(), "00000000-0000-7000-8000-000000000000")
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 	t.Run("permission gates are live while native tokens follow their lifetime", func(t *testing.T) {
-		elevated := login(siteB, operatorEmail, operatorPass)
+		elevated := login(siteB, staffEmail, staffPass)
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
 		targetID, _, _ := user("sensitive-target")
-		require.NoError(t, siteA.Backend().Ban(ctx, iam.OperatorActor(), operatorID, iam.Ban{}))
+		require.NoError(t, siteA.Backend().Ban(ctx, iam.SystemActor(), staffID, iam.Ban{}))
 		directory := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, directory.Code, "a banned identity loses its permissions at once")
 		mutation := call(siteB, http.MethodPost, "/admin/users/"+targetID+"/ban", elevated.AccessToken, `{"until":"infinite"}`)
@@ -268,14 +268,14 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, target.BannedAt)
 		require.Equal(t, http.StatusUnauthorized, refresh(siteB, &elevated), "ban prevents issuing another access token")
-		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+operatorEmail+`","password":"`+operatorPass+`"}`)
+		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+staffEmail+`","password":"`+staffPass+`"}`)
 		require.Equal(t, http.StatusUnauthorized, relogin.Code, relogin.Body.String())
-		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.OperatorActor(), operatorID))
+		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.SystemActor(), staffID))
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
-		revokeRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
+		revokeRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(staffID), "staff")
 		revoked := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, revoked.Code, revoked.Body.String())
-		grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
+		grantRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(staffID), "staff")
 		// The same credential remains valid on ordinary application routes.
 		before := queries.count.Load()
 		request := httptest.NewRequest(http.MethodGet, "/ordinary", nil)
@@ -289,10 +289,10 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		unavailable := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusOK, unavailable.Code, unavailable.Body.String())
 		siteB.Verifier().WithLiveness(fixtureBackend(siteB.Backend()))
-		require.NoError(t, fixtureBackend(siteA.Backend()).softDelete(ctx, operatorID))
+		require.NoError(t, fixtureBackend(siteA.Backend()).softDelete(ctx, staffID))
 		deleted := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
 		require.Equal(t, http.StatusForbidden, deleted.Code, "deleted identities have no current permission authority")
-		latent, err := siteB.Backend().EffectivePermissions(ctx, iam.UserActor(operatorID), []iam.GroupRef{iam.RootGroup()})
+		latent, err := siteB.Backend().EffectivePermissions(ctx, iam.UserActor(staffID), []iam.GroupRef{iam.RootGroup()})
 		require.NoError(t, err)
 		require.Empty(t, latent, "a deleted identity acts with no permission")
 	})

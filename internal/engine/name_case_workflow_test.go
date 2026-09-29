@@ -2,7 +2,6 @@ package engine
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -78,50 +77,4 @@ func meUsername(t *testing.T, f *accountFlow, token string) string {
 	}
 	require.NoError(t, json.Unmarshal([]byte(me.raw), &body), me.raw)
 	return body.Username
-}
-
-// Group instance slugs are stored lowercase; every entry point folds the case a
-// caller sends instead of refusing it.
-func TestGroupInstanceSlugCaseWorkflow(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	runtime := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
-	service, err := newTestService(runtime, workflowHTTPConfig())
-	require.NoError(t, err)
-	t.Cleanup(service.Close)
-	ctx := t.Context()
-	ownerID, ownerToken := newInstanceTestUser(t, service, "slugowner")
-	_, otherToken := newInstanceTestUser(t, service, "slugother")
-
-	created := postOrg(service, ownerToken, `{"slug":"Acme-Case"}`)
-	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
-	var instance struct {
-		GroupID      string `json:"group_id"`
-		InstanceSlug string `json:"instance_slug"`
-	}
-	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &instance))
-	require.Equal(t, "acme-case", instance.InstanceSlug)
-
-	read := serveAuthJSON(service, http.MethodGet, "/org/ACME-CASE", "", ownerToken)
-	require.Equal(t, http.StatusOK, read.Code, read.Body.String())
-	require.Contains(t, read.Body.String(), instance.GroupID)
-
-	rerun := postOrg(service, ownerToken, `{"slug":"acme-case"}`)
-	require.Equal(t, http.StatusOK, rerun.Code, rerun.Body.String())
-	require.Contains(t, rerun.Body.String(), instance.GroupID)
-	taken := postOrg(service, otherToken, `{"slug":"ACME-case"}`)
-	require.Equal(t, http.StatusConflict, taken.Code, taken.Body.String())
-
-	permissions := serveAuthJSON(service, http.MethodGet, "/me/permissions?persona=org&instance=Acme-CASE", "", ownerToken)
-	require.Equal(t, http.StatusOK, permissions.Code, permissions.Body.String())
-	require.Contains(t, permissions.Body.String(), "org:*")
-
-	client := runtime
-	hosted, err := seedGroup(ctx, client, "org", "Host-Made", ownerID)
-	require.NoError(t, err)
-	resolved, err := groupIDOf(ctx, client, iam.GroupBySlug("org", "host-MADE"))
-	require.NoError(t, err)
-	require.Equal(t, hosted, resolved)
-	var groups int
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE persona='org' AND lower(instance_slug) IN ('acme-case','host-made')`).Scan(&groups))
-	require.Equal(t, 2, groups)
 }

@@ -317,7 +317,7 @@ func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) str
 	ctx := context.Background()
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
-	_, err = core.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	_, err = core.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug:    slug,
 		Issuer:  issuer,
 		Enabled: true,
@@ -328,7 +328,7 @@ func registerDocumentReader(t *testing.T, core *Engine, slug, issuer string) str
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = core.DeleteRemoteApplication(context.Background(), iam.OperatorActor(), iam.RootGroup(), slug)
+		_ = core.DeleteRemoteApplication(context.Background(), iam.SystemActor(), iam.RootGroup(), slug)
 	})
 
 	// A remote application addresses its token to THIS platform (ak#324: the
@@ -814,30 +814,30 @@ func passwordlessTestServer(t *testing.T, autoRegister bool) (*httpapi.Service, 
 	return srv, emailSender, smsSender
 }
 
-// drive runs one generated route handler at a concrete (no sub-resource) path,
-// with the caller's claims set, and returns the recorder. Sub-resource DELETEs
-// (:key / :app / :invite) are driven inline via driveSub.
-func drive(s *httpapi.Service, t *testing.T, gr httpapi.GeneratedRoute, instanceSlug, caller, body string) *httptest.ResponseRecorder {
+// drive runs one group route handler for the group groupID, with the
+// caller's claims set, and returns the recorder. Routes with further path
+// parameters are driven via driveSub.
+func drive(s *httpapi.Service, t *testing.T, gr httpapi.GroupRoute, groupID, caller, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	path := strings.ReplaceAll(gr.Path, ":instance_slug", instanceSlug)
+	path := strings.ReplaceAll(gr.Path, ":group_id", groupID)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, strings.NewReader(body))
 	r = withMuxParams(r, gr.Path, nil)
 	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: caller}))
 	w := httptest.NewRecorder()
-	s.GeneratedGroupHandler(gr).ServeHTTP(w, r)
+	s.GroupHandler(gr).ServeHTTP(w, r)
 	return w
 }
 
-// driveSub runs a sub-resource handler (DELETE with :key/:app/:invite) at a
-// concrete path, with claims set.
-func driveSub(s *httpapi.Service, t *testing.T, gr httpapi.GeneratedRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
+// driveSub runs a group route handler at the concrete path repl makes, with
+// claims set.
+func driveSub(s *httpapi.Service, t *testing.T, gr httpapi.GroupRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
 	t.Helper()
 	path := repl.Replace(gr.Path)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, nil)
 	r = withMuxParams(r, gr.Path, nil)
 	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: caller}))
 	w := httptest.NewRecorder()
-	s.GeneratedGroupHandler(gr).ServeHTTP(w, r)
+	s.GroupHandler(gr).ServeHTTP(w, r)
 	return w
 }
 
@@ -857,21 +857,14 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 	return r
 }
 
-// instanceCreateTestConfig declares an "org" persona with generated creation
-// enabled: a slug pattern tighter than the built-in rule (no dots), one
-// reserved slug that only holders of org:* on root may take, and remote
-// applications on for the role-assignment route.
-func instanceCreateTestConfig() Config {
+// orgTestConfig declares an "org" persona with remote applications on for
+// the role-assignment route.
+func orgTestConfig() Config {
 	cfg := newServerTestConfig()
 	cfg.Roles = RoleConfig{
 		Personas: map[string]Persona{"org": {
 			Permissions:        []string{"org:catalog:read"},
 			RemoteApplications: true,
-			Creation: GroupCreation{
-				Enabled:       true,
-				SlugPattern:   `[a-z0-9][a-z0-9-]{0,30}`,
-				ReservedSlugs: []string{"platform"},
-			},
 		}},
 		Roles: []Role{
 			{Persona: iam.RootPersona, Name: "site-admin", Permissions: []string{iam.PermRootUsersRead}},
@@ -897,10 +890,6 @@ func newInstanceTestUser(t *testing.T, srv *httpapi.Service, prefix string) (id,
 	tok, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	return user.ID, tok
-}
-
-func postOrg(srv *httpapi.Service, token, body string) *httptest.ResponseRecorder {
-	return serveAuthJSON(srv, http.MethodPost, "/org", body, token)
 }
 
 // testOAuth2Provider is an OAuth2 provider against a fake IdP rooted at base:

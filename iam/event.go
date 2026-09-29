@@ -47,7 +47,7 @@ type Event struct {
 	Kind       EventKind
 	OccurredAt time.Time
 	// ActorKind and ActorID name who made the change (ActorID is empty for
-	// the operator). Both are empty for a change AuthKit made on its own: the
+	// the system). Both are empty for a change AuthKit made on its own: the
 	// end of a recovery window, or a role retired with its grantor's cover.
 	ActorKind ActorKind
 	ActorID   string

@@ -40,14 +40,11 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 }
 
 // ApplyBootstrapManifest applies seed data and its StartupOnly receipt in one
-// authority transaction, under the operator. It never adopts an account
+// authority transaction, as a host operation. It never adopts an account
 // through a username, an alias or an unverified contact, and never changes an
 // existing account's identity or marks its contacts verified (see
 // iam.BootstrapManifestUser). Role changes run the credential sweep.
-func (s *Engine) ApplyBootstrapManifest(ctx context.Context, a iam.Actor, manifest iam.BootstrapManifest, opts iam.BootstrapOptions) (iam.BootstrapResult, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.BootstrapResult{}, err
-	}
+func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapOptions) (iam.BootstrapResult, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.BootstrapResult{}, err
 	}
@@ -110,7 +107,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, a iam.Actor, manife
 	}
 	var result iam.BootstrapResult
 	var revocations []revocation
-	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		result, revocations = iam.BootstrapResult{}, nil
 		if opts.StartupOnly {
 			already, err := s.claimBootstrapApply(ctx, st.q, opts.Name)

@@ -27,7 +27,7 @@ func loadAccountDeletion(ctx context.Context, tx pgx.Tx, id string) (accountDele
 }
 
 // createAccountDeletion starts the recovery window. deletedBy is the user who
-// deleted the account (nil for the operator); only a self-deletion can be
+// deleted the account (nil for the system); only a self-deletion can be
 // undone by signing in.
 func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], userID string, deletedBy *string) error {
 	issuers := s.accountIssuers()
@@ -125,7 +125,7 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 		return river.JobSnooze(time.Minute)
 	}
 	// Sweep while the creator still exists (creator-less credentials are the
-	// operator's); the delete then cascades to what the account issued.
+	// system's); the delete then cascades to what the account issued.
 	if err := s.revokeCredentialsOf(ctx, store, userID); err != nil {
 		return err
 	}

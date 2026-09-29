@@ -11,7 +11,7 @@ import (
 
 // CreateInviteLink mints a single-use link granting l.Role in ref. The actor
 // needs <persona>:members:manage and must cover the role; only a user or the
-// operator issues credentials. The code is returned once.
+// system issues credentials. The code is returned once.
 func (a *Auth) CreateInviteLink(ctx context.Context, actor iam.Actor, ref iam.GroupRef, l iam.NewInviteLink) (iam.InviteLinkCreated, error) {
 	return a.engine.CreateInviteLink(ctx, actor, ref, l)
 }

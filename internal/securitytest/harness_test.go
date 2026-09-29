@@ -248,28 +248,28 @@ func unique(prefix string) string {
 	return strings.ToLower(prefix) + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "") + string(rune('a'+seq.n%26))
 }
 
-// newAccount creates a password user with a verified address with operator
+// newAccount creates a password user with a verified address with system
 // authority.
 func (h *host) newAccount(prefix string) account {
 	h.t.Helper()
 	name := unique(prefix)
 	email := name + "@security.test"
-	u, err := h.auth.CreateUser(context.Background(), iam.OperatorActor(), iam.NewUser{Email: email, Username: name, Password: password, EmailVerified: true})
+	u, err := h.auth.CreateUser(context.Background(), iam.NewUser{Email: email, Username: name, Password: password, EmailVerified: true})
 	require.NoError(h.t, err)
 	return account{id: u.ID, email: email, username: name}
 }
 
-// setPassword replaces a password with operator authority.
+// setPassword replaces a password with system authority.
 func (h *host) setPassword(id, pw string) error {
-	_, err := h.auth.UpdateUser(context.Background(), iam.OperatorActor(), id, iam.UserUpdate{Password: &pw})
+	_, err := h.auth.UpdateUser(context.Background(), iam.SystemActor(), id, iam.UserUpdate{Password: &pw})
 	return err
 }
 
-// verifyEmail marks the account's email verified with operator authority.
+// verifyEmail marks the account's email verified with system authority.
 func (h *host) verifyEmail(id string) {
 	h.t.Helper()
 	verified := true
-	_, err := h.auth.UpdateUser(context.Background(), iam.OperatorActor(), id, iam.UserUpdate{EmailVerified: &verified})
+	_, err := h.auth.UpdateUser(context.Background(), iam.SystemActor(), id, iam.UserUpdate{EmailVerified: &verified})
 	require.NoError(h.t, err)
 }
 
@@ -389,18 +389,18 @@ func (p phones) SendLoginCode(_ context.Context, phone, code string) error {
 
 func (p phones) SendContactChanged(context.Context, string, iam.ContactChange) error { return nil }
 
-// grantRole assigns role with operator authority; the test fails otherwise.
+// grantRole assigns role with system authority; the test fails otherwise.
 func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
-	res, err := auth.AssignGroupRoles(t.Context(), iam.OperatorActor(), ref, []iam.Subject{subject}, role)
+	res, err := auth.AssignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, role)
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 }
 
-// revokeRole unassigns role with operator authority; the test fails otherwise.
+// revokeRole unassigns role with system authority; the test fails otherwise.
 func revokeRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
-	res, err := auth.UnassignGroupRoles(t.Context(), iam.OperatorActor(), ref, []iam.Subject{subject}, role)
+	res, err := auth.UnassignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, role)
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 }

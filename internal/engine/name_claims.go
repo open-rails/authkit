@@ -21,45 +21,41 @@ func (s *Engine) namingNow() time.Time {
 	return time.Now().UTC()
 }
 
-func lockNameClaims(ctx context.Context, q db.DBTX, kind, persona string, names ...string) error {
-	_, err := q.Exec(ctx, `SELECT lock_name_claims($1,$2,$3::text[])`, kind, persona, names)
+// Name claims hold usernames and their former-name aliases.
+
+func lockNameClaims(ctx context.Context, q db.DBTX, names ...string) error {
+	_, err := q.Exec(ctx, `SELECT lock_name_claims('user','',$1::text[])`, names)
 	return err
 }
 
-func claimCanonicalName(ctx context.Context, q db.DBTX, kind, persona, name, id string, now time.Time) error {
-	_, err := q.Exec(ctx, `SELECT claim_canonical_name($1, $2, $3, $4::uuid, $5)`, kind, persona, name, id, now)
-	return nameClaimError(err, kind)
-}
-
-func nameClaimError(err error, kind string) error {
+func claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now time.Time) error {
+	_, err := q.Exec(ctx, `SELECT claim_canonical_name('user', '', $1, $2::uuid, $3)`, name, id, now)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "name_claims_pkey" {
-		if kind == "group" {
-			return iam.ErrGroupSlugTaken
-		}
 		return mapUserUniqueViolation(err)
 	}
 	return err
 }
 
-// renameNameClaim requires the owner row locked by its caller. Name locks are
-// sorted by stripe before either claim changes, so opposite renames do not deadlock.
-func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName, newName string, now time.Time, policy iam.NamingPolicy) error {
-	if err := lockNameClaims(ctx, q, kind, persona, oldName, newName); err != nil {
+// renameNameClaim requires the account row locked by its caller. Name locks
+// are sorted by stripe before either claim changes, so opposite renames do not
+// deadlock.
+func renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy iam.NamingPolicy) error {
+	if err := lockNameClaims(ctx, q, oldName, newName); err != nil {
 		return err
 	}
 	if oldName != "" {
 		if policy.FormerNameRetentionMode == iam.FormerNamesImmediate {
-			if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id); err != nil {
+			if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND owner_id=$2::uuid AND canonical`, oldName, id); err != nil {
 				return err
 			}
 		} else {
-			if _, err := q.Exec(ctx, `UPDATE name_claims SET canonical=false, expires_at=$5 WHERE owner_kind=$1 AND persona=$2 AND name=lower($3) AND owner_id=$4::uuid AND canonical`, kind, persona, oldName, id, policy.FormerNameExpiresAt(now)); err != nil {
+			if _, err := q.Exec(ctx, `UPDATE name_claims SET canonical=false, expires_at=$3 WHERE owner_kind='user' AND persona='' AND name=lower($1) AND owner_id=$2::uuid AND canonical`, oldName, id, policy.FormerNameExpiresAt(now)); err != nil {
 				return err
 			}
 		}
 	}
-	return claimCanonicalName(ctx, q, kind, persona, newName, id, now)
+	return claimCanonicalName(ctx, q, newName, id, now)
 }
 
 // resolveUsername resolves current names and unexpired aliases directly to UUID.
@@ -99,7 +95,7 @@ func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 	if taken || s.pendingChangeUsernameTaken(ctx, name) {
 		return iam.ErrUsernameInUse
 	}
-	return s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", RequestedName: name, Operation: iam.NameCreate})
+	return s.admitName(ctx, iam.NameAdmissionRequest{RequestedName: name, Operation: iam.NameCreate})
 }
 
 // usernameTaken reports whether any claim holds name: a canonical name, an
@@ -128,24 +124,9 @@ func (s *Engine) UserNamingState(ctx context.Context, id string) (iam.NamingStat
 	if err != nil {
 		return iam.NamingState{}, err
 	}
-	return s.namingStateWithAliases(ctx, "user", id, last)
-}
-func (s *Engine) GroupNamingState(ctx context.Context, id string) (iam.NamingState, error) {
-	if err := s.requirePG(); err != nil {
-		return iam.NamingState{}, err
-	}
-	var last *time.Time
-	err := s.pg.QueryRow(ctx, `SELECT last_renamed_at FROM permission_groups WHERE id=$1::uuid`, id).Scan(&last)
-	if err != nil {
-		return iam.NamingState{}, err
-	}
-	return s.namingStateWithAliases(ctx, "group", id, last)
-}
-
-func (s *Engine) namingStateWithAliases(ctx context.Context, kind, id string, last *time.Time) (iam.NamingState, error) {
 	now := s.namingNow()
 	state := s.NamingPolicy().State(last, now)
-	rows, err := s.pg.Query(ctx, `SELECT name,expires_at FROM name_claims WHERE owner_kind=$1 AND owner_id=$2::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$3) ORDER BY name`, kind, id, now)
+	rows, err := s.pg.Query(ctx, `SELECT name,expires_at FROM name_claims WHERE owner_kind='user' AND owner_id=$1::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$2) ORDER BY name`, id, now)
 	if err != nil {
 		return state, err
 	}

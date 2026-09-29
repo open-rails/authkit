@@ -27,7 +27,7 @@ type APIKey struct {
 	Name        string
 	Role        Role
 	Permissions []string
-	CreatedBy   string // "" = issued by the operator
+	CreatedBy   string // "" = issued by the system
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
 	ExpiresAt   *time.Time

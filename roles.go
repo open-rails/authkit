@@ -5,11 +5,12 @@ import "github.com/open-rails/authkit/iam"
 // RoleConfig declares who may do what, read once at New.
 //
 // A persona is a type of permission group (channel, org, merchant). A
-// permission group is one instance of a persona (/c/golang), created at run
-// time. root is the persona with exactly one group, the whole site; it always
-// exists and needs no entry. A permission is `<persona>:<resource>:<action>`;
-// `*` may replace the action (`channel:posts:*`) or everything after the
-// persona (`channel:*`, the owner). The resource `self` is the group itself.
+// permission group is one instance of a persona, created at run time by the
+// host (Auth.CreateGroup) for an entity of its own, such as the channel
+// /c/golang. root is the persona with exactly one group, the whole site; it
+// always exists and needs no entry. A permission is
+// `<persona>:<resource>:<action>`; `*` may replace the action
+// (`channel:posts:*`) or everything after the persona (`channel:*`, the owner).
 type RoleConfig struct {
 	// Personas maps each persona name to its settings. A "root" entry is
 	// optional and only adds app-specific root permissions and capabilities.
@@ -23,7 +24,7 @@ type RoleConfig struct {
 type Persona struct {
 	// Permissions is the persona's complete app-defined catalog, each
 	// `<persona>:<resource>:<action>`. AuthKit adds its own built-ins
-	// (members, roles, credentials and, except on root, self).
+	// (members, roles and credentials).
 	Permissions []string
 	// RequireMFA lists catalog permissions (or patterns over the catalog)
 	// that need a second factor. A subject holding a grant that reaches one,
@@ -31,8 +32,6 @@ type Persona struct {
 	// API key may hold it. root:members:manage and root:users:manage always need
 	// MFA.
 	RequireMFA []string
-	// Creation opts the persona into POST /<persona>.
-	Creation GroupCreation
 	// CustomRoles lets group owners define roles at run time, composed from
 	// the persona's catalog.
 	CustomRoles bool
@@ -40,17 +39,6 @@ type Persona struct {
 	APIKeys bool
 	// RemoteApplications mounts the group remote-application routes.
 	RemoteApplications bool
-}
-
-// GroupCreation opts a persona into POST /<persona>: any signed-in user may
-// create a group and becomes its owner.
-type GroupCreation struct {
-	Enabled bool
-	// SlugPattern further restricts slugs beyond the built-in rule: an
-	// unanchored regexp, anchored at New.
-	SlugPattern string
-	// ReservedSlugs are creatable only by actors holding `<persona>:*` on root.
-	ReservedSlugs []string
 }
 
 // Role is a named bundle of permissions held in groups of one persona. A root

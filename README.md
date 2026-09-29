@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
@@ -101,20 +102,24 @@ var roles = authkit.RoleConfig{
 		// we'll create one permission group per reddit-channel, like /c/golang
 		"channel": {
 			// Our own permissions. Every persona also gets AuthKit's built-ins for free:
-			// channel:self:* (read, update, delete the channel), channel:members:* and, when switched on,
-			// channel:roles:manage and channel:credentials:* (its API keys and apps).
-			Permissions: []string{"channel:posts:edit", "channel:posts:delete", "channel:posts:approve"},
-			// Anyone signed in may start a channel and becomes its owner. Only admins may take /c/announcements.
-			Creation: authkit.GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}},
+			// channel:members:* and, when switched on, channel:roles:manage and
+			// channel:credentials:* (its API keys and apps).
+			Permissions: []string{
+				"channel:posts:edit", "channel:posts:delete", "channel:posts:approve",
+				"channel:metadata:edit", // change the channel's name, description and rules
+			},
 		},
+		// root needs no entry, but deleting a channel is a job for site admins
+		"root": {Permissions: []string{"root:channels:delete"}},
 	},
 	// Roles are bundles of permissions, scoped to a specific persona.
 	// There is always a singleton persona; root
 	Roles: []authkit.Role{
 		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}}, // edit, delete and approve posts
 		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
-			"channel:*",    // read, edit, and delete any channel
-			"root:users:*", // read, ban, delete and manage user accounts
+			"channel:*",            // edit any channel and everything in it
+			"root:users:*",         // read, ban, delete and manage user accounts
+			"root:channels:delete", // delete any channel
 		}},
 	},
 }
@@ -126,13 +131,12 @@ AuthKit gives every persona these permissions for free, so you never list them y
 
 | Permission | Lets you |
 |---|---|
-| `channel:self:read` | see the channel's settings: its id, name and rename history |
-| `channel:self:update` | rename it or change its display name |
-| `channel:self:delete` | delete it |
 | `channel:members:read` | see who holds which role in it |
 | `channel:members:manage` | give someone a role, change it, or take it away |
 | `channel:roles:manage` | define the channel's own custom roles (only when `CustomRoles` is on) |
 | `channel:credentials:read`, `channel:credentials:manage` | list, or create and revoke, the channel's API keys and connected apps (only when `APIKeys` or `RemoteApplications` is on) |
+
+What a channel's data is, and who may change it, is your app's call; that's why `channel:metadata:edit` and `root:channels:delete` are ours.
 
 The root group has its own:
 
@@ -145,28 +149,55 @@ The root group has its own:
 | `root:users:invite` | invite someone to create an account |
 | `root:members:read`, `root:members:manage` | see or hand out site-wide roles |
 
-It has no `self`, because nobody renames or deletes the whole site.
-
 A channel's members are the people who hold a role there: its owner and moderators. Readers and posters don't need to be members; who may post is your app's call.
 
 On every boot, AuthKit makes sure `ADMIN_EMAIL` is one. If there's no such account yet, AuthKit makes one with no password, and its owner signs in with "forgot password". Admins can edit other people's accounts, so AuthKit has them set up two-factor sign-in the first time they log in.
 
-Channels are data, not config: they're made while the site runs. People make them with AuthKit's own route, `POST /api/v1/channel` with `{"slug": "golang"}`, and become that channel's owner. Code makes them with `CreateGroup`. Here our admin opens /c/announcements, a name only admins may take.
+Channels are data, not config: they're made while the site runs. A channel is ours: our `channels` table keeps its name and description, and the ID of the permission group where AuthKit keeps its roles. People start one with our own route, `POST /c` with `{"name": "golang"}`, and become that channel's owner; our route decides who may and which names are taken. It asks AuthKit for the group in the same transaction as our row, so neither ever exists without the other. Here our admin opens /c/announcements, a name `POST /c` never hands out.
 
 ```go
-func seed(ctx context.Context, auth *authkit.Auth) error {
+func seed(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth) error {
 	email := os.Getenv("ADMIN_EMAIL")
 	if email == "" {
 		return errors.New("set ADMIN_EMAIL to the first admin's address")
 	}
-	// The operator is your own code, trusted to do anything.
-	admin, err := auth.EnsureUserRole(ctx, iam.OperatorActor(), iam.RootGroup(), iam.UserByEmail(email), "admin")
+	// This is your own code, trusted to do anything, so it needs no actor.
+	admin, err := auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), "admin")
 	if err != nil {
 		return err
 	}
-	// Acting as the admin now. Later boots find the channel already made.
-	_, _, err = auth.CreateGroup(ctx, iam.UserActor(admin.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
+	_, err = db.Exec(ctx, `CREATE TABLE IF NOT EXISTS channels (
+		name        text PRIMARY KEY,
+		description text NOT NULL DEFAULT '',
+		group_id    uuid NOT NULL UNIQUE
+	)`)
+	if err != nil {
+		return err
+	}
+	err = createChannel(ctx, db, auth, "announcements", admin.ID)
+	if errors.Is(err, errChannelTaken) {
+		return nil // later boots find the channel already made
+	}
 	return err
+}
+
+var errChannelTaken = errors.New("that channel already exists")
+
+// createChannel makes channel name, owned by ownerID: our row and AuthKit's permission group
+// commit together or not at all.
+func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth, name, ownerID string) error {
+	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
+		owner := iam.UserSubject(ownerID)
+		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+		if err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `INSERT INTO channels (name, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, name, g.ID)
+		if err == nil && tag.RowsAffected() == 0 {
+			err = errChannelTaken // rolling back takes the new group with it
+		}
+		return err
+	})
 }
 ```
 
@@ -189,25 +220,25 @@ func run(ctx context.Context) error {
 	if err := auth.Start(ctx); err != nil { // background maintenance jobs
 		return err
 	}
-	if err := seed(ctx, auth); err != nil {
+	if err := seed(ctx, db, auth); err != nil {
 		return err
 	}
 	r := gin.Default()
 	if err := authkitgin.Mount(r, auth); err != nil { // /api/v1/*, /.well-known/jwks.json, /oidc/* with social logins
 		return err
 	}
-	mountForum(r, auth)
+	mountForum(r, auth, db)
 	return r.Run(":8080")
 }
 ```
 
 Admins can already look after people with AuthKit's own routes: `GET /api/v1/admin/users` to see everyone, and `POST /api/v1/admin/users/{user_id}/ban` (or `/unban`). The admin's `root:users:*` opens those doors.
 
-Badges are handed out per channel, too. Bob can moderate /c/golang and nowhere else. The owner of /c/golang, or any admin, pins the badge on him with `PUT /c/golang/moderators/{bob's user id}`; AuthKit's own `PUT /api/v1/channel/golang/members/{user_id}/roles/moderator` does the same. Then every forum route asks AuthKit about the channel in its URL. Bob gets in at /c/golang and is turned away at /c/rust, while admins get in everywhere. Roles are checked live, so a badge taken away stops working right away.
+Badges are handed out per channel, too. Bob can moderate /c/golang and nowhere else. The owner of /c/golang, or any admin, pins the badge on him with `PUT /c/golang/moderators/{bob's user id}`; AuthKit's own `PUT /api/v1/groups/{group_id}/members/{user_id}/roles/moderator`, with /c/golang's group ID, does the same. Then every forum route asks AuthKit about the channel in its URL. Bob gets in at /c/golang and is turned away at /c/rust, while admins get in everywhere. Roles are checked live, so a badge taken away stops working right away.
 
 ```go
-func mountForum(r *gin.Engine, auth *authkit.Auth) {
-	f := &forum{auth: auth, posts: map[int]*Post{}}
+func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
+	f := &forum{auth: auth, db: db, posts: map[int]*Post{}}
 	signedIn := authkitgin.Required(auth.Verifier())
 	// may signs the person in, then asks AuthKit: do they hold perm in the channel from the URL?
 	may := func(perm iam.Perm) gin.HandlerFunc {
@@ -215,7 +246,12 @@ func mountForum(r *gin.Engine, auth *authkit.Auth) {
 			return iam.GroupByID(c.GetString("channel"))
 		})
 	}
+	// admin asks the same about the whole site
+	admin := func(perm iam.Perm) gin.HandlerFunc {
+		return authkitgin.RequirePermission(auth, perm, func(*gin.Context) iam.GroupRef { return iam.RootGroup() })
+	}
 
+	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
 	ch := r.Group("/c/:channel", f.channel) // every route below knows its channel
 	ch.GET("/posts", f.list(true))          // anyone can read
 	ch.POST("/posts", signedIn, f.create)   // anyone signed in can post
@@ -225,6 +261,8 @@ func mountForum(r *gin.Engine, auth *authkit.Auth) {
 	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approve)
 	ch.PUT("/moderators/:user_id", signedIn, f.appoint) // AuthKit checks who may hand out badges
 	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)
+	ch.PATCH("", may("channel:metadata:edit"), f.editChannel)
+	ch.DELETE("", admin("root:channels:delete"), f.deleteChannel)
 }
 ```
 
@@ -242,6 +280,7 @@ type Post struct {
 
 type forum struct {
 	auth   *authkit.Auth
+	db     *pgxpool.Pool
 	mu     sync.Mutex
 	posts  map[int]*Post
 	nextID int
@@ -249,12 +288,80 @@ type forum struct {
 
 // channel finds the channel in the URL, or answers 404.
 func (f *forum) channel(c *gin.Context) {
-	g, err := f.auth.Group(c.Request.Context(), iam.GroupBySlug("channel", c.Param("channel")))
+	var groupID string
+	err := f.db.QueryRow(c.Request.Context(), `SELECT group_id FROM channels WHERE name = $1`, c.Param("channel")).Scan(&groupID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "no such channel"})
+		return
+	}
 	if err != nil {
 		authkitgin.Error(c, err)
 		return
 	}
-	c.Set("channel", g.ID)
+	c.Set("channel", groupID)
+}
+
+// createChannel is POST /c. Which names are taken is our rule, not AuthKit's.
+func (f *forum) createChannel(c *gin.Context) {
+	who, ok := authkitgin.Actor(c)
+	if !ok || who.Kind() != iam.ActorUser {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only people can start channels"})
+		return
+	}
+	var in struct {
+		Name string `json:"name" binding:"required,alphanum,lowercase"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if in.Name == "announcements" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "that name is reserved"})
+		return
+	}
+	err := createChannel(c.Request.Context(), f.db, f.auth, in.Name, who.ID())
+	if errors.Is(err, errChannelTaken) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		authkitgin.Error(c, err)
+		return
+	}
+	c.Status(http.StatusCreated)
+}
+
+// editChannel changes the channel's description.
+func (f *forum) editChannel(c *gin.Context) {
+	var in struct {
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	_, err := f.db.Exec(c.Request.Context(), `UPDATE channels SET description = $2 WHERE group_id = $1`, c.GetString("channel"), in.Description)
+	if err != nil {
+		authkitgin.Error(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// deleteChannel deletes our row and AuthKit's permission group together.
+func (f *forum) deleteChannel(c *gin.Context) {
+	ctx, id := c.Request.Context(), c.GetString("channel")
+	err := pgx.BeginFunc(ctx, f.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM channels WHERE group_id = $1`, id); err != nil {
+			return err
+		}
+		return f.auth.DeleteGroup(ctx, iam.GroupByID(id), authkit.InTx(tx))
+	})
+	if err != nil {
+		authkitgin.Error(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (f *forum) list(approved bool) gin.HandlerFunc {

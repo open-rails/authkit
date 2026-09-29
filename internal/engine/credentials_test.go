@@ -51,10 +51,11 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	e, err := New(context.Background(), credentialConfig(credentialRoles()), Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(e.Close)
-	f := &credentialFixture{t: t, e: e, pool: pg.Pool, acme: iam.GroupBySlug("org", "acme")}
+	f := &credentialFixture{t: t, e: e, pool: pg.Pool}
 	f.founder = f.user("founder")
-	f.acmeID, err = seedGroup(t.Context(), e, "org", "acme", f.founder.ID)
+	f.acmeID, err = seedGroup(t.Context(), e, "org", f.founder.ID)
 	require.NoError(t, err)
+	f.acme = iam.GroupByID(f.acmeID)
 	return f
 }
 
@@ -170,7 +171,8 @@ func TestCredentialIssuance(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, key.ID, principal.ID)
 	require.Equal(t, key.LookupID, principal.LookupID)
-	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", Slug: "acme", DisplayName: principal.Group.DisplayName}, principal.Group)
+	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", CreatedAt: principal.Group.CreatedAt}, principal.Group)
+	require.False(t, principal.Group.CreatedAt.IsZero())
 	require.Equal(t, "https://maintenance.test", principal.Issuer)
 	require.Equal(t, iam.Role("member"), principal.Role)
 	require.Equal(t, []string{"org:catalog:read"}, principal.Permissions)
@@ -186,8 +188,8 @@ func TestCredentialIssuance(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 	_, _, err = f.e.MintAPIKey(ctx, iam.UserActor(member.ID), f.acme, iam.NewAPIKey{Name: "member", Role: "member"})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	_, _, err = f.e.MintAPIKey(ctx, iam.OperatorActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: "nobody"})
-	require.ErrorIs(t, err, errmodel.ErrUnknownRole, "the operator skips authority, never role validity")
+	_, _, err = f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: "nobody"})
+	require.ErrorIs(t, err, errmodel.ErrUnknownRole, "the system skips authority, never role validity")
 
 	// Machine actors never issue credentials, whatever authority they hold.
 	managerKey, _, err := f.e.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: "manager"})
@@ -235,18 +237,18 @@ func TestCredentialIssuance(t *testing.T) {
 	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Role: "member"})
 	require.ErrorIs(t, err, errmodel.ErrInvalidInvite, "a role needs a group")
 
-	// The operator issues with no creator, and nothing sweeps its credentials.
-	opKey, opToken, err := f.e.MintAPIKey(ctx, iam.OperatorActor(), f.acme, iam.NewAPIKey{Name: "operator", Role: iam.OwnerRole})
+	// The system issues with no creator, and nothing sweeps its credentials.
+	opKey, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: iam.OwnerRole})
 	require.NoError(t, err)
 	require.Empty(t, opKey.CreatedBy)
-	opLink, err := f.e.CreateInviteLink(ctx, iam.OperatorActor(), f.acme, iam.NewInviteLink{Role: iam.OwnerRole})
+	opLink, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: iam.OwnerRole})
 	require.NoError(t, err)
-	opInvite, err := f.e.CreateAccountInvite(ctx, iam.OperatorActor(), iam.NewAccountInvite{Email: "operator@credentials.test"})
+	opInvite, err := f.e.CreateAccountInvite(ctx, iam.SystemActor(), iam.NewAccountInvite{Email: "system@credentials.test"})
 	require.NoError(t, err)
-	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
+	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		return f.e.revokeCredentialsOf(ctx, st, manager.ID)
 	}))
-	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
+	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		root, err := f.e.rootGroup(ctx, st)
 		if err != nil {
 			return err
@@ -280,10 +282,10 @@ func TestCredentialListsPage(t *testing.T) {
 	ctx := t.Context()
 	var keys, links []string
 	for i := range 3 {
-		k, _, err := f.e.MintAPIKey(ctx, iam.OperatorActor(), f.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: "member"})
+		k, _, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: "member"})
 		require.NoError(t, err)
 		keys = append([]string{k.ID}, keys...)
-		l, err := f.e.CreateInviteLink(ctx, iam.OperatorActor(), f.acme, iam.NewInviteLink{Role: "member"})
+		l, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: "member"})
 		require.NoError(t, err)
 		links = append([]string{l.ID}, links...)
 	}
@@ -307,7 +309,7 @@ func TestCredentialListsPage(t *testing.T) {
 	require.Equal(t, links[1], page.Items[0].ID)
 	_, err = f.e.APIKeys(ctx, f.acme, iam.PageRequest{Cursor: "not-a-cursor"})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeInvalidRequest))
-	_, err = f.e.APIKeys(ctx, iam.GroupBySlug("org", "missing"), iam.PageRequest{})
+	_, err = f.e.APIKeys(ctx, iam.GroupByID(uuid.NewString()), iam.PageRequest{})
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
 
@@ -336,14 +338,14 @@ func TestCredentialsOfDeadCreatorsAreRefused(t *testing.T) {
 }
 
 // H1: purging the creator deletes its keys and links, so no live key is ever
-// left creator-less; operator-issued keys are the only ones without a creator.
+// left creator-less; system-issued keys are the only ones without a creator.
 func TestPurgeDeletesTheCreatorsCredentials(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
 	creator := f.user("purged")
 	grantRole(t, f.e, f.acme, creator, "manager")
 	c := f.issue(t, creator, "member", false)
-	_, opToken, err := f.e.MintAPIKey(ctx, iam.OperatorActor(), f.acme, iam.NewAPIKey{Name: "operator", Role: "member"})
+	_, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: "member"})
 	require.NoError(t, err)
 	generation := prepareExpiredDeletion(t, f.e, creator.ID)
 	f.requireDead(t, c)
@@ -358,7 +360,7 @@ func TestPurgeDeletesTheCreatorsCredentials(t *testing.T) {
 	var creatorless, deadCreator int
 	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT count(*) FILTER (WHERE created_by IS NULL), count(*) FILTER (WHERE NOT `+issuerLive("k.created_by")+`)
  FROM api_keys k WHERE revoked_at IS NULL`).Scan(&creatorless, &deadCreator))
-	require.Equal(t, 1, creatorless, "only the operator's key has no creator")
+	require.Equal(t, 1, creatorless, "only the system's key has no creator")
 	require.Zero(t, deadCreator)
 	requireCredentialsCovered(t, f.e)
 }
@@ -414,7 +416,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 
 func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms ...string) {
 	t.Helper()
-	require.NoError(t, f.e.withGroupMutation(t.Context(), iam.OperatorActor(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
+	require.NoError(t, f.e.withGroupMutation(t.Context(), iam.SystemActor(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
 		return st.UpsertCustomRole(t.Context(), g.ID, role, perms)
 	}))
 }
@@ -424,7 +426,7 @@ func TestBootstrapDemotionRevokesCredentials(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
 	apply := func(role iam.Role) {
-		_, err := f.e.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
+		_, err := f.e.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 			{Email: "ops@credentials.test", Username: "siteops", EmailVerified: true, RootRole: role},
 		}}, iam.BootstrapOptions{})
 		require.NoError(t, err)

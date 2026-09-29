@@ -1,6 +1,6 @@
 package httpapi
 
-// Remote-application handlers of the generated per-persona group surface.
+// Remote-application handlers of the group surface.
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ import (
 )
 
 // remoteAppRegisterRequest is the body for POST
-// /<persona>/<instance_slug>/remote-applications. The controlling
+// /groups/{group_id}/remote-applications. The controlling
 // permission_group_id is the addressed group (never request-supplied), so the
 // body carries only the issuer/trust-source fields.
 type remoteAppRegisterRequest struct {
@@ -30,7 +30,7 @@ type remoteAppRegisterRequest struct {
 // groupRemoteAppRegister registers (upserts) a remote_application owned by the
 // addressed group. The group's internal id becomes the controlling
 // permission_group_id.
-func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
+func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
 	var body remoteAppRegisterRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -43,7 +43,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	ra, err := s.svc.UpsertRemoteApplication(r.Context(), actor, group, iam.RemoteApplication{
+	ra, err := s.svc.UpsertRemoteApplication(r.Context(), actor, iam.GroupByID(g.ID), iam.RemoteApplication{
 		Slug:       strings.TrimSpace(body.Slug),
 		Issuer:     strings.TrimSpace(body.Issuer),
 		JWKSURI:    strings.TrimSpace(body.JWKSURI),
@@ -60,12 +60,12 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 
 // groupRemoteAppList lists one page of the applications the addressed group
 // controls (?cursor=&limit=).
-func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
+func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	page, ok := remoteAppPage(w, r)
 	if !ok {
 		return
 	}
-	apps, err := s.svc.RemoteApplications(r.Context(), group, page)
+	apps, err := s.svc.RemoteApplications(r.Context(), iam.GroupByID(g.ID), page)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -94,12 +94,12 @@ func remoteAppPage(w http.ResponseWriter, r *http.Request) (iam.PageRequest, boo
 // groupRemoteAppDelete removes a remote_application. The :app path param is the
 // remote_application's slug; it is resolved to its issuer (scoped to this group)
 // before deletion so a manager cannot delete another group's issuer.
-func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, slug string) {
+func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, slug string) {
 	if slug == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.DeleteRemoteApplication(r.Context(), actor, group, slug); err != nil {
+	if err := s.svc.DeleteRemoteApplication(r.Context(), actor, iam.GroupByID(g.ID), slug); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -110,7 +110,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 // in the group (#263) — the SubjectKindRemoteApplication symmetric of the member-role
 // route, gated <persona>:credentials:manage by the generated route table. The
 // :app slug must resolve to an application controlled by the addressed group.
-func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, appSlug string, role iam.Role) {
+func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, appSlug string, role iam.Role) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if appSlug == "" || role == "" {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -121,16 +121,16 @@ func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, gro
 		s.writeGroupOpError(w, err)
 		return
 	}
-	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, role)
+	res, err := s.svc.AssignGroupRoles(r.Context(), actor, iam.GroupByID(g.ID), []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, role)
 	if !s.writeOpResult(w, res, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":            true,
-		"persona":       group.Persona(),
-		"instance_slug": group.Slug(),
-		"app":           appSlug,
-		"role":          role,
+		"ok":       true,
+		"group_id": g.ID,
+		"persona":  g.Persona,
+		"app":      appSlug,
+		"role":     role,
 	})
 }
 

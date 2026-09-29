@@ -34,12 +34,6 @@ const (
 
 	// #264 application self-registration (per-IP AND per-domain/slug keys).
 	RLApplicationRegister = "application_register"
-	// #264 anti-squat velocity: group settings (slug rename IS a claim),
-	// keyed per-IP and per-user.
-	RLGroupSettings = "group_settings"
-	// #263 anti-squat velocity: generated persona-instance creation (a create
-	// IS a claim), keyed per-IP and per-user.
-	RLGroupCreate = "group_create"
 
 	// #261 delegated-token mint (authenticated; bounds signing cost per IP).
 	RLDelegatedTokenMint = "delegated_token_mint"

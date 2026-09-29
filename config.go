@@ -99,7 +99,7 @@ type Config struct {
 	SessionEventRetention time.Duration
 }
 
-// PasswordPolicy is the operator-configured password rule, NIST SP
+// PasswordPolicy is the host-configured password rule, NIST SP
 // 800-63B-style by default. Zero lengths default to 8..128 characters (Unicode
 // code points; MaxLength at most 1024). Composition rules are opt-in:
 // uppercase/lowercase/digit use Unicode categories, and a symbol is any rune
@@ -133,11 +133,10 @@ type ApplicationsConfig struct {
 	// JWKS client. Local federation rigs only; the default (false) refuses
 	// anything that is not a public https endpoint.
 	AllowPrivateNetworkJWKS bool
-	// OrgPersona is the declared persona under which each self-registered
-	// application's SERVICE-OWNED org is created (instance_slug = the
-	// application slug; the application principal is seeded as its owner).
-	// Required when SelfRegistration is set; must be a declared non-root
-	// persona.
+	// OrgPersona is the declared persona of the group each self-registered
+	// application owns: registration creates it and seeds the application as
+	// its owner. Required when SelfRegistration is set; must be a declared
+	// non-root persona.
 	OrgPersona iam.Persona
 }
 
@@ -269,7 +268,7 @@ type RegistrationConfig struct {
 	Verification iam.RegistrationVerificationPolicy
 	// NativeUserMode controls public native-user self-registration. Empty
 	// defaults to "open". Non-open modes disable every public user-creation path;
-	// the operator's CreateUser, bootstrap and import still work.
+	// the system's CreateUser, bootstrap and import still work.
 	NativeUserMode iam.RegistrationMode
 	// PasswordlessLogin enables contact-based passwordless sessions. Off by
 	// default; hosts must opt in before /passwordless/start sends challenges.

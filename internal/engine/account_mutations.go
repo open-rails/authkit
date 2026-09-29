@@ -35,13 +35,13 @@ const (
 
 // accountTx is the transaction an account mutation applies its change in.
 type accountTx struct {
-	tx       pgx.Tx
-	q        *db.Queries
-	st       *permissionGroupStore // records events of the acting actor
-	userID   string                // the target, canonical
-	operator bool
-	self     bool
-	by       *string // the acting user; nil for the operator
+	tx     pgx.Tx
+	q      *db.Queries
+	st     *permissionGroupStore // records events of the acting actor
+	userID string                // the target, canonical
+	system bool
+	self   bool
+	by     *string // the acting user; nil for the system
 }
 
 func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
@@ -65,7 +65,7 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	if err := s.lockAuthority(ctx, tx); err != nil {
 		return err
 	}
-	at := accountTx{tx: tx, q: s.qtx(tx), st: st, userID: userID, operator: a.Kind() == iam.ActorOperator, by: actorUserID(a)}
+	at := accountTx{tx: tx, q: s.qtx(tx), st: st, userID: userID, system: a.Kind() == iam.ActorSystem, by: actorUserID(a)}
 	at.self = at.by != nil && *at.by == userID
 	switch {
 	case at.self && self == selfRefused:
@@ -101,7 +101,7 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 }
 
 // actorUserID is the account behind a, in canonical form, for self rules and
-// audit columns; nil for operators and machines.
+// audit columns; nil for the system and machines.
 func actorUserID(a iam.Actor) *string {
 	if a.Kind() != iam.ActorUser {
 		return nil
@@ -113,14 +113,8 @@ func actorUserID(a iam.Actor) *string {
 	return &id
 }
 
-// CreateUser creates a native account. Operator only.
-func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (iam.User, error) {
-	if err := requireActor(a); err != nil {
-		return iam.User{}, err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.User{}, iam.ErrInsufficientAuthority
-	}
+// CreateUser creates a native account: a host operation.
+func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser) (iam.User, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
@@ -160,7 +154,7 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 	if err != nil {
 		return iam.User{}, err
 	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return iam.User{}, err
 	}
 	tx, err := s.pg.Begin(ctx)
@@ -181,7 +175,7 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 			return iam.User{}, err
 		}
 	}
-	if err := s.emitEvents(ctx, tx, a, userEvent(iam.EventUserRegistered, userID)); err != nil {
+	if err := s.emitEvents(ctx, tx, iam.SystemActor(), userEvent(iam.EventUserRegistered, userID)); err != nil {
 		return iam.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -197,7 +191,7 @@ func selfEditable(u iam.UserUpdate) bool {
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
 // change its own Username, AvatarURL and PreferredLanguage (rename policy
-// applies); Password, PasswordHash and the verified flags are operator-only
+// applies); Password, PasswordHash and the verified flags are system-only
 // (staff send a reset to the proven address instead). Setting a verified flag
 // is the proof transition: on an account with no proven contact it first
 // retires every pre-proof credential. A contact change never leaves an
@@ -206,7 +200,7 @@ func selfEditable(u iam.UserUpdate) bool {
 // email factor, which stays bound to the address it was proven for. Nothing
 // is sent to the new address.
 func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
-	if a.Kind() != iam.ActorOperator && (u.EmailVerified != nil || u.PhoneVerified != nil || u.Password != nil || u.PasswordHash != nil) {
+	if a.Kind() != iam.ActorSystem && (u.EmailVerified != nil || u.PhoneVerified != nil || u.Password != nil || u.PasswordHash != nil) {
 		return iam.User{}, iam.ErrInsufficientAuthority
 	}
 	if u.Password != nil && u.PasswordHash != nil {
@@ -255,7 +249,7 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 	}
 	if u.Username != nil {
 		authority := normalRename
-		if at.operator {
+		if at.system {
 			authority = importRename
 		}
 		if err := s.renameUsernameTx(ctx, at.tx, userID, strings.TrimSpace(*u.Username), authority); err != nil {
@@ -582,15 +576,9 @@ func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([
 }
 
 // PurgeUsers closes the recovery window of accounts now, soft-deleting live
-// ones first. Operator only. The account row goes once the host deletion
+// ones first: a host operation. The account row goes once the host deletion
 // callbacks complete, exactly as at the end of the window.
-func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error) {
-	if err := requireActor(a); err != nil {
-		return nil, err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return nil, iam.ErrInsufficientAuthority
-	}
+func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, error) {
 	client, err := s.deletionRiver()
 	if err != nil {
 		return nil, err
@@ -599,7 +587,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]i
 	for _, id := range ids {
 		id := strings.TrimSpace(id)
 		var revoked []revokedSession
-		err := s.withAccountMutation(ctx, a, id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
+		err := s.withAccountMutation(ctx, iam.SystemActor(), id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
 			var err error
 			if revoked, err = s.softDeleteTx(ctx, at, client, id); err != nil {
 				return err
@@ -664,25 +652,19 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 	return out, nil
 }
 
-// ResetAccountMFA is the operator's recovery for an account that lost its
+// ResetAccountMFA is the system's recovery for an account that lost its
 // second factors (a lost passkey answers passkey_required): it deletes the
 // account's passkeys, 2FA factors and backup codes, revokes its device keys
 // and its sessions on every account issuer, and tells its address. Roles
 // stay: when one needs MFA, or 2FA is Required, the next sign-in enrolls a
-// factor. Operator only.
-func (s *Engine) ResetAccountMFA(ctx context.Context, a iam.Actor, userID string) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientAuthority
-	}
+// factor: a host operation.
+func (s *Engine) ResetAccountMFA(ctx context.Context, userID string) error {
 	userID, ok := canonicalUUID(userID)
 	if !ok {
 		return iam.ErrUserNotFound
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, iam.SystemActor(), userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
 		var err error
 		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 			if _, err := at.tx.Exec(ctx, `UPDATE user_passkeys SET deleted_at=now() WHERE user_id=$1::uuid AND deleted_at IS NULL`, userID); err != nil {

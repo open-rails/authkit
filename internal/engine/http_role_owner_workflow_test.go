@@ -13,7 +13,7 @@ import (
 
 func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := instanceCreateTestConfig()
+	cfg := orgTestConfig()
 	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
@@ -24,35 +24,34 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	owner, token := newInstanceTestUser(t, srv, "ownerflow")
 	manager, managerToken := newInstanceTestUser(t, srv, "managerflow")
 	peer, _ := newInstanceTestUser(t, srv, "peerflow")
-	group := iam.GroupBySlug("org", "owner-flow")
-	w := postOrg(srv, token, `{"slug":"owner-flow"}`)
-	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	gid, err := seedGroup(ctx, client, "org", owner)
+	require.NoError(t, err)
+	group := iam.GroupByID(gid)
+	base := "/groups/" + gid
 	grantRole(t, client, group, iam.UserSubject(manager), "manager")
 	assign := func(actor, id, role string) int {
-		w := serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/members/"+id+"/roles/"+role, "", actor)
+		w := serveAuthJSON(srv, http.MethodPut, base+"/members/"+id+"/roles/"+role, "", actor)
 		return w.Code
 	}
 	require.Equal(t, http.StatusForbidden, assign(managerToken, owner, "member"))
 	require.Equal(t, http.StatusConflict, assign(token, owner, "member"))
-	w = serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/members/"+owner+"/roles/%20owner%20", "", token)
+	w := serveAuthJSON(srv, http.MethodPut, base+"/members/"+owner+"/roles/%20owner%20", "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"role":"owner"`)
-	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
+	w = serveAuthJSON(srv, http.MethodDelete, base+"/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	requireErrorCode(t, w.Body.String(), string(errmodel.CodeLastOwner))
-	gid, err := groupIDOf(ctx, client, group)
+	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "owner-app", Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
 	require.NoError(t, err)
-	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "owner-app", Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
-	require.NoError(t, err)
-	w = serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/remote-applications/owner-app/roles/owner", "", token)
+	w = serveAuthJSON(srv, http.MethodPut, base+"/remote-applications/owner-app/roles/owner", "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodPut, "/org/owner-flow/remote-applications/owner-app/roles/member", "", managerToken)
+	w = serveAuthJSON(srv, http.MethodPut, base+"/remote-applications/owner-app/roles/member", "", managerToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.NoError(t, client.DeleteRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(app.PermissionGroupID), app.Slug))
+	require.NoError(t, client.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.PermissionGroupID), app.Slug))
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
 	require.Equal(t, http.StatusOK, assign(token, peer, "member"))
 	require.Equal(t, http.StatusOK, assign(token, peer, "owner"))
-	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
+	w = serveAuthJSON(srv, http.MethodDelete, base+"/members/"+owner, "", token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	allowed, err := client.Can(ctx, iam.UserActor(peer), group, "org:members:manage")
 	require.NoError(t, err)
@@ -61,7 +60,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 
 func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := instanceCreateTestConfig()
+	cfg := orgTestConfig()
 	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
 	cfg.Roles.Personas["root"] = Persona{APIKeys: true}
 	// root:members:manage needs MFA; this test is about actor kinds, not MFA.
@@ -102,7 +101,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	// with the authority to act.
 	_, keyToken, err := client.MintAPIKey(t.Context(), iam.UserActor(owner), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: "admin"})
 	require.NoError(t, err)
-	delegated, err := client.MintDelegatedAccessToken(t.Context(), iam.OperatorActor(), iam.DelegatedAccess{Audiences: []string{"test-app"}, Subject: admin, Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
+	delegated, err := client.MintDelegatedAccessToken(t.Context(), iam.SystemActor(), iam.DelegatedAccess{Audiences: []string{"test-app"}, Subject: admin, Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
 	require.NoError(t, err)
 	for _, token := range []string{keyToken, delegated.Value} {
 		w := serveAuthJSON(srv, http.MethodPut, "/admin/users/"+target+"/roles/site-admin", "", token)

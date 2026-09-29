@@ -14,9 +14,8 @@ import (
 func TestImportUserProfileFields(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.OperatorActor()
 	lastLogin := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
-	res, err := auth.ImportUsers(ctx, op, []iam.ImportUser{
+	res, err := auth.ImportUsers(ctx, []iam.ImportUser{
 		{Email: "profile@example.test", Username: "profile", LastLogin: &lastLogin, PreferredLanguage: " FR ", AvatarURL: "https://cdn.example.test/p.png"},
 		{Email: "badlang@example.test", Username: "badlang", PreferredLanguage: "not a language"},
 		{Email: "badavatar@example.test", Username: "badavatar", AvatarURL: "https://cdn.example.test/\n.png"},
@@ -31,10 +30,10 @@ func TestImportUserProfileFields(t *testing.T) {
 	require.Equal(t, "https://cdn.example.test/p.png", u.AvatarURL)
 	require.True(t, lastLogin.Equal(*u.LastLogin))
 
-	bare, err := auth.CreateUser(ctx, op, iam.NewUser{Email: "bare@example.test", Username: "bare"})
+	bare, err := auth.CreateUser(ctx, iam.NewUser{Email: "bare@example.test", Username: "bare"})
 	require.NoError(t, err)
 	earlier, later := lastLogin.Add(-time.Hour), lastLogin.Add(time.Hour)
-	merged, err := auth.ImportUsers(ctx, op, []iam.ImportUser{
+	merged, err := auth.ImportUsers(ctx, []iam.ImportUser{
 		{ID: u.ID, Username: "profile", LastLogin: &earlier, PreferredLanguage: "de", AvatarURL: "https://cdn.example.test/other.png"},
 		{ID: bare.ID, Username: "bare", LastLogin: &later, PreferredLanguage: "de", AvatarURL: "https://cdn.example.test/bare.png"},
 	}, iam.ImportOptions{OnConflict: iam.ImportMerge})

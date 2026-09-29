@@ -100,17 +100,14 @@ func importRejected(idx int, reason string) iam.ImportRow {
 	return iam.ImportRow{Index: idx, Status: iam.ImportRejected, Reason: reason}
 }
 
-// ImportUsers bulk-imports accounts (target: 500k+ rows) under the operator.
+// ImportUsers bulk-imports accounts (target: 500k+ rows) as a host operation.
 // Rows are validated in Go, then each chunk runs in one transaction: find the
 // accounts its rows name, insert the rest with one multi-row INSERT, store
 // their password hashes, and merge where asked. A row sharing an identifier
 // with an earlier row of the batch is that row's account. A row whose
 // identifiers name two accounts is rejected. Matching is never proof: only an
 // id, or a contact verified on the account, binds a row for a merge.
-func (s *Engine) ImportUsers(ctx context.Context, a iam.Actor, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.ImportResult{}, err
-	}
+func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
 	merge := false
 	switch opts.OnConflict {
 	case "", iam.ImportSkip:
@@ -305,7 +302,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	// Hold the names' claim locks so a matched-free name stays free until the
 	// insert, and drop expired aliases so they neither match nor block.
-	if err = lockNameClaims(ctx, tx, "user", "", names...); err != nil {
+	if err = lockNameClaims(ctx, tx, names...); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, s.namingNow()); err != nil {
@@ -354,7 +351,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	for _, p := range fresh {
 		if inserted[p.id] && p.deletedAt != nil {
-			// As the operator's DeleteUsers would have: deleted_by stays NULL.
+			// As the system's DeleteUsers would have: deleted_by stays NULL.
 			if err = s.createAccountDeletion(ctx, tx, client, p.id, nil); err != nil {
 				return err
 			}

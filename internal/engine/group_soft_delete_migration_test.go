@@ -5,6 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/open-rails/authkit/iam"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/migratekit"
@@ -31,11 +32,11 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
 	descriptor, err := newPermissionGroupStore(pg.Pool).groupByID(ctx, group)
 	require.NoError(t, err)
-	require.Equal(t, "Existing group", descriptor.DisplayName)
+	require.Equal(t, iam.Persona("channel"), descriptor.Persona)
 	require.Nil(t, descriptor.DeletedAt)
-	var canonical int
-	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid AND canonical", group).Scan(&canonical))
-	require.Equal(t, 1, canonical)
+	var claims int
+	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid", group).Scan(&claims))
+	require.Zero(t, claims, "groups keep no names")
 	_, err = pg.Pool.Exec(ctx, "UPDATE profiles.permission_groups SET deleted_at=now() WHERE id=$1::uuid", root)
 	require.Error(t, err, "root remains active at the storage boundary")
 	var containment int
@@ -43,5 +44,5 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 		+ (SELECT count(*) FROM information_schema.tables WHERE table_schema='profiles' AND table_name='group_persona_parents')`).Scan(&containment))
 	require.Zero(t, containment, "0005 drops the stored containment tree")
 	_, err = pg.Pool.Exec(ctx, "INSERT INTO profiles.permission_groups(persona) VALUES('channel')")
-	require.Error(t, err, "a non-root group needs a slug")
+	require.NoError(t, err, "0011: a group is an id and a persona")
 }

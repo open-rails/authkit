@@ -14,11 +14,11 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// Controlling an application's keys is acting as it, so every non-operator
+// Controlling an application's keys is acting as it, so every non-system
 // change to an existing application needs CAP(<persona>:credentials:manage)
 // in its controlling group and COVER of every role it holds anywhere. Only
 // applications a group registered (trust root user) change through a group:
-// operator-registered ones rotate through the operator and domain-rooted ones
+// system-registered ones rotate through the system and domain-rooted ones
 // through a new domain proof. A group registration starts unapproved (tier
 // registered), and so does any re-key of it.
 //
@@ -27,7 +27,7 @@ import (
 // and its roles never outlive the registrar's authority.
 
 // UpsertRemoteApplication registers the application app.Issuer in the group
-// ref, or updates it there. The operator may set Mode, Tier and TrustRoot
+// ref, or updates it there. The system may set Mode, Tier and TrustRoot
 // (new applications default to manual and approved); a user registers at
 // trust root user and tier registered. Machine actors cannot register.
 func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
@@ -37,12 +37,12 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	operator := actor.Kind() == iam.ActorOperator
+	system := actor.Kind() == iam.ActorSystem
 	if _, err := credentialIssuer(actor); err != nil {
 		return nil, err
 	}
 	in.Issuer = strings.TrimSpace(in.Issuer)
-	if s.reservedIssuer(in.Issuer) || !operator && s.accountPeerIssuer(in.Issuer) {
+	if s.reservedIssuer(in.Issuer) || !system && s.accountPeerIssuer(in.Issuer) {
 		return nil, iam.ErrReservedIssuer
 	}
 	if !validTier(in.Tier) || !validTrustRoot(in.TrustRoot) {
@@ -63,7 +63,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 			existing = remoteAppFromRow(remoteAppRow(row))
 		}
 		rekey := false
-		if !operator {
+		if !system {
 			if rekey, err = s.groupApplicationChange(ctx, st, actor, g, existing, &in); err != nil {
 				return err
 			}
@@ -77,7 +77,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 	return out, err
 }
 
-// groupApplicationChange authorizes a non-operator upsert and sets the trust
+// groupApplicationChange authorizes a non-system upsert and sets the trust
 // root and tier it produces; the caller's Tier and TrustRoot are ignored.
 // rekey reports whether the actor supplies new keys, becoming the registrar.
 func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, existing *iam.RemoteApplication, in *iam.RemoteApplication) (rekey bool, err error) {
@@ -111,8 +111,8 @@ func rekeys(existing *iam.RemoteApplication, in *iam.RemoteApplication) bool {
 }
 
 // DeleteRemoteApplication deletes the application named by slug that group ref
-// controls. A non-operator needs the same authority as re-keying it, and never
-// deletes an operator-registered application.
+// controls. Any actor but the system needs the same authority as re-keying it, and never
+// deletes a system-registered application.
 func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, slug string) error {
 	if err := requireActor(actor); err != nil {
 		return err
@@ -133,7 +133,7 @@ func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, r
 		if err != nil {
 			return err
 		}
-		if actor.Kind() != iam.ActorOperator {
+		if actor.Kind() != iam.ActorSystem {
 			if iam.ApplicationTrustRoot(app.TrustRoot) == iam.ApplicationTrustRootManual {
 				return iam.ErrInsufficientAuthority
 			}

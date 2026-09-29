@@ -12,7 +12,7 @@ import (
 )
 
 // TestAccountPurgeSweepsCredentialsBeforeTheRowGoes (H1): PurgeUsers is the
-// operator's; it closes the recovery window at once, and once the row goes no
+// system's; it closes the recovery window at once, and once the row goes no
 // key the account issued is live, including one no earlier sweep saw.
 func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
@@ -24,7 +24,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	user, err := runtime.createUser(ctx, "purged@example.test", "purgeduser")
 	require.NoError(t, err)
 	var rootID string
-	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
+	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
 		rootID, err = runtime.rootGroup(ctx, st)
 		return err
 	}))
@@ -43,11 +43,9 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	}
 	issued := key("issued")
 
-	_, err = runtime.PurgeUsers(ctx, iam.UserActor(user.ID), []string{user.ID})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "purge is the operator's")
-	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, iam.OperatorActor(), []string{user.ID})))
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{user.ID})))
 	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
-	restore, err := runtime.RestoreUsers(ctx, iam.OperatorActor(), []string{user.ID})
+	restore, err := runtime.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, restore[0].Err, "a purge closes the recovery window")
 
@@ -75,7 +73,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ctx := t.Context()
-	op := iam.OperatorActor()
+	op := iam.SystemActor()
 	times := func(userID string) (users, deletion, purge time.Time) {
 		t.Helper()
 		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT u.deleted_at, d.deleted_at, d.purge_at
@@ -88,7 +86,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	require.NoError(t, itemErr(runtime.DeleteUsers(ctx, op, []string{earlier.ID})))
 	deletedAt, _, windowEnd := times(earlier.ID)
 	require.True(t, windowEnd.Equal(deletedAt.Add(720*time.Hour)))
-	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, op, []string{earlier.ID})))
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{earlier.ID})))
 	users, deletion, purge := times(earlier.ID)
 	require.True(t, users.Equal(deletedAt) && deletion.Equal(deletedAt), "deleted_at keeps the soft-delete time")
 	require.True(t, purge.Before(windowEnd) && !purge.Before(deletedAt), "purge_at moves to the purge")
@@ -96,7 +94,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	live, err := runtime.createUser(ctx, "live@example.test", "liveuser")
 	require.NoError(t, err)
 	before := time.Now()
-	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, op, []string{live.ID})))
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{live.ID})))
 	users, deletion, purge = times(live.ID)
 	require.True(t, users.Equal(deletion))
 	require.WithinDuration(t, before, deletion, time.Minute, "a purged live account is deleted now")

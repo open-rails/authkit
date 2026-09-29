@@ -327,17 +327,13 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		if err != nil {
 			return nil, err
 		}
-		// Keep the service-owned org's vanity name in sync and make sure the
-		// owner assignment exists (self-heal).
+		// Make sure the owner assignment exists (self-heal).
 		if row.PermissionGroupID != "" {
-			if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, app.DisplayName); err != nil {
-				return nil, err
-			}
 			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteApplicationSubject(row.ID), iam.OwnerRole); err != nil {
 				return nil, err
 			}
 		}
-		orgPersona, orgSlug, err := groupAddressByID(ctx, dbtx, row.PermissionGroupID)
+		orgPersona, err := groupPersona(ctx, dbtx, row.PermissionGroupID)
 		if err != nil {
 			return nil, err
 		}
@@ -345,10 +341,10 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 			return nil, err
 		}
 		return &authflow.RegisteredApplication{
-			Application:     *remoteAppFromRow(remoteAppRow(row)),
-			OrgPersona:      orgPersona,
-			OrgInstanceSlug: orgSlug,
-			Created:         false,
+			Application: *remoteAppFromRow(remoteAppRow(row)),
+			OrgPersona:  orgPersona,
+			OrgGroupID:  row.PermissionGroupID,
+			Created:     false,
 		}, nil
 	case errors.Is(err, pgx.ErrNoRows):
 		// fresh registration below
@@ -356,27 +352,17 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		return nil, err
 	}
 
-	// First registration CLAIMS the requested slug — the same availability +
-	// anti-squat gates as any org: not reserved by the persona (#296), free in
-	// the application namespace AND in the org persona namespace (live groups
-	// + tombstones).
-	if s.groupSchemaOrDefault().SlugReserved(td.Name, app.Slug) {
-		return nil, fmt.Errorf("%w: slug %q is reserved", errmodel.ErrApplicationSlugConflict, app.Slug)
-	}
+	// First registration claims the requested slug in the application
+	// namespace.
 	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug); err == nil {
 		return nil, errmodel.ErrApplicationSlugConflict
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if available, err := st.InstanceSlugAvailable(ctx, iam.GroupBySlug(td.Name, app.Slug)); err != nil {
-		return nil, err
-	} else if !available {
-		return nil, errmodel.ErrApplicationSlugConflict
-	}
 	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
 	}
-	gid, err := st.CreateGroupNamed(ctx, iam.GroupBySlug(td.Name, app.Slug), app.DisplayName)
+	gid, err := st.CreateGroup(ctx, td.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -410,22 +396,20 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		return nil, err
 	}
 	return &authflow.RegisteredApplication{
-		Application:     *remoteAppFromRow(remoteAppRow(row)),
-		OrgPersona:      td.Name,
-		OrgInstanceSlug: app.Slug,
-		Created:         true,
+		Application: *remoteAppFromRow(remoteAppRow(row)),
+		OrgPersona:  td.Name,
+		OrgGroupID:  gid,
+		Created:     true,
 	}, nil
 }
 
-func groupAddressByID(ctx context.Context, dbtx db.DBTX, groupID string) (persona iam.Persona, instanceSlug string, err error) {
+func groupPersona(ctx context.Context, dbtx db.DBTX, groupID string) (persona iam.Persona, err error) {
 	if groupID == "" {
-		return "", "", nil
+		return "", nil
 	}
-	err = dbtx.QueryRow(ctx,
-		`SELECT persona, COALESCE(instance_slug, '') FROM permission_groups WHERE id = $1::uuid`,
-		groupID).Scan(&persona, &instanceSlug)
+	err = dbtx.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id = $1::uuid`, groupID).Scan(&persona)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return "", nil
 	}
-	return persona, instanceSlug, err
+	return persona, err
 }

@@ -87,7 +87,7 @@ describe("AuthProvider", () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "GET /api/v1/me/permissions": ({ url }) => {
-        expect(url).toContain("persona=staff")
+        expect(url).toContain("group_id=g1")
         return json(200, {
           object: "permission_set",
           permissions: ["root:tags:*"],
@@ -95,7 +95,7 @@ describe("AuthProvider", () => {
       },
     })
     const { result, client } = renderWithAuth(
-      () => usePermissions({ persona: "staff" }),
+      () => usePermissions({ groupId: "g1" }),
       fetch
     )
     expect(result.current).toMatchObject({ permissions: null, loading: false })

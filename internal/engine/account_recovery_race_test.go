@@ -40,7 +40,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				<-start
-				restoreErr = itemErr(runtime.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID}))
+				restoreErr = itemErr(runtime.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID}))
 			})
 			wg.Go(func() {
 				<-start

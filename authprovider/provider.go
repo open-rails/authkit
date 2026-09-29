@@ -143,7 +143,7 @@ func WithPKCE(on bool) Option {
 
 // WithHTTPClient sets the outbound client for discovery, token and userinfo
 // calls. The default is timeout-bounded and may reach private addresses,
-// since IdP endpoints are operator configuration.
+// since IdP endpoints are host configuration.
 func WithHTTPClient(c *http.Client) Option {
 	return func(b *base) {
 		if c != nil {

@@ -1,13 +1,14 @@
 # Roles and permissions
 
 A **persona** is a type of permission group (channel, org, merchant). A
-**permission group** is one instance of a persona (/c/golang), created at run
-time. **root** is the persona with exactly one group, the whole site; it always
-exists.
+**permission group** is one instance of a persona, addressed by its ID. It only
+holds roles: the thing it guards (the channel /c/golang, its name and its data)
+lives in your app, which stores the group's ID. **root** is the persona with
+exactly one group, the whole site; it always exists.
 
 A **permission** is `<persona>:<resource>:<action>` (`channel:posts:edit`). `*`
 may replace the action (`channel:posts:*`) or everything after the persona
-(`channel:*`, the owner). The resource `self` is the group itself.
+(`channel:*`, the owner).
 
 A **role** bundles permissions. Where a role is held is its scope: a role held
 on a group applies there, and a role held on root applies in every group.
@@ -19,7 +20,6 @@ Roles: authkit.RoleConfig{
 	Personas: map[string]authkit.Persona{
 		"channel": {
 			Permissions: []string{"channel:posts:edit", "channel:posts:delete"},
-			Creation:    authkit.GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}},
 		},
 	},
 	Roles: []authkit.Role{
@@ -44,10 +44,9 @@ Roles: authkit.RoleConfig{
   disabled deployment-wide the rule is inert.
 - An account that needs MFA and has a passkey but no factor signs in only with
   the passkey (`passkey_required`). When the passkey is lost, verify the person
-  out of band and call `ResetAccountMFA(ctx, iam.OperatorActor(), userID)`: it
+  out of band and call `ResetAccountMFA(ctx, userID)`: it
   removes the account's passkeys, factors, backup codes, device keys and
   sessions, keeps its roles, and the next sign-in enrolls a factor.
-- Reserved slugs of persona p are creatable only by actors holding `p:*` on root.
 
 ## Built-in permissions
 
@@ -58,7 +57,6 @@ AuthKit adds these to each persona's catalog:
 | `<p>:members:read`, `<p>:members:manage` | always | member lists and the role catalog; role assignment, invite links |
 | `<p>:roles:manage` | `CustomRoles` | defining and deleting custom roles (also reads the role catalog) |
 | `<p>:credentials:read`, `<p>:credentials:manage` | `APIKeys` or `RemoteApplications` | API keys, remote applications |
-| `<p>:self:read`, `<p>:self:update`, `<p>:self:delete` | except root | the group's descriptor; slug and display name; soft delete |
 
 Root also has `root:users:read` (accounts and sign-ins), `root:users:ban`,
 `root:users:delete` (delete and restore), `root:users:manage` (edit an account,
@@ -66,7 +64,7 @@ revoke its sessions) and `root:users:invite`.
 
 ## Validation at New
 
-- Catalog entries are three-part, start with their persona, and never use `self`.
+- Catalog entries are three-part and start with their persona.
 - A role's permissions must match its persona's catalog; a wildcard must cover
   at least one registered permission. Persona roles hold only their own
   persona's permissions; root roles may hold any persona's.
@@ -77,10 +75,43 @@ revoke its sessions) and `root:users:invite`.
 every live API key, invite link and account invite against its creator's
 authority and revokes what the creator can no longer issue.
 
+## Groups
+
+Your app creates and deletes groups, because it owns what they guard. These
+are host operations: your code decides who may make a channel and which names
+are allowed, so they take no actor.
+
+```go
+tx, err := db.Begin(ctx)
+// ...
+owner := iam.UserSubject(userID)
+g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+// ...
+_, err = tx.Exec(ctx, `INSERT INTO channels (name, group_id) VALUES ($1, $2)`, name, g.ID)
+// ...
+err = tx.Commit(ctx)
+```
+
+- `CreateGroup`, `DeleteGroup` (soft) and `PurgeGroup` check no permission.
+  Before deleting, the app checks its own, for example
+  `RequirePermission(iam.RootGroup(), "root:channels:delete")`.
+- `NewGroup.Owner`, when set, must be a live account; it gets the `owner` role.
+- `authkit.InTx(tx)` runs the operation in a savepoint of your transaction, so
+  the group and your row commit or roll back together. `tx` must be READ
+  COMMITTED and on the database of `Deps.Postgres`; AuthKit sets its own
+  search_path inside the savepoint. The authority lock, the credential sweep
+  and event records join your transaction, and the lock is held until it ends.
+- Routes address a group by ID: `/api/v1/groups/{group_id}/members` and so on
+  ([routes](api-endpoints.md)). `GET /me/groups` lists the caller's groups.
+
 ## Actors
 
-Every mutation on `*authkit.Auth` takes an `iam.Actor` right after `ctx`;
-reads take none (the host is the trust boundary). The zero actor is refused.
+A mutation whose rules depend on who acts takes an `iam.Actor` right after
+`ctx`; the zero actor is refused. Host operations take none: your code decides
+(`CreateGroup`, `DeleteGroup`, `PurgeGroup`, `EnsureUserRole`, `CreateUser`,
+`PurgeUsers`, `ResetAccountMFA`, `MintAccessToken`, `ApplyBootstrapManifest`,
+`ImportUsers`, `ImportSolanaLinks`, `LinkProvider`), and they keep every
+invariant. Reads take none either: the host is the trust boundary.
 
 | Actor | Authority |
 |---|---|
@@ -88,15 +119,15 @@ reads take none (the host is the trust boundary). The zero actor is refused.
 | `iam.APIKeyActor(id)` | the key's role, only in the key's group |
 | `iam.RemoteApplicationActor(id)` | the application's roles, only in its group |
 | `iam.DelegatedActor(grant)` | its local user or application, capped by the grant's permissions |
-| `iam.OperatorActor()` | everything; host code only |
+| `iam.SystemActor()` | your app's own code acting, with no user: everything; host code only |
 
-Every actor but the operator is resolved live: a banned or deleted user, a
+Every actor but the system is resolved live: a banned or deleted user, a
 revoked or expired key, or a disabled application covers nothing. `Within`
-narrows an actor to a permission ceiling. The operator skips the permission
+narrows an actor to a permission ceiling. The system skips the permission
 rules but not the invariants: the last usable owner and MFA-required roles
-bind it too. Only users and the operator issue credentials (API keys, invite
+bind it too. Only users and the system issue credentials (API keys, invite
 links, account invites, group-registered applications); a user's credentials
-die with the user's authority, the operator's never. The user who supplies a
+die with the user's authority, the system's never. The user who supplies a
 group application's keys is its registrar: the application holds only roles
 the registrar could issue, and loses them with the registrar's authority. `verify.ActorFromClaims` derives the actor of a request
 ([verification](verification.md)).

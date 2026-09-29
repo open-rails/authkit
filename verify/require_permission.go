@@ -27,12 +27,11 @@ type Authority interface {
 }
 
 // PermissionScope is a credential's permission-group binding: the group id,
-// the issuer whose group it is, and the group's public name.
+// the issuer whose group it is, and the group's persona.
 type PermissionScope struct {
 	GroupID         string
 	AuthorityIssuer string
 	Persona         iam.Persona
-	Instance        string
 }
 
 // MustKnowPermission panics when checker does not register perm: gating a

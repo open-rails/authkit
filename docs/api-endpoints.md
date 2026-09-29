@@ -77,7 +77,7 @@ response is:
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
 `authkit.LoadBootstrapManifestFile`, `authkit.ParseBootstrapManifestYAML`, and
-`(*authkit.Auth).ApplyBootstrapManifest(ctx, iam.OperatorActor(), manifest, opts)`, or
+`(*authkit.Auth).ApplyBootstrapManifest(ctx, manifest, opts)`, or
 `EnsureUserRole` for a single first admin. Bootstrap uses an existing account only through a
 verified email or phone the manifest names; it never adopts one by username, alias or unverified
 contact. Host applications layer their own domain bootstrap after AuthKit has applied users,
@@ -164,27 +164,23 @@ root role assignments and remote applications.
 | DELETE | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
-| POST | `{api}/org` | permission_groups | required |  | Creation.Enabled |
-| GET | `{api}/org/{instance_slug}` | permission_groups | `org:self:read` |  | Roles.Personas |
-| PATCH | `{api}/org/{instance_slug}` | permission_groups | `org:self:update` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}` | permission_groups | `org:self:delete` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/api-keys/{key}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/invites/links/{link}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/members/{user}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| PUT | `{api}/org/{instance_slug}/members/{user}/roles/{role}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/remote-applications/{app}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| PUT | `{api}/org/{instance_slug}/remote-applications/{app}/roles/{role}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:members:read` or `org:roles:manage` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/roles/{role}` | permission_groups | `org:roles:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:read` |  | APIKeys |
+| POST | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
+| DELETE | `{api}/groups/{group_id}/api-keys/{key}` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
+| GET | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/groups/{group_id}/invites/links/{link}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/groups/{group_id}/members/{user}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| PUT | `{api}/groups/{group_id}/members/{user}/roles/{role}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:read` |  | RemoteApplications |
+| POST | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| DELETE | `{api}/groups/{group_id}/remote-applications/{app}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| PUT | `{api}/groups/{group_id}/remote-applications/{app}/roles/{role}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| GET | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:members:read` or `<persona>:roles:manage` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
+| DELETE | `{api}/groups/{group_id}/roles/{role}` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
 <!-- routes:end -->
 
 ## Authentication Levels
@@ -368,16 +364,21 @@ For verification and 2FA send operations, a 2xx response means AuthKit submitted
 
 ## Permission Groups
 
-A persona is the route and permission namespace: a `merchant` persona generates
-`/merchant/{instance_slug}/...` routes gated by `merchant:<resource>:<action>`
-permissions ([roles](roles.md)). Every persona but root gets the group's own
-`GET`/`PATCH`/`DELETE`, members, invite links and the role list;
-`Creation.Enabled` adds `POST /merchant`, `CustomRoles` the custom-role routes,
-`APIKeys` the API-key routes and `RemoteApplications` the application routes.
-Root's roles are managed under `/admin`. Every generated route checks `Can`
-live for the calling actor and refuses delegated tokens.
+Group routes address a group by ID, `/groups/{group_id}/...`, and are gated
+by the built-in permission of that group's persona: in a `merchant` group,
+`merchant:members:manage` and so on ([roles](roles.md)). Groups of every persona
+but root have members, invite links and the role list; `CustomRoles` adds the
+custom-role routes, `APIKeys` the API-key routes and `RemoteApplications` the
+application routes. A group whose persona lacks a route is refused like an
+unknown group (`403`); a route no persona has is not mounted. Root's roles are
+managed under `/admin`. Every group route checks `Can` live for the calling
+actor and refuses delegated tokens. AuthKit has no route that creates, reads,
+renames or deletes a group: your app does that with `CreateGroup` and
+`DeleteGroup` ([roles](roles.md#groups)). `GET /me/groups` lists the caller's
+groups; `GET /me/permissions?group_id=` returns its permissions in one group
+(the root group by default).
 
-`POST /<persona>/<slug>/members` with `email` never adds an account: every
+`POST /groups/{group_id}/members` with `email` never adds an account: every
 address gets the same `202` role-carrying invitation, accepted by registering
 with it or by redeeming it at `POST /invites/redeem` signed in to the account
 that verified that address.
@@ -387,7 +388,7 @@ that verified that address.
 ## API keys (opaque machine credentials)
 
 Long-lived, revocable bearer credentials owned by a permission group, for
-machine/automation callers (CI, operator CLIs, service-to-service). A key acts
+machine/automation callers (CI, admin CLIs, service-to-service). A key acts
 as `iam.APIKeyActor(id)` in its own group only: middleware sets `Claims.APIKeyID`
 and `TokenType = verify.APIKeyPrincipalType`, with no `UserID`. Its permissions
 are those of its role, from the persona's catalog.
@@ -412,8 +413,8 @@ no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. No key may hold a role that needs MFA; a role that
 comes to need it (a `RequireMFA` change) confers nothing and the key is revoked
 at the next boot. A persona without `APIKeys` has no keys, even from the
-operator. Only a user
-(or the host's operator actor, whose keys have no creator) issues keys and
+system actor. Only a user
+(or `iam.SystemActor()`, whose keys have no creator) issues keys and
 invite links; machine actors never do. The JSON field for the public id is
 `lookup_id`, and lists use the standard list envelope.
 Revoking a key, or an invite link, needs the same authority as minting its
@@ -455,7 +456,7 @@ TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
 checked on every request.
 
 **Storage.** `profiles.api_keys` (`key_id` unique, `secret_hash` bytea,
-single `role`, `created_by` NULL only for operator-issued keys and
+single `role`, `created_by` NULL only for system-issued keys and
 `ON DELETE CASCADE` so no key outlives its creator, nullable
 `expires_at`/`revoked_at`, `last_used_at` touched best-effort/async). A key of a
 banned, deleted or reserved creator is refused.
@@ -491,7 +492,7 @@ the account had a factor is refused (`2fa_required`) until re-enrolled with it.
 An account that needs MFA (an MFA-required role, or Required 2FA) and has a
 passkey but no factor signs in with the passkey; any other first factor answers
 `403 passkey_required`, never an enrollment token; if the passkey is lost, the
-operator's `Auth.ResetAccountMFA` clears the account's second factors so its
+system's `Auth.ResetAccountMFA` clears the account's second factors so its
 next sign-in enrolls one. Device-key enrollment refuses a revoked key or one
 bound to another account before asking for a second factor, and spends a
 backup code only when the key is enrolled. A password change or reset revokes

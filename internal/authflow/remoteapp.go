@@ -6,9 +6,9 @@ import "github.com/open-rails/authkit/iam"
 // row plus its service-owned org (the permission group the application
 // principal owns).
 type RegisteredApplication struct {
-	Application     iam.RemoteApplication
-	OrgPersona      iam.Persona
-	OrgInstanceSlug string
+	Application iam.RemoteApplication
+	OrgPersona  iam.Persona
+	OrgGroupID  string
 	// Created is false for an idempotent re-registration (the boot-time
 	// self-heal / rotation-from-root path).
 	Created bool

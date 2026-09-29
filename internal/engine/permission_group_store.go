@@ -80,36 +80,17 @@ func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
 	return &permissionGroupStore{q: q, now: time.Now}
 }
 
-// CreateGroupNamed inserts a non-root permission group with a first-class
-// display name (#264): free-form, non-unique vanity metadata (the slug stays
-// the unique handle). It returns the group's internal id.
-func (st *permissionGroupStore) CreateGroupNamed(ctx context.Context, g iam.GroupRef, displayName string) (string, error) {
+// CreateGroup inserts a non-root permission group and returns its id.
+func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Persona) (string, error) {
 	var id string
-	err := st.q.QueryRow(ctx,
-		`WITH identity AS MATERIALIZED (SELECT uuidv7() AS id),
-         claim AS MATERIALIZED (SELECT id, claim_canonical_name('group',$1,$2,id,$4) FROM identity)
-         INSERT INTO permission_groups (id,persona,instance_slug,display_name)
-         SELECT id,$1,$2,$3 FROM claim RETURNING id::text`,
-		g.Persona(), g.Slug(), displayName, st.now()).Scan(&id)
-	if err != nil {
-		return "", fmt.Errorf("create %q group: %w", g.Persona(), nameClaimError(err, "group"))
+	if err := st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id::text`, persona).Scan(&id); err != nil {
+		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
-	return id, st.record(ctx, groupEvent(iam.EventGroupCreated, id, g.Persona()))
+	return id, st.record(ctx, groupEvent(iam.EventGroupCreated, id, persona))
 }
 
-// SetGroupDisplayName updates a group's free-form display name.
-func (st *permissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID, displayName string) error {
-	tag, err := st.q.Exec(ctx,
-		`UPDATE permission_groups SET display_name = $2 WHERE id = $1::uuid AND deleted_at IS NULL`,
-		groupID, displayName)
-	if err == nil && tag.RowsAffected() == 0 {
-		return iam.ErrGroupNotFound
-	}
-	return err
-}
-
-// lockGroup serializes lifecycle changes with renames. The root group cannot
-// be deleted.
+// lockGroup locks a group row for its permanent delete and returns its
+// persona. The root group cannot be deleted.
 func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (iam.Persona, error) {
 	var persona iam.Persona
 	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona)
@@ -125,92 +106,15 @@ func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (
 	return persona, nil
 }
 
-func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts iam.PurgeGroupOptions) error {
+func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string) error {
 	persona, err := st.lockGroup(ctx, groupID)
 	if err != nil {
 		return err
-	}
-	if !opts.ReleaseSlug {
-		if _, err := st.q.Exec(ctx, `UPDATE name_claims SET canonical=false,expires_at=NULL WHERE owner_kind='group' AND owner_id=$1::uuid AND canonical`, groupID); err != nil {
-			return err
-		}
 	}
 	if _, err := st.q.Exec(ctx, `DELETE FROM permission_groups WHERE id=$1::uuid`, groupID); err != nil {
 		return err
 	}
 	return st.record(ctx, groupEvent(iam.EventGroupPurged, groupID, persona))
-}
-
-// InstanceSlugAvailable applies exactly the resolver's request-time expiry rule.
-func (st *permissionGroupStore) InstanceSlugAvailable(ctx context.Context, g iam.GroupRef) (bool, error) {
-	var available bool
-	err := st.q.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM name_claims WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND (canonical OR expires_at IS NULL OR expires_at>$3))`, g.Persona(), g.Slug(), st.now()).Scan(&available)
-	return available, err
-}
-
-// RenameGroupSlug requires the group owner row locked in the caller transaction.
-// It reads the outgoing spelling again rather than trusting a route's old alias.
-func (st *permissionGroupStore) renameGroupSlug(ctx context.Context, groupID, newSlug string, policy iam.NamingPolicy) error {
-	var persona string
-	var old *string
-	var last *time.Time
-	err := st.q.QueryRow(ctx, `SELECT persona,instance_slug,last_renamed_at FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(&persona, &old, &last)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.ErrGroupNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if old != nil && *old == newSlug {
-		return nil
-	}
-	now := st.now()
-	if err := policy.CheckRename(last, now); err != nil {
-		return err
-	}
-	oldName := ""
-	if old != nil {
-		oldName = *old
-	}
-	if err := renameNameClaim(ctx, st.q, "group", persona, groupID, oldName, newSlug, now, policy); err != nil {
-		return err
-	}
-	_, err = st.q.Exec(ctx, `UPDATE permission_groups SET instance_slug=$2,last_renamed_at=$3 WHERE id=$1::uuid`, groupID, newSlug, now)
-	return err
-}
-
-func (st *permissionGroupStore) ResolveGroupSlug(ctx context.Context, g iam.GroupRef) (iam.NameResolution, error) {
-	var out iam.NameResolution
-	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE g.deleted_at IS NULL AND c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona(), g.Slug(), st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return out, iam.ErrGroupNotFound
-	}
-	return out, err
-}
-
-func (st *permissionGroupStore) GroupByInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
-	if id, bound, err := st.requestGroupID(ctx, g); bound {
-		return id, err
-	}
-	out, err := st.ResolveGroupSlug(ctx, g)
-	return out.ID, err
-}
-
-// GroupByLiveInstanceSlug resolves (persona, instance_slug) WITHOUT tombstone
-// forwarding — the group currently holding the slug, or ErrGroupNotFound.
-func (st *permissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
-	var id string
-	err := st.q.QueryRow(ctx,
-		`SELECT id::text FROM permission_groups
-		 WHERE persona = $1 AND instance_slug = $2 AND deleted_at IS NULL`,
-		g.Persona(), g.Slug()).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", iam.ErrGroupNotFound
-	}
-	if err != nil {
-		return "", err
-	}
-	return id, nil
 }
 
 // RootGroupID returns the singleton root group's internal id (ErrGroupNotFound
@@ -581,11 +485,11 @@ func (st *permissionGroupStore) groupByID(ctx context.Context, groupID string) (
 	return g, nil
 }
 
-const groupColumns = `id::text, persona, COALESCE(instance_slug,''), COALESCE(display_name,''), deleted_at`
+const groupColumns = `id::text, persona, created_at, deleted_at`
 
 func scanGroup(row pgx.Row) (iam.Group, error) {
 	var g iam.Group
-	err := row.Scan(&g.ID, &g.Persona, &g.Slug, &g.DisplayName, &g.DeletedAt)
+	err := row.Scan(&g.ID, &g.Persona, &g.CreatedAt, &g.DeletedAt)
 	return g, err
 }
 

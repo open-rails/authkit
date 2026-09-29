@@ -43,7 +43,7 @@ func (s *Engine) accountRegistrationInviteURL(code string) string {
 // CAP(root:users:invite) on root. With i.Group and i.Role set, registering also
 // grants that role, and the invite needs that group's CAP(<p>:members:manage)
 // plus COVER(role) instead (the invite-link rule), not root:users:invite. Only
-// a user or the operator issues credentials. The code is returned once and
+// a user or the system issues credentials. The code is returned once and
 // emailed to i.Email.
 func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.NewAccountInvite) (iam.AccountInviteCreated, error) {
 	creator, err := credentialIssuer(a)

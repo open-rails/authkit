@@ -122,13 +122,13 @@ func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role
 }
 
 // Can reports whether a covers perm in the group ref addresses, live: a dead
-// actor, an unknown group or an actor bound to another group is false. An
-// operator is always true. An unregistered perm is ErrUnknownPermission.
+// actor, an unknown group or an actor bound to another group is false. The
+// system is always true. An unregistered perm is ErrUnknownPermission.
 func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
 	}
-	if a.IsZero() || validateGroupSlug(ref) != nil {
+	if a.IsZero() {
 		return false, nil
 	}
 	if err := s.requirePG(); err != nil {
@@ -156,7 +156,7 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 // clients that gate UI on permission strings (glob-matching with
 // iam.Perm.Matches). Globs are returned verbatim; a ceiling narrows them.
 // Unknown and deleted groups and groups granting nothing are absent; a dead
-// actor has none. An operator gets each persona's owner grant. A user's
+// actor has none. The system gets each persona's owner grant. A user's
 // grants on many groups are read in one query.
 func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
 	if len(refs) > iam.MaxBatch {
@@ -172,13 +172,10 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 	st := s.groupStore()
 	ids := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		if id := ref.ID(); id != "" {
-			if u, err := uuid.Parse(id); err == nil {
+		if !ref.IsRoot() {
+			if u, err := uuid.Parse(ref.ID()); err == nil {
 				ids = append(ids, u.String())
 			}
-			continue
-		}
-		if validateGroupSlug(ref) != nil {
 			continue
 		}
 		g, err := s.resolveGroup(ctx, st, ref)
@@ -218,7 +215,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 		if g.DeletedAt != nil {
 			continue
 		}
-		t := groupTarget{ID: g.ID, Persona: g.Persona, Slug: g.Slug}
+		t := groupTarget{ID: g.ID, Persona: g.Persona}
 		auth, err := s.actorAuthority(ctx, st, a, t)
 		if errors.Is(err, iam.ErrInsufficientAuthority) {
 			return map[string][]iam.Perm{}, nil
@@ -250,7 +247,7 @@ func (s *Engine) actorUser(a iam.Actor) (string, bool) {
 // ceiling fully permits stays a pattern; otherwise only the catalog
 // permissions it names that the ceiling permits remain.
 func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
-	if auth.operator {
+	if auth.system {
 		return []iam.Perm{g.Persona.OwnerGrant()}
 	}
 	sch := s.groupSchemaOrDefault()

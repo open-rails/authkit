@@ -51,12 +51,13 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			require.EqualValues(t, 2, credentialVersion)
 			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('root')`)
 			require.NoError(t, err)
-			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona,instance_slug) VALUES ('merchant','host-merchant')`)
+			var groupID string
+			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('merchant') RETURNING id::text`).Scan(&groupID)
 			require.NoError(t, err)
-			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('team')`)
+			_, err = conn.ExecContext(ctx, `UPDATE `+s+`permission_groups SET persona='team' WHERE id=$1::uuid`, groupID)
 			var refusal *pgconn.PgError
 			require.ErrorAs(t, err, &refusal)
-			require.Equal(t, "23514", refusal.Code)
+			require.Equal(t, "23514", refusal.Code, "a group's persona is immutable")
 
 			_, err = conn.ExecContext(ctx, `DELETE FROM `+s+`users WHERE id=$1::uuid`, userID)
 			require.NoError(t, err)

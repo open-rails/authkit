@@ -402,7 +402,7 @@ func TestSecurityVerifyRequestByPhoneRevealsNothing(t *testing.T) {
 	ctx := context.Background()
 	phoneAccount := func(verified bool) string {
 		phone := "+1555" + uniqueDigits(7)
-		_, err := h.auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Username: unique("aphone"), Phone: phone, PhoneVerified: verified})
+		_, err := h.auth.CreateUser(ctx, iam.NewUser{Username: unique("aphone"), Phone: phone, PhoneVerified: verified})
 		require.NoError(t, err)
 		return phone
 	}

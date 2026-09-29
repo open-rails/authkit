@@ -24,7 +24,7 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	cfg.River.Schema = "replacement_jobs"
 	_, err = New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "active account lifecycle work")
-	results, err := old.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
+	results, err := old.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	_, err = New(context.Background(), cfg, Deps{Postgres: pg.Pool})

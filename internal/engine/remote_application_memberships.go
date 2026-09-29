@@ -27,11 +27,11 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	q := s.pg
 	var gid string
 	err := q.QueryRow(ctx,
-		`SELECT ra.permission_group_id::text, pg.persona, COALESCE(pg.instance_slug, '')
+		`SELECT ra.permission_group_id::text, pg.persona
 		 FROM remote_applications ra
 		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
 		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL AND `+registrarLive("ra"),
-		appID).Scan(&gid, &out.Persona, &out.InstanceSlug)
+		appID).Scan(&gid, &out.Persona)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.RemoteApplicationAuthority{}, iam.ErrRemoteApplicationNotFound
 	}

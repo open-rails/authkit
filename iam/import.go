@@ -3,7 +3,7 @@ package iam
 import "time"
 
 // Bulk import of accounts and legacy identities, for migrations. Every import
-// operation is operator-only.
+// is a host operation: your code decides.
 
 // HashAlgoLegacyResetRequired marks a migrated password that can never verify
 // (DES crypt, md5-crypt, corrupted values). The raw hash is kept for forensics
@@ -37,7 +37,7 @@ type ImportUser struct {
 	// PreferredLanguage and AvatarURL are validated as UpdateUser validates them.
 	PreferredLanguage string
 	AvatarURL         string
-	// DeletedAt, not in the future, imports the account as the operator's
+	// DeletedAt, not in the future, imports the account as the system's
 	// DeleteUsers at that time would have left it: OnSoftDelete runs, the
 	// 30-day recovery window runs from DeletedAt (RestoreUsers restores it,
 	// signing in does not), and once the window has passed the account is

@@ -2,14 +2,15 @@ package iam
 
 import "time"
 
-// Group is one permission group: an instance of a persona (/c/golang), or the
-// root group, the whole site.
+// Group is one permission group: an instance of a persona, or the root
+// group, the whole site. A group has no name: it only holds roles. The entity
+// it guards (a channel, /c/golang) lives in the host app, which stores the
+// group's ID.
 type Group struct {
-	ID          string
-	Persona     Persona
-	Slug        string // "" for the root group
-	DisplayName string
-	// DeletedAt is set on a soft-deleted group; only by-id reads return one.
+	ID        string
+	Persona   Persona
+	CreatedAt time.Time
+	// DeletedAt is set on a soft-deleted group.
 	DeletedAt *time.Time
 }
 
@@ -27,36 +28,17 @@ type Membership struct {
 	Role  Role
 }
 
-// NewGroup describes a group to create.
+// NewGroup describes a group to create. Owner, when set, is seeded with the
+// owner role: a live account, or an enabled remote application.
 type NewGroup struct {
-	Persona     Persona
-	Slug        string
-	DisplayName string
-	// Owner is seeded with the owner role. A user creating a group always
-	// becomes its owner and leaves this nil; an operator may name any subject,
-	// or none.
-	Owner *Subject
-}
-
-// GroupUpdate changes a group's own identity; nil fields are unchanged.
-type GroupUpdate struct {
-	Slug        *string
-	DisplayName *string
-}
-
-// PurgeGroupOptions controls a permanent group delete. By default the deleted
-// group's slug stays reserved forever, so published references can never be
-// claimed by someone else. ReleaseSlug frees it; that is safe only for a name
-// nothing ever referenced.
-type PurgeGroupOptions struct {
-	ReleaseSlug bool
+	Persona Persona
+	Owner   *Subject
 }
 
 // GroupQuery lists the groups of a persona ("" = every persona but root),
-// ordered by slug. Search matches a substring of the slug or display name.
+// oldest first.
 type GroupQuery struct {
 	Persona        Persona
-	Search         string
 	IncludeDeleted bool
 	Page           PageRequest
 }

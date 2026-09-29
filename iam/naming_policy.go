@@ -18,8 +18,8 @@ const (
 	DefaultFormerNameRetention                         = 90 * 24 * time.Hour
 )
 
-// NamingConfig is deployment-wide policy for users and group instances. Pointers
-// distinguish omission (defaults) from explicit false/zero.
+// NamingConfig is deployment-wide username policy. Pointers distinguish
+// omission (defaults) from explicit false/zero.
 type NamingConfig struct {
 	Enabled        *bool                     `json:"enabled,omitempty" koanf:"enabled"`
 	RenameInterval *time.Duration            `json:"rename_interval,omitempty" koanf:"rename_interval"`
@@ -80,8 +80,8 @@ func (c NamingConfig) Normalize() (NamingPolicy, error) {
 	return p, nil
 }
 
-// CheckRename is shared by user/group mutations under their owner lock. Callers
-// authorize and detect a same-canonical-name no-op before checking this policy.
+// CheckRename runs under the account lock. Callers authorize and detect a
+// same-canonical-name no-op before checking this policy.
 // Trusted import updates skip this check, never namespace ownership checks.
 func (p NamingPolicy) CheckRename(lastRenamedAt *time.Time, now time.Time) error {
 	if !p.Enabled {
@@ -160,12 +160,9 @@ func (p NamingPolicy) State(last *time.Time, now time.Time) NamingState {
 	return out
 }
 
-// NameAdmissionRequest is the namespace admission hook's operation context.
-// Group creation cost/enrollment hooks remain creation-only.
+// NameAdmissionRequest is the username admission hook's operation context.
 type NameAdmissionRequest struct {
-	OwnerKind     string
-	Persona       Persona
-	OwnerID       string // Empty only before a new group/account is created.
+	UserID        string // Empty only before a new account is created.
 	ActorID       string
 	CurrentName   string
 	RequestedName string

@@ -102,12 +102,9 @@ func (s *Engine) GetProviderLinkByIssuer(ctx context.Context, issuer, subject st
 }
 
 // LinkProvider links an external identity to a live account as a login
-// method, under the operator. Browser flows use ExternalLoginInput.Link, whose
+// method, as a host operation. Browser flows use ExternalLoginInput.Link, whose
 // initiating session is checked at commit.
-func (s *Engine) LinkProvider(ctx context.Context, a iam.Actor, userID string, l iam.ProviderLink) error {
-	if err := requireOperator(a); err != nil {
-		return err
-	}
+func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

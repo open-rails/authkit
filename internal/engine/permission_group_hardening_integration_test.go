@@ -63,16 +63,16 @@ func newHardeningTestServiceWith(t *testing.T, cfg Config) (*httpapi.Service, *p
 	return svc, pool, owner
 }
 
-func defineRoleGR(persona string) httpapi.GeneratedRoute {
-	return httpapi.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
-}
-
-func deleteRoleGR(persona string) httpapi.GeneratedRoute {
-	return httpapi.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
-}
-
-func memberRoleAssignGR(persona string) httpapi.GeneratedRoute {
-	return httpapi.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
+// groupRoute is the group route for op.
+func groupRoute(t *testing.T, op httpapi.GroupOp) httpapi.GroupRoute {
+	t.Helper()
+	for _, gr := range httpapi.GroupRoutes {
+		if gr.Op == op {
+			return gr
+		}
+	}
+	t.Fatalf("no group route for op %d", op)
+	return httpapi.GroupRoute{}
 }
 
 // TestCustomRoleRedefineRejectsEscalation_HTTP is the #247 SECURITY fix: a
@@ -83,10 +83,11 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	s, pool, owner := newHardeningTestService(t)
 	ctx := context.Background()
 
-	_, err := seedGroup(ctx, fixtureBackend(s.Backend()), "merchant", "m-escalate", owner)
+	gid, err := seedGroup(ctx, fixtureBackend(s.Backend()), "merchant", owner)
 	require.NoError(t, err)
+	group := iam.GroupByID(gid)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-escalate'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE id=$1::uuid`, gid)
 	})
 
 	var boundedAdmin string
@@ -94,17 +95,17 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, boundedAdmin) })
 	// Unchecked seed of the bounded admin's OWN role — holds
 	// roles:manage capability but NONE of the billing perms it will try to touch.
-	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(boundedAdmin), "roles-admin")
+	grantRole(t, fixtureBackend(s.Backend()), group, iam.UserSubject(boundedAdmin), "roles-admin")
 
 	// Owner defines "auditor" (billing:read only) — this establishes a role
 	// someone else (in principle) could hold.
-	defineGR := defineRoleGR("merchant")
-	w := drive(s, t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read"]}`)
+	defineGR := groupRoute(t, httpapi.OpRoleDefine)
+	w := drive(s, t, defineGR, gid, owner, `{"role":"auditor","permissions":["merchant:billing:read"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 
 	// Bounded admin (roles:manage only) attempts to widen it to billing:write
 	// too — blocked: the admin doesn't even cover the role's EXISTING grant.
-	w = drive(s, t, defineGR, "m-escalate", boundedAdmin, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
+	w = drive(s, t, defineGR, gid, boundedAdmin, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), string(errmodel.CodeForbidden))
 
@@ -113,29 +114,29 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	var subject string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users DEFAULT VALUES RETURNING id::text`).Scan(&subject))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
-	grantRole(t, fixtureBackend(s.Backend()), iam.GroupBySlug("merchant", "m-escalate"), iam.UserSubject(subject), "auditor")
-	perms, err := effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	grantRole(t, fixtureBackend(s.Backend()), group, iam.UserSubject(subject), "auditor")
+	perms, err := effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), group)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
-	w = drive(s, t, defineGR, "m-escalate", owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
+	w = drive(s, t, defineGR, gid, owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), group)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read", "merchant:billing:write"}, perms)
 
 	// Delete is gated symmetrically: the bounded admin still can't cover the
 	// role's (now wider) grants, so it cannot delete it either.
-	delGR := deleteRoleGR("merchant")
-	delRepl := strings.NewReplacer(":instance_slug", "m-escalate", ":role", "auditor")
+	delGR := groupRoute(t, httpapi.OpRoleDelete)
+	delRepl := strings.NewReplacer(":group_id", gid, ":role", "auditor")
 	dw := driveSub(s, t, delGR, delRepl, boundedAdmin)
 	require.Equal(t, http.StatusForbidden, dw.Code, dw.Body.String())
 
 	// Owner CAN delete it.
 	dw = driveSub(s, t, delGR, delRepl, owner)
 	require.Equal(t, http.StatusOK, dw.Code, dw.Body.String())
-	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), iam.GroupBySlug("merchant", "m-escalate"))
+	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), group)
 	require.NoError(t, err)
 	require.Empty(t, perms, "after delete, the auditor grant must be gone")
 }
@@ -154,18 +155,18 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	backend := fixtureBackend(s.Backend())
 
 	// The owner holds merchant:*, which reaches the MFA permission.
-	_, err := seedGroup(ctx, backend, "merchant", "m-mfa-role", owner)
+	_, err := seedGroup(ctx, backend, "merchant", owner)
 	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
 	_, err = backend.enableFactor(ctx, owner, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
-	_, err = seedGroup(ctx, backend, "merchant", "m-mfa-role", owner)
+	gid, err := seedGroup(ctx, backend, "merchant", owner)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-mfa-role'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE id=$1::uuid`, gid)
 	})
 
-	defineGR := defineRoleGR("merchant")
-	w := drive(s, t, defineGR, "m-mfa-role", owner, `{"role":"sensitive","permissions":["merchant:payouts:send","merchant:billing:read"]}`)
+	defineGR := groupRoute(t, httpapi.OpRoleDefine)
+	w := drive(s, t, defineGR, gid, owner, `{"role":"sensitive","permissions":["merchant:payouts:send","merchant:billing:read"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 
 	var subject string
@@ -173,8 +174,8 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, subject) })
 
 	// Not enrolled in 2FA yet: assignment must be refused (403, 2fa_enrollment_required).
-	assignGR := memberRoleAssignGR("merchant")
-	repl := strings.NewReplacer(":instance_slug", "m-mfa-role", ":user", subject, ":role", "sensitive")
+	assignGR := groupRoute(t, httpapi.OpMemberRoleAssign)
+	repl := strings.NewReplacer(":group_id", gid, ":user", subject, ":role", "sensitive")
 	w = driveSub(s, t, assignGR, repl, owner)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")

@@ -1,8 +1,6 @@
 # Permission-group deletion lifetimes
 
-Deleting a group, soft or `PurgeGroup`, keeps its slug reserved;
-`PurgeGroupOptions.ReleaseSlug` frees it. Earlier aliases keep the expiry their
-renames promised.
+A group has no name, so deleting it, soft or `PurgeGroup`, reserves nothing.
 
 Custom-role edits update current holders. Deleting a custom role retires its
 assignments, API keys and deferred invites in the same transaction; recreating
@@ -19,7 +17,6 @@ API-key verification joins the key and its custom definition. A concurrent
 role deletion/recreation cannot combine an old grant with replacement authority.
 This does not change who may assign roles or the separate final-owner policy.
 
-One database workflow covers release/reservation, earlier alias expiry,
-deletion rollback and concurrent rename; role edits, reference retirement and
-delete/recreate; five waiting grant writers; and membership, application and
-key reads at the deletion boundary.
+One database workflow covers deletion rollback; role edits, reference
+retirement and delete/recreate; five waiting grant writers; and membership,
+application and key reads at the deletion boundary.

@@ -11,7 +11,7 @@ import (
 )
 
 // restoreAccountDeletionOn is the common transactional restore transition.
-// Recovery proofs must pass their server-bound generation; trusted operators
+// Recovery proofs must pass their server-bound generation; system restores
 // pass an empty generation to select the current deletion. Callers retain
 // responsibility for authenticating a, their actor, before invoking this helper.
 func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.Actor, userID, generation string) error {

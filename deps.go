@@ -46,11 +46,8 @@ type Deps struct {
 	// ApplicationAdmission is consulted before any application
 	// self-registration fetch (#264): a non-nil error refuses the attempt.
 	ApplicationAdmission func(ctx context.Context, domain string) error
-	// InstanceAdmission is consulted before any generated persona-instance
-	// creation (#263) with the normalized slug; a non-nil error refuses.
-	InstanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
-	// NameAdmission is the host's side-effect-free namespace policy for
-	// creation and rename.
+	// NameAdmission is the host's side-effect-free username policy for
+	// account creation and rename.
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// SolanaSNSResolver replaces the SNS primary-name resolver used after a
 	// verified Solana link.
@@ -87,7 +84,7 @@ type EmailSender interface {
 	// SendDeviceKeyEnrolled tells the account's address that a new device key
 	// can now sign in as it.
 	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice iam.DeviceKeyNotice) error
-	// SendMFAReset tells the account's address that the operator removed its
+	// SendMFAReset tells the account's address that the system removed its
 	// passkeys, second factors and device keys and signed it out everywhere.
 	SendMFAReset(ctx context.Context, email, username string) error
 }

@@ -57,14 +57,12 @@ type RemoteApplicationKey struct {
 }
 
 // RemoteApplicationAuthority is a remote application's stored authority: its
-// effective permissions and the group they are bound to. InstanceSlug is ""
-// for root.
+// effective permissions and the group they are bound to.
 type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string
 	Permissions       []string
 	Persona           Persona
-	InstanceSlug      string
 }
 
 // RemoteApplication is a registered federation principal: an external issuer
@@ -85,10 +83,10 @@ type RemoteApplication struct {
 	// DisplayName is free-form, non-unique vanity metadata (#264). The slug is
 	// the public handle; the uuid is the internal join key.
 	DisplayName string
-	// Tier is the application's capability tier. Only the operator approves;
+	// Tier is the application's capability tier. Only the system approves;
 	// every group or domain registration starts at ApplicationTierRegistered.
 	Tier ApplicationTier
-	// TrustRoot is what may rotate the application's keys: the operator
+	// TrustRoot is what may rotate the application's keys: the system
 	// (manual), a fresh proof of Domain (domain), or a credentials manager of
 	// its controlling group (user). Never the keypair alone.
 	TrustRoot ApplicationTrustRoot

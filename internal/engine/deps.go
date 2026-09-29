@@ -27,7 +27,6 @@ type Deps struct {
 	OnEvent                func(context.Context, iam.Event) error
 	DelegatedAuthorization iam.DelegationAuthorizer
 	ApplicationAdmission   func(ctx context.Context, domain string) error
-	InstanceAdmission      func(ctx context.Context, group iam.GroupRef, subject string) error
 	NameAdmission          func(context.Context, iam.NameAdmissionRequest) error
 	SolanaSNSResolver      SolanaSNSResolver
 	OutboundHTTP           *http.Client
@@ -66,7 +65,6 @@ func (s *Engine) applyDeps(d Deps) error {
 	s.onEvent = d.OnEvent
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.appAdmission = d.ApplicationAdmission
-	s.instanceAdmission = d.InstanceAdmission
 	s.nameAdmission = d.NameAdmission
 	if d.SolanaSNSResolver != nil {
 		s.solanaSNSResolver = d.SolanaSNSResolver

@@ -22,7 +22,7 @@ type InviteLinkCreated struct {
 type InviteLink struct {
 	ID         string
 	Role       Role
-	InvitedBy  string // "" = issued by the operator
+	InvitedBy  string // "" = issued by the system
 	CreatedAt  time.Time
 	ExpiresAt  *time.Time
 	RedeemedAt *time.Time

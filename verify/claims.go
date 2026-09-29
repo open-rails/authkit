@@ -112,11 +112,10 @@ type Claims struct {
 	RemoteApplicationTrustRoot iam.ApplicationTrustRoot
 
 	// Machine authority is resolved live from the receiving AuthKit deployment.
-	// Names are presentation only; UUID and authority issuer fence ownership.
+	// The group id and authority issuer fence ownership.
 	PermissionGroupID              string
 	PermissionGroupAuthorityIssuer string
 	PermissionGroupPersona         string
-	PermissionGroupInstance        string
 }
 
 // APIKeyPrincipalType is the TokenType value carried by an opaque API key: a
@@ -253,7 +252,7 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	}
 	var scope *PermissionScope
 	if c.BoundToPermissionGroup() {
-		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: iam.Persona(c.PermissionGroupPersona), Instance: c.PermissionGroupInstance}
+		scope = &PermissionScope{GroupID: c.PermissionGroupID, AuthorityIssuer: c.PermissionGroupAuthorityIssuer, Persona: iam.Persona(c.PermissionGroupPersona)}
 	}
 	return DelegatedPrincipal{
 		PermissionGroup:                 scope,
@@ -318,7 +317,7 @@ func (c Claims) Attribute(key string) (json.RawMessage, bool) {
 // Explicit platform delegation and user identity have no such binding.
 func (c Claims) BoundToPermissionGroup() bool {
 	return c.TokenType == APIKeyPrincipalType || c.TokenType == RemoteApplicationTokenType || c.RemoteApplicationID != "" ||
-		c.PermissionGroupID != "" || c.PermissionGroupAuthorityIssuer != "" || c.PermissionGroupPersona != "" || c.PermissionGroupInstance != ""
+		c.PermissionGroupID != "" || c.PermissionGroupAuthorityIssuer != "" || c.PermissionGroupPersona != ""
 }
 
 // PermissionGroupAllows compares immutable ownership. Missing binding fields

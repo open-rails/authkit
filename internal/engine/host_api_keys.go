@@ -19,7 +19,7 @@ import (
 // (catalog or custom); its permissions resolve from that role at use time, so
 // editing the role changes every key holding it. Issuance follows rule CRED
 // (credential_issuers.go): the creator is recorded and the key dies with the
-// creator's authority. The operator issues keys with no creator.
+// creator's authority. The system issues keys with no creator.
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission
 // set within a permission-group of persona: a catalog role from the schema
@@ -43,7 +43,7 @@ func (s *Engine) effectiveGroupRolePermissions(ctx context.Context, st *permissi
 }
 
 // MintAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
-// plus COVER(role). Only a user or the operator issues credentials. The token
+// plus COVER(role). Only a user or the system issues credentials. The token
 // is returned once.
 func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
 	creator, err := credentialIssuer(a)
@@ -72,7 +72,7 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	var out iam.APIKey
 	var token string
 	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		// A persona without API keys has none, whoever asks (the operator too).
+		// A persona without API keys has none, whoever asks (the system too).
 		if p, ok := s.groupSchemaOrDefault().Persona(g.Persona); !ok || !p.APIKeys {
 			return fmt.Errorf("persona %q does not enable API keys: %w", g.Persona, iam.ErrInsufficientAuthority)
 		}
@@ -202,13 +202,13 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		custom      []string
 	)
 	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
-        g.id::text, g.persona, COALESCE(g.instance_slug,''), g.display_name, r.permissions
+        g.id::text, g.persona, g.created_at, r.permissions
  FROM api_keys k
  JOIN permission_groups g ON g.id=k.permission_group_id
  LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
  WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
 		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, &p.Group.Persona, &p.Group.Slug, &p.Group.DisplayName, &custom)
+			&p.Group.ID, &p.Group.Persona, &p.Group.CreatedAt, &custom)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}

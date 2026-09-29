@@ -44,8 +44,8 @@ func registeredApplicationJSON(reg *authflow.RegisteredApplication) map[string]a
 	return map[string]any{
 		"application": applicationJSON(reg.Application),
 		"org": map[string]any{
-			"persona":       reg.OrgPersona,
-			"instance_slug": reg.OrgInstanceSlug,
+			"persona":  reg.OrgPersona,
+			"group_id": reg.OrgGroupID,
 		},
 		"created": reg.Created,
 	}

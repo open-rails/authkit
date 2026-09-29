@@ -43,7 +43,7 @@ type DelegationAuthorizer func(context.Context, DelegationRequest) (DelegationGr
 // deployment, it carries delegated_sub and never sub.
 type DelegatedAccess struct {
 	// Subject becomes delegated_sub. A user actor mints only for itself (empty
-	// means the actor); an operator must name the subject.
+	// means the actor); the system must name the subject.
 	Subject string
 	// Audiences becomes aud: the resource APIs the token is for.
 	Audiences []string

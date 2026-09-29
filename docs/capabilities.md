@@ -15,7 +15,7 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Username policy
 
-`authkit.Config.Username` (`iam.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `iam.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Operator imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
+`authkit.Config.Username` (`iam.UsernamePolicy{MinLength, MaxLength}`, default 4..30, ceiling 64) bounds interactive usernames and every derived username (OIDC, passwordless, Solana). The character rule is fixed: `iam.UsernamePattern`, usable as a JavaScript `u`/`v` regular expression or HTML `pattern`. Host imports keep the configured minimum, allow hyphens, and accept up to 64 characters.
 
 ```json
 "username": {"min_length": 4, "max_length": 30, "pattern": "^[A-Za-z][A-Za-z0-9_]*$"}
@@ -25,4 +25,4 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Memberships
 
-`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare no persona besides root. It returns the caller's current actual assignments with `group_id`, `persona`, `instance_slug` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.
+`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare no persona besides root. It returns the caller's current actual assignments with `group_id`, `persona` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.

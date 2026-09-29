@@ -3,7 +3,7 @@ package iam
 import "strings"
 
 // Persona names a type of permission group (`channel`, `org`, `merchant`). A
-// permission group is one instance of a persona (/c/golang). root is the
+// permission group is one instance of a persona. root is the
 // persona with exactly one group, the whole site. The persona is the first
 // segment of every permission its groups use.
 type Persona string
@@ -15,8 +15,7 @@ type Role string
 
 // Perm is a permission `<persona>:<resource>:<action>` (`channel:posts:edit`)
 // or a grant pattern, where `*` replaces the action (`channel:posts:*`) or
-// everything after the persona (`channel:*`, the owner). The resource `self`
-// is the group itself.
+// everything after the persona (`channel:*`, the owner).
 type Perm string
 
 // SubjectKind discriminates who holds a role in a permission group.

@@ -77,7 +77,7 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	}
 
 	partner := newSigner(t, "partner-kid")
-	_, err = auth.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.RootGroup(), iam.RemoteApplication{
+	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, partner), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		require.Equal(t, map[string]string{"api": base + "/api/v1", "oidc": base + "/oidc", "jwks": base + iam.JWKSPath}, caps.Paths)
 	})
 
-	user, err := auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: "basepath@security.test", Username: "basepath", Password: password, EmailVerified: true})
+	user, err := auth.CreateUser(ctx, iam.NewUser{Email: "basepath@security.test", Username: "basepath", Password: password, EmailVerified: true})
 	require.NoError(t, err)
 	login := call(http.MethodPost, base+"/api/v1/password/login", "", map[string]string{"identifier": "basepath@security.test", "password": password})
 	require.Equal(t, http.StatusOK, login.StatusCode)

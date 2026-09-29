@@ -2,7 +2,7 @@ package engine
 
 // Rule CRED: a credential (API key, invite link, registration invite, and the
 // roles of a group-registered application) records who issued it, and never
-// outlives that issuer's authority. The issuer is a user, or the operator
+// outlives that issuer's authority. The issuer is a user, or the system
 // (NULL, never auto-revoked); machine actors cannot issue credentials. An
 // application's issuer is its registrar, the user who supplied its keys.
 // Three layers hold it:
@@ -32,10 +32,10 @@ import (
 )
 
 // credentialIssuer is the creator a credential issued by a records: the user,
-// or "" for the operator. Machine actors cannot issue credentials.
+// or "" for the system. Machine actors cannot issue credentials.
 func credentialIssuer(a iam.Actor) (string, error) {
 	switch a.Kind() {
-	case iam.ActorOperator:
+	case iam.ActorSystem:
 		return "", nil
 	case iam.ActorUser:
 		return a.ID(), nil
@@ -43,7 +43,7 @@ func credentialIssuer(a iam.Actor) (string, error) {
 	return "", iam.ErrInsufficientAuthority
 }
 
-// issuerLive is a SQL predicate: the issuer in column col is the operator
+// issuerLive is a SQL predicate: the issuer in column col is the system
 // (NULL) or an account that is not deleted, reserved or banned.
 func issuerLive(col string) string {
 	return `(` + col + ` IS NULL OR EXISTS(SELECT 1 FROM users issuer WHERE issuer.id=` + col + ` AND issuer.deleted_at IS NULL
@@ -53,7 +53,7 @@ func issuerLive(col string) string {
 
 // registrarLive is a SQL predicate on the remote_applications alias app: a
 // group registration confers authority only while its registrar is live.
-// Operator and domain registrations have no registrar.
+// System and domain registrations have no registrar.
 func registrarLive(app string) string {
 	return `(` + app + `.trust_root<>'user' OR ` + app + `.registered_by IS NOT NULL AND ` + issuerLive(app+".registered_by") + `)`
 }

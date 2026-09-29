@@ -31,8 +31,8 @@ func itemErr(res []iam.OpResult, err error) error {
 func TestUserLookups(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.OperatorActor()
-	alice, err := auth.CreateUser(ctx, op, iam.NewUser{Email: "Alice@Example.test", Phone: "+15555550100", Username: "alice", EmailVerified: true})
+	op := iam.SystemActor()
+	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "Alice@Example.test", Phone: "+15555550100", Username: "alice", EmailVerified: true})
 	require.NoError(t, err)
 	require.Equal(t, "alice@example.test", alice.Email)
 	require.True(t, alice.EmailVerified)
@@ -50,7 +50,7 @@ func TestUserLookups(t *testing.T) {
 	}
 
 	t.Run("deleted accounts need IncludeDeleted and publish a tombstone", func(t *testing.T) {
-		bob, err := auth.CreateUser(ctx, op, iam.NewUser{Email: "bobby@example.test", Username: "bobby"})
+		bob, err := auth.CreateUser(ctx, iam.NewUser{Email: "bobby@example.test", Username: "bobby"})
 		require.NoError(t, err)
 		require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{bob.ID})))
 		_, err = auth.User(ctx, iam.UserByUsername("bobby"))
@@ -79,8 +79,8 @@ func TestUserLookups(t *testing.T) {
 func TestUserBanState(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.OperatorActor()
-	carol, err := auth.CreateUser(ctx, op, iam.NewUser{Email: "carol@example.test", Username: "carol"})
+	op := iam.SystemActor()
+	carol, err := auth.CreateUser(ctx, iam.NewUser{Email: "carol@example.test", Username: "carol"})
 	require.NoError(t, err)
 	ban := func() *iam.BanState {
 		t.Helper()
@@ -93,7 +93,7 @@ func TestUserBanState(t *testing.T) {
 	require.ErrorIs(t, auth.Ban(ctx, op, carol.ID, iam.Ban{Until: &past}), iam.ErrInvalidUntil)
 	require.NoError(t, auth.Ban(ctx, op, carol.ID, iam.Ban{Reason: "spam"}))
 	require.Equal(t, "spam", ban().Reason)
-	require.Empty(t, ban().By, "an operator ban has no banning account")
+	require.Empty(t, ban().By, "the system ban has no banning account")
 	require.NoError(t, auth.Ban(ctx, op, carol.ID, iam.Ban{Reason: "again", KeepExisting: true}))
 	require.Equal(t, "spam", ban().Reason, "KeepExisting leaves a ban in force unchanged")
 	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
@@ -109,8 +109,8 @@ func TestUserBanState(t *testing.T) {
 func TestUserUpdateAndMetadata(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.OperatorActor()
-	dave, err := auth.CreateUser(ctx, op, iam.NewUser{Email: "dave@example.test", Username: "dave", EmailVerified: true})
+	op := iam.SystemActor()
+	dave, err := auth.CreateUser(ctx, iam.NewUser{Email: "dave@example.test", Username: "dave", EmailVerified: true})
 	require.NoError(t, err)
 	self := iam.UserActor(dave.ID)
 	lang, avatar := "fr", "https://cdn.example.test/dave.png"
@@ -145,25 +145,17 @@ func TestUserUpdateAndMetadata(t *testing.T) {
 	require.Empty(t, sessions)
 }
 
-func TestOperatorOnlyAccountOperations(t *testing.T) {
+func TestAccountHostOperations(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	erin, err := auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: "erin@example.test", Username: "erin"})
+	erin, err := auth.CreateUser(ctx, iam.NewUser{Email: "erin@example.test", Username: "erin"})
 	require.NoError(t, err)
-	for _, actor := range []iam.Actor{{}, iam.UserActor(erin.ID)} {
-		_, err := auth.CreateUser(ctx, actor, iam.NewUser{Email: "frank@example.test", Username: "frank"})
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-		_, err = auth.PurgeUsers(ctx, actor, []string{erin.ID})
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-		_, err = auth.MintAccessToken(ctx, actor, erin.ID, iam.AccessTokenOptions{})
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	}
 	require.ErrorIs(t, auth.Ban(ctx, iam.Actor{}, erin.ID, iam.Ban{}), iam.ErrInsufficientAuthority, "the zero actor is refused")
-	token, err := auth.MintAccessToken(ctx, iam.OperatorActor(), erin.ID, iam.AccessTokenOptions{TTL: time.Minute})
+	token, err := auth.MintAccessToken(ctx, erin.ID, iam.AccessTokenOptions{TTL: time.Minute})
 	require.NoError(t, err)
 	require.NotEmpty(t, token.Value)
 	require.WithinDuration(t, time.Now().Add(time.Minute), token.ExpiresAt, 5*time.Second)
-	_, err = auth.MintAccessToken(ctx, iam.OperatorActor(), "0190a0a0-0000-7000-8000-000000000000", iam.AccessTokenOptions{})
+	_, err = auth.MintAccessToken(ctx, "0190a0a0-0000-7000-8000-000000000000", iam.AccessTokenOptions{})
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
 }
 
@@ -172,7 +164,7 @@ func TestListUsersKeysetPaging(t *testing.T) {
 	ctx := t.Context()
 	var want []string
 	for _, name := range []string{"pgcharlie", "pgalpha", "pgecho", "pgbravo", "pgdelta"} {
-		_, err := auth.CreateUser(ctx, iam.OperatorActor(), iam.NewUser{Email: name + "@example.test", Username: name})
+		_, err := auth.CreateUser(ctx, iam.NewUser{Email: name + "@example.test", Username: name})
 		require.NoError(t, err)
 		want = append(want, name)
 	}
@@ -235,14 +227,14 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	auth := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(auth.Close)
 	ctx := t.Context()
-	op := iam.OperatorActor()
-	_, _, err := auth.CreateGroup(ctx, op, iam.NewGroup{Persona: "team", Slug: "alpha"})
+	op := iam.SystemActor()
+	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "team"})
 	require.NoError(t, err)
-	ref := iam.GroupBySlug("team", "alpha")
+	ref := iam.GroupByID(g.ID)
 	ids := map[string]string{}
 	var subjects []iam.Subject
 	for _, name := range []string{"liveone", "banned", "deleted"} {
-		u, err := auth.CreateUser(ctx, op, iam.NewUser{Email: name + "@example.test", Username: name})
+		u, err := auth.CreateUser(ctx, iam.NewUser{Email: name + "@example.test", Username: name})
 		require.NoError(t, err)
 		ids[name] = u.ID
 		subjects = append(subjects, iam.UserSubject(u.ID))

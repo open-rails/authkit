@@ -90,11 +90,6 @@ type Engine struct {
 	// before any registration fetch (#264 anti-squat doctrine: cost gates live
 	// in the host — authkit never learns what a credit card is). Nil = allow.
 	appAdmission func(ctx context.Context, domain string) error
-	// instanceAdmission is the host admission seam for generated persona-
-	// instance creation (#263) — mayCreateInstance consults it. Same anti-squat
-	// split as appAdmission: authkit owns velocity limits, the host owns cost
-	// gates. Nil = allow.
-	instanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
 	// rootGroupID caches the root group id (string) once resolved.
 	rootGroupID atomic.Value
 

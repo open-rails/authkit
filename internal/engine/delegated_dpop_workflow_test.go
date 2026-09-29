@@ -187,7 +187,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 401, call("DPoP", detached.Value, resourceProof(detached.Value), "/tasks"))
 	certHash := [32]byte{1}
-	_, err = engine.MintDelegatedAccessToken(ctx, iam.OperatorActor(), iam.DelegatedAccess{Subject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
+	_, err = engine.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Subject: user.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
 	secondVerifier := engine.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))

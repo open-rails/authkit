@@ -51,7 +51,7 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *us
 		return err
 	}
 	// Only a self-deletion is undone by signing in; an account staff or the
-	// operator deleted comes back only through RestoreUsers (N5).
+	// system deleted comes back only through RestoreUsers (N5).
 	if !self {
 		return errmodel.E(errmodel.CodeAccountDisabled)
 	}
