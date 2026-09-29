@@ -224,3 +224,51 @@ func TestListUsersKeysetPaging(t *testing.T) {
 	require.Len(t, all.Items, 1)
 	require.True(t, strings.HasPrefix(all.Items[0].Email, "pgalpha"))
 }
+
+func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := testConfig(t)
+	cfg.Roles = authkit.RoleConfig{
+		Personas: map[string]authkit.Persona{"team": {Permissions: []string{"team:docs:read"}}},
+		Roles:    []authkit.Role{{Persona: "team", Name: "member", Permissions: []string{"team:docs:read"}}},
+	}
+	auth := newPublicRuntime(t, cfg, pg.Pool)
+	t.Cleanup(auth.Close)
+	ctx := t.Context()
+	op := iam.OperatorActor()
+	_, _, err := auth.CreateGroup(ctx, op, iam.NewGroup{Persona: "team", Slug: "alpha"})
+	require.NoError(t, err)
+	ref := iam.GroupBySlug("team", "alpha")
+	ids := map[string]string{}
+	var subjects []iam.Subject
+	for _, name := range []string{"liveone", "banned", "deleted"} {
+		u, err := auth.CreateUser(ctx, op, iam.NewUser{Email: name + "@example.test", Username: name})
+		require.NoError(t, err)
+		ids[name] = u.ID
+		subjects = append(subjects, iam.UserSubject(u.ID))
+	}
+	res, err := auth.AssignGroupRoles(ctx, op, ref, subjects, "member")
+	require.NoError(t, err)
+	for _, r := range res {
+		require.NoError(t, r.Err)
+	}
+	require.NoError(t, auth.Ban(ctx, op, ids["banned"], iam.Ban{}))
+	require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{ids["deleted"]})))
+
+	all, err := auth.ListGroupMembers(ctx, ref, iam.MemberQuery{})
+	require.NoError(t, err)
+	require.Len(t, all.Items, 3)
+	require.Nil(t, all.Items[0].User)
+	live, err := auth.ListGroupMembers(ctx, ref, iam.MemberQuery{LiveOnly: true, WithUsers: true})
+	require.NoError(t, err)
+	require.Len(t, live.Items, 1)
+	require.Equal(t, ids["liveone"], live.Items[0].Subject.ID)
+	require.NotNil(t, live.Items[0].User)
+	require.Equal(t, "liveone@example.test", live.Items[0].User.Email)
+	withUsers, err := auth.ListGroupMembers(ctx, ref, iam.MemberQuery{WithUsers: true})
+	require.NoError(t, err)
+	for _, m := range withUsers.Items {
+		require.NotNil(t, m.User)
+		require.Equal(t, m.Subject.ID == ids["liveone"], m.User.Live)
+	}
+}

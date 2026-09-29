@@ -13,10 +13,12 @@ type Group struct {
 	DeletedAt *time.Time
 }
 
-// GroupMember is a subject holding a role in a group.
+// GroupMember is a subject holding a role in a group. User is the account
+// of a user member when MemberQuery.WithUsers asked for it.
 type GroupMember struct {
 	Subject Subject
 	Role    Role
+	User    *User
 }
 
 // Membership is a group a subject holds a role in.
@@ -60,10 +62,15 @@ type GroupQuery struct {
 }
 
 // MemberQuery filters a group's members; empty filters match everything.
+// LiveOnly keeps members that can act now: users not deleted, banned or
+// reserved, applications enabled in a live group. WithUsers fills
+// GroupMember.User, which carries contact details.
 type MemberQuery struct {
-	Kinds []SubjectKind
-	Roles []Role
-	Page  PageRequest
+	Kinds     []SubjectKind
+	Roles     []Role
+	LiveOnly  bool
+	WithUsers bool
+	Page      PageRequest
 }
 
 // CustomRole is a role a group defines at run time, composed from its
