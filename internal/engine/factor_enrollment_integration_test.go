@@ -80,7 +80,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.ElementsMatch(t, append(beforeAMR, "totp", "otp", "mfa"), afterAMR)
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, unverifiedAccessClaims(t, enabled.Tokens.AccessToken)["amr"])
 	// Age the enrolling session so the step-up gates below apply again.
-	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, sid)
+	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour', mfa_authenticated_at=now()-interval '1 hour' WHERE id=$1`, sid)
 	require.NoError(t, err)
 	current, _, err := fixtureBackend(f.service.Backend()).mintTestAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	f.session(backup.TokenSet, "pwd", "backup_code", "otp", "mfa")
 
 	// Only age the real MFA session; never inject proof or reset TOTP replay state.
-	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour' WHERE id=$1`, loginSID)
+	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=now()-interval '1 hour', mfa_authenticated_at=now()-interval '1 hour' WHERE id=$1`, loginSID)
 	require.NoError(t, err)
 	staleMFA, _, err := fixtureBackend(f.service.Backend()).mintTestAccessToken(ctx, userID, map[string]any{"sid": loginSID})
 	require.NoError(t, err)

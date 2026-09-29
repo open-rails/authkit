@@ -225,7 +225,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 		require.NotEmpty(t, sid)
 		// A stolen session whose authentication is old: the password branch
 		// of the fresh-auth gate is the only way through.
-		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
+		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day', mfa_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
 		require.NoError(t, err)
 		tok, err := h.auth.MintAccessToken(ctx, iam.OperatorActor(), a.id, iam.AccessTokenOptions{SessionID: sid})
 		require.NoError(t, err)

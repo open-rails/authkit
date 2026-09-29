@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -234,8 +236,8 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
 
-// H2: adding a member by email binds only a live account that proved the
-// address; an unverified or deleted holder gets an invite instead.
+// H2, N9: adding a member by email never binds an account. Every address gets
+// the same invitation; only the account that proved the address accepts it.
 func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
@@ -270,12 +272,26 @@ func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.Empty(t, roleOf(gone.ID), "a deleted account never receives a role")
 
-	proven, err := client.createUser(ctx, "proven@h2.test", "h2proven")
+	proven, provenToken := newInstanceTestUser(t, srv, "h2proven")
+	provenUser, err := client.getUserByID(ctx, proven)
 	require.NoError(t, err)
-	require.NoError(t, client.markEmailVerified(ctx, proven.ID))
-	w = add("PROVEN@h2.test")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Equal(t, iam.Role("member"), roleOf(proven.ID))
+	w = add(strings.ToUpper(*provenUser.Email))
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	require.Empty(t, roleOf(proven), "a verified address is invited, never added")
+	var invited struct {
+		Invite struct {
+			Code string `json:"code"`
+		} `json:"invite"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &invited))
+	redeem := func(token string) *httptest.ResponseRecorder {
+		return serveAuthJSON(srv, http.MethodPost, "/invites/redeem", `{"code":"`+invited.Invite.Code+`"}`, token)
+	}
+	_, strangerToken := newInstanceTestUser(t, srv, "h2stranger")
+	require.Equal(t, http.StatusNotFound, redeem(strangerToken).Code, "only the invited address accepts")
+	accepted := redeem(provenToken)
+	require.Equal(t, http.StatusOK, accepted.Code, accepted.Body.String())
+	require.Equal(t, iam.Role("member"), roleOf(proven))
 }
 
 // M2: redefining or deleting a held custom role changes what its holders

@@ -293,8 +293,12 @@ func TestSecurityIssuerSquatLastOwner(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.status, resp.String())
 	resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/squat-app/roles/owner", token: token})
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	// The registrar cannot leave its application as the last owner (the
+	// application's roles go with the registrar's), so shape that state here.
 	resp = h.do(request{method: http.MethodDelete, path: base + "/members/" + squatter.id, token: token})
-	require.Less(t, resp.status, 300, resp.String())
+	require.Equal(t, http.StatusConflict, resp.status, resp.String())
+	_, err := h.pool.Exec(ctx, `DELETE FROM profiles.group_user_roles WHERE user_id=$1::uuid`, squatter.id)
+	require.NoError(t, err)
 
 	doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("lastvictim"), Issuer: victimIssuer,
 		PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})

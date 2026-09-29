@@ -1,0 +1,167 @@
+package securitytest
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/verify"
+	"github.com/stretchr/testify/require"
+)
+
+// mfaSession signs a in with password and its email second factor and returns
+// the session id.
+func (h *host) mfaSession(a account) string {
+	h.t.Helper()
+	ch := h.passwordStep(a, "198.51.100.30")
+	resp := h.secondStep(a, ch, h.mail.last(h.t, `^login to=`+a.email+` code=(\S+)`), "198.51.100.30")
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	_, claims := splitToken(h.t, session(h.t, resp).AccessToken)
+	sid, _ := claims["sid"].(string)
+	require.NotEmpty(h.t, sid)
+	return sid
+}
+
+// sessionToken mints a fresh access token for an existing session.
+func (h *host) sessionToken(userID, sid string) string {
+	h.t.Helper()
+	tok, err := h.auth.MintAccessToken(context.Background(), iam.OperatorActor(), userID, iam.AccessTokenOptions{SessionID: sid})
+	require.NoError(h.t, err)
+	return tok.Value
+}
+
+// TestSecurityPasswordStepUpNeedsSecondFactor (N1): for an account with a
+// second factor, a fresh authentication means that factor within the window. A
+// stolen session plus the phished password never yields a token that
+// regenerates backup codes, registers a passkey, adds a factor, links a
+// provider or changes the address, on AuthKit's routes or a host's.
+func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withProviders(&stubProvider{name: "stub"}), withEngine(func(c *authkit.Config) {
+		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
+	}))
+	ctx := context.Background()
+	victim := h.newAccount("stepup")
+	h.enrollEmail2FA(victim)
+	sid := h.mfaSession(victim)
+	// The attacker's copy of the session is older than the fresh-auth window.
+	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '20 minutes', mfa_authenticated_at=now()-interval '20 minutes' WHERE id=$1::uuid`, sid)
+	require.NoError(t, err)
+	stolen := h.sessionToken(victim.id, sid)
+
+	resp := h.post("/step-up/password", map[string]string{"password": password}, stolen)
+	require.Equal(t, http.StatusForbidden, resp.status, "a password re-proved an account with a second factor: %s", resp)
+	require.Equal(t, "step_up_required", resp.errorCode())
+	var meta struct {
+		Error struct {
+			Metadata struct {
+				MFARequired bool `json:"mfa_required"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	resp.json(t, &meta)
+	require.True(t, meta.Error.Metadata.MFARequired)
+
+	// What a password re-auth wrote before: the session is fresh, its second
+	// factor is not. The token must still fail the MFA-if-enrolled gate.
+	_, err = h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now() WHERE id=$1::uuid`, sid)
+	require.NoError(t, err)
+	reproved := h.sessionToken(victim.id, sid)
+	_, claims := splitToken(t, reproved)
+	require.Less(t, claims["auth_time"].(float64), float64(time.Now().Add(-15*time.Minute).Unix()), "auth_time follows the second factor")
+
+	sensitive := h.auth.Require(verify.Sensitive()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+	hostRoute := func(token string) int {
+		r := httptest.NewRequest(http.MethodPost, "https://host.security.test/payout-address", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		sensitive.ServeHTTP(w, r)
+		return w.Code
+	}
+	attacks := []request{
+		{method: http.MethodPost, path: "/user/2fa/backup-codes", body: map[string]any{}},
+		{method: http.MethodPost, path: "/passkeys/register/begin", body: map[string]any{}},
+		{method: http.MethodPost, path: "/user/2fa", body: map[string]string{"method": "totp"}},
+		{method: http.MethodDelete, path: "/user/2fa", body: map[string]any{}},
+		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test"}},
+		{method: http.MethodPost, path: "/oidc/stub/link/start", body: map[string]any{}},
+	}
+	for name, token := range map[string]string{"stolen": stolen, "password re-proved": reproved} {
+		for _, req := range attacks {
+			req.token = token
+			resp := h.do(req)
+			require.Equal(t, http.StatusForbidden, resp.status, "%s token %s %s: %s", name, req.method, req.path, resp)
+			require.Equal(t, "step_up_required", resp.errorCode())
+		}
+		require.Equal(t, http.StatusForbidden, hostRoute(token), "%s token on a host Sensitive route", name)
+	}
+	u, err := h.auth.User(ctx, iam.UserByID(victim.id))
+	require.NoError(t, err)
+	require.Equal(t, victim.email, u.Email)
+
+	t.Run("control: a second-factor step-up clears every gate", func(t *testing.T) {
+		resp := h.post("/step-up/2fa", map[string]any{}, reproved)
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, "2fa_required", resp.errorCode())
+		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.last(t, `^login to=`+victim.email+` code=(\S+)`)}, reproved)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		fresh := session(t, resp).AccessToken
+		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
+		resp = h.post("/user/2fa/backup-codes", map[string]any{}, fresh)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+	})
+}
+
+// TestSecurityEnrollmentTokenOutsideMiddleware (N7): a password-only
+// enrollment token, issued before the second factor exists, reaches only
+// AuthKit's enrollment routes. A host that authenticates out of band (Verify,
+// then Allow) never gets a full actor from it.
+func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	holder := h.newAccount("enrolling")
+	// An MFA-required role held without a factor (e.g. granted while 2FA was
+	// off): signing in yields only an enrollment token.
+	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+	require.NoError(t, err)
+	resp := h.post("/password/login", map[string]string{"identifier": holder.email, "password": password}, "")
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+	var body struct {
+		Error struct {
+			Metadata struct {
+				TokenSet tokens `json:"token_set"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	resp.json(t, &body)
+	enrollment := body.Error.Metadata.TokenSet.AccessToken
+	require.NotEmpty(t, enrollment)
+
+	_, err = h.auth.Verifier().Verify(ctx, enrollment)
+	require.Error(t, err, "Verify accepted an enrollment-only token")
+	// The token is genuine: the exempt enrollment route reads its claims.
+	r := httptest.NewRequest(http.MethodGet, apiPrefix+"/user/2fa", nil)
+	r.Header.Set("Authorization", "Bearer "+enrollment)
+	cl, err := h.auth.Verifier().VerifyRequest(r)
+	require.NoError(t, err)
+	require.True(t, cl.TwoFAEnrollment)
+	_, ok := verify.ActorFromClaims(cl)
+	require.False(t, ok, "an enrollment token became an actor")
+	allowed, err := verify.Allow(ctx, h.auth, cl, "root:audit:read", iam.RootGroup())
+	require.NoError(t, err)
+	require.False(t, allowed, "an enrollment token used the MFA-required role")
+
+	t.Run("control: a full token of a role holder is allowed", func(t *testing.T) {
+		admin := h.newAccount("fulltoken")
+		h.grant(iam.RootGroup(), admin, "moderator")
+		cl, err := h.auth.Verifier().Verify(ctx, h.login(admin).AccessToken)
+		require.NoError(t, err)
+		allowed, err := verify.Allow(ctx, h.auth, cl, iam.PermRootUsersBan, iam.RootGroup())
+		require.NoError(t, err)
+		require.True(t, allowed)
+	})
+}
