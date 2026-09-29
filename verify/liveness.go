@@ -68,11 +68,8 @@ func (v *Verifier) HasLiveness() bool { return v.livenessSource() != nil }
 //   - The returned Claims carry the FRESH Username, Email and EmailVerified
 //     from that same lookup, overwriting whatever the token minted — including
 //     overwriting with empty, which is the honest answer for a user who cleared
-//     the field. This is what makes a host's per-request AdminGetUser call
-//     deletable. Roles and entitlements are deliberately NOT re-enriched here:
-//     they already have live reads of their own (RoleSlugsByUsers, Allow,
-//     ListEntitlements) and a second copy would be the duplication this issue
-//     is removing, not another one of it.
+//     the field. Roles and entitlements are deliberately NOT re-enriched here:
+//     they have live reads of their own (Can, Allow, ListEntitlements).
 //
 // CACHING CONTRACT: none. Exactly one Users call per gated request,
 // no memoization, no negative cache. That is not a regression — the hosts this

@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto"
 	"net"
 	"time"
 
@@ -26,7 +25,6 @@ type flowsBackend interface {
 	ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error
 	CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error)
 	CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error)
-	CheckSMSHealth(ctx context.Context) error
 	CheckUserPassword(ctx context.Context, userID, pass string) error
 	CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error)
 	CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error)
@@ -65,7 +63,6 @@ type flowsBackend interface {
 	PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error)
 	PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error)
 	ProviderSlugs(ctx context.Context, userID string) ([]string, error)
-	PublicKeysByKID() map[string]crypto.PublicKey
 	PublicNativeUserRegistrationEnabled() bool
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error
@@ -84,7 +81,6 @@ type flowsBackend interface {
 	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
 	ResendRegistration(ctx context.Context, identifier string) (bool, error)
 	SMSAvailable() bool
-	SMSHealthy() bool
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error

@@ -1,153 +1,91 @@
 # User and group naming
 
-AuthKit identifies users and group instances by immutable UUID. A persona is a
-type of permission group; a permission group is one instance of a persona. Usernames
-and `(persona, slug)` remain separate namespaces. Public routes resolve a current name or active alias to one UUID;
-authorization and the operation must retain that same UUID.
+AuthKit identifies users and groups by immutable UUID. Usernames and
+`(persona, slug)` are separate namespaces. Routes resolve a current name or a
+live alias to one UUID; authorization and the operation keep that UUID.
 
 ## Case
 
 Names are never case-sensitive and never refused for their case. A username
 keeps the spelling its owner chose for display (`users.username` is `citext`),
 while uniqueness, login, availability, pending-registration holds and alias
-resolution all use the lowercase key in `name_claims`: `Fidika` and `fidika` are
-one account, and registering either while the other exists is `username taken`.
-Renaming to a different case of your own name changes only the display spelling
-(no claim, alias or cooldown). Group instance slugs are URL keys and are stored
-lowercase; any case a caller sends is folded (`GroupRef.Canonical`) before
-validation and lookup.
+resolution use the lowercase key in `name_claims`: `Fidika` and `fidika` are
+one account. Renaming to another case of your own name changes only the display
+spelling (no claim, alias or cooldown). Group slugs are URL keys stored
+lowercase; any case a caller sends is folded before validation and lookup.
 
 ## Configuration
 
-`authkit.Config.Naming` accepts `iam.NamingConfig`. Omitted fields mean
-renames enabled, a 72-hour interval between successful renames, and finite
-former-name retention of 2160 hours (90 × 24 hours, independent of DST).
+`Config.Naming` is an `iam.NamingConfig`. Omitted fields mean renames enabled,
+72 hours between successful renames, and former names retained for 2160 hours
+(90 × 24 hours, independent of DST).
 
 ```go
-// Defaults:
-cfg.Naming = authkit.NamingConfig{}
-// Disable ordinary renames:
+cfg.Naming = iam.NamingConfig{} // defaults
 enabled := false
-cfg.Naming = authkit.NamingConfig{Enabled: &enabled}
-// Any frequency, retaining former names for the default 90 days:
+cfg.Naming = iam.NamingConfig{Enabled: &enabled} // no ordinary renames
 interval := time.Duration(0)
-cfg.Naming = authkit.NamingConfig{RenameInterval: &interval}
-// Normal frequency with permanent former-name reservations:
-cfg.Naming = authkit.NamingConfig{
-    FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesForever},
+cfg.Naming = iam.NamingConfig{ // any frequency, former names released at once
+	RenameInterval: &interval,
+	FormerNames:    iam.FormerNameRetentionConfig{Mode: iam.FormerNamesImmediate},
 }
-// Any frequency with immediate release:
-cfg.Naming = authkit.NamingConfig{
-    RenameInterval: &interval,
-    FormerNames: authkit.FormerNameRetentionConfig{Mode: authkit.FormerNamesImmediate},
+cfg.Naming = iam.NamingConfig{ // former names reserved forever
+	FormerNames: iam.FormerNameRetentionConfig{Mode: iam.FormerNamesForever},
 }
 ```
 
-Hosts own configuration input and pass the typed policy to AuthKit.
-An empty retention object, or `finite` without duration, uses 2160h. A duration
-without mode means finite; finite zero normalizes to immediate. Forever and
-immediate reject **any** supplied duration, including zero. Negative values,
-unknown modes, malformed durations, and duration overflow fail construction.
-`Client.NamingPolicy()` returns normalized Go values using `time.Duration`.
-HTTP `naming.policy` contains `enabled`, `former_name_retention_mode`, and
-`former_name_retention_seconds` (a number, preserving fractional seconds).
-Rename timing is reported by `next_rename_at`/`retry_after_seconds` and the
-action's `cooldown_seconds`; there is no duplicate `rename_interval` wire field.
+An empty retention object, or `finite` without a duration, uses 2160h. A
+duration without a mode means finite; finite zero normalizes to immediate.
+Forever and immediate reject any duration, including zero. Negative values,
+unknown modes and overflow fail `New`.
 
-Pre-v1 hard cut: clients must replace the nanosecond `former_name_retention`
-field with `former_name_retention_seconds`. Doujins/Hentai0's username policy
-notice divides this value by 86400 to display days. There is no old-field fallback.
+HTTP `naming.policy` carries `enabled`, `former_name_retention_mode` and
+`former_name_retention_seconds` (a number, fractional seconds kept). Rename
+timing is reported by `next_rename_at`/`retry_after_seconds` and the action's
+`cooldown_seconds`.
 
 ## Runtime contract
 
 The first rename has no delay. A successful rename at T permits another at
-T+interval. Failed attempts and authorized no-ops do not advance the timestamp.
-The cooldown belongs to the identity, not its current owner or session. There is
-no exposed administrative force-rename bypass. The unused core force method was
-removed. Trusted import updates remain explicit provisioning operations: they can
-change imported names while renames are disabled, but preserve UUID ownership,
-reservation exclusivity, host name admission, and rename history.
-Root and domain-managed groups retain their independent rename restrictions.
+T+interval. Failed attempts and no-ops do not advance the timestamp. The
+cooldown belongs to the identity, not its session. There is no force-rename,
+and an import never renames an existing account.
 
-Aliases point directly to UUIDs and report the owner's current canonical name.
-Finite aliases resolve and block another owner only while `now < expires_at`;
-at the deadline they stop resolving and become claimable. Expiry is enforced on
-request lookup and claim, without a cleanup job. Rename-back to an owned alias
-obeys the same policy and gives the outgoing name a new deadline; unrelated
-aliases retain their original deadlines. Policy changes affect future aliases,
-not already-issued promises. Disabling renames does not disable forwarding.
+Aliases point to UUIDs and report the owner's current name. A finite alias
+resolves and blocks other owners only while `now < expires_at`; then it stops
+resolving and becomes claimable, checked on every lookup and claim. Renaming
+back to an owned alias follows the same policy. Policy changes affect future
+aliases, not issued ones. Disabling renames does not disable forwarding.
 
-Deletion does not forward to a dead identity and does not prematurely free old
-rename reservations. A purged user's username stays reserved permanently, like
-a deleted group's reserved slug, so nobody can re-register it. Canonical-name deletion/release remains a separate explicit
-lifecycle operation. API writes resolve aliases internally, preserving method and
-body; no redirect is required. Credentials and internal jobs remain UUID-bound.
+Deletion does not forward to a dead identity or free its reservations early. A
+purged user's username stays reserved forever, like a purged group's slug.
+Writes resolve aliases internally; there are no redirects. Credentials and jobs
+are UUID-bound.
 
-## Storage and request ownership
+## Storage
 
-`profiles.name_claims` owns each normalized `(owner_kind, persona, name)` key.
-A row carries owner UUID, canonical/alias state, and its persisted alias deadline.
-A partial unique index permits one canonical name per owner. Creation claims and
-inserts the identity in one statement; database triggers cover raw provisioning
-and refuse direct name/UUID changes outside an atomic transition. User/group
-renames lock the owner, re-read its actual name, then change claims and identity
-inside the same transaction. Namespace locks use 256 consistently ordered stripes
-to bound shared-memory locks even during large imports; collisions only serialize
-unrelated claims. Bulk import retains insert-or-skip semantics for reserved names.
+`name_claims` owns each normalized `(owner_kind, persona, name)` key, with the
+owner UUID, canonical/alias state and alias deadline. One canonical name per
+owner. Creation claims the name and inserts the identity in one statement;
+triggers refuse direct name or UUID changes outside an atomic transition.
+Renames lock the owner, re-read its name, then change claims and identity in one
+transaction. Namespace locks use 256 ordered stripes. Resolver reads are
+uncached. The auth-state cleanup (`Config.River.CleanupInterval`) deletes at
+most 5000 expired aliases per run; it never decides forwarding or claims.
 
-The migration preserves current development identities by their existing UUIDs.
-It replaces permanent group tombstones and does not reinterpret user rename
-history as live aliases. There is no dual registry, historical-alias backfill or
-background expiry authority. Resolver reads are uncached and check deadlines on
-every call, so restarts cannot extend an alias promise.
+## API
 
-Generated group routes capture an immutable target before permission checks. A
-request-local binding matches only that original persona/reference; subsequent
-operation lookups recheck the captured group's liveness and never fall back to a
-new owner of its name. Other targets remain independent.
-`GroupByLiveInstanceSlug` is deliberately limited to the old trusted slug-delete
-entry point; captured lifecycle retries use `DeleteGroupInstanceByID`.
-
-`UpdateGroupInstanceAs(ctx, actorID, groupID, authkit.GroupInstanceUpdate)` replaces
-the old rename-only facade. Slug and display-name changes commit together against
-the captured UUID. Generated responses report `group_id`, current `instance_slug`,
-and naming eligibility; group route headers report `X-AuthKit-Group-ID` and
-`X-AuthKit-Canonical-Instance`. `GetUserByUsername` resolves active aliases to
-the current owner. GET /me and username PATCH expose normalized `naming`
-state; existing availability fields reflect the current deployment policy.
-
-`WithNameAdmission` is a side-effect-free namespace predicate with operation,
-owner UUID, actor and outgoing/requested names. It runs for generated creation
-and ordinary rename. `WithInstanceAdmission` remains the separate creation-only
-cost/enrollment hook and is never rerun by a rename. Trusted imports retain their
-existing provisioning authority, but cannot bypass claim ownership.
-
-The `UserNamingState(ctx,userID)` read replaces the old host-clock
-`TimeUntilUsernameRenameAvailable` API; no independent policy arithmetic remains
-on that surface. `Deps.Clock` supplies all naming timestamps. The periodic
-auth-state cleanup (`Config.River.CleanupInterval`) removes at most 5000 expired
-aliases per run through an expiry index, preserving canonical and permanent claims.
-This existing maintenance hook only removes stale storage; it never controls
-forwarding or claim eligibility.
-
-
-Trusted embedded hosts can retain a previously authorized group through
-`authkit.WithResolvedGroup(ctx, instance, originalReference)`. Pass that context
-to subsequent name-addressed group operations. The binding checks the captured
-UUID is still live and belongs to the original persona; it never substitutes a
-new owner when a name is reclaimed. Explicit UUID lifecycle APIs remain preferred
-for deferred work and retries.
-
-CLI/import/catalog callers needing only identity lookup can construct
-`authkit.NewGroupDirectory(pool, schema)` and use `GroupInstanceForSlug` or
-`GroupInstanceByID`. This read-only directory validates the schema and reuses the
-same alias queries, without constructing an issuer, loading keys, migrating,
-writing state, or starting workers. Empty schema uses `profiles`.
-
-
-`GroupDirectory.SearchGroupInstances(ctx, persona, query, afterSlug, afterID, limit)`
-searches current canonical slugs by literal, case-insensitive substring. Results
-are ordered by `(slug,id)`; subsequent pages pass the last returned slug and ID.
-Limit defaults to 50 and must be 1–200. Aliases do not create duplicate search
-entries. Hosts may join each bounded page to their own UUID-bound data before
-returning a product directory; no cached host label becomes naming authority.
+- Generated group routes capture the group's UUID before the permission check;
+  later lookups in the request re-check that group's liveness and never follow
+  its name to a new owner. Responses carry `X-AuthKit-Group-ID` and
+  `X-AuthKit-Canonical-Instance`.
+- `UpdateGroup(ctx, actor, ref, iam.GroupUpdate{Slug, DisplayName})` commits
+  slug and display name together (`<persona>:self:update`).
+- `User(ctx, iam.UserByUsername(name))` resolves live aliases to the owner.
+- `ListGroups(ctx, iam.GroupQuery{Persona, Search, Page})` searches slugs and
+  display names by case-insensitive substring, ordered by slug; aliases add no
+  duplicates.
+- `Deps.NameAdmission` is the host's side-effect-free namespace policy
+  (`iam.NameAdmissionRequest`), run on creation and rename.
+  `Deps.InstanceAdmission` runs only on group creation.
+- `Deps.Clock` supplies naming timestamps.

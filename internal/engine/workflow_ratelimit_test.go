@@ -145,7 +145,7 @@ func TestServiceOwnsBackgroundWorkers(t *testing.T) {
 func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 	pool := testdb.Pool(t)
 	client := newServerClient(t, newServerTestConfig(), pool)
-	workerLabel := "authhttp-service"
+	workerLabel := "httpapi-service"
 	hasWorkers := func() bool {
 		var profile bytes.Buffer
 		require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))

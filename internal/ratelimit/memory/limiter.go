@@ -22,50 +22,23 @@ type bucketState struct {
 	windowMs int64
 }
 
-// DefaultMaxBuckets caps distinct (key, bucket) states held in memory (#305).
-const DefaultMaxBuckets = 100_000
+// maxBuckets caps distinct (key, bucket) states held in memory (#305).
+const maxBuckets = 100_000
 
 // Limiter is an in-memory sliding-window rate limiter.
 // It is intended as a single-node fallback when Redis is unavailable.
 type Limiter struct {
-	mu         sync.Mutex
-	limits     map[string]ratelimit.Limit
-	buckets    map[string]*bucketState
-	maxBuckets int
-	now        func() time.Time
+	mu      sync.Mutex
+	limits  map[string]ratelimit.Limit
+	buckets map[string]*bucketState
 }
 
-type Option func(*Limiter)
-
-// WithMaxBuckets caps the number of live bucket states. Once full (after an
-// inline sweep of aged-out buckets) a request for a NEW key is denied: under a
-// key-flood the limiter fails closed rather than growing without bound.
-func WithMaxBuckets(n int) Option { return func(l *Limiter) { l.maxBuckets = n } }
-
-// WithClock replaces the window clock (tests advance it instead of sleeping).
-func WithClock(now func() time.Time) Option { return func(l *Limiter) { l.now = now } }
-
 // New constructs a new in-memory limiter with the provided per-bucket limits.
-func New(limits map[string]ratelimit.Limit, opts ...Option) (*Limiter, error) {
+func New(limits map[string]ratelimit.Limit) (*Limiter, error) {
 	if err := ratelimit.ValidateLimits(limits); err != nil {
 		return nil, err
 	}
-	l := &Limiter{
-		limits:     maps.Clone(limits),
-		buckets:    make(map[string]*bucketState),
-		maxBuckets: DefaultMaxBuckets,
-		now:        time.Now,
-	}
-	for _, opt := range opts {
-		if opt == nil {
-			return nil, fmt.Errorf("ratelimit: nil option")
-		}
-		opt(l)
-	}
-	if l.maxBuckets <= 0 || l.now == nil {
-		return nil, fmt.Errorf("ratelimit: positive max buckets and non-nil clock required")
-	}
-	return l, nil
+	return &Limiter{limits: maps.Clone(limits), buckets: make(map[string]*bucketState)}, nil
 }
 
 // AllowNamed matches the auth adapter's RateLimiter interface.
@@ -91,7 +64,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	}
 
 	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
-	nowMs := l.now().UnixNano() / 1e6
+	nowMs := time.Now().UnixMilli()
 	windowStart := nowMs - lim.Window.Milliseconds()
 	limitKey := fmt.Sprintf("%s:%s", key, bucket)
 
@@ -100,7 +73,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 
 	b, ok := l.buckets[limitKey]
 	if !ok {
-		if len(l.buckets) >= l.maxBuckets && l.cleanupLocked(nowMs) >= l.maxBuckets {
+		if len(l.buckets) >= maxBuckets && l.cleanupLocked(nowMs) >= maxBuckets {
 			return ratelimit.Result{
 				Allowed: false, RetryAfter: lim.Window, Reason: ratelimit.ReasonLimitExceeded,
 				Limit: lim.Limit, Window: lim.Window, Cooldown: lim.Cooldown,
@@ -177,23 +150,13 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 // mechanism that bounds memory when the limiter is keyed on a high-cardinality,
 // attacker-influenced dimension (per-IP, per-identifier): without it, every
 // distinct key leaves behind a bucket that is never revisited.
-// Len reports the number of live bucket states.
-func (l *Limiter) Len() int {
-	if l == nil {
-		return 0
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.buckets)
-}
-
 func (l *Limiter) Cleanup() int {
 	if l == nil {
 		return 0
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.cleanupLocked(l.now().UnixNano() / 1e6)
+	return l.cleanupLocked(time.Now().UnixMilli())
 }
 
 func (l *Limiter) cleanupLocked(nowMs int64) int {

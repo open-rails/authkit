@@ -42,7 +42,7 @@ func connect(t testing.TB, tracer pgx.QueryTracer) *pgxpool.Pool {
 	}
 	// AuthKit's runtime SQL is schema-neutral. Keep the integration pool
 	// pointed at the default AuthKit namespace so raw fixture/assertion queries
-	// resolve the same way as the embedded client.
+	// resolve the same way as AuthKit's own queries.
 	cfg.ConnConfig.RuntimeParams["search_path"] = `"profiles", public`
 	if tracer != nil {
 		cfg.ConnConfig.Tracer = tracer

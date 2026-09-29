@@ -26,11 +26,11 @@ migration begins. With host-owned River, its grants remain host-owned too.
 ## Rebuild boundary
 
 `0001_schema.up.sql` installs the fresh baseline, including recoverable account
-deletion and delivery receipts. `0002_group_soft_deletion.up.sql` adds retained
-inactive group state without rewriting that published baseline or existing rows.
-Call `authkit.Migrate` to initialize a fresh database or apply numbered
-follow-up migrations to that exact baseline. River owns its independent
-migration chain. Published tags remain immutable.
+deletion and delivery receipts. Numbered follow-ups (`0002`, ...) change it
+without rewriting released files; each names its parent's digest, so two
+branches claiming the same number cannot both merge. `authkit.Migrate`
+initializes a fresh database or applies the follow-ups. River owns its
+independent migration chain.
 
 ## Retired baselines
 

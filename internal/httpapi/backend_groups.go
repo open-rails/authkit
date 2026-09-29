@@ -20,7 +20,6 @@ type groupsBackend interface {
 	AssignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
 	UnassignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
 	RemoveGroupMembers(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error)
-	GroupRoles(ctx context.Context, group iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error)
 	DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, r iam.CustomRole) error
 	DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, role iam.Role) error
 	GroupNamingState(ctx context.Context, id string) (iam.NamingState, error)

@@ -121,12 +121,6 @@ func staticApp(t *testing.T, slug, issuer string) (iam.RemoteApplication, *jwtki
 	}, signer
 }
 
-func (v *Verifier) forceStaleSnapshot() {
-	v.mu.Lock()
-	v.fedSnapshotAt = time.Time{}
-	v.mu.Unlock()
-}
-
 func mintStatelessAccess(t *testing.T, signer jwtkit.Signer, iss, aud, sub string) string {
 	t.Helper()
 	hs, ok := any(signer).(jwtkit.HeaderSigner)

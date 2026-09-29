@@ -576,9 +576,6 @@ type Enricher interface {
 	GetRemoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error)
 	ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (iam.RemoteApplicationAuthority, error)
-	// (#215/#220: the former per-request enrichment methods — provider username,
-	// role slugs, user refs, live ban gate — are gone from this seam; the request
-	// path is stateless and those reads live on iam.Client.)
 }
 
 // WithService installs the API-key/application backend and default lazy source.
@@ -1165,7 +1162,6 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")
-	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
 	cl.DeviceKeyID = strClaim(mc, "device_key_id")
 	cl.JTI = strClaim(mc, "jti")

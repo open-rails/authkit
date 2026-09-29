@@ -287,37 +287,6 @@ func (s *Service) rateLimitedRoute(bucket string, next http.Handler) http.Handle
 	})
 }
 
-// Requires names the configuration that mounts the route ("" = always
-// mounted). It mirrors the APIRoutes/OIDCBrowserRoutes filters, so the
-// generated route documentation and the mount decision cannot drift.
-func (r RouteSpec) Requires() string {
-	switch {
-	case r.Group == iam.RouteDelegated:
-		return "Delegated.Audiences"
-	case r.Group == iam.RouteDeviceKeys:
-		return "DeviceKeys.Enabled"
-	case r.Group == iam.RouteDocuments:
-		return "WithDocuments"
-	case r.Group == iam.RouteBrowserOIDC, isOIDCPath(r.Path):
-		return "Identity.Providers"
-	case r.Group == iam.RoutePermissionGroups:
-		return "Roles.Personas"
-	case isPasskeyPath(r.Path):
-		return "Passkeys.RPID"
-	case isPasswordlessPath(r.Path):
-		return "Registration.PasswordlessLogin"
-	case isRegistrationMutationPath(r.Path):
-		return "Registration.NativeUserMode != closed"
-	case isTwoFactorPath(r.Path):
-		return "TwoFactor.Mode != disabled"
-	case isSolanaPath(r.Path):
-		return "SolanaNetwork"
-	case isApplicationsPath(r.Path):
-		return "Applications.SelfRegistration"
-	}
-	return ""
-}
-
 // mfaEnrollmentExemptPaths returns the distinct Path values of the routes tagged
 // MFAEnrollmentExempt — the authoritative 2FA enroll/challenge/verify surface a
 // forced-enrollment-gated request must still reach (#243). NewMount anchors these

@@ -19,17 +19,6 @@ var segmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // persona, resource, action or custom role name).
 func ValidPermissionSegment(s string) bool { return segmentRe.MatchString(s) }
 
-// ValidateGroupInstanceSlug checks the slug of a by-slug reference.
-func ValidateGroupInstanceSlug(g GroupRef) error {
-	if g.IsRoot() || g.ID() != "" {
-		return nil
-	}
-	if !ValidSlug(g.Slug()) {
-		return fmt.Errorf("resource slug %q must be lowercase URL-safe", g.Slug())
-	}
-	return nil
-}
-
 // ValidatePermission checks a CONCRETE catalog permission: EXACTLY three
 // lowercase segments `<persona>:<resource>:<action>` (e.g. `merchant:catalog:update`,
 // `root:users:ban`). Two-part (`repo:update`) and four-part perms are rejected.

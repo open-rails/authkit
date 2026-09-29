@@ -10,7 +10,7 @@ package engine
 //
 // An operator skips every rule and never an invariant (last owner, MFA).
 // Root is the widest scope: an actor's roles on root count in every group, but
-// root's own `root:` permissions count only on root (iam.GroupSchema.ResolveGrants).
+// root's own `root:` permissions count only on root (rbac.Schema.ResolveGrants).
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 		}
 		id = ref.ID()
 	default:
-		if err := iam.ValidateGroupInstanceSlug(ref); err != nil {
+		if err := validateGroupSlug(ref); err != nil {
 			return groupTarget{}, err
 		}
 		var err error

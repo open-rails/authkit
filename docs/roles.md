@@ -35,8 +35,12 @@ Roles: authkit.RoleConfig{
   catalog. `APIKeys` and `RemoteApplications` mount those group routes.
 - `Role.Includes` names roles of the same persona whose permissions the role
   also holds.
-- Every persona gets an `owner` role holding `<persona>:*`. Root's owner
-  requires MFA.
+- Every persona gets an `owner` role holding `<persona>:*`.
+- `Persona.RequireMFA` lists permissions that need a second factor. A role
+  whose grants reach one (directly, through `Includes`, or as a root role)
+  can be held only by a user with MFA enrolled; applications and API keys never
+  hold it. `root:members:manage` always needs MFA, so root's owner does. With
+  2FA disabled deployment-wide the rule is inert.
 - Reserved slugs of persona p are creatable only by actors holding `p:*` on root.
 
 ## Built-in permissions
@@ -61,10 +65,45 @@ revoke its sessions) and `root:users:invite`.
   at least one registered permission. Persona roles hold only their own
   persona's permissions; root roles may hold any persona's.
 - An unknown persona, a duplicate (persona, name), or an include cycle fails.
+- A catalog role that shadows a custom role stored in a live group fails.
+
+`New` stores a fingerprint of the role catalog. When it changes, `New` re-checks
+every live API key, invite link and account invite against its creator's
+authority and revokes what the creator can no longer issue.
+
+## Actors
+
+Every mutation on `*authkit.Auth` takes an `iam.Actor` right after `ctx`;
+reads take none (the host is the trust boundary). The zero actor is refused.
+
+| Actor | Authority |
+|---|---|
+| `iam.UserActor(id)` | the user's roles on the group and on root |
+| `iam.APIKeyActor(id)` | the key's role, only in the key's group |
+| `iam.RemoteApplicationActor(id)` | the application's roles, only in its group |
+| `iam.DelegatedActor(grant)` | its local user or application, capped by the grant's permissions |
+| `iam.OperatorActor()` | everything; host code only |
+
+Every actor but the operator is resolved live: a banned or deleted user, a
+revoked or expired key, or a disabled application covers nothing. `Within`
+narrows an actor to a permission ceiling. The operator skips the permission
+rules but not the invariants: the last usable owner and MFA-required roles
+bind it too. Only users and the operator issue credentials (API keys, invite
+links, account invites); a user's credentials die with the user's authority,
+the operator's never. `verify.ActorFromClaims` derives the actor of a request
+([verification](verification.md)).
+
+Assigning or removing a role needs `<p>:members:manage` for a user subject and
+`<p>:credentials:manage` for an application, and the actor must cover every
+permission of the role it grants or takes away. Account operations need the
+named `root:users:*` permission and coverage of the target's grants on root and
+in every group it holds a role in.
 
 ## Checks
 
-`Can` and `CanOnGroup` consider the subject's roles on the group and on root.
-An unregistered permission returns `iam.ErrUnknownPermission`, never a silent
+`Can` considers the actor's roles on the group and on root; a `root:`
+permission counts only on root and never stands in for a persona permission. An
+unregistered permission returns `iam.ErrUnknownPermission`, never a silent
 false. `RequirePermission` (on `*authkit.Auth`, `verify`, and the gin and fiber
-adapters) panics when the route is built with an unregistered permission.
+adapters) authenticates the request and panics when the route is built with an
+unregistered permission. AuthKit's own routes refuse delegated tokens.

@@ -1,4 +1,4 @@
--- User-row queries (core/service.go).
+-- User-row queries.
 
 -- name: UserByID :one
 -- preferred_language is included in this projection (a widening; no existing
@@ -15,9 +15,6 @@ FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 -- name: UserByPhone :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM users WHERE phone_number = $1;
-
--- name: UserSetPhoneVerifiedByID :exec
-UPDATE users SET phone_verified = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetPhoneVerifiedByIDAndPhone :exec
 UPDATE users
@@ -90,11 +87,6 @@ UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1;
 INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 VALUES ($1, $2, 'argon2id');
 
--- name: UserSetPhoneAndVerified :exec
-UPDATE users
-SET phone_number = $2, phone_verified = $3, updated_at = NOW()
-WHERE id = $1;
-
 -- name: UserSetLastLogin :exec
 UPDATE users SET last_login = $2, updated_at = NOW() WHERE id = $1;
 
@@ -108,12 +100,6 @@ WHERE id = sqlc.arg(id);
 
 -- name: UserSoftDelete :exec
 UPDATE users SET deleted_at = statement_timestamp(), updated_at = statement_timestamp() WHERE id = $1;
-
--- name: UserSetEmailAndUnverify :exec
-UPDATE users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
-
--- name: UserSetAvatarURL :execrows
-UPDATE users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserPasswordRow :one
 SELECT password_hash, hash_algo

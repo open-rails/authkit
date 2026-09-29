@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -167,16 +166,6 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 			slog.String("peer", ip))
 	})
 }
-
-// CheckSMSHealth probes (without sending an SMS) whether the configured sender
-// can deliver and records the verdict gating phone flows. Every call
-// re-records: register it as an optional dependency probe, e.g.
-// sup.Add("sms", deps.Optional, svc.CheckSMSHealth, nil, deps.ProbeTimeout(15*time.Second)),
-// rather than calling it once at boot.
-func (s *Service) CheckSMSHealth(ctx context.Context) error { return s.svc.CheckSMSHealth(ctx) }
-
-// SMSHealthy reports the latest CheckSMSHealth verdict (true until a check fails).
-func (s *Service) SMSHealthy() bool { return s.svc.SMSHealthy() }
 
 // SMSAvailable reports whether phone-based flows should be offered (a sender is
 // configured and, if checked, found able to deliver).

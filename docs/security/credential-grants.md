@@ -17,26 +17,13 @@ Provider-link continuations require the initiating session to remain live and
 fresh at completion. Linking and session revocation serialize on the initiating
 session row; a revoked continuation cannot become a new login.
 
-## Provider-link API change before v1
+## Provider links
 
-`ExternalLoginInput.LinkUserID` becomes `Link *ExternalLinkAuthorization`, carrying
-`UserID`, `SessionID`, and the session's `AuthenticatedAt` from `SessionFreshness`.
-A bare account UUID is not sufficient authorization. The server stores these
-fields in browser state and rejects legacy link state without session authority.
-
-A successful `CompleteExternalLogin` link returns `ExternalProviderLinked` and a
-nil `Session`. JSON link callbacks return HTTP 204 with an empty body. Browser
-callbacks redirect to the configured frontend callback with
-`#flow=link&provider=<provider>&result=success`. They issue no access token, refresh
-token, or refresh cookie. Existing login and step-up contracts are unchanged.
-Consumers retain their current session and refresh account/provider data after
-success. Failed callbacks retain the documented `error`/`flow=link` result.
-
-The fetched Doujins/Hentai0 `frontend/src/pages/AuthCallback.tsx` callbacks only
-store tokens when present; their link popup completion already works without a
-token. Cozy-art `frontend/src/services/auth.ts` (`consumeAuthCallback`) and
-`frontend/src/store/authStore.ts` (`completeAuthCallback`) likewise retain the
-existing session and reload the user. Custom clients consuming JSON link callbacks
-must accept 204 rather than requiring a login token set. Direct host/import code
-can still use `LinkProvider` with `iam.OperatorActor()`; it is trusted
-administrative authority and must never be exposed as a user-supplied UUID command.
+A link is authorized by the initiating session (user, session id and its
+authentication time, kept in browser state), never by a bare account UUID. A
+successful link issues no access token, refresh token or cookie: JSON callbacks
+answer `204`, browser callbacks redirect to the frontend callback with
+`#flow=link&provider=<provider>&result=success`, and failures keep the
+`error`/`flow=link` result. Clients keep their session and reload the account.
+Host code links with `LinkProvider(ctx, iam.OperatorActor(), ...)`, trusted
+authority that must never take a user-supplied UUID.

@@ -29,7 +29,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, keyset{}, Deps{Postgres: pool})
 	if _, err := svc.ensureRootGroup(ctx); err != nil {
-		t.Fatalf("EnsureRootGroup: %v", err)
+		t.Fatalf("ensureRootGroup: %v", err)
 	}
 
 	owner1 := insertBareUser(t, pool)

@@ -19,12 +19,11 @@ type Claims struct {
 	// Issuer; it never authorizes a lookup in the host's local user database.
 	Subject string
 	// UserID is populated only for an issuer explicitly trusted as IsLocal.
-	UserID          string
-	Email           string
-	EmailVerified   bool
-	Username        string
-	DiscordUsername string
-	SessionID       string
+	UserID        string
+	Email         string
+	EmailVerified bool
+	Username      string
+	SessionID     string
 	// DeviceKeyID is the AuthKit-issued machine credential that minted this
 	// access token. It is present only on device-key tokens.
 	DeviceKeyID     string

@@ -1,8 +1,6 @@
 package iam
 
-// Registration policy vocabulary (#147). Shared public contract for embedded and
-// future remote, so host docs and the `remote` package import the vocabulary from
-// root authkit rather than from `embedded`.
+// Registration policy vocabulary (#147).
 
 // RegistrationVerificationPolicy controls whether a newly-registered contact must
 // be verified.

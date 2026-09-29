@@ -8,7 +8,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// handleUserMeGET: the profile projection is authkit.UserProfile (ak#318);
+// handleUserMeGET: the profile projection is authflow.UserProfile (ak#318);
 // the transport contributes only what the verified claims and the provider
 // registry know.
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {

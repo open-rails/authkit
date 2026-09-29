@@ -4,7 +4,7 @@
 
 ## Password policy
 
-`authkit.Config.Password` (`authkit.PasswordPolicy`) is enforced by every password write: registration, reset, change, fresh-auth set, admin set and bootstrap plaintext. The zero value is the default, following NIST SP 800-63B: 8..128 characters (Unicode code points, ceiling 1024), no composition rules, and the embedded common-password blocklist (about 550k breach-frequency entries from SecLists, case-insensitive; regenerate with `go generate ./internal/password`). A password may never contain the account's username or email local-part when that identifier has at least 4 characters. Hosts may opt into `RequireUppercase`, `RequireLowercase`, `RequireDigit` and `RequireSymbol` (a symbol is any rune that is neither a Unicode letter nor digit, including spaces) and may set `AllowCommon` to disable the blocklist.
+`authkit.Config.Password` (`authkit.PasswordPolicy`) is enforced by every password write: registration, reset, change, fresh-auth set, `UpdateUser` and bootstrap plaintext. The zero value is the default, following NIST SP 800-63B: 8..128 characters (Unicode code points, ceiling 1024), no composition rules, and the embedded common-password blocklist (about 550k breach-frequency entries from SecLists, case-insensitive; regenerate with `go generate ./internal/password`). A password may never contain the account's username or email local-part when that identifier has at least 4 characters. Hosts may opt into `RequireUppercase`, `RequireLowercase`, `RequireDigit` and `RequireSymbol` (a symbol is any rune that is neither a Unicode letter nor digit, including spaces) and may set `AllowCommon` to disable the blocklist.
 
 ```json
 "password": {"login": true, "min_length": 8, "max_length": 128, "require_uppercase": false,
@@ -25,4 +25,4 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Memberships
 
-`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare only the intrinsic root persona. It returns the caller's current actual assignments with `group_id`, `persona`, `instance_slug` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.
+`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare no persona besides root. It returns the caller's current actual assignments with `group_id`, `persona`, `instance_slug` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.

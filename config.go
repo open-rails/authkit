@@ -230,7 +230,7 @@ type TokenConfig struct {
 type FrontendConfig struct {
 	// BaseURL, if set, is used for building absolute URLs (e.g. password
 	// reset/verify links). If empty and Token.Issuer is a well-formed URL,
-	// NewFromConfig defaults it to the issuer.
+	// New defaults it to the issuer.
 	BaseURL string
 	// OIDCReturnPath is the host SPA landing route AuthKit redirects to after it
 	// finishes an OIDC/social login flow (the browser is sent to
@@ -268,8 +268,8 @@ type RegistrationConfig struct {
 	// Unproven accounts cannot add login methods (docs/security/contact-ownership.md).
 	Verification iam.RegistrationVerificationPolicy
 	// NativeUserMode controls public native-user self-registration. Empty
-	// defaults to "open". Non-open modes disable every public user-creation path
-	// while leaving embedded admin/bootstrap core APIs available.
+	// defaults to "open". Non-open modes disable every public user-creation path;
+	// the operator's CreateUser, bootstrap and import still work.
 	NativeUserMode iam.RegistrationMode
 	// PasswordlessLogin enables contact-based passwordless sessions. Off by
 	// default; hosts must opt in before /passwordless/start sends challenges.
@@ -311,7 +311,7 @@ type KeysConfig struct {
 	// keypair when Source is nil and no <Path>/keys.json exists. It lives in
 	// memory, unless Path is explicit — then it is written to <Path>/keys.json
 	// so restarts reuse it. DEVELOPMENT ONLY — the default (false) is
-	// fail-closed: with no keys configured, NewFromConfig returns a hard error
+	// fail-closed: with no keys configured, New returns a hard error
 	// instead of silently minting dev keys (#231). This flag is deliberately
 	// NOT derived from Environment.
 	AllowEphemeralDevKeys bool
@@ -362,7 +362,7 @@ type TwoFactorConfig struct {
 	// be 16, 24, or 32 RAW bytes (not base64/hex). This is an OVERRIDE for
 	// tests/custom key management; the normal path loads the key from
 	// <Keys.Path>/totp.key (vault-mounted key material, same model as JWT
-	// signing keys; wired in NewFromConfig, #232). An override of any other
+	// signing keys, #232). An override of any other
 	// length is a hard construction error. Without either, TOTP enrollment
 	// fails closed.
 	TOTPSecretKey []byte

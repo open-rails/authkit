@@ -101,12 +101,6 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	return id, err
 }
 
-// resolveGroupID is resolveGroup's id.
-func (s *Engine) resolveGroupID(ctx context.Context, st *permissionGroupStore, g iam.GroupRef) (string, error) {
-	t, err := s.resolveGroup(ctx, st, g)
-	return t.ID, err
-}
-
 // validRoleForPersona reports whether role is assignable in a group of persona: a
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
@@ -129,7 +123,7 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
 	}
-	if a.IsZero() || iam.ValidateGroupInstanceSlug(ref) != nil {
+	if a.IsZero() || validateGroupSlug(ref) != nil {
 		return false, nil
 	}
 	if err := s.requirePG(); err != nil {
@@ -179,7 +173,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 			}
 			continue
 		}
-		if iam.ValidateGroupInstanceSlug(ref) != nil {
+		if validateGroupSlug(ref) != nil {
 			continue
 		}
 		g, err := s.resolveGroup(ctx, st, ref)

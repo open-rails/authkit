@@ -89,7 +89,7 @@ const sessionCreateLock = `-- name: SessionCreateLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 `
 
-// Refresh-session queries (core/service_sessions.go).
+// Refresh-session queries.
 // Transaction-scoped advisory lock that serializes concurrent session creation for
 // the same (user, issuer). Taken before the cap count + evict + insert so those run
 // on a consistent view and the active session count can never exceed
@@ -154,25 +154,6 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 	var i SessionFreshSinceForUpdateRow
 	err := row.Scan(&i.FreshSince, &i.AuthMethods)
 	return i, err
-}
-
-const sessionIDByCurrentTokenHash = `-- name: SessionIDByCurrentTokenHash :one
-SELECT id::text
-FROM refresh_sessions
-WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > now())
-`
-
-type SessionIDByCurrentTokenHashParams struct {
-	CurrentTokenHash []byte
-	Issuer           string
-}
-
-func (q *Queries) SessionIDByCurrentTokenHash(ctx context.Context, arg SessionIDByCurrentTokenHashParams) (string, error) {
-	row := q.db.QueryRow(ctx, sessionIDByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer)
-	var id string
-	err := row.Scan(&id)
-	return id, err
 }
 
 const sessionInsert = `-- name: SessionInsert :one
@@ -250,24 +231,6 @@ func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkA
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const sessionRevokeByID = `-- name: SessionRevokeByID :one
-UPDATE refresh_sessions SET revoked_at = now()
-WHERE id = $1 AND issuer = $2 AND revoked_at IS NULL
-RETURNING user_id::text
-`
-
-type SessionRevokeByIDParams struct {
-	ID     string
-	Issuer string
-}
-
-func (q *Queries) SessionRevokeByID(ctx context.Context, arg SessionRevokeByIDParams) (string, error) {
-	row := q.db.QueryRow(ctx, sessionRevokeByID, arg.ID, arg.Issuer)
-	var user_id string
-	err := row.Scan(&user_id)
-	return user_id, err
 }
 
 const sessionRevokeByIDForUser = `-- name: SessionRevokeByIDForUser :one

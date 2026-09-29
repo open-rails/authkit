@@ -26,7 +26,7 @@ func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	st := s.groupStore()
 	id := ref.ID()
 	if id == "" {
-		if err := iam.ValidateGroupInstanceSlug(ref); err != nil {
+		if err := validateGroupSlug(ref); err != nil {
 			return iam.Group{}, iam.ErrGroupNotFound
 		}
 		g, err := s.resolveGroup(ctx, st, ref)
@@ -342,4 +342,15 @@ func (s *Engine) MemberUserIDByEmail(ctx context.Context, email string) (string,
 		return "", false, nil
 	}
 	return id, err == nil, err
+}
+
+// validateGroupSlug checks the slug of a by-slug reference.
+func validateGroupSlug(g iam.GroupRef) error {
+	if g.IsRoot() || g.ID() != "" {
+		return nil
+	}
+	if !iam.ValidSlug(g.Slug()) {
+		return fmt.Errorf("resource slug %q must be lowercase URL-safe", g.Slug())
+	}
+	return nil
 }

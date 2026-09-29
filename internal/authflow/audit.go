@@ -39,7 +39,6 @@ const (
 )
 
 const (
-	SessionRevokeReasonUnknown              SessionRevokeReason = ""
 	SessionRevokeReasonLogout               SessionRevokeReason = "logout"
 	SessionRevokeReasonUserRevoke           SessionRevokeReason = "user_revoke"
 	SessionRevokeReasonUserRevokeAll        SessionRevokeReason = "user_revoke_all"
@@ -49,10 +48,8 @@ const (
 	SessionRevokeReasonAdminSetPassword     SessionRevokeReason = "admin_set_password"
 	SessionRevokeReasonContactChange        SessionRevokeReason = "contact_change"
 	SessionRevokeReasonContactProven        SessionRevokeReason = "contact_proven"
-	SessionRevokeReasonUserDisabled         SessionRevokeReason = "user_disabled"
 	SessionRevokeReasonBanned               SessionRevokeReason = "banned"
 	SessionRevokeReasonSoftDeleted          SessionRevokeReason = "soft_deleted"
-	SessionRevokeReasonHardDeleted          SessionRevokeReason = "hard_deleted"
 	SessionRevokeReasonEvicted              SessionRevokeReason = "evicted"
 	SessionRevokeReasonRefreshReuseDetected SessionRevokeReason = "refresh_reuse_detected"
 )

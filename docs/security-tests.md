@@ -27,6 +27,15 @@ Add a row and a test for every new attack class.
 | Group binds a reserved issuer or squats an unregistered one against its domain | `TestSecurityRemoteApplicationIssuerSquat` |
 | Group or domain claims a shared-account peer issuer; peer user tokens replayed as delegations or sessions | `TestSecurityAccountPeerRemoteApplication` |
 | Delegated grant carries AuthKit authority the user lacks, or keeps it after the user loses it | `TestSecurityDelegatedGrantClamp` |
+| Go-path delegated mint for another user, by a machine actor, or with authority the user lacks | `TestSecurityDelegatedMintAuthority` |
+| Delegated token used on AuthKit's own management routes, or keeping a banned user's authority at host gates | `TestSecurityDelegatedPrincipalManagementPlane` |
+| Token shape (typ, subject claims, sender binding, issuer kind) verifies as another actor or an operator | `TestSecurityTokenMatrix` |
+| Credentials manager re-keys or deletes an operator-registered application, or one holding roles they don't cover | `TestSecurityOperatorApplicationRekey` |
+| Group registers an application above tier `registered`, or a re-key keeps an approval | `TestSecurityGroupApplicationTier` |
+| Application holds an MFA-required role or stands in for an MFA owner | `TestSecurityApplicationMFARoles` |
+| Unproven issuer claim, left as last owner, blocks the domain that proves the issuer | `TestSecurityIssuerSquatLastOwner` |
+| Application list paging repeats or skips rows, or accepts a forged cursor | `TestSecurityRemoteApplicationPaging` |
+| OAuth `scope` claim on a service JWT grants permissions | `TestSecurityServiceJWTPermissionsOnly` |
 | Issuer registered without an audience accepts every audience | `TestSecurityIssuerWithoutAudience` |
 | Sibling subdomain plants or shadows the OIDC state cookie | `TestSecurityOIDCStateCookieIsHostPrefixed` |
 | Providers sharing an issuer, or claiming this deployment's | `TestSecurityProviderIssuerCollisions` |
@@ -58,7 +67,7 @@ Add a row and a test for every new attack class.
 | Imported wallet becomes a login method or moves between accounts | `TestSecurityImportSolanaLinks` |
 | Non-operator links a provider identity; an operator link reaches another account | `TestSecurityLinkProvider` |
 
-The cookie compatibility guard `TestCookieRegistry` (package `authkit`) pins the cookies
+The cookie compatibility guard `TestCookieRegistry` (`internal/engine`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).
 
 Covered by the workflow suites (see [testing](testing.md)): OIDC state
@@ -70,6 +79,12 @@ code/link single winner and reset-grant invalidation
 2FA code retry semantics (`TestTwoFactorCodeSurvivesWrongGuess`); last-owner
 and role-owner races (`TestRoleOwnerWorkflow`); DPoP and delegated scope
 (`TestBrowserDelegationWorkflow`); per-address password limits and rate-limit
-backend outage (`TestWorkflowRateLimits`).
+backend outage (`TestWorkflowRateLimits`); adding a member by email never binds
+an unproven account (`TestAddMemberByEmailNeverBindsAnUnprovenAccount`);
+custom-role changes need the holders' authority
+(`TestCustomRoleChangesNeedHolderAuthority`); MFA follows permissions
+(`TestMFAFollowsPermissions`); no credential outlives its issuer, including
+across a role-catalog change at boot (`TestNoCredentialOutlivesItsIssuer`,
+`TestRoleCatalogChangesAtBoot`).
 
 Known open risks are tracked in the AuthKit tracker (#392 and its follow-ups).

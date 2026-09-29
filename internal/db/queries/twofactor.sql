@@ -1,4 +1,4 @@
--- Two-factor queries (core/service.go).
+-- Two-factor queries.
 --
 -- #125: factors are hard-deleted (no per-factor `enabled` flag). mfa_settings
 -- holds only the account-level gate (`enabled`) + `backup_codes`; per-factor data

@@ -3,11 +3,9 @@
 How to rotate AuthKit's RS256 signing keys **without a process restart**.
 
 Applies to file-delivered keys (`/vault/auth/keys.json`). Statically injected
-keys (an explicit `Keys.Source`, e.g. built by the standalone binary from its
-`AUTHKIT_ACTIVE_KEY_ID` / `AUTHKIT_ACTIVE_PRIVATE_KEY_PEM` / `AUTHKIT_PUBLIC_KEYS` env — the library
-itself reads no env, #231) cannot hot-rotate — the material is fixed in a
-running process, so such a deploy must restart to pick up a new key. Use file
-delivery in production.
+keys (an explicit `Keys.Source`; AuthKit reads no env, #231) cannot hot-rotate:
+the material is fixed in a running process, so such a deploy must restart to
+pick up a new key. Use file delivery in production.
 
 ## How it works
 
@@ -46,8 +44,7 @@ Two pieces make rotation reboot-free:
    (rate-limited, single-flight), then accepts if present / rejects if absent.
    So external verifiers pick up the rotated key on demand — PROVIDED the
    issuer was registered with a JWKS URI. An issuer registered with
-   pre-provided keys (`RawKeys`/`Keys`) and no JWKS URI — e.g. a co-located
-   `authkit.Service` registering itself via `IsLocal` — has no URL to refetch
+   pre-provided keys (`RawKeys`/`Keys`) and no JWKS URI has no URL to refetch
    from and is exempt from this: those keys are permanent for the life of the
    registration and are never expired or fetched over the network (#239).
    Rotating such an issuer means calling `AddIssuer` again with the new keys.
@@ -96,8 +93,7 @@ cache TTL; the issuer side is already immediate.
 ## Local testing
 
 The dev/compose host mount (`./.secrets/authkit` → `/vault/auth`) makes this
-testable by hand: edit `keys.json` and watch the poller reload it. See
-`jwtkit/keys_reload_test.go` for the reload/keep-old-on-error/poller coverage,
-and `embedded/key_rotation_integration_test.go` for the end-to-end
-proof that a running Service observes the reload (mint + JWKS, not just the
-key source in isolation).
+testable by hand: edit `keys.json` and watch the poller reload it.
+`jwtkit/keys_reload_test.go` covers reload, keep-old-on-error and the poller;
+`TestSecurityKeyRotationIsPublished` proves a running AuthKit publishes the new
+key and stops accepting a removed one.

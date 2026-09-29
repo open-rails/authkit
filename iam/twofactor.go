@@ -1,8 +1,7 @@
 package iam
 
-// Two-factor policy vocabulary (#148). Shared public contract for embedded and
-// future remote: hosts declare 2FA policy with a TwoFactorMode plus the set of
-// allowed TwoFactorMethods, replacing the old single RequireEnrollment bool.
+// Two-factor policy vocabulary (#148): hosts declare 2FA policy with a
+// TwoFactorMode plus the set of allowed TwoFactorMethods.
 
 // TwoFactorMode is the host's account-wide 2FA enrollment policy.
 type TwoFactorMode string

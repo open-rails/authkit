@@ -461,7 +461,3 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom C
 	return out
 }
 
-// Can reports whether any grant the subject holds in the group target covers perm.
-func (s *Schema) Can(target string, assignments []Assignment, custom CustomRoleResolver, perm iam.Perm) bool {
-	return iam.AnyGrantCovers(s.ResolveGrants(target, assignments, custom), perm)
-}
