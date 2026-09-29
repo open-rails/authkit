@@ -1,4 +1,4 @@
--- parent: 6 sha256:06240f8684a9b78945c8f99c89cc60c46f3b355709f31f75b201c84acf1e5585
+-- parent: 7 sha256:59a13335f66a632d398631e2dd3abe928a30b7c824d959d88ad5ee9472db50cb
 -- A sensitive action on an account with a second factor needs that factor
 -- within the freshness window; a password re-auth never refreshes it. Sessions
 -- that signed in with MFA proved it when they were created.
