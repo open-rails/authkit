@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-// The verification surface must stay DB-less: hosts that only verify tokens
-// must not link pgx, River or the engine (#291).
-var dblessPackages = []string{"./iam", "./documents", "./jwtkit", "./verify"}
+// The verification surface and the framework adapters must stay DB-less:
+// hosts that only verify tokens must not link pgx, River or the engine (#291).
+var dblessPackages = []string{"./iam", "./documents", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
+
+const enginePackage = "github.com/open-rails/authkit"
 
 var forbiddenDepPrefixes = []string{
 	"github.com/jackc/pgx",
@@ -52,6 +54,10 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 	var violations []string
 	for _, pkg := range dblessPackages {
 		for _, dep := range listDeps(t, pkg) {
+			if dep == enginePackage {
+				violations = append(violations, pkg+" -> "+dep)
+				continue
+			}
 			if sharedStdlibLeaves[dep] {
 				continue
 			}
