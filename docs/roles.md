@@ -1,13 +1,14 @@
 # Roles and permissions
 
 A **persona** is a type of permission group (channel, org, merchant). A
-**permission group** is one instance of a persona (/c/golang), created at run
-time. **root** is the persona with exactly one group, the whole site; it always
-exists.
+**permission group** is one instance of a persona, addressed by its ID. It only
+holds roles: the thing it guards (the channel /c/golang, its name and its data)
+lives in your app, which stores the group's ID. **root** is the persona with
+exactly one group, the whole site; it always exists.
 
 A **permission** is `<persona>:<resource>:<action>` (`channel:posts:edit`). `*`
 may replace the action (`channel:posts:*`) or everything after the persona
-(`channel:*`, the owner). The resource `self` is the group itself.
+(`channel:*`, the owner).
 
 A **role** bundles permissions. Where a role is held is its scope: a role held
 on a group applies there, and a role held on root applies in every group.
@@ -19,7 +20,6 @@ Roles: authkit.RoleConfig{
 	Personas: map[string]authkit.Persona{
 		"channel": {
 			Permissions: []string{"channel:posts:edit", "channel:posts:delete"},
-			Creation:    authkit.GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}},
 		},
 	},
 	Roles: []authkit.Role{
@@ -47,7 +47,6 @@ Roles: authkit.RoleConfig{
   out of band and call `ResetAccountMFA(ctx, iam.OperatorActor(), userID)`: it
   removes the account's passkeys, factors, backup codes, device keys and
   sessions, keeps its roles, and the next sign-in enrolls a factor.
-- Reserved slugs of persona p are creatable only by actors holding `p:*` on root.
 
 ## Built-in permissions
 
@@ -58,7 +57,6 @@ AuthKit adds these to each persona's catalog:
 | `<p>:members:read`, `<p>:members:manage` | always | member lists and the role catalog; role assignment, invite links |
 | `<p>:roles:manage` | `CustomRoles` | defining and deleting custom roles (also reads the role catalog) |
 | `<p>:credentials:read`, `<p>:credentials:manage` | `APIKeys` or `RemoteApplications` | API keys, remote applications |
-| `<p>:self:read`, `<p>:self:update`, `<p>:self:delete` | except root | the group's descriptor; slug and display name; soft delete |
 
 Root also has `root:users:read` (accounts and sign-ins), `root:users:ban`,
 `root:users:delete` (delete and restore), `root:users:manage` (edit an account,
@@ -66,7 +64,7 @@ revoke its sessions) and `root:users:invite`.
 
 ## Validation at New
 
-- Catalog entries are three-part, start with their persona, and never use `self`.
+- Catalog entries are three-part and start with their persona.
 - A role's permissions must match its persona's catalog; a wildcard must cover
   at least one registered permission. Persona roles hold only their own
   persona's permissions; root roles may hold any persona's.
@@ -76,6 +74,35 @@ revoke its sessions) and `root:users:invite`.
 `New` stores a fingerprint of the role catalog. When it changes, `New` re-checks
 every live API key, invite link and account invite against its creator's
 authority and revokes what the creator can no longer issue.
+
+## Groups
+
+Your app creates and deletes groups, because it owns what they guard. It
+decides who may make a channel and which names are allowed, then calls AuthKit
+with the operator:
+
+```go
+tx, err := db.Begin(ctx)
+// ...
+owner := iam.UserSubject(userID)
+g, err := auth.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+// ...
+_, err = tx.Exec(ctx, `INSERT INTO channels (name, group_id) VALUES ($1, $2)`, name, g.ID)
+// ...
+err = tx.Commit(ctx)
+```
+
+- `CreateGroup`, `DeleteGroup` (soft) and `PurgeGroup` refuse every actor but
+  `iam.OperatorActor()`. Before deleting, the app checks its own permission,
+  for example `RequirePermission(iam.RootGroup(), "root:channels:delete")`.
+- `NewGroup.Owner`, when set, must be a live account; it gets the `owner` role.
+- `authkit.InTx(tx)` runs the operation in a savepoint of your transaction, so
+  the group and your row commit or roll back together. `tx` must be READ
+  COMMITTED and on the database of `Deps.Postgres`; AuthKit sets its own
+  search_path inside the savepoint. The authority lock, the credential sweep
+  and event records join your transaction, and the lock is held until it ends.
+- Routes address a group by ID: `/api/v1/groups/{group_id}/members` and so on
+  ([routes](api-endpoints.md)). `GET /me/groups` lists the caller's groups.
 
 ## Actors
 

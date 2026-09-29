@@ -83,31 +83,30 @@ func (a *Auth) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.List
 	return a.engine.OwnerlessGroups(ctx, p)
 }
 
-// Group lifecycle. A group guards an entity of the host app (a channel);
-// the app owns that entity, its name and its data, and stores the group's ID.
-// So the app decides who may create or delete one, checking its own
-// permissions first, and then calls these with iam.OperatorActor(). Any other
-// actor is refused. Pass InTx to create or delete the group in the same
-// transaction as the app's own row.
+// Group lifecycle. A group guards an entity of your app (a channel); the app
+// owns that entity, its name and its data, and stores the group's ID. These
+// are host operations: your code decides who may create or delete one,
+// checking its own permissions first, so they take no actor. Pass InTx to
+// create or delete the group in the same transaction as your own row.
 
 // CreateGroup creates a group of a declared persona. g.Owner, when set, must
 // be a live account (not banned, deleted or reserved); it becomes the
 // group's owner.
-func (a *Auth) CreateGroup(ctx context.Context, actor iam.Actor, g iam.NewGroup, opts ...Option) (iam.Group, error) {
-	return a.engine.CreateGroup(ctx, actor, g, options(opts).tx)
+func (a *Auth) CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error) {
+	return a.engine.CreateGroup(ctx, g, options(opts).tx)
 }
 
 // DeleteGroup soft-deletes a group: it stops resolving and granting at once,
 // while its rows stay until PurgeGroup. Deleting a deleted group is a no-op.
-func (a *Auth) DeleteGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, opts ...Option) error {
-	return a.engine.DeleteGroup(ctx, actor, ref, options(opts).tx)
+func (a *Auth) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
+	return a.engine.DeleteGroup(ctx, ref, options(opts).tx)
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, custom role, API key, invite and application in it. Purging an
 // unknown group is a no-op.
-func (a *Auth) PurgeGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, opts ...Option) error {
-	return a.engine.PurgeGroup(ctx, actor, ref, options(opts).tx)
+func (a *Auth) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
+	return a.engine.PurgeGroup(ctx, ref, options(opts).tx)
 }
 
 // Option adjusts one operation.

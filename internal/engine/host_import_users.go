@@ -107,10 +107,7 @@ func importRejected(idx int, reason string) iam.ImportRow {
 // with an earlier row of the batch is that row's account. A row whose
 // identifiers name two accounts is rejected. Matching is never proof: only an
 // id, or a contact verified on the account, binds a row for a merge.
-func (s *Engine) ImportUsers(ctx context.Context, a iam.Actor, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.ImportResult{}, err
-	}
+func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
 	merge := false
 	switch opts.OnConflict {
 	case "", iam.ImportSkip:

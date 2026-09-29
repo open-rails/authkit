@@ -17,13 +17,7 @@ import (
 // MintAccessToken mints an access token for a live account outside any login
 // flow. Operator only. Reserved claims in o.Claims are dropped; o.SessionID
 // becomes sid.
-func (s *Engine) MintAccessToken(ctx context.Context, a iam.Actor, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
-	if err := requireActor(a); err != nil {
-		return iam.Token{}, err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.Token{}, iam.ErrInsufficientAuthority
-	}
+func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
 	userID = strings.TrimSpace(userID)
 	if !isUUID(userID) {
 		return iam.Token{}, iam.ErrUserNotFound

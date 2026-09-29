@@ -114,13 +114,7 @@ func actorUserID(a iam.Actor) *string {
 }
 
 // CreateUser creates a native account. Operator only.
-func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (iam.User, error) {
-	if err := requireActor(a); err != nil {
-		return iam.User{}, err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.User{}, iam.ErrInsufficientAuthority
-	}
+func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser) (iam.User, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
@@ -181,7 +175,7 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 			return iam.User{}, err
 		}
 	}
-	if err := s.emitEvents(ctx, tx, a, userEvent(iam.EventUserRegistered, userID)); err != nil {
+	if err := s.emitEvents(ctx, tx, iam.OperatorActor(), userEvent(iam.EventUserRegistered, userID)); err != nil {
 		return iam.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -584,13 +578,7 @@ func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([
 // PurgeUsers closes the recovery window of accounts now, soft-deleting live
 // ones first. Operator only. The account row goes once the host deletion
 // callbacks complete, exactly as at the end of the window.
-func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error) {
-	if err := requireActor(a); err != nil {
-		return nil, err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return nil, iam.ErrInsufficientAuthority
-	}
+func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, error) {
 	client, err := s.deletionRiver()
 	if err != nil {
 		return nil, err
@@ -599,7 +587,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]i
 	for _, id := range ids {
 		id := strings.TrimSpace(id)
 		var revoked []revokedSession
-		err := s.withAccountMutation(ctx, a, id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
+		err := s.withAccountMutation(ctx, iam.OperatorActor(), id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
 			var err error
 			if revoked, err = s.softDeleteTx(ctx, at, client, id); err != nil {
 				return err
@@ -670,19 +658,13 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 // and its sessions on every account issuer, and tells its address. Roles
 // stay: when one needs MFA, or 2FA is Required, the next sign-in enrolls a
 // factor. Operator only.
-func (s *Engine) ResetAccountMFA(ctx context.Context, a iam.Actor, userID string) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientAuthority
-	}
+func (s *Engine) ResetAccountMFA(ctx context.Context, userID string) error {
 	userID, ok := canonicalUUID(userID)
 	if !ok {
 		return iam.ErrUserNotFound
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, iam.OperatorActor(), userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
 		var err error
 		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 			if _, err := at.tx.Exec(ctx, `UPDATE user_passkeys SET deleted_at=now() WHERE user_id=$1::uuid AND deleted_at IS NULL`, userID); err != nil {

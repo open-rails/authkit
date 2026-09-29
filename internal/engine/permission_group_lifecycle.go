@@ -40,17 +40,13 @@ func (s *Engine) requireDefinedGroupRole(ctx context.Context, st *permissionGrou
 	return nil
 }
 
-// Group lifecycle. A group is created and deleted by the host alone: the host
-// app owns the entity a group guards (a channel), so it decides who may make
-// or remove one and calls these with the operator. host, when set, is the
-// host's own transaction (withAuthorityMutationIn).
+// Group lifecycle: host operations. The host app owns the entity a group
+// guards (a channel), so it decides who may make or remove one. host, when
+// set, is the host's own transaction (withAuthorityMutationIn).
 
 // CreateGroup creates a group of a declared persona. ng.Owner, when set, must
 // be a live account; it is seeded with the owner role.
-func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup, host pgx.Tx) (iam.Group, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.Group{}, err
-	}
+func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) (iam.Group, error) {
 	persona := iam.Persona(strings.TrimSpace(string(ng.Persona)))
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona {
 		return iam.Group{}, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
@@ -65,7 +61,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup, 
 		owner = &o
 	}
 	var out iam.Group
-	err := s.withAuthorityMutationIn(ctx, a, host, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutationIn(ctx, iam.OperatorActor(), host, func(st *permissionGroupStore) error {
 		if owner != nil {
 			if err := s.requireLiveOwner(ctx, st, *owner); err != nil {
 				return err
@@ -111,11 +107,8 @@ func (s *Engine) requireLiveOwner(ctx context.Context, st *permissionGroupStore,
 // DeleteGroup soft-deletes a group: it stops resolving and granting, while
 // its rows stay until PurgeGroup. Deleting a deleted group is a no-op; the
 // root group cannot be deleted.
-func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, host pgx.Tx) error {
-	if err := requireOperator(a); err != nil {
-		return err
-	}
-	return s.withAuthorityMutationIn(ctx, a, host, func(st *permissionGroupStore) error {
+func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx) error {
+	return s.withAuthorityMutationIn(ctx, iam.OperatorActor(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}
@@ -156,11 +149,8 @@ func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef,
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, custom role, key and link in it. Purging an unknown group is a no-op.
-func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, host pgx.Tx) error {
-	if err := requireOperator(a); err != nil {
-		return err
-	}
-	err := s.withAuthorityMutationIn(ctx, a, host, func(st *permissionGroupStore) error {
+func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx) error {
+	err := s.withAuthorityMutationIn(ctx, iam.OperatorActor(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}

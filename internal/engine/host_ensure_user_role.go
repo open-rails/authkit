@@ -25,17 +25,14 @@ import (
 // the unverified account an earlier call created). Any other account is
 // refused with ErrContactNotVerified: a pre-registered account is never
 // adopted, and nothing here marks a contact verified.
-func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, u iam.UserRef, role iam.Role) (iam.User, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.User{}, err
-	}
+func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.GroupRef, role iam.Role) (iam.User, error) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	key, value, err := ensureUserKey(u)
 	if err != nil {
 		return iam.User{}, err
 	}
 	var outID string
-	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, iam.OperatorActor(), ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}

@@ -164,27 +164,23 @@ root role assignments and remote applications.
 | DELETE | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
-| POST | `{api}/org` | permission_groups | required |  | Creation.Enabled |
-| GET | `{api}/org/{instance_slug}` | permission_groups | `org:self:read` |  | Roles.Personas |
-| PATCH | `{api}/org/{instance_slug}` | permission_groups | `org:self:update` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}` | permission_groups | `org:self:delete` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/api-keys/{key}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/invites/links/{link}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/members/{user}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| PUT | `{api}/org/{instance_slug}/members/{user}/roles/{role}` | permission_groups | `org:members:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:read` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/remote-applications/{app}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| PUT | `{api}/org/{instance_slug}/remote-applications/{app}/roles/{role}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
-| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:members:read` or `org:roles:manage` |  | Roles.Personas |
-| POST | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:manage` |  | Roles.Personas |
-| DELETE | `{api}/org/{instance_slug}/roles/{role}` | permission_groups | `org:roles:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:read` |  | APIKeys |
+| POST | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
+| DELETE | `{api}/groups/{group_id}/api-keys/{key}` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
+| GET | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/groups/{group_id}/invites/links/{link}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/groups/{group_id}/members/{user}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| PUT | `{api}/groups/{group_id}/members/{user}/roles/{role}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:read` |  | RemoteApplications |
+| POST | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| DELETE | `{api}/groups/{group_id}/remote-applications/{app}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| PUT | `{api}/groups/{group_id}/remote-applications/{app}/roles/{role}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
+| GET | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:members:read` or `<persona>:roles:manage` |  | Roles.Personas |
+| POST | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
+| DELETE | `{api}/groups/{group_id}/roles/{role}` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
 <!-- routes:end -->
 
 ## Authentication Levels
@@ -368,16 +364,21 @@ For verification and 2FA send operations, a 2xx response means AuthKit submitted
 
 ## Permission Groups
 
-A persona is the route and permission namespace: a `merchant` persona generates
-`/merchant/{instance_slug}/...` routes gated by `merchant:<resource>:<action>`
-permissions ([roles](roles.md)). Every persona but root gets the group's own
-`GET`/`PATCH`/`DELETE`, members, invite links and the role list;
-`Creation.Enabled` adds `POST /merchant`, `CustomRoles` the custom-role routes,
-`APIKeys` the API-key routes and `RemoteApplications` the application routes.
-Root's roles are managed under `/admin`. Every generated route checks `Can`
-live for the calling actor and refuses delegated tokens.
+Group routes address a group by ID, `/groups/{group_id}/...`, and are gated
+by the built-in permission of that group's persona: in a `merchant` group,
+`merchant:members:manage` and so on ([roles](roles.md)). Groups of every persona
+but root have members, invite links and the role list; `CustomRoles` adds the
+custom-role routes, `APIKeys` the API-key routes and `RemoteApplications` the
+application routes. A group whose persona lacks a route is refused like an
+unknown group (`403`); a route no persona has is not mounted. Root's roles are
+managed under `/admin`. Every group route checks `Can` live for the calling
+actor and refuses delegated tokens. AuthKit has no route that creates, reads,
+renames or deletes a group: your app does that with `CreateGroup` and
+`DeleteGroup` ([roles](roles.md#groups)). `GET /me/groups` lists the caller's
+groups; `GET /me/permissions?group_id=` returns its permissions in one group
+(the root group by default).
 
-`POST /<persona>/<slug>/members` with `email` never adds an account: every
+`POST /groups/{group_id}/members` with `email` never adds an account: every
 address gets the same `202` role-carrying invitation, accepted by registering
 with it or by redeeming it at `POST /invites/redeem` signed in to the account
 that verified that address.

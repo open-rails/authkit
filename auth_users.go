@@ -62,9 +62,9 @@ func (a *Auth) UserMetadata(ctx context.Context, userID string) (map[string]any,
 	return a.engine.UserMetadata(ctx, userID)
 }
 
-// CreateUser creates a native account. Operator only.
-func (a *Auth) CreateUser(ctx context.Context, actor iam.Actor, u iam.NewUser) (iam.User, error) {
-	return a.engine.CreateUser(ctx, actor, u)
+// CreateUser creates a native account. Host operation: your code decides.
+func (a *Auth) CreateUser(ctx context.Context, u iam.NewUser) (iam.User, error) {
+	return a.engine.CreateUser(ctx, u)
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
@@ -109,9 +109,9 @@ func (a *Auth) RestoreUsers(ctx context.Context, actor iam.Actor, ids []string) 
 }
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the
-// host deletion callbacks complete. Operator only.
-func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([]iam.OpResult, error) {
-	return a.engine.PurgeUsers(ctx, actor, ids)
+// host deletion callbacks complete. Host operation: your code decides.
+func (a *Auth) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, error) {
+	return a.engine.PurgeUsers(ctx, ids)
 }
 
 // ResetAccountMFA recovers an account that lost its second factors, such as a
@@ -119,9 +119,10 @@ func (a *Auth) PurgeUsers(ctx context.Context, actor iam.Actor, ids []string) ([
 // passkeys, 2FA factors and backup codes, revokes its device keys and
 // sessions, and notifies its address through the email sender. Roles stay:
 // when one needs MFA, or 2FA is Required, the next sign-in enrolls a factor.
-// Operator only; verify who is asking before calling it.
-func (a *Auth) ResetAccountMFA(ctx context.Context, actor iam.Actor, userID string) error {
-	return a.engine.ResetAccountMFA(ctx, actor, userID)
+// Host operation: your code decides, so verify who is asking before calling
+// it.
+func (a *Auth) ResetAccountMFA(ctx context.Context, userID string) error {
+	return a.engine.ResetAccountMFA(ctx, userID)
 }
 
 // ActiveDeviceKeys returns the account's unrevoked device public keys in

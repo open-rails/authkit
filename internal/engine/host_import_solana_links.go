@@ -26,10 +26,7 @@ type importedSolanaLinkProfile struct {
 // ImportSolanaLinks imports legacy wallet claims under the operator, one
 // outcome per row. It never verifies a wallet: only a successful SIWS proof
 // promotes an imported claim.
-func (s *Engine) ImportSolanaLinks(ctx context.Context, a iam.Actor, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
-	if err := requireOperator(a); err != nil {
-		return iam.ImportSolanaLinksResult{}, err
-	}
+func (s *Engine) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
 	out := iam.ImportSolanaLinksResult{Rows: make([]iam.ImportSolanaLinkRow, len(rows))}
 	for i, in := range rows {
 		row, err := s.importUnverifiedSolanaLink(ctx, in)

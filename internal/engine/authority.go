@@ -127,15 +127,6 @@ func requireActor(a iam.Actor) error {
 	return nil
 }
 
-// requireOperator refuses every actor but the operator, for host-only
-// operations (bootstrap, import, provider links).
-func requireOperator(a iam.Actor) error {
-	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientAuthority
-	}
-	return nil
-}
-
 // actorAuthority resolves a's live authority in g (rule ACTOR). A zero, deleted,
 // reserved, banned, revoked, expired or disabled actor is
 // ErrInsufficientAuthority. An actor bound to another group resolves with

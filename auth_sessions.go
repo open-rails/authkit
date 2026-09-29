@@ -33,7 +33,7 @@ func (a *Auth) RevokeAccountSessions(ctx context.Context, actor iam.Actor, userI
 }
 
 // MintAccessToken mints an access token for a live account outside any login
-// flow. Operator only; reserved claims are dropped.
-func (a *Auth) MintAccessToken(ctx context.Context, actor iam.Actor, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
-	return a.engine.MintAccessToken(ctx, actor, userID, o)
+// flow; reserved claims are dropped. Host operation: your code decides.
+func (a *Auth) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
+	return a.engine.MintAccessToken(ctx, userID, o)
 }

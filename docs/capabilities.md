@@ -25,4 +25,4 @@ Failures are 400 with `param: "password"`: `password_too_short` / `password_too_
 
 ## Memberships
 
-`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare no persona besides root. It returns the caller's current actual assignments with `group_id`, `persona`, `instance_slug` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.
+`GET {api}/me/groups` is always available to an authenticated local user, including deployments that declare no persona besides root. It returns the caller's current actual assignments with `group_id`, `persona` and `role`. A user with no assignments receives `{"object":"list","data":[]}`. It neither implies root membership for every user nor allows selecting another user's identity in query parameters. Group management routes still follow their configured persona capabilities.
