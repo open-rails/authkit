@@ -94,6 +94,7 @@ Add a row and a test for every new attack class.
 | Registration resend tells a pending sign-up from an account | `TestSecurityRegistrationResendRevealsNothing` |
 | Device-key enrollment refuses a real authenticator-app or SMS second factor | `TestSecurityDeviceKeyIndependentFactors` |
 | Anonymous verification request by phone reveals whether a number exists or is verified | `TestSecurityVerifyRequestByPhoneRevealsNothing` |
+| The public `devicekey` client enrolls without an independent second factor, crosses signing domains, or revives a revoked or foreign key; a login token revokes other machines | `TestSecurityDeviceKeyClient` |
 
 The cookie compatibility guard `TestCookieRegistry` (`internal/engine`) pins the cookies
 AuthKit sets to the append-only registry ([cookies](security/cookies.md)).

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
@@ -23,11 +24,9 @@ import (
 )
 
 const (
-	deviceKeyEnrollmentDomain = "authkit.device-key-enrollment/1"
-	deviceKeyLoginDomain      = "authkit.device-key-login/1"
-	deviceKeyChallengeTTL     = 10 * time.Minute
-	deviceKeyLabelMaxLength   = 128
-	deviceKeyMaxCodeAttempts  = 5
+	deviceKeyChallengeTTL    = 10 * time.Minute
+	deviceKeyLabelMaxLength  = 128
+	deviceKeyMaxCodeAttempts = 5
 
 	keyDeviceKeyEnrollment        = "device-key:enrollment:"
 	keyDeviceKeyEnrollmentAttempt = "device-key:enrollment-attempt:"
@@ -83,11 +82,7 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 	if err != nil || len(challenge) != 32 || base64.RawURLEncoding.EncodeToString(challenge) != encodedChallenge {
 		return nil, errDeviceKeyInvalid
 	}
-	message := make([]byte, 0, len(domain)+1+len(challenge))
-	message = append(message, domain...)
-	message = append(message, 0)
-	message = append(message, challenge...)
-	return message, nil
+	return devicekey.Message(domain, challenge), nil
 }
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
@@ -170,7 +165,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	message, err := deviceKeySigningMessage(deviceKeyEnrollmentDomain, record.Challenge)
+	message, err := deviceKeySigningMessage(devicekey.EnrollmentDomain, record.Challenge)
 	if err != nil || !ed25519.Verify(publicKey, message, sig) {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
@@ -517,7 +512,7 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	message, err := deviceKeySigningMessage(deviceKeyLoginDomain, record.Challenge)
+	message, err := deviceKeySigningMessage(devicekey.LoginDomain, record.Challenge)
 	if err != nil || !ed25519.Verify(publicKey, message, sig) {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}

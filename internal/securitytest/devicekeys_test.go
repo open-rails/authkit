@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func (k *deviceKey) sign(t *testing.T, domain, challenge string) string {
 	t.Helper()
 	raw, err := base64.RawURLEncoding.DecodeString(challenge)
 	require.NoError(t, err)
-	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(k.private, append(append([]byte(domain), 0), raw...)))
+	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(k.private, devicekey.Message(domain, raw)))
 }
 
 // deviceEnroll runs the enrollment ceremony for email; secondFactor, when
@@ -51,7 +52,7 @@ func (h *host) deviceEnroll(k *deviceKey, email string, secondFactor func() stri
 	finish := map[string]string{
 		"enrollment_id": begin.EnrollmentID,
 		"code":          h.verificationCode(email),
-		"signature":     k.sign(h.t, "authkit.device-key-enrollment/1", begin.Challenge),
+		"signature":     k.sign(h.t, devicekey.EnrollmentDomain, begin.Challenge),
 	}
 	resp = h.post("/device-keys/enroll/finish", finish, "")
 	if secondFactor == nil || resp.status != http.StatusForbidden || resp.errorCode() != "step_up_required" {
@@ -83,7 +84,7 @@ func (h *host) deviceLogin(k *deviceKey) response {
 		Challenge   string `json:"challenge"`
 	}
 	resp.json(h.t, &begin)
-	return h.post("/device-keys/login/finish", map[string]string{"challenge_id": begin.ChallengeID, "signature": k.sign(h.t, "authkit.device-key-login/1", begin.Challenge)}, "")
+	return h.post("/device-keys/login/finish", map[string]string{"challenge_id": begin.ChallengeID, "signature": k.sign(h.t, devicekey.LoginDomain, begin.Challenge)}, "")
 }
 
 // TestSecurityDeviceKeyMFAGate (N2): a device key is a login and passes the

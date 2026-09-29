@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -43,7 +44,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 		body := map[string]any{
 			"enrollment_id": enrollment.EnrollmentID,
 			"code":          sender.verificationCode(t),
-			"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
+			"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 		}
 		if secondFactor != "" {
 			body["code_2fa"] = secondFactor

@@ -1,12 +1,18 @@
 package iam
 
-import "github.com/open-rails/authkit/internal/errmodel"
+import (
+	"errors"
+
+	"github.com/open-rails/authkit/internal/errmodel"
+)
 
 // Error is an AuthKit error as the wire sees it. Every error AuthKit returns
-// carries one; match identities with errors.Is against the sentinels below.
+// carries one, as does every error DecodeError reads from a response; match
+// identities with errors.Is against the sentinels below.
 type Error interface {
 	error
-	// Code is the stable snake_case wire code (internal_error for a server failure).
+	// Code is the stable snake_case wire code (internal_error for a server
+	// failure; empty for a decoded response that is not an AuthKit error).
 	Code() string
 	// Status is the HTTP status the catalog fixes for the code.
 	Status() int
@@ -20,6 +26,10 @@ type Error interface {
 func AsError(err error) (Error, bool) {
 	if e := errmodel.As(err); e != nil {
 		return e, true
+	}
+	var r *responseError
+	if errors.As(err, &r) {
+		return r, true
 	}
 	return nil, false
 }

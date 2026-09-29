@@ -55,7 +55,8 @@ response is:
   `error.code`. In Go, `iam.AsError(err)` returns the `iam.Error` (`Code`,
   `Status`, `Param`, `Metadata`) and `errors.Is` matches the `iam.Err*`
   sentinels; `iam.WriteError`, `authkitgin.Error` and `authkitfiber.Error`
-  write the envelope.
+  write the envelope, and a Go client reads it back with
+  `iam.DecodeError(resp)`.
 - `type` is derived from the HTTP status: `invalid_request_error` (400/404/409),
   `authentication_error` (401), `authorization_error` (403),
   `rate_limit_error` (429), `api_error` (5xx).
@@ -484,7 +485,8 @@ operator's `Auth.ResetAccountMFA` clears the account's second factors so its
 next sign-in enrolls one. Device-key enrollment refuses a revoked key or one
 bound to another account before asking for a second factor, and spends a
 backup code only when the key is enrolled. A password change or reset revokes
-every device key but the one making the change.
+every device key but the one making the change. See [device keys](device-keys.md) for the
+protocol and the Go client.
 
 The confirming session becomes 2FA-verified: its refresh session gains
 `<method>, otp, mfa` and a fresh authentication time, exactly as

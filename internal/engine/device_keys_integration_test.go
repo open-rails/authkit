@@ -11,15 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
-)
-
-const (
-	testDeviceEnrollmentDomain = "authkit.device-key-enrollment/1"
-	testDeviceLoginDomain      = "authkit.device-key-login/1"
 )
 
 type deviceKeyChallengeBody struct {
@@ -80,8 +76,7 @@ func signDeviceChallenge(t *testing.T, privateKey ed25519.PrivateKey, domain, en
 	challenge, err := base64.RawURLEncoding.DecodeString(encodedChallenge)
 	require.NoError(t, err)
 	require.Len(t, challenge, 32)
-	message := append(append([]byte(domain), 0), challenge...)
-	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, message))
+	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, devicekey.Message(domain, challenge)))
 }
 
 func postDeviceJSON(t *testing.T, srv *httpapi.Service, path string, body any) (int, []byte) {
@@ -111,7 +106,7 @@ func finishDeviceEnrollment(t *testing.T, srv *httpapi.Service, sender *captureE
 	status, raw := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": challenge.EnrollmentID,
 		"code":          sender.verificationCode(t),
-		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, challenge.Challenge),
+		"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, challenge.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
 	requireDeviceKeyTokenShape(t, raw)
@@ -133,7 +128,8 @@ func requireDeviceKeyTokenShape(t *testing.T, raw []byte) {
 	require.ElementsMatch(t, []string{"access_token", "token_type", "expires_in"}, mapKeys(tokenSet))
 	var device map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(body["device_key"], &device))
-	require.ElementsMatch(t, []string{"id", "label", "created_at"}, mapKeys(device))
+	require.Subset(t, []string{"id", "label", "created_at", "last_used_at", "current"}, mapKeys(device))
+	require.JSONEq(t, "true", string(device["current"]))
 }
 
 func mapKeys[V any](values map[string]V) []string {
@@ -165,7 +161,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	status, raw := postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": enrollment.EnrollmentID,
 		"code":          wrongCode,
-		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
+		"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status, string(raw))
 
@@ -200,7 +196,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	status, _ = postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": enrollment.EnrollmentID,
 		"code":          sender.verificationCode(t),
-		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
+		"signature":     signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 
@@ -212,13 +208,13 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	// Cross-purpose signatures are rejected without consuming the valid challenge.
 	status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": login.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, login.Challenge),
+		"signature":    signDeviceChallenge(t, privateKey, devicekey.EnrollmentDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 
 	status, raw = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": login.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, login.Challenge),
+		"signature":    signDeviceChallenge(t, privateKey, devicekey.LoginDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
 	requireDeviceKeyTokenShape(t, raw)
@@ -232,7 +228,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	// Login challenge is single use.
 	status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": login.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, login.Challenge),
+		"signature":    signDeviceChallenge(t, privateKey, devicekey.LoginDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 	require.Empty(t, sender.deviceKeyNotices(), "new accounts have no existing owner to notify")
@@ -250,7 +246,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 
 	status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": unknown.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, unknown.Challenge),
+		"signature":    signDeviceChallenge(t, privateKey, devicekey.LoginDomain, unknown.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 	first, firstPrivate := enrolled, privateKey
@@ -263,7 +259,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	listed := serveAuthJSON(srv, http.MethodGet, "/device-keys", "", second.AccessToken)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	var list struct {
-		Data []httpapi.DeviceKeyListResponse `json:"data"`
+		Data []devicekey.Key `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &list))
 	require.Len(t, list.Data, 2)
@@ -299,7 +295,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &firstChallenge))
 	status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": firstChallenge.ChallengeID,
-		"signature":    signDeviceChallenge(t, firstPrivate, testDeviceLoginDomain, firstChallenge.Challenge),
+		"signature":    signDeviceChallenge(t, firstPrivate, devicekey.LoginDomain, firstChallenge.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 	kept := loginDeviceKey(t, srv, second.DeviceKey.ID, secondPrivate)
@@ -320,7 +316,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	status, _ = postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": reenroll.EnrollmentID,
 		"code":          sender.verificationCode(t),
-		"signature":     signDeviceChallenge(t, secondPrivate, testDeviceEnrollmentDomain, reenroll.Challenge),
+		"signature":     signDeviceChallenge(t, secondPrivate, devicekey.EnrollmentDomain, reenroll.Challenge),
 	})
 	require.Equal(t, http.StatusUnauthorized, status)
 }
@@ -344,7 +340,7 @@ func loginDeviceKey(t *testing.T, srv *httpapi.Service, id string, privateKey ed
 	require.NoError(t, json.Unmarshal(raw, &challenge))
 	status, raw = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 		"challenge_id": challenge.ChallengeID,
-		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
+		"signature":    signDeviceChallenge(t, privateKey, devicekey.LoginDomain, challenge.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
 	var token deviceKeyTokenBody
