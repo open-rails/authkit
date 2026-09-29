@@ -21,7 +21,8 @@ var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.Cod
 
 // PermissionGroupRoutes returns the group-management routes some persona has,
 // plus the caller's own groups and permissions. Mirrors APIRoutes:
-// prefix-neutral RouteSpecs, language-wrapped and auth-required.
+// prefix-neutral RouteSpecs, rate-limited by their bucket, language-wrapped and
+// auth-required.
 func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return nil
@@ -53,13 +54,14 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 			Path:    "/invites/redeem",
 			Group:   iam.RoutePermissionGroups,
 			Auth:    iam.AuthRequired,
+			Bucket:  RLInviteRedeem,
 			Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
 		})
 	}
 
 	out := make([]RouteSpec, 0, len(specs))
 	for _, spec := range specs {
-		spec.Handler = lang(required(spec.Handler))
+		spec.Handler = lang(s.rateLimitedRoute(spec.Bucket, required(spec.Handler)))
 		out = append(out, spec)
 	}
 	return out

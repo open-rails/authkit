@@ -103,7 +103,7 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: iam.RouteAccount, Auth: iam.AuthRequired, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
 
 		{Method: http.MethodPost, Path: "/step-up/password", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RLPasswordStepUp, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
-		{Method: http.MethodPost, Path: "/step-up/2fa", Group: iam.RouteAccount, Auth: iam.AuthRequired, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
+		{Method: http.MethodPost, Path: "/step-up/2fa", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RL2FAVerify, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
 
 		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: iam.RouteAccount, Auth: iam.AuthRequired, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
 		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: iam.RouteAccount, Auth: iam.AuthRequired, Handler: required(http.HandlerFunc(s.handleOIDCStepUpStartPOST))},

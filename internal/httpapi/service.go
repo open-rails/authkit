@@ -32,34 +32,10 @@ type Service struct {
 	langCfg             *LanguageConfig
 }
 
-// failClosedBuckets are the credential-VERIFICATION endpoints where the secret
-// being checked is low-entropy (a password, or a short numeric code) and a single
-// unthrottled window is enough to brute-force it. For these, if the rate limiter
-// cannot be consulted because of a BACKEND ERROR (e.g. a Redis outage), the
-// request is DENIED (fail closed) rather than allowed — losing the limiter must
-// not silently remove the only online brute-force defense (AK2-AUTH-05). Every
-// other bucket keeps failing open, so a limiter outage degrades availability for
-// the affected endpoint rather than taking down the whole auth surface.
-//
-// Note: this applies only to the limiter-ERROR path. An absent limiter
-// (s.rl == nil) fails open.
-var failClosedBuckets = map[string]struct{}{
-	RL2FAVerify:             {},
-	RLPasswordLogin:         {},
-	RLPasswordStepUp:        {},
-	RLPasswordResetConfirm:  {},
-	RLDeviceKeyEnrollFinish: {},
-	RLVerifyConfirm:         {},
-}
-
-// limiterErrorResult is the verdict when the rate limiter returns a backend error.
-// It fails CLOSED (denies) for the brute-force-sensitive verification buckets and
-// open for everything else.
-func limiterErrorResult(bucket string) RateLimitResult {
-	if _, failClosed := failClosedBuckets[bucket]; failClosed {
-		return RateLimitResult{Allowed: false}
-	}
-	return RateLimitResult{Allowed: true}
+// limiterErrorResult is the verdict when the limiter's backend fails: refused,
+// unless the bucket guards no secret (bucket.failOpen).
+func limiterErrorResult(name string) RateLimitResult {
+	return RateLimitResult{Allowed: buckets[name].failOpen}
 }
 
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
