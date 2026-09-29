@@ -249,6 +249,9 @@ func apiPath(t testing.TB, auth *authkit.Client) string {
 type handlerTransport struct{ h http.Handler }
 
 func (tr handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if tr.h == nil {
 		return nil, errors.New("authtest: the Client has no HTTP surface")
 	}

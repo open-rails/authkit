@@ -25,17 +25,12 @@ type Kind = testoutbox.Kind
 
 // Message kinds.
 const (
-	// Verification proves a contact: registration, a contact change, a
-	// passwordless sign-in, a device-key enrollment or a factor setup
-	// (Message.Purpose says which).
-	Verification = testoutbox.Verification
-	// LoginCode is a second-factor sign-in code.
-	LoginCode = testoutbox.LoginCode
-	// PasswordReset carries a reset link.
-	PasswordReset     = testoutbox.PasswordReset
-	AccountInvite     = testoutbox.AccountInvite
-	Welcome           = testoutbox.Welcome
-	ContactChanged    = testoutbox.ContactChanged
-	DeviceKeyEnrolled = testoutbox.DeviceKeyEnrolled
-	MFAReset          = testoutbox.MFAReset
+	Verification      = testoutbox.Verification      // proves a contact; Message.Purpose says for what
+	LoginCode         = testoutbox.LoginCode         // a second-factor sign-in code
+	PasswordReset     = testoutbox.PasswordReset     // a reset link
+	AccountInvite     = testoutbox.AccountInvite     // an account registration invitation link
+	Welcome           = testoutbox.Welcome           // follows a completed registration
+	ContactChanged    = testoutbox.ContactChanged    // to the address or number just replaced
+	DeviceKeyEnrolled = testoutbox.DeviceKeyEnrolled // a device key can now sign in
+	MFAReset          = testoutbox.MFAReset          // the system removed the second factors
 )
