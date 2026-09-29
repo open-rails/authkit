@@ -425,7 +425,7 @@ func TestBootstrapDemotionRevokesCredentials(t *testing.T) {
 	ctx := t.Context()
 	apply := func(role string) {
 		_, err := f.e.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
-			{Email: "ops@credentials.test", Username: "ops", EmailVerified: true, RootRole: role},
+			{Email: "ops@credentials.test", Username: "siteops", EmailVerified: true, RootRole: role},
 		}}, iam.BootstrapReconcileOptions{})
 		require.NoError(t, err)
 	}
