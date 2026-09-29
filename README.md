@@ -129,7 +129,6 @@ AuthKit gives every persona these permissions for free, so you never list them y
 |---|---|
 | `channel:members:read` | see who holds which role in it |
 | `channel:members:manage` | give someone a role, change it, or take it away |
-| `channel:roles:manage` | define the channel's own custom roles (only when `CustomRoles` is on) |
 | `channel:credentials:read`, `channel:credentials:manage` | list, or create and revoke, the channel's API keys and connected apps (only when `APIKeys` or `RemoteApplications` is on) |
 
 What a channel's data is, and who may change it, is define by your app. Authkit merely stores definitions for permissions and checks against those.
@@ -315,7 +314,7 @@ Mounting gives your users all of this: 59 routes under `/api/v1`, plus the publi
 | `PUT /api/v1/admin/users/{user_id}/roles/{role}` | give a site-wide role, like `admin` |
 | `DELETE /api/v1/admin/users/{user_id}/roles/{role}` | take it away |
 
-Switch on social logins (Google, Apple, GitHub, Discord), API keys or custom roles, and AuthKit mounts their routes too.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too.
 
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 
