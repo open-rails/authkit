@@ -100,6 +100,7 @@ export type AuthErrorCode =
   | "invalid_expiry"
   | "invalid_identifier"
   | "invalid_invite"
+  | "invalid_link"
   | "invalid_message_encoding"
   | "invalid_password"
   | "invalid_phone_number"
@@ -314,6 +315,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invalid_expiry": 400,
   "invalid_identifier": 400,
   "invalid_invite": 400,
+  "invalid_link": 400,
   "invalid_message_encoding": 400,
   "invalid_password": 401,
   "invalid_phone_number": 400,

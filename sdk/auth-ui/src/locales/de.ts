@@ -567,6 +567,7 @@ export const de: AuthUiMessageBundle = {
     invalid_email: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
     invalid_identifier:
       "Bitte geben Sie eine gültige E-Mail-Adresse oder Telefonnummer ein.",
+    invalid_link: "Dieser Link ist ungültig oder abgelaufen.",
     invalid_password: "Falsches Passwort. Bitte versuchen Sie es erneut.",
     invalid_phone_number: "Bitte geben Sie eine gültige Telefonnummer ein.",
     invalid_provider: "Dieser Anmeldeanbieter wird nicht unterstützt.",
@@ -577,7 +578,6 @@ export const de: AuthUiMessageBundle = {
       "Die Anmeldesitzung ist ungültig. Bitte versuchen Sie es erneut.",
     invalid_timestamp:
       "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
-    invalid_token: "Dieser Link ist ungültig oder abgelaufen.",
     missing_fields: "Bitte füllen Sie alle Pflichtfelder aus.",
     oidc_begin_failed:
       "Die Anmeldung beim Anbieter konnte nicht gestartet werden.",

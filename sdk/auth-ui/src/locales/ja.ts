@@ -540,6 +540,7 @@ export const ja: AuthUiMessageBundle = {
     invalid_email: "有効なメールアドレスを入力してください。",
     invalid_identifier:
       "有効なメールアドレスまたは電話番号を入力してください。",
+    invalid_link: "このリンクは無効か期限切れです。",
     invalid_password: "パスワードが正しくありません。もう一度お試しください。",
     invalid_phone_number: "有効な電話番号を入力してください。",
     invalid_provider: "そのログインプロバイダーには対応していません。",
@@ -549,7 +550,6 @@ export const ja: AuthUiMessageBundle = {
     invalid_state: "ログインセッションが無効です。もう一度お試しください。",
     invalid_timestamp:
       "認証セッションの有効期限が切れました。最初からやり直してください。",
-    invalid_token: "このリンクは無効か期限切れです。",
     missing_fields: "必須項目をすべて入力してください。",
     oidc_begin_failed: "プロバイダーでのログインを開始できませんでした。",
     oidc_exchange_failed: "プロバイダーでのログインを完了できませんでした。",

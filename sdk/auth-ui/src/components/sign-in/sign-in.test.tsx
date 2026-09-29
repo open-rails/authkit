@@ -433,7 +433,7 @@ describe("VerifyLink", () => {
   it("explains a dead or missing link", async () => {
     const fetch = stubFetch({
       "POST /api/v1/verify/confirm": () =>
-        authError(401, "invalid_token"),
+        authError(400, "invalid_link"),
     })
     const { unmount } = renderUi(
       <VerifyLink token="stale" navigate={vi.fn()} />,

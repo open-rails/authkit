@@ -559,6 +559,7 @@ export const es: AuthUiMessageBundle = {
     invalid_email: "Ingresa un correo electrónico válido.",
     invalid_identifier:
       "Ingresa un correo electrónico o número de teléfono válido.",
+    invalid_link: "Este enlace no es válido o ha expirado.",
     invalid_password: "Contraseña incorrecta. Inténtalo de nuevo.",
     invalid_phone_number: "Ingresa un número de teléfono válido.",
     invalid_provider: "Ese proveedor de inicio de sesión no es compatible.",
@@ -567,7 +568,6 @@ export const es: AuthUiMessageBundle = {
     invalid_signature: "La firma de la billetera no es válida.",
     invalid_state: "La sesión de inicio no es válida. Inténtalo de nuevo.",
     invalid_timestamp: "Tu sesión de verificación expiró. Empieza de nuevo.",
-    invalid_token: "Este enlace no es válido o ha expirado.",
     missing_fields: "Completa todos los campos obligatorios.",
     oidc_begin_failed:
       "No se pudo iniciar el inicio de sesión con el proveedor.",

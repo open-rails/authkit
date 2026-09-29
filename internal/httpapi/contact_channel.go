@@ -205,7 +205,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		} else if target != nil {
 			s.classifyVerifyLinkFailure(w, r.Context(), *target, in.Identifier)
 		} else {
-			fail(w, errmodel.CodeInvalidToken)
+			fail(w, errmodel.CodeInvalidLink)
 		}
 		return
 	}
@@ -221,7 +221,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 
 // classifyVerifyLinkFailure explains a missed link token for a known
 // identifier: already verified → 409; a live account or an unknown identifier
-// → 410 (the link expired); a pending registration → 401 invalid_token.
+// → 410 (the link expired); a pending registration → 400 invalid_link.
 func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, ch contactChannel, id string) {
 	if u, err := ch.getUser(ctx, id); err == nil {
 		if ch.isVerified(u) {
@@ -232,7 +232,7 @@ func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.C
 		return
 	}
 	if exists, err := ch.pendingExists(ctx, id); err == nil && exists {
-		fail(w, errmodel.CodeInvalidToken)
+		fail(w, errmodel.CodeInvalidLink)
 		return
 	}
 	fail(w, errmodel.CodeVerificationLinkExpired)
@@ -290,7 +290,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {
 			return
 		}
-		fail(w, errmodel.CodeInvalidToken)
+		fail(w, errmodel.CodeInvalidLink)
 		return
 	}
 	noContent(w)

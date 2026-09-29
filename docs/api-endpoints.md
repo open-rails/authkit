@@ -312,6 +312,9 @@ Passwordless login:
   landing path directly with `#status=ready&channel=...&token=...`.
   The frontend parses the fragment and POSTs the token to the confirm endpoint.
   Verification/reset use `email|phone`; passwordless uses `email|sms`.
+  A spent, expired or unknown link answers `400 invalid_link` (the session is
+  untouched; `invalid_token` is only for bearer and refresh tokens); a wrong or
+  spent code answers `401 invalid_code`.
   Absolute or protocol-relative `return_to` values are dropped. There are no
   GET confirmation bridges. Invitation links carry `#account_invite_token=...`.
 
