@@ -96,7 +96,7 @@ type Config struct {
 
 	// SessionEventRetention is how long session-event history rows
 	// (sign-ins/revocations, incl. IP + user-agent — personal data) are kept
-	// before CleanupExpiredAuthState prunes them. 0 (unset) defaults to 365
+	// before the periodic auth-state cleanup prunes them. 0 (unset) defaults to 365
 	// days — the deliberate ceiling; any negative value keeps events forever.
 	SessionEventRetention time.Duration
 }

@@ -112,8 +112,8 @@ entry point; captured lifecycle retries use `DeleteGroupInstanceByID`.
 the old rename-only facade. Slug and display-name changes commit together against
 the captured UUID. Generated responses report `group_id`, current `instance_slug`,
 and naming eligibility; group route headers report `X-AuthKit-Group-ID` and
-`X-AuthKit-Canonical-Instance`. `ResolveUsername` exposes current name, owner UUID,
-alias status and expiry. GET /me and username PATCH expose normalized `naming`
+`X-AuthKit-Canonical-Instance`. `GetUserByUsername` resolves active aliases to
+the current owner. GET /me and username PATCH expose normalized `naming`
 state; existing availability fields reflect the current deployment policy.
 
 `WithNameAdmission` is a side-effect-free namespace predicate with operation,
@@ -124,8 +124,9 @@ existing provisioning authority, but cannot bypass claim ownership.
 
 The `UserNamingState(ctx,userID)` read replaces the old host-clock
 `TimeUntilUsernameRenameAvailable` API; no independent policy arithmetic remains
-on that surface. The engine’s existing `WithClock` supplies all naming timestamps. `CleanupExpiredAuthState` removes at most 5000 expired aliases
-per call through an expiry index, preserving canonical and permanent claims.
+on that surface. `Deps.Clock` supplies all naming timestamps. The periodic
+auth-state cleanup (`Config.River.CleanupInterval`) removes at most 5000 expired
+aliases per run through an expiry index, preserving canonical and permanent claims.
 This existing maintenance hook only removes stale storage; it never controls
 forwarding or claim eligibility.
 

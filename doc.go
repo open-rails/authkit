@@ -9,6 +9,10 @@
 // on a router). If the entitlements provider needs the Auth first, pass it to
 // SetEntitlements, then call Start.
 //
+// This package is the whole host API: auth*.go hold the operations, config.go
+// and roles.go the configuration, deps.go the dependencies and migrations.go
+// Migrate. The implementation lives in internal/engine.
+//
 // Shared identity and access types live in package iam; package verify
 // verifies tokens without a database, and the adapters mount AuthKit on Gin
 // or Fiber. docs/stability.md states what is stable.
