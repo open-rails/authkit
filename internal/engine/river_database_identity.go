@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // requireSameRiverDatabase proves the actual cluster/database before enabling
@@ -55,21 +56,16 @@ func requireSameRiverDatabase(ctx context.Context, producer, worker *pgxpool.Poo
 			err = errors.Join(err, fmt.Errorf("release River database witness: %w", rollbackErr))
 		}
 	}()
-	var pid int32
-	var first, second bool
-	err = tx.QueryRow(ctx, `SELECT pg_catalog.pg_backend_pid(),pg_catalog.pg_try_advisory_xact_lock($1::integer,$2::integer),pg_catalog.pg_try_advisory_xact_lock($3::integer,$4::integer)`, keys[0], keys[1], keys[2], keys[3]).Scan(&pid, &first, &second)
+	held, err := db.New(tx).RiverIdentityProbeLock(ctx, db.RiverIdentityProbeLockParams{Key1: keys[0], Key2: keys[1], Key3: keys[2], Key4: keys[3]})
 	if err != nil {
 		return err
 	}
-	if !first || !second {
+	if !held.First || !held.Second {
 		return errors.New("authkit: River database witness keys are already held")
 	}
-	var same bool
-	err = worker.QueryRow(ctx, `SELECT pg_catalog.count(*)=2 FROM pg_catalog.pg_locks
- WHERE locktype='advisory' AND pid=$1::integer AND granted AND mode='ExclusiveLock' AND objsubid=2
- AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database())
- AND ((classid=$2::bigint::pg_catalog.oid AND objid=$3::bigint::pg_catalog.oid)
- OR (classid=$4::bigint::pg_catalog.oid AND objid=$5::bigint::pg_catalog.oid))`, pid, int64(keys[0]), int64(keys[1]), int64(keys[2]), int64(keys[3])).Scan(&same)
+	same, err := db.New(worker).RiverIdentityProbeSeen(ctx, db.RiverIdentityProbeSeenParams{
+		Pid: held.Pid, Class1: int64(keys[0]), Obj1: int64(keys[1]), Class2: int64(keys[2]), Obj2: int64(keys[3]),
+	})
 	if err != nil {
 		return err
 	}

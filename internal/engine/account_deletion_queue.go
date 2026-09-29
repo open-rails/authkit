@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -76,9 +77,7 @@ func (s *Engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client
 		if err != nil {
 			return err
 		}
-		var id int64
-		err = tx.QueryRow(ctx, `INSERT INTO account_deletion_deliveries(deletion_id,user_id,issuer,stage)
- VALUES ($1::uuid,$2::uuid,$3,$4) ON CONFLICT(deletion_id,issuer,stage) DO NOTHING RETURNING id`, deletion.ID, deletion.UserID, issuer, stage).Scan(&id)
+		id, err := s.qtx(tx).AccountDeletionDeliveryInsert(ctx, db.AccountDeletionDeliveryInsertParams{DeletionID: deletion.ID, UserID: deletion.UserID, Issuer: issuer, Stage: stage})
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -105,30 +104,29 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO account_delivery_fleets(issuer,river_schema) VALUES ($1,$2) ON CONFLICT(issuer) DO NOTHING`, s.cfg.Token.Issuer, client.Schema()); err != nil {
+	q, issuer := s.qtx(tx), s.cfg.Token.Issuer
+	if err := q.AccountDeliveryFleetInsert(ctx, db.AccountDeliveryFleetInsertParams{Issuer: issuer, RiverSchema: client.Schema()}); err != nil {
 		return err
 	}
-	var registered string
-	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR UPDATE", s.cfg.Token.Issuer).Scan(&registered); err != nil {
+	registered, err := q.AccountDeliveryFleetSchemaForUpdate(ctx, issuer)
+	if err != nil {
 		return err
 	}
 	if registered != client.Schema() {
-		var pending bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE issuer=$1 AND completed_at IS NULL)
- OR EXISTS(SELECT 1 FROM account_deletions WHERE state IN ('deleted','finalizing') AND $1=ANY(recipients))
- OR EXISTS(SELECT 1 FROM account_events WHERE issuer=$1)`, s.cfg.Token.Issuer).Scan(&pending); err != nil {
+		busy, err := q.AccountDeliveryFleetBusy(ctx, issuer)
+		if err != nil {
 			return err
 		}
-		if pending {
-			return fmt.Errorf("authkit: issuer %q still has active account lifecycle work in River schema %q; finish that work before rebinding its fleet", s.cfg.Token.Issuer, registered)
+		if busy {
+			return fmt.Errorf("authkit: issuer %q still has active account lifecycle work in River schema %q; finish that work before rebinding its fleet", issuer, registered)
 		}
-		if _, err := tx.Exec(ctx, "UPDATE account_delivery_fleets SET river_schema=$2 WHERE issuer=$1", s.cfg.Token.Issuer, client.Schema()); err != nil {
+		if err := q.AccountDeliveryFleetSetSchema(ctx, db.AccountDeliveryFleetSetSchemaParams{Issuer: issuer, RiverSchema: client.Schema()}); err != nil {
 			return err
 		}
 	}
 	// A deployment with OnEvent subscribes its issuer to events from now on;
 	// one without unsubscribes, and what is pending is still delivered.
-	if _, err := tx.Exec(ctx, "UPDATE account_delivery_fleets SET events=$2 WHERE issuer=$1 AND events<>$2", s.cfg.Token.Issuer, s.onEvent != nil); err != nil {
+	if err := q.AccountDeliveryFleetSetEvents(ctx, db.AccountDeliveryFleetSetEventsParams{Issuer: issuer, Events: s.onEvent != nil}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -141,9 +139,7 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 // Account deletion fails closed until every account issuer has started once
 // against this database; say so at startup, not only in a failed request.
 func (s *Engine) warnUnboundAccountIssuers(ctx context.Context) {
-	var unbound []string
-	err := s.pg.QueryRow(ctx, `SELECT coalesce(array_agg(i ORDER BY i),'{}') FROM unnest($1::text[]) i
- WHERE NOT EXISTS (SELECT 1 FROM account_delivery_fleets f WHERE f.issuer=i)`, s.accountIssuers()).Scan(&unbound)
+	unbound, err := s.q.AccountDeliveryFleetsUnbound(ctx, s.accountIssuers())
 	if err != nil || len(unbound) == 0 {
 		return
 	}
@@ -154,8 +150,8 @@ func (s *Engine) warnUnboundAccountIssuers(ctx context.Context) {
 // this shared row lock until the account transaction commits also prevents a
 // rebind from racing new lifecycle jobs into the former destination.
 func (s *Engine) requireAccountProducerOn(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx]) error {
-	var schema string
-	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR SHARE", s.cfg.Token.Issuer).Scan(&schema); err != nil {
+	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, s.cfg.Token.Issuer)
+	if err != nil {
 		return err
 	}
 	if schema != local.Schema() {
@@ -168,8 +164,8 @@ func (s *Engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *ri
 	if issuer == s.cfg.Token.Issuer {
 		return local, nil // requireAccountProducerOn already locked this mapping.
 	}
-	var schema string
-	if err := tx.QueryRow(ctx, "SELECT river_schema FROM account_delivery_fleets WHERE issuer=$1 FOR SHARE", issuer).Scan(&schema); err != nil {
+	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("authkit: account issuer %q must compose its River fleet before account deletion", issuer)
 		}
@@ -207,8 +203,7 @@ func (w *accountDeliveryWorker) Work(ctx context.Context, job *river.Job[account
 }
 
 func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
-	var userID string
-	err := s.pg.QueryRow(ctx, "SELECT user_id::text FROM account_deletion_deliveries WHERE id=$1", id).Scan(&userID)
+	userID, err := s.q.AccountDeletionDeliveryUser(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -229,34 +224,31 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		_ = lock.Close(cleanup)
 	}()
 	key := "authkit-account-callback:" + s.dbSchema() + ":" + s.cfg.Token.Issuer + ":" + userID
-	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock(hashtext(current_database()),hashtext($1))", key); err != nil {
+	if err := db.New(lock).AccountDeliveryLock(ctx, key); err != nil {
 		return err
 	}
-	var deletion iam.UserDeletion
-	var issuer, stage string
-	var completed *time.Time
-	err = s.pg.QueryRow(ctx, `SELECT d.id::text,d.user_id::text,d.deleted_at,d.purge_at,e.issuer,e.stage,e.completed_at
- FROM account_deletion_deliveries e JOIN account_deletions d ON d.id=e.deletion_id WHERE e.id=$1`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt, &issuer, &stage, &completed)
+	delivery, err := s.q.AccountDeletionDelivery(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if completed != nil {
+	if delivery.CompletedAt != nil {
 		return nil
 	}
-	if issuer != s.cfg.Token.Issuer {
+	if delivery.Issuer != s.cfg.Token.Issuer {
 		return errors.New("authkit: account delivery issuer mismatch")
 	}
-	var preceding bool
-	err = s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE user_id=$1::uuid AND issuer=$2 AND id<$3 AND completed_at IS NULL)`, deletion.UserID, issuer, id).Scan(&preceding)
+	deletion := userDeletion(delivery.AccountDeletion)
+	preceding, err := s.q.AccountDeletionDeliveryEarlierPending(ctx, db.AccountDeletionDeliveryEarlierPendingParams{UserID: deletion.UserID, Issuer: delivery.Issuer, ID: id})
 	if err != nil {
 		return err
 	}
 	if preceding {
 		return river.JobSnooze(time.Second)
 	}
+	stage := delivery.Stage
 	var hook func(context.Context, iam.UserDeletion) error
 	switch stage {
 	case "soft":
@@ -284,17 +276,18 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var state string
-	if err := tx.QueryRow(ctx, "SELECT state FROM account_deletions WHERE id=$1::uuid FOR UPDATE", deletion.ID).Scan(&state); err != nil {
-		return err
-	}
-	result, err := tx.Exec(ctx, "UPDATE account_deletion_deliveries SET completed_at=statement_timestamp() WHERE id=$1 AND completed_at IS NULL", id)
+	q := s.qtx(tx)
+	state, err := q.AccountDeletionStateForUpdate(ctx, deletion.ID)
 	if err != nil {
 		return err
 	}
-	if stage == "hard" && state == "finalizing" && result.RowsAffected() == 1 {
-		var pending bool
-		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND stage='hard' AND completed_at IS NULL)", deletion.ID).Scan(&pending); err != nil {
+	completed, err := q.AccountDeletionDeliveryComplete(ctx, id)
+	if err != nil {
+		return err
+	}
+	if stage == "hard" && state == "finalizing" && completed == 1 {
+		pending, err := q.AccountDeletionHardDeliveriesPending(ctx, deletion.ID)
+		if err != nil {
 			return err
 		}
 		if !pending {

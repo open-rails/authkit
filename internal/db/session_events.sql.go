@@ -45,6 +45,62 @@ func (q *Queries) SessionEventInsert(ctx context.Context, arg SessionEventInsert
 	return err
 }
 
+const sessionEventsByUser = `-- name: SessionEventsByUser :many
+SELECT id, occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent FROM session_events
+WHERE user_id = $1
+  AND (cardinality($2::text[]) = 0 OR event = ANY($2::text[]))
+  AND ($3::timestamptz IS NULL OR (occurred_at, id) < ($3, $4::bigint))
+ORDER BY occurred_at DESC, id DESC
+LIMIT $5::bigint
+`
+
+type SessionEventsByUserParams struct {
+	UserID    string
+	Kinds     []string
+	AfterAt   *time.Time
+	AfterID   int64
+	PageLimit int64
+}
+
+// One page of an account's history, newest first, after the (after_at,
+// after_id) keyset cursor when after_at is set; no kinds means every kind.
+func (q *Queries) SessionEventsByUser(ctx context.Context, arg SessionEventsByUserParams) ([]SessionEvent, error) {
+	rows, err := q.db.Query(ctx, sessionEventsByUser,
+		arg.UserID,
+		arg.Kinds,
+		arg.AfterAt,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SessionEvent
+	for rows.Next() {
+		var i SessionEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.Issuer,
+			&i.UserID,
+			&i.SessionID,
+			&i.Event,
+			&i.Method,
+			&i.Reason,
+			&i.IpAddr,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sessionEventsPruneBatch = `-- name: SessionEventsPruneBatch :execrows
 DELETE FROM session_events
 WHERE id IN (

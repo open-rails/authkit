@@ -2,8 +2,9 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"time"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // terminalRetention keeps revoked/expired keys and invitations available for
@@ -57,21 +58,16 @@ func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 	if _, err := s.gcTerminalAccountDeletions(ctx, cutoff, sessionsGCBatchSize); err != nil {
 		return err
 	}
-	q := s.pg
-	for _, target := range []struct{ table, terminal string }{
-		{"group_invite_links", "LEAST(redeemed_at, revoked_at, expires_at)"},
-		{"account_registration_invites", "LEAST(consumed_at, revoked_at, expires_at)"},
-		{"api_keys", "LEAST(revoked_at, expires_at)"},
-	} {
-		// Table/expressions are fixed above. Lock only this batch; another worker
-		// can make progress without waiting, and each call has bounded work.
-		stmt := fmt.Sprintf(`WITH batch AS (
- SELECT id FROM %s WHERE %s < $1 ORDER BY %s, id
- LIMIT $2 FOR UPDATE SKIP LOCKED)
- DELETE FROM %s WHERE id IN (SELECT id FROM batch)`, target.table, target.terminal, target.terminal, target.table)
-		if _, err := q.Exec(ctx, stmt, cutoff, sessionsGCBatchSize); err != nil {
-			return err
-		}
+	// One bounded batch per table; each locks only its batch, so another
+	// worker can make progress without waiting.
+	if err := s.q.InviteLinksDeleteExpiredBatch(ctx, db.InviteLinksDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
+		return err
+	}
+	if err := s.q.AccountInvitesDeleteExpiredBatch(ctx, db.AccountInvitesDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
+		return err
+	}
+	if err := s.q.APIKeysDeleteExpiredBatch(ctx, db.APIKeysDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
+		return err
 	}
 	return s.pruneSessionEvents(ctx)
 }
@@ -81,11 +77,5 @@ func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 // batch per maintenance tick deletes completed receipts through their FK;
 // old River retries safely no-op when the generation or receipt is absent.
 func (s *Engine) gcTerminalAccountDeletions(ctx context.Context, cutoff time.Time, batchSize int64) (int64, error) {
-	result, err := s.pg.Exec(ctx, `WITH batch AS (
- SELECT d.id FROM account_deletions d
- WHERE d.state IN ('restored','purged') AND COALESCE(d.restored_at,d.purged_at)<$1
- AND NOT EXISTS(SELECT 1 FROM account_deletion_deliveries e WHERE e.deletion_id=d.id AND e.completed_at IS NULL)
- ORDER BY COALESCE(d.restored_at,d.purged_at),d.id LIMIT $2 FOR UPDATE SKIP LOCKED)
- DELETE FROM account_deletions WHERE id IN (SELECT id FROM batch)`, cutoff, batchSize)
-	return result.RowsAffected(), err
+	return s.q.AccountDeletionsDeleteTerminalBatch(ctx, db.AccountDeletionsDeleteTerminalBatchParams{Cutoff: cutoff, BatchSize: batchSize})
 }

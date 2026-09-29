@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
@@ -19,7 +18,8 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.
 	if err != nil {
 		return err
 	}
-	user, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID)
+	q := s.qtx(tx)
+	user, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeUserNotFound)
 	}
@@ -32,8 +32,7 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.
 		}
 		return nil
 	}
-	var id string
-	err = tx.QueryRow(ctx, "SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state IN ('deleted','finalizing')", userID).Scan(&id)
+	id, err := q.AccountDeletionOpenForUser(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
@@ -43,29 +42,29 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.
 	if generation != "" && generation != id {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
-	record, err := loadAccountDeletion(ctx, tx, id)
+	record, err := q.AccountDeletionForUpdate(ctx, id)
 	if err != nil {
 		return err
 	}
-	var now time.Time
-	if err := tx.QueryRow(ctx, "SELECT statement_timestamp()").Scan(&now); err != nil {
+	now, err := q.StatementTimestamp(ctx)
+	if err != nil {
 		return err
 	}
-	if record.state != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
+	if record.State != "deleted" || !now.Before(record.PurgeAt) || !user.DeletedAt.Equal(record.DeletedAt) {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
-	if generation != "" && !record.selfDelete {
+	if generation != "" && !selfDeleted(record) {
 		return errmodel.E(errmodel.CodeAccountDisabled)
 	}
 	// Clearing deleted_at uses the same credential-version invalidation trigger
 	// as deletion; no proof from the deleted state becomes a normal login proof.
-	if _, err := tx.Exec(ctx, "UPDATE users SET deleted_at=NULL,updated_at=statement_timestamp() WHERE id=$1::uuid", userID); err != nil {
+	if err := q.UserRestore(ctx, userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE account_deletions SET state='restored',restored_at=statement_timestamp() WHERE id=$1::uuid", id); err != nil {
+	if err := q.AccountDeletionSetRestored(ctx, id); err != nil {
 		return err
 	}
-	if err := s.enqueueAccountDeliveries(ctx, tx, client, record.UserDeletion, record.recipients, "restore"); err != nil {
+	if err := s.enqueueAccountDeliveries(ctx, tx, client, userDeletion(record), record.Recipients, "restore"); err != nil {
 		return err
 	}
 	return s.emitEvents(ctx, tx, a, userEvent(iam.EventUserRestored, userID))

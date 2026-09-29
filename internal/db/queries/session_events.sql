@@ -16,3 +16,13 @@ WHERE id IN (
     ORDER BY occurred_at
     LIMIT sqlc.arg(batch_size)::bigint
 );
+
+-- name: SessionEventsByUser :many
+-- One page of an account's history, newest first, after the (after_at,
+-- after_id) keyset cursor when after_at is set; no kinds means every kind.
+SELECT * FROM session_events
+WHERE user_id = sqlc.arg(user_id)
+  AND (cardinality(sqlc.arg(kinds)::text[]) = 0 OR event = ANY(sqlc.arg(kinds)::text[]))
+  AND (sqlc.narg(after_at)::timestamptz IS NULL OR (occurred_at, id) < (sqlc.narg(after_at), sqlc.arg(after_id)::bigint))
+ORDER BY occurred_at DESC, id DESC
+LIMIT sqlc.arg(page_limit)::bigint;
