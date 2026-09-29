@@ -391,7 +391,7 @@ func requireErrorCode(t *testing.T, body, code string) {
 // Focused handler regressions use the same public mount as a host. The account
 // journeys use its default API prefix; these existing request helpers use root.
 func apiHandler(s *httpapi.Service) http.Handler {
-	mounted, err := httpapi.NewMount(s, httpapi.MountOptions{APIPrefix: "/"})
+	mounted, err := httpapi.NewMount(s, httpapi.MountOptions{APIPath: "/"})
 	if err != nil {
 		panic(err)
 	}

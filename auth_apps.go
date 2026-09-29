@@ -80,10 +80,10 @@ func (a *Auth) MintServiceJWT(ctx context.Context, s iam.ServiceJWT) (iam.Token,
 }
 
 // PublishDocument signs an application document with this deployment's key
-// and stores it. From then on AuthKit serves it at iam.DocumentsPath to
-// Config.Documents.Readers and stamps its reference into every delegated
-// token it mints. Each type is published once per process; it needs
-// Config.Documents.Readers.
+// and stores it. From then on AuthKit serves it at iam.DocumentsPath beneath
+// HTTPConfig.BasePath to Config.Documents.Readers and stamps its reference
+// into every delegated token it mints. Each type is published once per
+// process; it needs Config.Documents.Readers.
 func (a *Auth) PublishDocument(ctx context.Context, p documents.Publication) (documents.Reference, error) {
 	return a.engine.PublishDocument(ctx, p)
 }

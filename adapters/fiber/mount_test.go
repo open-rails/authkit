@@ -68,9 +68,9 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	}{
 		{name: "default", cfg: func(*authkit.HTTPConfig) {}},
 		{name: "selected groups and prefix", cfg: func(c *authkit.HTTPConfig) {
-			c.APIPrefix, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAccount, iam.RouteAuth}, []string{"GET /identity/me"}
+			c.APIPath, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAccount, iam.RouteAuth}, []string{"GET /identity/me"}
 		}},
-		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPrefix = "/" }},
+		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPath = "/" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			auth := newMountAuth(t, tc.cfg)
@@ -138,7 +138,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 
 func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 	auth := newMountAuth(t, func(c *authkit.HTTPConfig) {
-		c.APIPrefix, c.RefreshCookie = "/identity", true
+		c.APIPath, c.RefreshCookie = "/identity", true
 		c.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
 			if route.Path != "/identity/user/providers/{provider}" {
 				return handler

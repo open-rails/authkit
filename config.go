@@ -74,7 +74,7 @@ type Config struct {
 
 	// Documents configures the published signed-document surface (#260): the
 	// remote applications that may fetch documents (Auth.PublishDocument) from
-	// GET|HEAD /.well-known/authkit/documents/{digest}. Without readers the
+	// GET|HEAD {BasePath}/.well-known/authkit/documents/{digest}. Without readers the
 	// route is not mounted and nothing may be published.
 	Documents DocumentsConfig
 
@@ -388,13 +388,26 @@ type RiverConfig struct {
 // HTTPConfig configures AuthKit's HTTP surface: one handler serving the JSON
 // API, browser OIDC, JWKS and published documents. The engine's own policy
 // lives in Config; this is only what the transport decides.
+//
+// Every route lives beneath BasePath:
+//
+//	{BasePath}{APIPath}/...                               JSON API
+//	{BasePath}/oidc/{provider}/...                        browser OIDC
+//	{BasePath}/.well-known/jwks.json                      JWKS
+//	{BasePath}/.well-known/authkit/documents/{digest}     documents
 type HTTPConfig struct {
 	// Groups selects the mounted route groups. Nil mounts the default API
 	// surface plus browser OIDC; non-nil mounts exactly the named groups.
 	Groups []iam.RouteGroup
-	// APIPrefix anchors the JSON API. "" means "/api/v1"; "/" mounts it at
-	// root. JWKS, browser OIDC and documents keep their root anchors.
-	APIPrefix string
+	// BasePath roots the whole surface. "" derives it from Token.Issuer's
+	// path ("https://example.com/auth" gives "/auth"); when the issuer is a
+	// URL a set value must equal that path, because verifiers and document
+	// resolvers find JWKS and documents at the issuer plus these paths.
+	// Serve the paths unchanged: no StripPrefix in front.
+	BasePath string
+	// APIPath anchors the JSON API beneath BasePath. "" means "/api/v1"; "/"
+	// is BasePath itself.
+	APIPath string
 	// Exclude drops routes the host serves itself, named as Patterns reports
 	// them ("GET /.well-known/jwks.json"). An entry matching no route is an
 	// error.

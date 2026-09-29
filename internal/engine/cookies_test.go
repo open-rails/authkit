@@ -58,13 +58,13 @@ func TestCookieRegistry(t *testing.T) {
 			email, pass := newCookieTestUser(t, pg.Pool, svc, "registry")
 			body, err := json.Marshal(map[string]string{"identifier": email, "password": pass})
 			require.NoError(t, err)
-			login := mountCatalogRequest(mount, http.MethodPost, httpapi.DefaultAPIPrefix+"/password/login", string(body), "application/json")
+			login := mountCatalogRequest(mount, http.MethodPost, httpapi.DefaultAPIPath+"/password/login", string(body), "application/json")
 			require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 			requireIssued(t, login.Result().Cookies(), httpapi.CurrentCookie(httpapi.CookieRefresh, secure), secure, func(name string) bool {
 				return strings.HasSuffix(name, "authkit_rt")
 			})
 
-			start := mountCatalogRequest(mount, http.MethodGet, httpapi.DefaultOIDCPath+"/github/login", "", "")
+			start := mountCatalogRequest(mount, http.MethodGet, httpapi.OIDCPath+"/github/login", "", "")
 			require.Equal(t, http.StatusFound, start.Code, start.Body.String())
 			requireIssued(t, start.Result().Cookies(), httpapi.CurrentCookie(httpapi.CookieOIDCState, secure), secure, func(name string) bool {
 				return strings.Contains(name, httpapi.OIDCStatePrefix)

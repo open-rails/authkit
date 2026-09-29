@@ -135,7 +135,11 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			return
 		}
 	}
-	redirectURI := s.buildRedirectURI(r, p.Name())
+	redirectURI, ok := s.buildRedirectURI(r, p.Name(), start.stepUp != nil)
+	if !ok {
+		reject(errmodel.Internal("oidc_callback_unmounted", errors.New("no browser OIDC callback on this mount")))
+		return
+	}
 	// AK F3: bind state to this browser so a third party can't drive a victim
 	// through the callback with an attacker-issued state+code (login CSRF).
 	s.setStateCookie(w, r, p, state)

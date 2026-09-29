@@ -82,7 +82,8 @@ func (c HTTPConfig) internal() httpapi.Config {
 	out := httpapi.Config{
 		Mount: httpapi.MountOptions{
 			Groups:        append([]iam.RouteGroup(nil), c.Groups...),
-			APIPrefix:     c.APIPrefix,
+			BasePath:      c.BasePath,
+			APIPath:       c.APIPath,
 			Exclude:       append([]string(nil), c.Exclude...),
 			Wrap:          c.Wrap,
 			RefreshCookie: c.RefreshCookie,

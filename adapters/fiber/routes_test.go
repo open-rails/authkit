@@ -19,7 +19,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 	const body = "{ \"identifier\" : \"unknown@example.test\", \"password\":\"wrong\" }\n"
 	var seenURI, seenBody string
 	cfg := testhttp.HTTP()
-	cfg.APIPrefix = "/identity"
+	cfg.APIPath = "/identity"
 	cfg.Wrap = func(_ iam.Route, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {

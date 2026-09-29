@@ -20,6 +20,15 @@ type AuthCapabilities struct {
 	Solana                 AuthSolanaCapabilities       `json:"solana"`
 	Verification           AuthVerificationCapabilities `json:"verification"`
 	Languages              []string                     `json:"languages,omitempty"`
+	Paths                  AuthPaths                    `json:"paths"`
+}
+
+// AuthPaths are the serving mount's anchors as full paths, so a client that
+// knows one AuthKit URL finds the rest. Unmounted anchors are omitted.
+type AuthPaths struct {
+	API  string `json:"api"`
+	OIDC string `json:"oidc,omitempty"`
+	JWKS string `json:"jwks,omitempty"`
 }
 
 type AuthRegistrationCapabilities struct {
@@ -73,8 +82,10 @@ type AuthVerificationCapabilities struct {
 	Registration string `json:"registration"`
 }
 
-func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, _ *http.Request) {
+func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) {
 	caps := s.Capabilities()
+	layout := layoutFrom(r)
+	caps.Paths = AuthPaths{API: layout.api, OIDC: layout.oidc, JWKS: layout.jwks}
 	body, _ := json.Marshal(caps)
 	sum := sha256.Sum256(body)
 	w.Header().Set("Cache-Control", "public, max-age=300")

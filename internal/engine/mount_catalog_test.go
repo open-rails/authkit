@@ -74,7 +74,7 @@ func TestMountCatalog(t *testing.T) {
 	})
 
 	t.Run("JWKS is root anchored and supports HEAD", func(t *testing.T) {
-		mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPrefix: "/auth/custom"})
+		mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPath: "/auth/custom"})
 		require.NoError(t, err)
 		routes := mountCatalogByRoute(t, mount)
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -87,9 +87,9 @@ func TestMountCatalog(t *testing.T) {
 
 	t.Run("custom prefix group selection and normalized exclusions", func(t *testing.T) {
 		mount, err := httpapi.NewMount(svc, httpapi.MountOptions{
-			APIPrefix: " /auth/custom/ ",
-			Groups:    []iam.RouteGroup{iam.RouteRegistration},
-			Exclude:   []string{" get /auth/custom/register/availability ", "GET " + iam.JWKSPath},
+			APIPath: " /auth/custom/ ",
+			Groups:  []iam.RouteGroup{iam.RouteRegistration},
+			Exclude: []string{" get /auth/custom/register/availability ", "GET " + iam.JWKSPath},
 		})
 		require.NoError(t, err)
 		require.ElementsMatch(t, []iam.Route{
@@ -110,7 +110,7 @@ func TestMountCatalog(t *testing.T) {
 	})
 
 	t.Run("root API prefix", func(t *testing.T) {
-		mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPrefix: "/", Groups: []iam.RouteGroup{iam.RouteAuth}})
+		mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPath: "/", Groups: []iam.RouteGroup{iam.RouteAuth}})
 		require.NoError(t, err)
 		routes := mountCatalogByRoute(t, mount)
 		require.Contains(t, routes, routeKey{http.MethodPost, "/password/login"})
@@ -141,7 +141,7 @@ func TestMountCatalog(t *testing.T) {
 
 	t.Run("invalid prefix or exclusion fails without a usable mount", func(t *testing.T) {
 		for _, opts := range []httpapi.MountOptions{
-			{APIPrefix: "auth"},
+			{APIPath: "auth"},
 			{Exclude: []string{"/api/v1/me"}},
 			{Exclude: []string{"GET /api/v1/nowhere"}},
 		} {
@@ -155,7 +155,7 @@ func TestMountCatalog(t *testing.T) {
 		email, password := newCookieTestUser(t, pg.Pool, svc, "mountcatalog")
 		body, err := json.Marshal(map[string]string{"identifier": email, "password": password})
 		require.NoError(t, err)
-		opts := httpapi.MountOptions{APIPrefix: "/auth", RefreshCookie: true}
+		opts := httpapi.MountOptions{APIPath: "/auth", RefreshCookie: true}
 		mount, err := httpapi.NewMount(svc, opts)
 		require.NoError(t, err)
 		for _, handler := range []http.Handler{mount} {
@@ -183,7 +183,7 @@ func TestMountCatalog(t *testing.T) {
 		mfaService, err := newServer(newServerClient(t, mfaConfig, pg.Pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(mfaService.Close)
-		mount, err := httpapi.NewMount(mfaService, httpapi.MountOptions{APIPrefix: "/custom/auth"})
+		mount, err := httpapi.NewMount(mfaService, httpapi.MountOptions{APIPath: "/custom/auth"})
 		require.NoError(t, err)
 		email, password := newCookieTestUser(t, pg.Pool, mfaService, "mountmfa")
 		body, err := json.Marshal(map[string]string{"identifier": email, "password": password})
@@ -226,7 +226,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	svc, err := newServer(client, WithoutRateLimiter())
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
-	mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPrefix: "/auth/custom"})
+	mount, err := httpapi.NewMount(svc, httpapi.MountOptions{APIPath: "/auth/custom"})
 	require.NoError(t, err)
 	routes := mountCatalogByRoute(t, mount)
 	for _, method := range []string{http.MethodGet, http.MethodHead} {

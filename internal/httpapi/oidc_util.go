@@ -12,7 +12,8 @@ import (
 	"github.com/open-rails/authkit/internal/secret"
 )
 
-// buildRedirectURI computes the OAuth/OIDC redirect_uri for this request's flow.
+// buildRedirectURI computes the OAuth/OIDC redirect_uri for a flow: this
+// mount's browser callback, "/step-up/callback" for a step-up.
 //
 // SECURITY (AK F2): the scheme+host come from the TRUSTED server config
 // (Settings.FrontendBaseURL), never from attacker-controllable X-Forwarded-Proto /
@@ -21,36 +22,23 @@ import (
 // to a host they control. When no BaseURL is configured (local/dev) we fall
 // back to the request's own connection scheme + Host header, still never the
 // forwarded headers.
-func (s *Service) buildRedirectURI(r *http.Request, provider string) string {
-	if r == nil {
-		return ""
+func (s *Service) buildRedirectURI(r *http.Request, provider string, stepUp bool) (string, bool) {
+	oidc := layoutFrom(r).oidc
+	if oidc == "" {
+		return "", false
 	}
-	p := oidcCallbackPath(r.URL.Path, provider)
+	p := oidc + "/" + url.PathEscape(provider) + "/callback"
+	if stepUp {
+		p = oidc + "/" + url.PathEscape(provider) + "/step-up/callback"
+	}
 	if origin, ok := originFromBaseURL(s.settings.FrontendBaseURL); ok {
-		return origin + p
+		return origin + p, true
 	}
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host + p
-}
-
-// oidcCallbackPath derives the callback path for a given start path + provider.
-func oidcCallbackPath(p, provider string) string {
-	switch {
-	case strings.HasSuffix(p, "/login"):
-		return strings.TrimSuffix(p, "/login") + "/callback"
-	case strings.HasSuffix(p, "/link/start"):
-		return strings.TrimSuffix(p, "/link/start") + "/callback"
-	case strings.HasSuffix(p, "/step-up/start"):
-		return strings.TrimSuffix(p, "/step-up/start") + "/step-up/callback"
-	default:
-		if i := strings.Index(p, "/oidc/"); i >= 0 {
-			return p[:i] + "/oidc/" + provider + "/callback"
-		}
-		return "/oidc/" + provider + "/callback"
-	}
+	return scheme + "://" + r.Host + p, true
 }
 
 func originFromBaseURL(baseURL string) (origin string, ok bool) {

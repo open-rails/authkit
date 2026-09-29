@@ -104,7 +104,7 @@ func (f *accountFlow) request(method, path, token string, body any) flowResponse
 	f.t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(f.t, err)
-	req, err := http.NewRequest(method, f.server.URL+httpapi.DefaultAPIPrefix+path, bytes.NewReader(data))
+	req, err := http.NewRequest(method, f.server.URL+httpapi.DefaultAPIPath+path, bytes.NewReader(data))
 	require.NoError(f.t, err)
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {

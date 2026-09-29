@@ -32,7 +32,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Username:      iam.UsernamePolicy{MinLength: 6, MaxLength: 20},
 		Password:      authkit.PasswordPolicy{MinLength: 12, RequireDigit: true, AllowCommon: true},
 		SolanaNetwork: "devnet",
-		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
+		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
 	}, authkit.Deps{Postgres: testdb.Pool(t)})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
