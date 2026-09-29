@@ -41,8 +41,8 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	}
 
 	// Sole owner: disabling 2FA must be refused, not silently applied.
-	if _, err := svc.Disable2FAWithRemovedRoles(ctx, owner1); !errors.Is(err, iam.ErrCannotRemoveLastAdminRole) {
-		t.Fatalf("sole root owner Disable2FA = %v, want ErrCannotRemoveLastAdminRole", err)
+	if _, err := svc.Disable2FAWithRemovedRoles(ctx, owner1); !errors.Is(err, iam.ErrLastOwner) {
+		t.Fatalf("sole root owner Disable2FA = %v, want ErrLastOwner", err)
 	}
 	status, err := svc.mfaStatus(ctx, owner1)
 	if err != nil || !status.Enabled {

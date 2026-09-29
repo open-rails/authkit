@@ -95,7 +95,7 @@ func TestSecurityOperatorApplicationRekey(t *testing.T) {
 		"public_keys": []map[string]string{{"kid": "partner-kid", "public_key_pem": pemOf(t, attacker.PublicKey())}}}, staffToken)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), iam.RemoteApplication{Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	resp = h.do(request{method: http.MethodDelete, path: "/root/x/remote-applications/partner", token: staffToken})
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 
@@ -204,7 +204,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	require.NoError(t, err)
 	res, err = h.auth.UnassignGroupRoles(ctx, iam.OperatorActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)}, iam.OwnerRole)
 	require.NoError(t, err)
-	require.ErrorIs(t, res[0].Err, iam.ErrCannotRemoveLastAdminRole, "the application counted as the MFA owner")
+	require.ErrorIs(t, res[0].Err, iam.ErrLastOwner, "the application counted as the MFA owner")
 	roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)})
 	require.NoError(t, err)
 	require.Equal(t, iam.OwnerRole, roles[iam.UserSubject(owner.id)])
@@ -264,7 +264,7 @@ func TestSecurityDelegatedMintAuthority(t *testing.T) {
 	require.NoError(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{iam.PermRootUsersBan, "resource:read"}}))
 	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{iam.PermRootUsersManage}}), iam.ErrDelegationRefused)
 	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{"root:*"}}), iam.ErrDelegationRefused)
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Subject: other.id}), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Subject: other.id}), iam.ErrInsufficientAuthority)
 	for _, a := range []iam.Actor{{}, iam.APIKeyActor("0190f000-0000-7000-8000-000000000001"), iam.RemoteApplicationActor("0190f000-0000-7000-8000-000000000002")} {
 		require.Error(t, mint(a, iam.DelegatedAccess{Subject: moderator.id}), a.String())
 	}
@@ -273,7 +273,7 @@ func TestSecurityDelegatedMintAuthority(t *testing.T) {
 
 	_, err := h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, moderator.id)
 	require.NoError(t, err)
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{"resource:read"}}), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{"resource:read"}}), iam.ErrInsufficientAuthority)
 }
 
 // TestSecurityIssuerSquatLastOwner (L6): an unproven issuer claim never keeps

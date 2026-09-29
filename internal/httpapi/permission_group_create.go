@@ -23,7 +23,7 @@ type groupInstanceCreateRequest struct {
 func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona iam.Persona) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body groupInstanceCreateRequest

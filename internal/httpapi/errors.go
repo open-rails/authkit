@@ -79,8 +79,8 @@ var notFoundCodes = map[error]errmodel.Code{
 
 // codeRejection distinguishes a retryable wrong code from one with no live code.
 func codeRejection(err error) errmodel.Code {
-	if errors.Is(err, errmodel.ErrTwoFACodeExpired) {
-		return errmodel.CodeTwoFACodeExpired
+	if errors.Is(err, errmodel.ErrCodeExpired) {
+		return errmodel.CodeCodeExpired
 	}
 	return errmodel.CodeInvalidCode
 }

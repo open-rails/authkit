@@ -18,7 +18,7 @@ import (
 func (s *Engine) MintRemoteApplicationAccessToken(ctx context.Context, p iam.RemoteApplicationAccess) (iam.Token, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return iam.Token{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ErrSigningNotConfigured
 	}
 	if strings.TrimSpace(p.Issuer) == "" {
 		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
@@ -32,7 +32,7 @@ func (s *Engine) MintRemoteApplicationAccessToken(ctx context.Context, p iam.Rem
 // verifier; a non-nil p.Permissions only narrows it.
 func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.RemoteApplicationAccess) (iam.Token, error) {
 	if signer == nil {
-		return iam.Token{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ErrSigningNotConfigured
 	}
 	if strings.TrimSpace(p.Issuer) == "" {
 		return iam.Token{}, errors.New("issuer required")

@@ -14,7 +14,7 @@ import (
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	profile, err := s.svc.UserProfile(r.Context(), authflow.ProfileInput{

@@ -152,13 +152,13 @@ func TestOperatorOnlyAccountOperations(t *testing.T) {
 	require.NoError(t, err)
 	for _, actor := range []iam.Actor{{}, iam.UserActor(erin.ID)} {
 		_, err := auth.CreateUser(ctx, actor, iam.NewUser{Email: "frank@example.test", Username: "frank"})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 		_, err = auth.PurgeUsers(ctx, actor, []string{erin.ID})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 		_, err = auth.MintAccessToken(ctx, actor, erin.ID, iam.AccessTokenOptions{})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	}
-	require.ErrorIs(t, auth.Ban(ctx, iam.Actor{}, erin.ID, iam.Ban{}), iam.ErrInsufficientRoleAuthority, "the zero actor is refused")
+	require.ErrorIs(t, auth.Ban(ctx, iam.Actor{}, erin.ID, iam.Ban{}), iam.ErrInsufficientAuthority, "the zero actor is refused")
 	token, err := auth.MintAccessToken(ctx, iam.OperatorActor(), erin.ID, iam.AccessTokenOptions{TTL: time.Minute})
 	require.NoError(t, err)
 	require.NotEmpty(t, token.Value)

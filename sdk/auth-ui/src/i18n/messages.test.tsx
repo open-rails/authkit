@@ -171,7 +171,7 @@ describe("locale bundles", () => {
       "step_up_required",
       "rate_limited",
       "user_banned",
-      "invalid_or_expired_code",
+      "code_expired",
     ]
     for (const code of codes) expect(en.errors).toHaveProperty([code])
   })

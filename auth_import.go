@@ -29,7 +29,7 @@ func (a *Auth) ApplyBootstrapManifest(ctx context.Context, actor iam.Actor, m ia
 // and that proof verifies it. An existing account is used when u is its id,
 // when the contact is verified, or when it already holds role, the group's
 // owner role, or a role covering role (a re-run, including on the account an
-// earlier call created). Any other account gets iam.ErrEmailNotVerified,
+// earlier call created). Any other account gets iam.ErrContactNotVerified,
 // so a pre-registered account is never adopted. A username never finds one.
 func (a *Auth) EnsureUserRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, u iam.UserRef, role iam.Role) (iam.User, error) {
 	return a.engine.EnsureUserRole(ctx, actor, ref, u, role)

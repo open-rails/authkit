@@ -54,7 +54,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		// from a stale one (a lost response after a committed rotation), and
 		// clearing would destroy a still-live jar value over a transient
 		// failure. The client re-authenticates; the cookie is overwritten then.
-		fail(w, errmodel.CodeInvalidRefreshToken)
+		fail(w, errmodel.CodeInvalidToken)
 		return
 	}
 

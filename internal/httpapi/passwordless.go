@@ -66,7 +66,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
-			fail(w, errmodel.CodeInvalidOrExpiredCode)
+			fail(w, errmodel.CodeInvalidCode)
 		case errors.Is(err, errmodel.ErrRegistrationDisabled), errors.Is(err, errmodel.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
 			fail(w, errmodel.CodePasswordlessDisabled)

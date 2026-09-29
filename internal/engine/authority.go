@@ -122,7 +122,7 @@ func (a authority) coversAll(grants []string) bool {
 // requireCap is rule CAP.
 func (a authority) requireCap(p iam.Perm) error {
 	if !a.covers(p) {
-		return iam.ErrInsufficientRoleAuthority
+		return iam.ErrInsufficientAuthority
 	}
 	return nil
 }
@@ -138,7 +138,7 @@ func (a authority) requireCover(grants []string) error {
 // requireActor refuses the zero Actor before any work.
 func requireActor(a iam.Actor) error {
 	if a.IsZero() {
-		return iam.ErrInsufficientRoleAuthority
+		return iam.ErrInsufficientAuthority
 	}
 	return nil
 }
@@ -147,14 +147,14 @@ func requireActor(a iam.Actor) error {
 // operations (bootstrap, import, provider links).
 func requireOperator(a iam.Actor) error {
 	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientRoleAuthority
+		return iam.ErrInsufficientAuthority
 	}
 	return nil
 }
 
 // actorAuthority resolves a's live authority in g (rule ACTOR). A zero, deleted,
 // reserved, banned, revoked, expired or disabled actor is
-// ErrInsufficientRoleAuthority. An actor bound to another group resolves with
+// ErrInsufficientAuthority. An actor bound to another group resolves with
 // no grants, as does a delegation from a foreign issuer.
 func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget) (authority, error) {
 	out := authority{actor: a}
@@ -178,20 +178,20 @@ func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a
 		}
 		return out, nil
 	}
-	return authority{}, iam.ErrInsufficientRoleAuthority
+	return authority{}, iam.ErrInsufficientAuthority
 }
 
 func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, g groupTarget) (authority, error) {
 	subject := iam.UserSubject(userID)
 	if !isUUID(userID) {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
 	if err != nil {
 		return authority{}, err
 	}
 	if !live {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	out.grants, err = s.subjectGrants(ctx, st, subject, g.ID)
 	return out, err
@@ -201,13 +201,13 @@ func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, ou
 // group. Its authority is bound to that group; wantGroup, when set, must match it.
 func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupStore, out authority, appID, wantGroup string, g groupTarget) (authority, error) {
 	if !isUUID(appID) {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	var control string
 	err := st.q.QueryRow(ctx, `SELECT a.permission_group_id::text FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id
  WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL`, appID).Scan(&control)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && wantGroup != "" && wantGroup != control {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	if err != nil || control != g.ID {
 		return out, err
@@ -220,14 +220,14 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 // its role, bound to its group.
 func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, out authority, keyID string, g groupTarget) (authority, error) {
 	if !isUUID(keyID) {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	var gid string
 	var role iam.Role
 	err := st.q.QueryRow(ctx, `SELECT k.permission_group_id::text, k.role FROM api_keys k JOIN permission_groups g ON g.id=k.permission_group_id
  WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL AND `+issuerLive("k.created_by"), keyID).Scan(&gid, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return authority{}, iam.ErrInsufficientRoleAuthority
+		return authority{}, iam.ErrInsufficientAuthority
 	}
 	if err != nil || gid != g.ID {
 		return out, err

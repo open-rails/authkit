@@ -55,7 +55,7 @@ it.each([200, 401, 403])(
     pending.resolve(
       status === 200
         ? tokens("A")
-        : json(status, { error: { code: "invalid_refresh_token" } })
+        : json(status, { error: { code: "invalid_token" } })
     )
     expect(await refreshing).toBe(false)
     expect(userId(client)).toBe("B")

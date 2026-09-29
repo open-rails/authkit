@@ -266,20 +266,18 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
-		return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
+		return Claims{}, true, iam.ErrAPIKeyInvalid
 	}
 	p, rerr := v.enrich.ResolveAPIKey(ctx, token)
 	if rerr != nil {
 		switch {
-		case errors.Is(rerr, iam.ErrAccessTokenRevoked):
-			return Claims{}, true, iam.ErrAccessTokenRevoked
-		case errors.Is(rerr, iam.ErrAccessTokenExpired):
-			return Claims{}, true, iam.ErrAccessTokenExpired
-		case errors.Is(rerr, iam.ErrInvalidAccessToken):
-			return Claims{}, true, iam.ErrInvalidAccessToken
+		case errors.Is(rerr, iam.ErrAPIKeyRevoked):
+			return Claims{}, true, iam.ErrAPIKeyRevoked
+		case errors.Is(rerr, iam.ErrAPIKeyExpired):
+			return Claims{}, true, iam.ErrAPIKeyExpired
 		default:
 			// Never leak DB/internal errors through the auth response.
-			return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
+			return Claims{}, true, iam.ErrAPIKeyInvalid
 		}
 	}
 	return Claims{
@@ -1077,7 +1075,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r
 func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, *issuerEntry, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return nil, "", nil, errmodel.E(errmodel.CodeMissingToken)
+		return nil, "", nil, errmodel.E(errmodel.CodeUnauthenticated)
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
@@ -1146,7 +1144,7 @@ func (v *Verifier) checkClaims(mapClaims jwt.MapClaims, match *issuerEntry) erro
 		return errmodel.E(errmodel.CodeMissingExp)
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return errmodel.E(errmodel.CodeAccessTokenExpired)
+		return errmodel.E(errmodel.CodeTokenExpired)
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok && time.Unix(nbfUnix, 0).After(now.Add(skew)) {
 		return errmodel.E(errmodel.CodeTokenNotYetValid)

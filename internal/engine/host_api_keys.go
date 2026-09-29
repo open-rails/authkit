@@ -187,7 +187,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	}
 	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeys.Prefix, strings.TrimSpace(token))
 	if !ok {
-		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
 	var (
 		p           iam.APIKeyPrincipal
@@ -205,19 +205,19 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
 			&p.Group.ID, &p.Group.Persona, &p.Group.Slug, &p.Group.DisplayName, &custom)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
 	if err != nil {
 		return iam.APIKeyPrincipal{}, err
 	}
 	if !apikey.Matches(secretHash, secret) {
-		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
 	if revokedAt != nil || !creatorLive {
-		return iam.APIKeyPrincipal{}, iam.ErrAccessTokenRevoked
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
 	}
 	if p.ExpiresAt != nil && !p.ExpiresAt.After(time.Now().UTC()) {
-		return iam.APIKeyPrincipal{}, iam.ErrAccessTokenExpired
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyExpired
 	}
 	s.touchAccessTokenAsync(p.ID)
 	sch := s.groupSchemaOrDefault()

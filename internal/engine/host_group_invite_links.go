@@ -164,7 +164,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
 	if a.Kind() != iam.ActorUser || !isUUID(a.ID()) {
-		return out, iam.ErrInsufficientRoleAuthority
+		return out, iam.ErrInsufficientAuthority
 	}
 	if code == "" {
 		return out, errmodel.ErrInvalidInvite
@@ -207,7 +207,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 			return err
 		}
 		if !live {
-			return iam.ErrInsufficientRoleAuthority
+			return iam.ErrInsufficientAuthority
 		}
 		already, err := subjectHasRole(ctx, st.q, groupID, redeemer.ID, out.Role)
 		if err != nil || already {

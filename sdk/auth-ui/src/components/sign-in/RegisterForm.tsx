@@ -50,8 +50,8 @@ const IDENTIFIER_CODES = new Set([
   "invalid_email",
   "invalid_phone_number",
   "phone_number_must_be_e164",
-  "email_registration_unavailable",
-  "phone_registration_unavailable",
+  "email_unavailable",
+  "sms_unavailable",
 ])
 const PASSWORD_CODES = new Set([
   "password_too_short",

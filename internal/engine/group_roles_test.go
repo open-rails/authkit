@@ -34,13 +34,13 @@ func TestGroupRoleOperations(t *testing.T) {
 
 	// The operator skips authority rules, never invariants.
 	grantRole(t, engine, root, owner, iam.OwnerRole)
-	require.ErrorIs(t, unassignRole(ctx, engine, iam.OperatorActor(), root, owner, iam.OwnerRole), iam.ErrCannotRemoveLastAdminRole)
-	require.ErrorIs(t, assignRole(ctx, engine, iam.OperatorActor(), root, owner, "editor"), iam.ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, unassignRole(ctx, engine, iam.OperatorActor(), root, owner, iam.OwnerRole), iam.ErrLastOwner)
+	require.ErrorIs(t, assignRole(ctx, engine, iam.OperatorActor(), root, owner, "editor"), iam.ErrLastOwner)
 	require.ErrorIs(t, assignRole(ctx, engine, iam.OperatorActor(), root, stranger, "editor"), iam.ErrUserNotFound)
 	_, err := engine.AssignGroupRoles(ctx, iam.OperatorActor(), root, []iam.Subject{editor}, "unknown")
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
 	_, err = engine.AssignGroupRoles(ctx, iam.Actor{}, root, []iam.Subject{editor}, "editor")
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, "the zero actor is refused")
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "the zero actor is refused")
 
 	// root:members:manage lets a bounded admin grant what it covers, never more.
 	grantRole(t, engine, root, admin, "admin")
@@ -51,8 +51,8 @@ func TestGroupRoleOperations(t *testing.T) {
 	require.ErrorIs(t, res[2].Err, iam.ErrUserNotFound, "items fail independently")
 	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(admin.ID), root, other, iam.OwnerRole), iam.ErrRoleAssignmentEscalation)
 	require.ErrorIs(t, removeMember(ctx, engine, iam.UserActor(admin.ID), root, owner), iam.ErrRoleAssignmentEscalation)
-	require.ErrorIs(t, unassignRole(ctx, engine, iam.UserActor(editor.ID), root, other, "editor"), iam.ErrInsufficientRoleAuthority)
-	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(owner.ID).Within("root:posts:*"), root, other, "admin"), iam.ErrInsufficientRoleAuthority, "a ceiling narrows even the owner")
+	require.ErrorIs(t, unassignRole(ctx, engine, iam.UserActor(editor.ID), root, other, "editor"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(owner.ID).Within("root:posts:*"), root, other, "admin"), iam.ErrInsufficientAuthority, "a ceiling narrows even the owner")
 
 	held, err := engine.GroupRoles(ctx, root, []iam.Subject{owner, admin, editor, other, stranger})
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestGroupRoleOperations(t *testing.T) {
 	// A banned actor is not live, whatever roles it still holds.
 	require.NoError(t, engine.Ban(ctx, iam.OperatorActor(), admin.ID, iam.Ban{}))
 	_, err = engine.AssignGroupRoles(ctx, iam.UserActor(admin.ID), root, []iam.Subject{editor}, "editor")
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 
 	// MFA follows permissions and binds the operator too.
 	engine.cfg.TwoFactor.Mode = iam.TwoFactorOptional
@@ -120,7 +120,7 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	require.True(t, can(banner, root, iam.PermRootUsersBan))
 	require.False(t, can(banner, acme, iam.PermRootUsersBan), "root permissions count only on root")
 	require.False(t, can(siteOwner, acme, "org:members:manage"), "root:* never stands in for a persona permission")
-	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(siteOwner.ID), acme, member, "member"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, assignRole(ctx, engine, iam.UserActor(siteOwner.ID), acme, member, "member"), iam.ErrInsufficientAuthority)
 }
 
 // escalationFixture is an org persona with a bounded manager role and two
@@ -204,17 +204,17 @@ func TestRoleOperationsNeverEscalate(t *testing.T) {
 				"act beyond a ceiling": assignRole(ctx, f.engine, actor.Within("org:catalog:read"), f.acme, f.newUser(name), "member"),
 			} {
 				require.Error(t, err, op)
-				require.True(t, errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrInsufficientRoleAuthority), "%s: %v", op, err)
+				require.True(t, errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrInsufficientAuthority), "%s: %v", op, err)
 			}
 		})
 	}
 	t.Run("foreign_delegation", func(t *testing.T) {
 		foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://foreign.test", Subject: f.manager, Permissions: []iam.Perm{"org:*"}})
-		require.ErrorIs(t, assignRole(ctx, f.engine, foreign, f.acme, f.newUser("foreign"), "member"), iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, assignRole(ctx, f.engine, foreign, f.acme, f.newUser("foreign"), "member"), iam.ErrInsufficientAuthority)
 	})
 	t.Run("operator", func(t *testing.T) {
 		require.NoError(t, assignRole(ctx, f.engine, iam.OperatorActor(), f.acme, f.newUser("op"), iam.OwnerRole))
-		require.ErrorIs(t, removeMember(ctx, f.engine, iam.OperatorActor(), f.other, f.founder), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, removeMember(ctx, f.engine, iam.OperatorActor(), f.other, f.founder), iam.ErrLastOwner)
 	})
 	roles, err := f.engine.GroupRoles(ctx, f.acme, []iam.Subject{f.founder, iam.UserSubject(f.manager)})
 	require.NoError(t, err)
@@ -237,11 +237,11 @@ func TestAccountAuthorityCoversEveryGroup(t *testing.T) {
 	require.ErrorIs(t, account(iam.UserActor(moderator.ID), f.founder), iam.ErrAccountAuthorityEscalation, "a group owner outranks a bare site moderator")
 	require.NoError(t, account(iam.UserActor(orgAdmin.ID), f.founder), "org:* on root covers every org role")
 	require.NoError(t, account(iam.UserActor(moderator.ID), f.newUser("plain")))
-	require.ErrorIs(t, account(iam.UserActor(f.manager), f.newUser("plain")), iam.ErrInsufficientRoleAuthority, "no root:users:ban")
+	require.ErrorIs(t, account(iam.UserActor(f.manager), f.newUser("plain")), iam.ErrInsufficientAuthority, "no root:users:ban")
 	require.NoError(t, account(iam.OperatorActor(), f.founder))
 	_, err := f.engine.pg.Exec(ctx, `UPDATE users SET banned_at=now() WHERE id=$1::uuid`, orgAdmin.ID)
 	require.NoError(t, err)
-	require.ErrorIs(t, account(iam.UserActor(orgAdmin.ID), f.newUser("plain")), iam.ErrInsufficientRoleAuthority, "a banned actor's token carries no authority")
+	require.ErrorIs(t, account(iam.UserActor(orgAdmin.ID), f.newUser("plain")), iam.ErrInsufficientAuthority, "a banned actor's token carries no authority")
 }
 
 // A credential never outlives its issuer: once the creator is banned or

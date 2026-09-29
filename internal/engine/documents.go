@@ -16,7 +16,7 @@ import (
 func (s *Engine) SignDocument(ctx context.Context, envelope documents.Envelope) (documents.SignedDocument, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return documents.SignedDocument{}, iam.ErrMissingSigner
+		return documents.SignedDocument{}, iam.ErrSigningNotConfigured
 	}
 	issuer := strings.TrimSpace(s.cfg.Token.Issuer)
 	if strings.TrimSpace(envelope.Issuer) == "" {

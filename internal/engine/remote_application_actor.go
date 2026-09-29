@@ -72,7 +72,7 @@ func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroup
 	appID := ""
 	if existing != nil {
 		if existing.TrustRoot != iam.ApplicationTrustRootUser {
-			return iam.ErrInsufficientRoleAuthority
+			return iam.ErrInsufficientAuthority
 		}
 		appID = existing.ID
 	}
@@ -122,7 +122,7 @@ func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, r
 		}
 		if actor.Kind() != iam.ActorOperator {
 			if iam.ApplicationTrustRoot(app.TrustRoot) == iam.ApplicationTrustRootManual {
-				return iam.ErrInsufficientRoleAuthority
+				return iam.ErrInsufficientAuthority
 			}
 			if err := s.authorizeApplicationControl(ctx, st, actor, g, app.ID); err != nil {
 				return err

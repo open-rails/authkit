@@ -187,7 +187,7 @@ describe("link", () => {
   it("requires a session and refuses a wallet change before signing", async () => {
     const anon = setup({})
     await expect(anon.solana.link(signer())).rejects.toMatchObject({
-      code: "authentication_required",
+      code: "unauthenticated",
     })
     const { fetch, solana } = await signedIn({})
     const sign = vi.fn(async () => SIG)

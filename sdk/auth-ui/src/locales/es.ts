@@ -522,8 +522,6 @@ export const es: AuthUiMessageBundle = {
     session_changed: "Tu sesión cambió en otra pestaña. Inténtalo de nuevo.",
     generic: "Algo salió mal. Inténtalo de nuevo.",
     network: "Error de red. Por favor verifica tu conexión.",
-    "2fa_code_expired":
-      "Ese código caducó o no se puede volver a usar. Envía un código nuevo.",
     "2fa_enrollment_required":
       "Debes configurar la autenticación de dos factores para terminar de iniciar sesión.",
     "2fa_factor_exists":
@@ -540,42 +538,37 @@ export const es: AuthUiMessageBundle = {
       "Confirma la recuperación de la cuenta antes de iniciar sesión.",
     auth_required_for_link: "Inicia sesión antes de vincular un proveedor.",
     authentication_failed: "La autenticación falló.",
-    authentication_required: "Inicia sesión para continuar.",
     cannot_unlink_last_login_method:
       "No puedes desvincular tu último método de inicio de sesión.",
     challenge_expired: "Tu sesión de verificación expiró. Empieza de nuevo.",
+    challenge_mismatch: "La autenticación falló.",
+    challenge_not_found: "Tu sesión de verificación expiró. Empieza de nuevo.",
+    code_expired:
+      "Ese código caducó o no se puede volver a usar. Envía un código nuevo.",
     email_already_verified: "Tu correo electrónico ya está verificado.",
     email_delivery_failed:
       "No pudimos enviar el correo de verificación. Inténtalo de nuevo o contacta con soporte.",
     email_in_use: "Este correo electrónico ya está en uso.",
-    email_password_reset_unavailable:
-      "El restablecimiento de contraseña por correo no está disponible en este momento.",
-    email_registration_unavailable:
-      "El registro por correo no está disponible en este momento.",
-    email_sender_unavailable:
-      "El envío de correo no está disponible actualmente. Inténtalo más tarde.",
     email_unavailable: "El correo no está disponible en este momento.",
-    email_verification_unavailable:
-      "La verificación por correo no está disponible en este momento.",
     forbidden: "No tienes permiso para hacer eso.",
     internal_error: "Algo salió mal de nuestro lado. Inténtalo de nuevo.",
     invalid_challenge: "Tu sesión 2FA es inválida o ha expirado.",
     invalid_code: "Código de verificación inválido.",
     invalid_credentials: "Correo o contraseña incorrectos.",
+    invalid_domain: "La autenticación falló.",
     invalid_email: "Ingresa un correo electrónico válido.",
     invalid_identifier:
       "Ingresa un correo electrónico o número de teléfono válido.",
-    invalid_or_expired_code:
-      "El código de verificación es inválido o ha expirado.",
-    invalid_or_expired_token: "Este enlace no es válido o ha expirado.",
     invalid_password: "Contraseña incorrecta. Inténtalo de nuevo.",
     invalid_phone_number: "Ingresa un número de teléfono válido.",
     invalid_provider: "Ese proveedor de inicio de sesión no es compatible.",
     invalid_request:
       "Solicitud inválida. Revisa los datos e inténtalo de nuevo.",
+    invalid_signature: "La firma de la billetera no es válida.",
     invalid_state: "La sesión de inicio no es válida. Inténtalo de nuevo.",
+    invalid_timestamp: "Tu sesión de verificación expiró. Empieza de nuevo.",
+    invalid_token: "Este enlace no es válido o ha expirado.",
     missing_fields: "Completa todos los campos obligatorios.",
-    not_authenticated: "Inicia sesión para continuar.",
     oidc_begin_failed:
       "No se pudo iniciar el inicio de sesión con el proveedor.",
     oidc_exchange_failed:
@@ -595,19 +588,11 @@ export const es: AuthUiMessageBundle = {
       "El inicio de sesión sin contraseña está deshabilitado.",
     pending_registration_not_found:
       "No se encontró un registro pendiente para esa dirección o número. Regístrate de nuevo.",
-    phone_2fa_unavailable:
-      "La autenticación de dos factores por SMS no está disponible.",
     phone_already_verified: "Tu número de teléfono ya está verificado.",
-    phone_and_code_required: "Se requiere un número de teléfono.",
     phone_in_use: "Este número de teléfono ya está en uso.",
     phone_number_must_be_e164:
       "Ingresa el número en formato internacional, p. ej. +1234567890.",
-    phone_registration_unavailable:
-      "El registro por teléfono no está disponible en este momento; regístrate con un correo electrónico en su lugar.",
-    phone_unavailable:
-      "La verificación por teléfono no está disponible actualmente. Usa el correo electrónico en su lugar.",
-    phone_verification_unavailable:
-      "La verificación por teléfono no está disponible en este momento.",
+    phone_number_required: "Se requiere un número de teléfono.",
     provider_already_linked:
       "Esta cuenta del proveedor ya está vinculada a otro usuario.",
     provider_change_requires_unlink:
@@ -621,17 +606,13 @@ export const es: AuthUiMessageBundle = {
     rename_rate_limited:
       "Demasiados cambios de nombre de usuario. Inténtalo más tarde.",
     renames_disabled: "Los cambios de nombre de usuario están deshabilitados.",
-    siws_challenge_expired:
-      "La solicitud de inicio con la billetera expiró. Inténtalo de nuevo.",
-    siws_signature_invalid: "La firma de la billetera no es válida.",
     sms_delivery_failed:
       "No pudimos enviar el mensaje de texto de verificación. Prueba con el correo electrónico o contacta con soporte.",
     sms_unavailable:
       "El SMS no está disponible actualmente. Usa el correo electrónico en su lugar.",
     step_up_required: "Confirma que eres tú para continuar.",
     token_expired: "Tu sesión expiró. Inicia sesión de nuevo.",
-    token_revoked: "Tu sesión terminó. Inicia sesión de nuevo.",
-    unauthorized: "Inicia sesión para continuar.",
+    unauthenticated: "Inicia sesión para continuar.",
     unknown_provider: "Proveedor de inicio de sesión desconocido.",
     user_banned: "Tu cuenta está deshabilitada.",
     user_not_found: "Usuario no encontrado.",

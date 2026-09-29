@@ -67,7 +67,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 
 	// A wrong second factor is a failed attempt, not a consumed ceremony.
 	status, raw = finish("000000")
-	require.Equal(t, http.StatusBadRequest, status, string(raw))
+	require.Equal(t, http.StatusUnauthorized, status, string(raw))
 
 	status, raw = finish(testTOTPCode(t, secret, step+1))
 	require.Equal(t, http.StatusOK, status, string(raw))

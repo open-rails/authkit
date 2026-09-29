@@ -274,8 +274,8 @@ Step-up updates the current refresh-session auth state but does not rotate the r
 - An email/SMS code (login or `POST /step-up/2fa`) lasts ten minutes and is
   spent only by a correct submission; a wrong code returns `401 invalid_code`
   and the same code can be retried. The fifth wrong code invalidates it and
-  returns `401 2fa_code_expired`, as does any submission while no code is live
-  (expired, never sent, already spent). Resend on `2fa_code_expired`; a resend
+  returns `401 code_expired`, as does any submission while no code is live
+  (expired, never sent, already spent). Resend on `code_expired`; a resend
   issues a new code with a fresh budget. `auth_2fa_verify` also caps attempts
   per `user_id`.
 - `403 2fa_enrollment_required` includes `user_id`, `allowed_methods`, and
@@ -454,8 +454,8 @@ banned, deleted or reserved creator is refused.
 `POST /user/2fa` enrolls a factor in two steps. `{method}` starts it: TOTP
 returns `{secret, otpauth_uri}`; email and SMS (`phone_number` required) send a
 setup code and return `202`. `{method, code}` confirms it; for an email setup
-code a miss is `400 invalid_code` and, on the fifth miss or with no live code,
-`400 2fa_code_expired`. Every factor is
+code a miss is `401 invalid_code` and, on the fifth miss or with no live code,
+`401 code_expired`. Every factor is
 proven before it is stored. A full session must be fresh
 (`step_up_required` otherwise; MFA-fresh once any factor exists).
 

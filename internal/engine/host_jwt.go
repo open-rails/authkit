@@ -20,7 +20,7 @@ const serviceJWTType = "service+jwt"
 func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured
 	}
 	return MintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
 }
@@ -29,7 +29,7 @@ func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.T
 // hosts that manage the signing key outside AuthKit.
 func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	if signer == nil {
-		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured
 	}
 	issuer = strings.TrimSpace(issuer)
 	subject := strings.TrimSpace(opts.Subject)

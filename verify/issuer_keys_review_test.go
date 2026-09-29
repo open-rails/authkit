@@ -194,7 +194,7 @@ func TestPeerJWKSUnavailableChecksClaimsFirst(t *testing.T) {
 	f.serveStatus(http.StatusServiceUnavailable, "")
 	code, errCode := f.call(f.token(a, f.issuer, jwt.MapClaims{"exp": time.Now().Add(-time.Hour).Unix()}))
 	require.Equal(t, http.StatusUnauthorized, code)
-	require.Equal(t, string(errmodel.CodeAccessTokenExpired), errCode)
+	require.Equal(t, string(errmodel.CodeTokenExpired), errCode)
 	code, errCode = f.call(f.token(a, f.issuer, jwt.MapClaims{"aud": "someone-else"}))
 	require.Equal(t, http.StatusUnauthorized, code)
 	require.Equal(t, string(errmodel.CodeBadAudience), errCode)

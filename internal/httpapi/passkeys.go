@@ -12,7 +12,7 @@ import (
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -32,7 +32,7 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -91,7 +91,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
@@ -105,7 +105,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -128,7 +128,7 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {

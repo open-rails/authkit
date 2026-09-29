@@ -116,7 +116,7 @@ const presentedAPIKey = "st_presented_secret"
 func (s *principalAPIKeySource) ResolveAPIKey(_ context.Context, token string) (iam.APIKeyPrincipal, error) {
 	s.calls++
 	if token != presentedAPIKey {
-		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
+		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
 	return s.resolved, s.err
 }
@@ -150,7 +150,7 @@ func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, allowed, "same captured credential observes group retirement")
 	require.Equal(t, 1, source.calls, "group liveness never repeats credential verification")
-	for _, failure := range []struct{ source, neutral error }{{iam.ErrAccessTokenExpired, auth.ErrExpired}, {iam.ErrAccessTokenRevoked, auth.ErrRevoked}} {
+	for _, failure := range []struct{ source, neutral error }{{iam.ErrAPIKeyExpired, auth.ErrExpired}, {iam.ErrAPIKeyRevoked, auth.ErrRevoked}} {
 		source.err = failure.source
 		_, err := v.AuthenticateRequest(r.Context(), r)
 		require.ErrorIs(t, err, failure.neutral)

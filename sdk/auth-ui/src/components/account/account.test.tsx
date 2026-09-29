@@ -192,7 +192,7 @@ describe("StepUpDialog", () => {
             verification_id: "a***@x.test",
           })
         if (body.code === "111111") return authError(401, "invalid_code")
-        if (body.code === "333333") return authError(401, "2fa_code_expired")
+        if (body.code === "333333") return authError(401, "code_expired")
         return fresh()
       },
     })
@@ -310,7 +310,7 @@ describe("ContactPanel", () => {
         },
         "POST /api/v1/verify/confirm": () =>
           ++confirms <= 2
-            ? authError(400, "invalid_or_expired_code")
+            ? authError(401, "invalid_code")
             : noContent(),
       }
     )
@@ -332,9 +332,7 @@ describe("ContactPanel", () => {
       await user.type(box, "999999")
       await waitFor(() => expect(confirms).toBe(i))
       expect(
-        await screen.findByText(
-          "The verification code is invalid or has expired."
-        )
+        await screen.findByText("Invalid verification code.")
       ).toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Send a new code" })

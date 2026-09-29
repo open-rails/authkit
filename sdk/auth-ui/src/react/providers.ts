@@ -231,7 +231,7 @@ export function useVerifyLink(
       status: "error",
       error: new AuthKitError(0, {
         type: "local",
-        code: "invalid_or_expired_token",
+        code: "invalid_token",
         message: "verification link has no token",
       }),
     }

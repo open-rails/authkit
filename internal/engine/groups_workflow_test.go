@@ -67,9 +67,9 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, "org has no user creation")
 	gift := iam.UserSubject(carol)
 	_, _, err = e.CreateGroup(ctx, iam.UserActor(bob), iam.NewGroup{Persona: "channel", Slug: "gift", Owner: &gift})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, "a user cannot make someone else an owner")
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "a user cannot make someone else an owner")
 	_, _, err = e.CreateGroup(ctx, iam.Actor{}, iam.NewGroup{Persona: "channel", Slug: "anonymous"})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	acme, created, err := e.CreateGroup(ctx, iam.OperatorActor(), iam.NewGroup{Persona: "org", Slug: "acme"})
 	require.NoError(t, err)
 	require.True(t, created, "the operator creates any persona's group, with or without an owner")
@@ -81,7 +81,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	key, _, err := e.MintAPIKey(ctx, iam.UserActor(bob), golangRef, iam.NewAPIKey{Name: "bot", Role: "moderator"})
 	require.NoError(t, err)
 	_, _, err = e.CreateGroup(ctx, iam.APIKeyActor(key.ID), iam.NewGroup{Persona: "channel", Slug: "robots"})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, "machine actors cannot create groups")
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "machine actors cannot create groups")
 
 	// Reads.
 	for _, ref := range []iam.GroupRef{iam.GroupBySlug("channel", "golang"), golangRef} {
@@ -196,7 +196,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 
 	// Update needs self:update; a rename passes the slug claim.
 	_, err = e.UpdateGroup(ctx, iam.UserActor(carol), golangRef, iam.GroupUpdate{DisplayName: new("Mine")})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, err = e.UpdateGroup(ctx, iam.UserActor(bob), golangRef, iam.GroupUpdate{Slug: new("announcements")})
 	require.ErrorIs(t, err, iam.ErrGroupSlugReserved)
 	updated, err := e.UpdateGroup(ctx, iam.UserActor(bob), golangRef, iam.GroupUpdate{Slug: new("go"), DisplayName: new("Gophers")})
@@ -208,7 +208,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 
 	// Delete is a soft delete gated by self:delete.
 	_, err = e.DeleteGroup(ctx, iam.UserActor(carol), golangRef)
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	deleted, err := e.DeleteGroup(ctx, iam.UserActor(erin), golangRef)
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
@@ -227,7 +227,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
 	// Purge is the operator's permanent delete.
-	require.ErrorIs(t, e.PurgeGroup(ctx, iam.UserActor(bob), golangRef, iam.PurgeGroupOptions{}), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, e.PurgeGroup(ctx, iam.UserActor(bob), golangRef, iam.PurgeGroupOptions{}), iam.ErrInsufficientAuthority)
 	require.NoError(t, e.PurgeGroup(ctx, iam.OperatorActor(), golangRef, iam.PurgeGroupOptions{}))
 	require.NoError(t, e.PurgeGroup(ctx, iam.OperatorActor(), golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
 	_, err = e.Group(ctx, golangRef)
@@ -309,16 +309,16 @@ func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
 	require.NoError(t, define(designer, "channel:posts:read", "channel:posts:write"))
 	require.NoError(t, define(designer, "channel:posts:read"))
 	grantRole(t, e, ref, iam.UserSubject(holder), "commenter")
-	require.ErrorIs(t, define(designer, "channel:posts:*"), iam.ErrInsufficientRoleAuthority, "widening a held role needs members:manage")
-	require.ErrorIs(t, define(designer), iam.ErrInsufficientRoleAuthority, "narrowing a held role needs members:manage")
-	require.ErrorIs(t, e.DeleteGroupRole(ctx, iam.UserActor(designer), ref, "commenter"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, define(designer, "channel:posts:*"), iam.ErrInsufficientAuthority, "widening a held role needs members:manage")
+	require.ErrorIs(t, define(designer), iam.ErrInsufficientAuthority, "narrowing a held role needs members:manage")
+	require.ErrorIs(t, e.DeleteGroupRole(ctx, iam.UserActor(designer), ref, "commenter"), iam.ErrInsufficientAuthority)
 	require.False(t, holds("channel:posts:write"))
 	require.NoError(t, define(keeper, "channel:posts:read", "channel:posts:write"))
 	require.True(t, holds("channel:posts:write"))
 
 	_, _, err = e.MintAPIKey(ctx, iam.UserActor(owner), ref, iam.NewAPIKey{Name: "commenter-key", Role: "commenter"})
 	require.NoError(t, err)
-	require.ErrorIs(t, define(keeper, "channel:posts:read"), iam.ErrInsufficientRoleAuthority, "a role an API key holds needs credentials:manage")
+	require.ErrorIs(t, define(keeper, "channel:posts:read"), iam.ErrInsufficientAuthority, "a role an API key holds needs credentials:manage")
 	require.NoError(t, define(owner, "channel:posts:read"))
 	require.False(t, holds("channel:posts:write"))
 

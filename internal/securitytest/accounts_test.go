@@ -128,7 +128,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	})
 	t.Run("invariant: no root permission, no account authority", func(t *testing.T) {
 		for name, op := range ops {
-			require.ErrorIs(t, op(iam.UserActor(plain.id), staff.id), iam.ErrInsufficientRoleAuthority, name)
+			require.ErrorIs(t, op(iam.UserActor(plain.id), staff.id), iam.ErrInsufficientAuthority, name)
 		}
 	})
 	t.Run("nobody bans, unbans or edits the credentials of their own account", func(t *testing.T) {
@@ -140,7 +140,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	t.Run("verified flags and imported hashes are the operator's", func(t *testing.T) {
 		verified := true
 		_, err := h.auth.UpdateUser(ctx, iam.UserActor(siteadmin.id), plain.id, iam.UserUpdate{EmailVerified: &verified})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
 	t.Run("control: an actor covering the target", func(t *testing.T) {
 		admin := iam.UserActor(siteadmin.id)

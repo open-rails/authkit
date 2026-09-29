@@ -34,10 +34,10 @@ var (
 
 // Authority.
 var (
-	ErrInsufficientRoleAuthority  Error = errmodel.E(errmodel.CodeInsufficientRoleAuthority)
+	ErrInsufficientAuthority      Error = errmodel.E(errmodel.CodeInsufficientAuthority)
 	ErrRoleAssignmentEscalation   Error = errmodel.E(errmodel.CodeRoleAssignmentEscalation)
 	ErrAccountAuthorityEscalation Error = errmodel.E(errmodel.CodeAccountAuthorityEscalation)
-	ErrCannotRemoveLastAdminRole  Error = errmodel.E(errmodel.CodeCannotRemoveLastAdminRole)
+	ErrLastOwner                  Error = errmodel.E(errmodel.CodeLastOwner)
 	ErrCannotTargetSelf           Error = errmodel.E(errmodel.CodeCannotTargetSelf)
 	ErrTwoFAEnrollmentRequired    Error = errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
 )
@@ -67,13 +67,13 @@ var (
 	ErrPhoneInUse             Error = errmodel.E(errmodel.CodePhoneInUse)
 	ErrInvalidUntil           Error = errmodel.E(errmodel.CodeInvalidUntil)
 	ErrAccountRecoveryExpired Error = errmodel.E(errmodel.CodeAccountRecoveryExpired)
-	ErrEmailNotVerified       Error = errmodel.E(errmodel.CodeEmailNotVerified)
+	ErrContactNotVerified     Error = errmodel.E(errmodel.CodeContactNotVerified)
 )
 
 // Credentials and applications (the API-key, service-JWT, delegation and
 // remote-application sentinels live beside their types).
 var (
-	ErrMissingSigner                   Error = errmodel.Internal("missing_signer", nil)
+	ErrSigningNotConfigured            Error = errmodel.Internal("signing_not_configured", nil)
 	ErrDeviceKeysDisabled              Error = errmodel.E(errmodel.CodeDeviceKeysDisabled)
 	ErrRemoteApplicationIssuerConflict Error = errmodel.E(errmodel.CodeRemoteApplicationIssuerConflict)
 	ErrReservedIssuer                  Error = errmodel.E(errmodel.CodeReservedIssuer)

@@ -218,8 +218,8 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 				link := f.deliveredLink(rawURL, path, channel)
 				// A code bound to this target cannot authenticate another target, and a
 				// failed guess does not consume either representation of the live proof.
-				f.expect(400, f.post(confirm, map[string]any{"identifier": uniqueEmail("wrong-target"), "code": code}))
-				f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
+				f.expect(401, f.post(confirm, map[string]any{"identifier": uniqueEmail("wrong-target"), "code": code}))
+				f.expect(401, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
 				var replies [2]flowResponse
 				var wg sync.WaitGroup
 				for i := range replies {
@@ -245,7 +245,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 							require.Equal(t, "/checkout?plan=pro", reply.ReturnTo)
 						}
 					} else {
-						require.Equal(t, 400, reply.status, reply.raw)
+						require.Equal(t, 401, reply.status, reply.raw)
 					}
 				}
 				require.Equal(t, 1, winners)
@@ -256,7 +256,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 				require.True(t, verified)
 				require.Equal(t, !passwordless, hasPassword)
 				requireAccountInviteConsumed(t, pg.Pool, invite.ID, uid)
-				f.expect(400, f.post(confirm, map[string]any{"token": link}))
+				f.expect(401, f.post(confirm, map[string]any{"token": link}))
 				if !passwordless {
 					f.expect(200, f.post("/password/login", map[string]any{"identifier": identifier, "password": "Correct-horse-battery-1"}))
 					f.expect(200, f.post("/password/login", map[string]any{"identifier": body["username"], "password": "Correct-horse-battery-1"}))
@@ -716,18 +716,18 @@ func testProofLifecycle(f *accountFlow) {
 			if passwordless {
 				otherConfirm = "/verify/confirm"
 			}
-			f.expect(400, f.post(otherConfirm, map[string]any{"token": link}))
-			f.expect(400, f.post(confirm, map[string]any{"token": oldLink}))
-			f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": stale}))
+			f.expect(401, f.post(otherConfirm, map[string]any{"token": link}))
+			f.expect(401, f.post(confirm, map[string]any{"token": oldLink}))
+			f.expect(401, f.post(confirm, map[string]any{"identifier": identifier, "code": stale}))
 			// Guess budget survives reissue; four misses remain live, the fifth burns
 			// both the code and its alternate link representation.
 			for i := 0; i < 3; i++ {
-				f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
+				f.expect(401, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
 			}
 			begin()
 			link = f.deliveredLink(f.verifyURL(phone), path, channel)
-			f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
-			f.expect(400, f.post(confirm, map[string]any{"token": link}))
+			f.expect(401, f.post(confirm, map[string]any{"identifier": identifier, "code": "WRONG"}))
+			f.expect(401, f.post(confirm, map[string]any{"token": link}))
 			begin()
 			current := f.verifyCode(phone)
 			link = f.deliveredLink(f.verifyURL(phone), path, channel)
@@ -738,7 +738,7 @@ func testProofLifecycle(f *accountFlow) {
 				require.Empty(t, done.ReturnTo)
 			}
 			f.session(tokens, amr)
-			f.expect(400, f.post(confirm, map[string]any{"token": link}))
+			f.expect(401, f.post(confirm, map[string]any{"token": link}))
 			// The reverse order (link then code) has the same canonical winner. Existing
 			// accounts remain available in InviteOnly mode without spending another invite.
 			if passwordless {
@@ -747,7 +747,7 @@ func testProofLifecycle(f *accountFlow) {
 				link = f.deliveredLink(f.verifyURL(phone), path, channel)
 				done = f.expect(200, f.post(confirm, map[string]any{"token": link}))
 				f.session(done.Tokens, amr)
-				f.expect(400, f.post(confirm, map[string]any{"identifier": identifier, "code": current}))
+				f.expect(401, f.post(confirm, map[string]any{"identifier": identifier, "code": current}))
 			}
 		}
 	}

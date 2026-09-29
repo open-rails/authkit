@@ -356,7 +356,7 @@ func (s *Engine) storeTwoFactorCode(ctx context.Context, key string, data twoFac
 // compare-and-delete on the exact record read gives concurrent correct
 // submissions one winner and fails if a resend replaced the code meanwhile. A
 // wrong guess keeps the code; the maxTwoFactorCodeAttempts-th burns it. No live
-// code (expired, never sent, spent, or burned by this miss) is ErrTwoFACodeExpired.
+// code (expired, never sent, spent, or burned by this miss) is ErrCodeExpired.
 func (s *Engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method string) (bool, error) {
 	var data twoFactorData
 	raw, ok, err := s.ephemReadJSON(ctx, key, &data)
@@ -364,14 +364,14 @@ func (s *Engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 		return false, err
 	}
 	if !ok {
-		return false, errmodel.ErrTwoFACodeExpired
+		return false, errmodel.ErrCodeExpired
 	}
 	match := secret.Equal(data.CodeHash, codeHash) &&
 		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
 	if !match {
 		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {
 			_, _ = s.ephemeral.CompareAndConsume(ctx, key, raw)
-			return false, errmodel.ErrTwoFACodeExpired
+			return false, errmodel.ErrCodeExpired
 		}
 		return false, nil
 	}
@@ -380,7 +380,7 @@ func (s *Engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 		return false, err
 	}
 	if !claimed {
-		return false, errmodel.ErrTwoFACodeExpired
+		return false, errmodel.ErrCodeExpired
 	}
 	_ = s.ephemDel(ctx, keyTwoFactorCodeAttempts+key)
 	return true, nil

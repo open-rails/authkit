@@ -12,7 +12,7 @@ import (
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if strings.TrimSpace(cl.SessionID) == "" {

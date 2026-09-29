@@ -167,7 +167,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		"code":          wrongCode,
 		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
 	})
-	require.Equal(t, http.StatusBadRequest, status, string(raw))
+	require.Equal(t, http.StatusUnauthorized, status, string(raw))
 
 	enrolled := finishDeviceEnrollment(t, srv, sender, enrollment, privateKey)
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
@@ -202,7 +202,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		"code":          sender.verificationCode(t),
 		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, enrollment.Challenge),
 	})
-	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, http.StatusUnauthorized, status)
 
 	status, raw = postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
 	require.Equal(t, http.StatusAccepted, status, string(raw))
@@ -322,7 +322,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 		"code":          sender.verificationCode(t),
 		"signature":     signDeviceChallenge(t, secondPrivate, testDeviceEnrollmentDomain, reenroll.Challenge),
 	})
-	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, http.StatusUnauthorized, status)
 }
 
 func requireActiveDeviceKeys(t *testing.T, srv *httpapi.Service, userID string, want ...string) {

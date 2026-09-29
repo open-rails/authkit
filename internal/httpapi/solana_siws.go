@@ -84,7 +84,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 
 	out, err := s.svc.VerifySIWSAndLogin(r.Context(), output, nil)
 	if err != nil {
-		writeError(w, fallback(remap(err, siwsCodes), errmodel.CodeAuthenticationFailed))
+		writeError(w, fallback(err, errmodel.CodeAuthenticationFailed))
 		return
 	}
 
@@ -107,7 +107,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeAuthenticationRequired)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -122,22 +122,11 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.svc.LinkSolanaWallet(r.Context(), claims.UserID, output); err != nil {
-		writeError(w, remap(err, siwsCodes))
+		writeError(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"solana_address": output.Account.Address})
-}
-
-// siwsCodes: the wire codes a SIWS ceremony failure answers.
-var siwsCodes = map[error]errmodel.Code{
-	errmodel.ErrSIWSChallengeNotFound: errmodel.CodeChallengeExpired,
-	errmodel.ErrSIWSChallengeExpired:  errmodel.CodeChallengeExpired,
-	errmodel.ErrSIWSTimestampInvalid:  errmodel.CodeChallengeExpired,
-	errmodel.ErrSIWSSignatureInvalid:  errmodel.CodeInvalidSignature,
-	errmodel.ErrSIWSAddressMismatch:   errmodel.CodeAddressMismatch,
-	errmodel.ErrSIWSDomainInvalid:     errmodel.CodeAuthenticationFailed,
-	errmodel.ErrSIWSChallengeMismatch: errmodel.CodeAuthenticationFailed,
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —

@@ -84,7 +84,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)
 	require.NotEqual(t, iam.OwnerRole, roles[iam.UserSubject(recoveryUser.ID)])
-	require.ErrorIs(t, unassignRole(ctx, svc, iam.OperatorActor(), iam.RootGroup(), iam.UserSubject(user.ID), iam.OwnerRole), iam.ErrCannotRemoveLastAdminRole)
+	require.ErrorIs(t, unassignRole(ctx, svc, iam.OperatorActor(), iam.RootGroup(), iam.UserSubject(user.ID), iam.OwnerRole), iam.ErrLastOwner)
 	// Only explicit out-of-band database repair can empty the owner set. The
 	// MFA-required owner role then goes to a new account, which must enroll at
 	// its first sign-in; an existing account needs MFA first.

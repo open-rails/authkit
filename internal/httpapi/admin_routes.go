@@ -82,7 +82,7 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 func accountActor(w http.ResponseWriter, r *http.Request) (iam.Actor, string, bool) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return iam.Actor{}, "", false
 	}
 	if _, ok := userActorID(w, actor); !ok {

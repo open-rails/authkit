@@ -22,8 +22,8 @@ import (
 // Register runs the registration decision tree. Input problems come back as
 // the validation errors (ValidationErrorCode) and the sentinels
 // ErrInvalidIdentifier / ErrEmailInUse / ErrPhoneInUse / ErrUsernameInUse /
-// ErrRegistrationDisabled / ErrEmailRegistrationUnavailable /
-// ErrPhoneRegistrationUnavailable; engine failures carry a stage prefix
+// ErrRegistrationDisabled / ErrEmailUnavailable /
+// ErrSMSUnavailable; engine failures carry a stage prefix
 // and, for sends, the delivery sentinel.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
@@ -63,7 +63,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if isPhone {
 		phone := contact.NormalizePhone(identifier)
 		if requiresVerification && !s.SMSAvailable() {
-			return authflow.RegisterOutcome{}, errmodel.ErrPhoneRegistrationUnavailable
+			return authflow.RegisterOutcome{}, errmodel.ErrSMSUnavailable
 		}
 		phoneTaken, usernameTaken, err := s.CheckPhoneRegistrationConflict(ctx, phone, username)
 		if err != nil {
@@ -99,7 +99,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 
 	email := contact.NormalizeEmail(identifier)
 	if requiresVerification && !s.HasEmailSender() {
-		return authflow.RegisterOutcome{}, errmodel.ErrEmailRegistrationUnavailable
+		return authflow.RegisterOutcome{}, errmodel.ErrEmailUnavailable
 	}
 	emailTaken, usernameTaken, err := s.CheckPendingRegistrationConflict(ctx, email, username)
 	if err != nil {

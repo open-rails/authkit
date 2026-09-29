@@ -22,12 +22,12 @@ export function useCooldown(seconds: number, startActive = false) {
   }
 }
 
-// AuthKit answers 2fa_code_expired once a sent code is gone (the 5th miss,
+// AuthKit answers code_expired once a sent code is gone (the 5th miss,
 // expiry, or already used); a plain miss stays invalid_code and retryable.
 export function useSpentCode(error: { code: string } | null | undefined) {
   const [renewed, setRenewed] = useState<unknown>(null)
   return {
-    spent: error?.code === "2fa_code_expired" && error !== renewed,
+    spent: error?.code === "code_expired" && error !== renewed,
     // Call when a new code is sent.
     renew: () => setRenewed(error),
   }

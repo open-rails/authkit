@@ -495,8 +495,6 @@ export const ko: AuthUiMessageBundle = {
     session_changed: "다른 탭에서 세션이 변경되었습니다. 다시 시도하세요.",
     generic: "문제가 발생했습니다. 다시 시도해주세요.",
     network: "네트워크 오류. 연결을 확인하세요.",
-    "2fa_code_expired":
-      "코드가 만료되었거나 다시 사용할 수 없습니다. 새 코드를 받으세요.",
     "2fa_enrollment_required":
       "로그인을 완료하려면 2단계 인증을 설정해야 합니다.",
     "2fa_factor_exists":
@@ -511,37 +509,35 @@ export const ko: AuthUiMessageBundle = {
     account_recovery_required: "로그인하기 전에 계정 복구를 확인하세요.",
     auth_required_for_link: "제공자를 연결하기 전에 로그인하세요.",
     authentication_failed: "인증에 실패했습니다.",
-    authentication_required: "계속하려면 로그인하세요.",
     cannot_unlink_last_login_method:
       "마지막 로그인 방법은 연결 해제할 수 없습니다.",
     challenge_expired: "인증 세션이 만료되었습니다. 다시 시작하세요.",
+    challenge_mismatch: "인증에 실패했습니다.",
+    challenge_not_found: "인증 세션이 만료되었습니다. 다시 시작하세요.",
+    code_expired:
+      "코드가 만료되었거나 다시 사용할 수 없습니다. 새 코드를 받으세요.",
     email_already_verified: "이메일 주소가 이미 인증되었습니다.",
     email_delivery_failed:
       "인증 이메일을 전송하지 못했습니다. 다시 시도하거나 고객지원에 문의해 주세요.",
     email_in_use: "이미 사용 중인 이메일입니다.",
-    email_password_reset_unavailable:
-      "현재 이메일로 비밀번호를 재설정할 수 없습니다.",
-    email_registration_unavailable: "현재 이메일로 가입할 수 없습니다.",
-    email_sender_unavailable:
-      "현재 이메일 발송을 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     email_unavailable: "현재 이메일을 사용할 수 없습니다.",
-    email_verification_unavailable: "현재 이메일 인증을 사용할 수 없습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
     internal_error: "서버에서 문제가 발생했습니다. 다시 시도해 주세요.",
     invalid_challenge: "2FA 세션이 유효하지 않거나 만료되었습니다.",
     invalid_code: "인증 코드가 올바르지 않습니다.",
     invalid_credentials: "이메일 또는 비밀번호가 올바르지 않습니다.",
+    invalid_domain: "인증에 실패했습니다.",
     invalid_email: "유효한 이메일 주소를 입력해주세요.",
     invalid_identifier: "유효한 이메일 주소 또는 전화번호를 입력해주세요.",
-    invalid_or_expired_code: "인증 코드가 유효하지 않거나 만료되었습니다.",
-    invalid_or_expired_token: "이 링크는 유효하지 않거나 만료되었습니다.",
     invalid_password: "비밀번호가 올바르지 않습니다. 다시 시도하세요.",
     invalid_phone_number: "유효한 전화번호를 입력해주세요.",
     invalid_provider: "지원하지 않는 로그인 제공자입니다.",
     invalid_request: "잘못된 요청입니다. 입력값을 확인하고 다시 시도해주세요.",
+    invalid_signature: "지갑 서명이 유효하지 않습니다.",
     invalid_state: "로그인 세션이 유효하지 않습니다. 다시 시도해주세요.",
+    invalid_timestamp: "인증 세션이 만료되었습니다. 다시 시작하세요.",
+    invalid_token: "이 링크는 유효하지 않거나 만료되었습니다.",
     missing_fields: "필수 항목을 모두 입력해주세요.",
-    not_authenticated: "계속하려면 로그인하세요.",
     oidc_begin_failed: "제공자 로그인을 시작하지 못했습니다.",
     oidc_exchange_failed: "제공자 로그인을 완료하지 못했습니다.",
     passkey_not_found: "패스키를 찾을 수 없습니다.",
@@ -558,17 +554,11 @@ export const ko: AuthUiMessageBundle = {
     passwordless_disabled: "비밀번호 없는 로그인이 비활성화되어 있습니다.",
     pending_registration_not_found:
       "해당 주소 또는 번호로 진행 중인 회원가입을 찾을 수 없습니다. 다시 가입해 주세요.",
-    phone_2fa_unavailable: "SMS 2단계 인증을 사용할 수 없습니다.",
     phone_already_verified: "전화번호가 이미 인증되었습니다.",
-    phone_and_code_required: "전화번호가 필요합니다.",
     phone_in_use: "이미 사용 중인 전화번호입니다.",
     phone_number_must_be_e164:
       "전화번호를 국제 형식으로 입력하세요 (예: +1234567890).",
-    phone_registration_unavailable:
-      "현재 전화번호로 가입할 수 없습니다. 대신 이메일 주소로 가입해 주세요.",
-    phone_unavailable:
-      "현재 휴대폰 인증을 사용할 수 없습니다. 대신 이메일을 사용해 주세요.",
-    phone_verification_unavailable: "현재 전화번호 인증을 사용할 수 없습니다.",
+    phone_number_required: "전화번호가 필요합니다.",
     provider_already_linked:
       "이 제공자 계정은 이미 다른 사용자에게 연결되어 있습니다.",
     provider_change_requires_unlink:
@@ -582,17 +572,13 @@ export const ko: AuthUiMessageBundle = {
     rename_rate_limited:
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
     renames_disabled: "사용자명 변경이 비활성화되어 있습니다.",
-    siws_challenge_expired:
-      "지갑 로그인 요청이 만료되었습니다. 다시 시도해주세요.",
-    siws_signature_invalid: "지갑 서명이 유효하지 않습니다.",
     sms_delivery_failed:
       "인증 문자 메시지를 전송하지 못했습니다. 대신 이메일을 사용하거나 고객지원에 문의해 주세요.",
     sms_unavailable:
       "현재 SMS를 사용할 수 없습니다. 대신 이메일을 사용해 주세요.",
     step_up_required: "계속하려면 본인 확인을 해주세요.",
     token_expired: "세션이 만료되었습니다. 다시 로그인하세요.",
-    token_revoked: "세션이 종료되었습니다. 다시 로그인하세요.",
-    unauthorized: "계속하려면 로그인하세요.",
+    unauthenticated: "계속하려면 로그인하세요.",
     unknown_provider: "알 수 없는 로그인 제공자입니다.",
     user_banned: "계정이 비활성화되었습니다.",
     user_not_found: "사용자를 찾을 수 없습니다.",

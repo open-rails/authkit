@@ -319,7 +319,7 @@ func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) error
 
 // verifyEmail2FASetupCode keeps the code on a miss; the attempt cap bounds
 // guessing. A changed account email invalidates the code. No live code (expired,
-// never sent, spent, or burned by this miss) is ErrTwoFACodeExpired.
+// never sent, spent, or burned by this miss) is ErrCodeExpired.
 func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code string) (bool, error) {
 	key := keyEmail2FASetup + userID
 	var data email2FASetupData
@@ -328,7 +328,7 @@ func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 		return false, err
 	}
 	if !ok || data.CodeHash == "" {
-		return false, errmodel.ErrTwoFACodeExpired
+		return false, errmodel.ErrCodeExpired
 	}
 	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -336,17 +336,17 @@ func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 	}
 	if user == nil || user.Email == nil || contact.NormalizeEmail(*user.Email) != data.Email {
 		_ = s.ephemDel(ctx, key)
-		return false, errmodel.ErrTwoFACodeExpired
+		return false, errmodel.ErrCodeExpired
 	}
 	if !secret.Equal(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
 		if s.recordFailedAttempt(ctx, keyEmail2FASetupAttempts+userID, email2FASetupTTL, maxEmail2FASetupAttempts) {
 			_ = s.ephemDel(ctx, key)
-			return false, errmodel.ErrTwoFACodeExpired
+			return false, errmodel.ErrCodeExpired
 		}
 		return false, nil
 	}
 	if err := s.claimProof(ctx, key, raw); err != nil {
-		return false, errmodel.ErrTwoFACodeExpired
+		return false, errmodel.ErrCodeExpired
 	}
 	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
 	return true, nil

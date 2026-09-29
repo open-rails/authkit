@@ -16,7 +16,7 @@ import (
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body struct {
@@ -29,7 +29,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	name := strings.TrimSpace(body.Username)
@@ -58,7 +58,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body struct {
@@ -84,7 +84,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 	}
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	updated, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, iam.UserUpdate{PreferredLanguage: &normalized})
@@ -108,7 +108,7 @@ func (s *Service) supportsLanguage(language string) bool {
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body struct {
@@ -123,7 +123,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	}
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	res, err := s.svc.DeleteUsers(r.Context(), actor, []string{claims.UserID})
@@ -141,7 +141,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body struct {

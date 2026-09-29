@@ -19,7 +19,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
-			fail(w, errmodel.CodeNotAuthenticated)
+			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
 		actor, ok := verify.ActorFromClaims(claims)

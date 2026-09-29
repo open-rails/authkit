@@ -366,14 +366,14 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 	switch rec.Channel {
 	case passwordlessChannelEmail:
 		if s.email == nil {
-			return errmodel.ErrEmailSenderUnavailable
+			return errmodel.ErrEmailUnavailable
 		}
 		return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.email.SendVerification(sendCtx, rec.Identifier, rec.GeneratedUsername, msg)
 		}))
 	case passwordlessChannelSMS:
 		if s.sms == nil || !s.SMSAvailable() {
-			return errmodel.ErrSMSSenderUnavailable
+			return errmodel.ErrSMSUnavailable
 		}
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.sms.SendVerification(sendCtx, rec.Identifier, msg)

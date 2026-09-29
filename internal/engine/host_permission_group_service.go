@@ -144,7 +144,7 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 		return false, err
 	}
 	auth, err := s.actorAuthority(ctx, st, a, g)
-	if errors.Is(err, iam.ErrInsufficientRoleAuthority) {
+	if errors.Is(err, iam.ErrInsufficientAuthority) {
 		return false, nil
 	}
 	if err != nil {
@@ -221,7 +221,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 		}
 		t := groupTarget{ID: g.ID, Persona: g.Persona, Slug: g.Slug}
 		auth, err := s.actorAuthority(ctx, st, a, t)
-		if errors.Is(err, iam.ErrInsufficientRoleAuthority) {
+		if errors.Is(err, iam.ErrInsufficientAuthority) {
 			return map[string][]iam.Perm{}, nil
 		}
 		if err != nil {
