@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
@@ -69,4 +70,12 @@ func mustNewWithKeys(t testing.TB, cfg Config, keys keyset, deps Deps) *Engine {
 	}
 	t.Cleanup(svc.Close)
 	return svc
+}
+
+func maintenanceConfig() Config {
+	return Config{
+		Keys:      KeysConfig{VerifyOnly: true},
+		Token:     TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
+		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+	}
 }

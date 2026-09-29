@@ -6,7 +6,7 @@ package httpapi
 // tolerates the other scheme's, so a deployment that switches scheme never
 // strands a browser's session. TestCookieRegistry pins this list against the
 // cookies AuthKit actually sets and against
-// internal/engine/testdata/cookie-registry.golden: a changed cookie shape must
+// testdata/cookie-registry.golden: a changed cookie shape must
 // be added here as a new variant, never edited in place, and no variant may
 // be removed.
 
@@ -118,7 +118,7 @@ func isRefreshCookieName(name string) bool {
 	return false
 }
 
-// Identity names a variant in internal/engine/testdata/cookie-registry.golden.
+// Identity names a variant in testdata/cookie-registry.golden.
 func (v CookieVariant) Identity() string {
 	return fmt.Sprintf("%s name=%s path=%s domain=%q secure=%v", v.Kind, v.Name, v.Path, v.Domain, v.Secure)
 }

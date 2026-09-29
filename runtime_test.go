@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,9 +103,24 @@ func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	require.NotNil(t, headless.Verifier(), "a headless runtime still verifies")
 }
 
+// The Client owns the HTTP layer's background workers: the memory limiter's
+// sweep (Redis needs none) stops at Close, however often it runs, and a failed
+// construction strands none. The host's pool and Redis stay usable.
 func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
-	for _, fail := range []bool{false, true} {
-		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		redis     bool
+		configure func(*authkit.Config)
+		err       string
+	}{
+		{name: "memory limiter"},
+		{name: "redis limiter", redis: true},
+		{name: "invalid prefix", configure: func(c *authkit.Config) { c.HTTP.APIPath = "invalid prefix" }, err: "APIPath"},
+		{name: "delegated route without its authorizer", configure: func(c *authkit.Config) {
+			c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.example"}}
+		}, err: "Deps.DelegatedAuthorization"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
 			const label = "authkit-runtime-http"
 			hasWorkers := func() bool {
@@ -114,23 +130,33 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			}
 			cfg := testConfig(t)
 			cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
-			if fail {
-				cfg.HTTP.APIPath = "invalid prefix"
+			var rdb *redis.Client
+			if tc.redis {
+				rdb = testdb.ScratchRedis(t)
+				cfg.HTTP.Redis = rdb
+			}
+			if tc.configure != nil {
+				tc.configure(&cfg)
 			}
 			var runtime *authkit.Client
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) {
 				runtime, err = authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 			})
-			if fail {
-				require.Error(t, err)
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+				require.Nil(t, runtime)
 			} else {
 				require.NoError(t, err)
-				require.True(t, hasWorkers())
+				require.Equal(t, !tc.redis, hasWorkers(), "only the memory limiter starts a sweep worker")
+				runtime.Close()
 				runtime.Close()
 			}
 			require.Eventually(t, func() bool { return !hasWorkers() }, 5*time.Second, 10*time.Millisecond, "HTTP workers survived runtime cleanup")
 			require.NoError(t, pg.Pool.Ping(t.Context()))
+			if rdb != nil {
+				require.NoError(t, rdb.Ping(t.Context()).Err(), "the host's Redis client remains usable")
+			}
 		})
 	}
 }
