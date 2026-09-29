@@ -69,7 +69,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}()
 		require.Eventually(t, func() bool {
 			var n int
-			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE%'`).Scan(&n)
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%PermissionGroupPersonaForUpdate%'`).Scan(&n)
 			return err == nil && n == 1
 		}, 5*time.Second, 10*time.Millisecond)
 		granted := make(chan error, 1)
