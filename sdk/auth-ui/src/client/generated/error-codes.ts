@@ -73,12 +73,7 @@ export type AuthErrorCode =
   | "entitlement_filter_unavailable"
   | "external_invites_disabled"
   | "forbidden"
-  | "group_creation_refused"
   | "group_not_found"
-  | "group_slug_application_managed"
-  | "group_slug_invalid"
-  | "group_slug_reserved"
-  | "group_slug_taken"
   | "insufficient_authority"
   | "internal_error"
   | "invalid_2fa_method"
@@ -288,12 +283,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "entitlement_filter_unavailable": 400,
   "external_invites_disabled": 403,
   "forbidden": 403,
-  "group_creation_refused": 403,
   "group_not_found": 404,
-  "group_slug_application_managed": 409,
-  "group_slug_invalid": 400,
-  "group_slug_reserved": 403,
-  "group_slug_taken": 409,
   "insufficient_authority": 403,
   "internal_error": 500,
   "invalid_2fa_method": 400,

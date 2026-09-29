@@ -54,10 +54,6 @@ var (
 
 // Groups and naming.
 var (
-	ErrGroupSlugTaken                Error = errmodel.E(errmodel.CodeGroupSlugTaken)
-	ErrGroupSlugReserved             Error = errmodel.E(errmodel.CodeGroupSlugReserved)
-	ErrGroupSlugInvalid              Error = errmodel.E(errmodel.CodeGroupSlugInvalid)
-	ErrGroupSlugApplicationManaged   Error = errmodel.E(errmodel.CodeGroupSlugApplicationManaged)
 	ErrRenameRateLimited             Error = errmodel.E(errmodel.CodeRenameRateLimited)
 	ErrRenamesDisabled               Error = errmodel.E(errmodel.CodeRenamesDisabled)
 	ErrRoleNotAssignable             Error = errmodel.E(errmodel.CodeRoleNotAssignable)
