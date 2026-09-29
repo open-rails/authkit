@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Admin user directory: the dashboard list/count/get. The list
@@ -67,7 +68,7 @@ func (s *Engine) adminUserDirectoryQuery(ctx context.Context, o iam.AdminUserLis
 	if ent := strings.TrimSpace(o.Entitlement); ent != "" {
 		fp, ok := s.entitlementsProvider().(entitlementFilterProvider)
 		if !ok {
-			return "", nil, nil, iam.ErrEntitlementFilterUnavailable
+			return "", nil, nil, errmodel.ErrEntitlementFilterUnavailable
 		}
 		subjects, ferr := fp.ListSubjectsWithEntitlement(ctx, ent)
 		if ferr != nil {

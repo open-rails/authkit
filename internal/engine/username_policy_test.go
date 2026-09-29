@@ -25,10 +25,10 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	require.NoError(t, rt.ValidateUsername(second))
 
 	_, err = rt.CreateUser(t.Context(), "short@example.test", "shorty")
-	e := iam.AsError(err)
-	require.NotNil(t, e, "%v", err)
-	require.Equal(t, iam.CodeUsernameTooShort, e.Code)
-	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Meta, "imports keep the 64-character import ceiling")
+	e, ok := iam.AsError(err)
+	require.True(t, ok, "%v", err)
+	require.Equal(t, "username_too_short", e.Code())
+	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Metadata(), "imports keep the 64-character import ceiling")
 
 	cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
 	_, err = New(cfg, Deps{Postgres: pg.Pool})

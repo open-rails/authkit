@@ -9,6 +9,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -102,7 +103,7 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	}
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, trimmed) {
 		if u.PhoneVerified {
-			return iam.ErrPhoneAlreadyVerified
+			return errmodel.ErrPhoneAlreadyVerified
 		}
 		return s.sendPhoneVerificationToUser(ctx, trimmed, userID, 0)
 	}
@@ -146,7 +147,7 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	}
 	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
 		if u.EmailVerified {
-			return iam.ErrEmailAlreadyVerified
+			return errmodel.ErrEmailAlreadyVerified
 		}
 		return s.sendEmailVerificationToUser(ctx, u, 0)
 	}

@@ -3,9 +3,9 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // writeLoginContinuation is the one JSON presentation of first-factor outcomes.
@@ -17,7 +17,7 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 		return false
 	case authflow.LoginRecoveryRequired:
 		w.Header().Set("Cache-Control", "no-store")
-		sendErrData(w, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
+		fail(w, errmodel.CodeAccountRecoveryRequired, errmodel.WithMetadata(map[string]any{"recovery": out.Recovery}))
 	case authflow.LoginTwoFactorRequired:
 		metadata := loginChallengeMetadata(out.UserID, out.Challenge)
 		for key, value := range extra {
@@ -26,13 +26,13 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 		if out.ReturnTo != "" {
 			metadata["return_to"] = out.ReturnTo
 		}
-		sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, metadata)
+		fail(w, errmodel.CodeTwoFARequired, errmodel.WithMetadata(metadata))
 	case authflow.LoginTwoFAEnrollmentRequired:
-		sendErrData(w, http.StatusForbidden, iam.CodeTwoFAEnrollmentRequired, map[string]any{"user_id": out.UserID, "requires_2fa_enrollment": true, "allowed_methods": out.AllowedMethods, "token_set": out.Enrollment, "return_to": out.ReturnTo})
+		fail(w, errmodel.CodeTwoFAEnrollmentRequired, errmodel.WithMetadata(map[string]any{"user_id": out.UserID, "requires_2fa_enrollment": true, "allowed_methods": out.AllowedMethods, "token_set": out.Enrollment, "return_to": out.ReturnTo}))
 	case authflow.LoginVerificationRequired:
 		writeVerificationRequired(w, out.Verification.Identifier, out.Verification.Channel)
 	default:
-		unauthorized(w, loginRejectionCode(out.Reason))
+		fail(w, loginRejectionCode(out.Reason))
 	}
 	return true
 }

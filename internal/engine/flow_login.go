@@ -17,6 +17,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -41,7 +42,7 @@ type loginSessionInput struct {
 func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error) {
 	identifier := strings.TrimSpace(in.Identifier)
 	if identifier == "" || in.Password == "" {
-		return s.rejectLogin(ctx, in, "", iam.ErrInvalidCredentials), nil
+		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
 	requiresVerification := s.registrationVerificationRequired()
 
@@ -65,7 +66,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	default:
 		u, err = s.getUserByUsername(ctx, identifier)
 		if err != nil || u == nil {
-			return s.rejectLogin(ctx, in, "", iam.ErrInvalidCredentials), nil
+			return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 		}
 	}
 
@@ -82,7 +83,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
-	if errors.Is(err, iam.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
+	if errors.Is(err, errmodel.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
 	return out, err
@@ -91,12 +92,12 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 // loginRejection maps a credential/liveness failure to its rejection reason.
 func loginRejection(err error) error {
 	switch {
-	case errors.Is(err, iam.ErrUserBanned):
-		return iam.ErrUserBanned
-	case errors.Is(err, iam.ErrPasswordResetRequired):
-		return iam.ErrPasswordResetRequired
+	case errors.Is(err, errmodel.ErrUserBanned):
+		return errmodel.ErrUserBanned
+	case errors.Is(err, errmodel.ErrPasswordResetRequired):
+		return errmodel.ErrPasswordResetRequired
 	default:
-		return iam.ErrInvalidCredentials
+		return errmodel.ErrInvalidCredentials
 	}
 }
 
@@ -116,11 +117,11 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 		return authflow.LoginOutcome{}, err
 	}
 	if !ok {
-		return s.rejectLogin(ctx, in, "", iam.ErrInvalidCredentials), nil
+		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
 	valid, err := password.VerifyArgon2id(pending.PasswordHash, in.Password)
 	if err != nil || !valid {
-		return s.rejectLogin(ctx, in, "", iam.ErrInvalidCredentials), nil
+		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
 	if _, err := s.ResendRegistration(ctx, identifier); err != nil {
 		return authflow.LoginOutcome{}, err
@@ -146,14 +147,14 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	}
 	if needsEmail && s.HasEmailSender() {
 		if err := s.RequestEmailVerification(ctx, *u.Email, 0); err != nil {
-			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", iam.ErrEmailVerificationSendFailed, err))
+			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "email_not_verified")
 		return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: u.ID, Verification: &authflow.VerificationRequired{Identifier: *u.Email, Channel: "email"}}, true, nil
 	}
 	if needsPhone && s.SMSAvailable() {
 		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
-			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", iam.ErrPhoneVerificationSendFailed, err))
+			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "phone_not_verified")
 		return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: u.ID, Verification: &authflow.VerificationRequired{Identifier: *u.PhoneNumber, Channel: "phone"}}, true, nil

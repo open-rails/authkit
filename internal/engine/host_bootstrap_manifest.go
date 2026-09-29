@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 	"gopkg.in/yaml.v3"
 )
@@ -28,7 +29,7 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 		return iam.BootstrapManifest{}, err
 	}
 	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 && len(manifest.Dev.StaticEntitlements) == 0 {
-		return iam.BootstrapManifest{}, iam.ErrInvalidBootstrapManifest
+		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
 	}
 	// Parse is env-less and structural-only; the https/private jwks_uri policy
 	// is enforced at apply time against the target service's environment (#257).
@@ -230,7 +231,7 @@ func (s *Engine) claimBootstrapApply(ctx context.Context, q db.DBTX, name string
 		return true, nil
 	}
 	if !anyClaimed && !graphEmpty {
-		return false, iam.ErrBootstrapDatabaseNotEmpty
+		return false, errmodel.ErrBootstrapDatabaseNotEmpty
 	}
 	_, err = q.Exec(ctx, `INSERT INTO bootstrap_applies (name) VALUES ($1)`, name)
 	return anyClaimed, err
@@ -240,7 +241,7 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 	for _, user := range manifest.Users {
 		username := strings.TrimSpace(user.Username)
 		if username == "" {
-			return iam.ErrInvalidBootstrapManifest
+			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if user.Password != nil {
 			if err := validateBootstrapUserPassword(*user.Password); err != nil {
@@ -250,7 +251,7 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 	}
 	for _, app := range manifest.RemoteApplications {
 		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
-			return iam.ErrInvalidBootstrapManifest
+			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if _, err := normalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: allowInsecureJWKS}); err != nil {
 			return err
@@ -291,22 +292,22 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 	if strings.TrimSpace(p.Hash) != "" || strings.TrimSpace(p.HashAlgo) != "" {
 		modes++
 		if strings.TrimSpace(p.Hash) == "" || strings.TrimSpace(p.HashAlgo) == "" {
-			return iam.ErrInvalidBootstrapManifest
+			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if err := validatePasswordHashForStorage(strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)); err != nil {
-			return fmt.Errorf("%w: %w", iam.ErrInvalidBootstrapManifest, err)
+			return fmt.Errorf("%w: %w", errmodel.ErrInvalidBootstrapManifest, err)
 		}
 	}
 	if p.ResetRequired {
 		modes++
 	}
 	if modes != 1 {
-		return iam.ErrInvalidBootstrapManifest
+		return errmodel.ErrInvalidBootstrapManifest
 	}
 	// enforce-as-desired-state is incompatible with reset_required (#89): a
 	// reset sentinel re-applied every reconcile would force a reset on every run.
 	if p.Enforce && (p.ResetRequired || strings.TrimSpace(p.HashAlgo) == iam.HashAlgoLegacyResetRequired) {
-		return iam.ErrInvalidBootstrapManifest
+		return errmodel.ErrInvalidBootstrapManifest
 	}
 	return nil
 }

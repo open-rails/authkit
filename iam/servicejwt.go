@@ -2,6 +2,8 @@ package iam
 
 import (
 	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 const (
@@ -13,7 +15,7 @@ const (
 )
 
 // ErrInvalidServiceJWT indicates a presented service JWT failed verification.
-var ErrInvalidServiceJWT = E(CodeInvalidServiceJWT)
+var ErrInvalidServiceJWT Error = errmodel.E(errmodel.CodeInvalidServiceJWT)
 
 // ServiceJWTClaims is the canonical AuthKit claim shape for caller-minted
 // machine-to-machine JWTs. Permissions are requested capabilities; receiving

@@ -7,6 +7,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -15,18 +16,18 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// A browser with no refresh cookie is simply signed out: a quiet 401 the
 	// client settles on, not a malformed request.
 	if s.noRefreshCookie(r, body.RefreshToken) {
-		unauthorized(w, iam.CodeNoSession)
+		fail(w, errmodel.CodeNoSession)
 		return
 	}
 	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
 	if !ok {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	ua := r.UserAgent()
@@ -43,17 +44,17 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			s.writeLoginContinuation(w, r, out, nil)
 			return
 		}
-		if errors.Is(err, iam.ErrUserBanned) {
+		if errors.Is(err, errmodel.ErrUserBanned) {
 			// Authoritative about the whole browser: the cookie goes.
 			s.clearRefreshCookie(w, r)
-			unauthorized(w, iam.CodeUserBanned)
+			fail(w, errmodel.CodeUserBanned)
 			return
 		}
 		// Deliberately NOT cleared here: an unknown token is indistinguishable
 		// from a stale one (a lost response after a committed rotation), and
 		// clearing would destroy a still-live jar value over a transient
 		// failure. The client re-authenticates; the cookie is overwritten then.
-		unauthorized(w, iam.CodeInvalidRefreshToken)
+		fail(w, errmodel.CodeInvalidRefreshToken)
 		return
 	}
 
@@ -65,8 +66,8 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 // send2FAEnrollmentRequiredError is the tokenless form for callers without a
 // user id (or a request).
 func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
-	sendErrData(w, http.StatusForbidden, iam.CodeTwoFAEnrollmentRequired, map[string]any{
+	fail(w, errmodel.CodeTwoFAEnrollmentRequired, errmodel.WithMetadata(map[string]any{
 		"requires_2fa_enrollment": true,
 		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
-	})
+	}))
 }

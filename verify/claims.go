@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/helpers/auth"
 )
@@ -401,5 +402,5 @@ func GetClaims(ctx context.Context) (Claims, error) {
 	if cl, ok := ClaimsFromContext(ctx); ok {
 		return cl, nil
 	}
-	return Claims{}, iam.E(iam.CodeUnauthenticated)
+	return Claims{}, errmodel.E(errmodel.CodeUnauthenticated)
 }

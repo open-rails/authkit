@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -273,7 +274,7 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 				}
 			}
 			_, err = f.engine.RedeemGroupInviteLink(ctx, link.Code, f.newUser("redeemer").ID)
-			require.ErrorIs(t, err, iam.ErrInviteLinkRevoked)
+			require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked)
 		})
 	}
 }

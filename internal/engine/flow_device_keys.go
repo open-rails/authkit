@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -113,7 +114,7 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 		return authflow.DeviceKeyChallenge{}, errDeviceKeyInvalid
 	}
 	if s.email == nil {
-		return authflow.DeviceKeyChallenge{}, iam.ErrEmailSenderUnavailable
+		return authflow.DeviceKeyChallenge{}, errmodel.ErrEmailSenderUnavailable
 	}
 
 	now := time.Now().UTC()
@@ -263,7 +264,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 			return authflow.DeviceKey{}, "", false, err
 		}
 		if !allowed {
-			return authflow.DeviceKey{}, "", false, iam.ErrRegistrationDisabled
+			return authflow.DeviceKey{}, "", false, errmodel.ErrRegistrationDisabled
 		}
 	}
 

@@ -5,15 +5,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 
@@ -22,7 +22,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		NewPassword     string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if body.CurrentPassword != "" && s.rateLimited(w, r, RLPasswordStepUp) {
@@ -43,22 +43,22 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
-			if errors.Is(verr, iam.ErrPasswordResetRequired) {
-				unauthorized(w, iam.CodePasswordResetRequired)
+			if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
+				fail(w, errmodel.CodePasswordResetRequired)
 				return
 			}
-			unauthorized(w, iam.CodeInvalidPassword)
+			fail(w, errmodel.CodeInvalidPassword)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, iam.CodeStepUpFailed, err)
+			serverErr(w, "step_up_failed", err)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 		var err error
 		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
-			serverErr(w, iam.CodeTokenIssueFailed, err)
+			serverErr(w, "token_issue_failed", err)
 			return
 		}
 		delete(authMeta, "ok")
@@ -67,7 +67,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	keep := keepSession(claims)
 	hadPwd, err := s.svc.HasPassword(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, iam.CodeDatabaseError, err)
+		serverErr(w, "database_error", err)
 		return
 	}
 	var changeErr error
@@ -77,17 +77,17 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		changeErr = s.svc.ChangePassword(r.Context(), claims.UserID, body.CurrentPassword, body.NewPassword, keep)
 	}
 	if changeErr != nil {
-		if errors.Is(changeErr, iam.ErrPasswordResetRequired) {
+		if errors.Is(changeErr, errmodel.ErrPasswordResetRequired) {
 			// The current password can never verify against a legacy
 			// reset-required hash; route the user to the reset flow.
-			badRequest(w, iam.CodePasswordResetRequired)
+			fail(w, errmodel.CodePasswordResetRequired)
 			return
 		}
 		if authflow.ValidationErrorCode(changeErr) != "" {
 			writeError(w, changeErr)
 			return
 		}
-		badRequest(w, iam.CodePasswordChangeFailed)
+		fail(w, errmodel.CodePasswordChangeFailed)
 		return
 	}
 

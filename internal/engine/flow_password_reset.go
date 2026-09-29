@@ -7,9 +7,9 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -83,7 +83,7 @@ func (s *Engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 // or reserved account gets the same silent 202 as an unknown address (no token,
 // no message); only a lookup failure is surfaced.
 func resetGateError(err error) error {
-	if errors.Is(err, iam.ErrUserBanned) {
+	if errors.Is(err, errmodel.ErrUserBanned) {
 		return nil
 	}
 	return err

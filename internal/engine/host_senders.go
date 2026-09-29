@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // EmailSender mirrors authkit.EmailSender.
@@ -93,14 +94,14 @@ func emailDeliveryError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %w", iam.ErrEmailDeliveryFailed, err)
+	return fmt.Errorf("%w: %w", errmodel.ErrEmailDeliveryFailed, err)
 }
 
 func smsDeliveryError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %w", iam.ErrSMSDeliveryFailed, err)
+	return fmt.Errorf("%w: %w", errmodel.ErrSMSDeliveryFailed, err)
 }
 
 // ValidateVerificationConfiguration ensures registration verification policy

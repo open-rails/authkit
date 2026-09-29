@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -75,14 +76,14 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 	err = s.mutateCredentials(ctx, userID, keepSessionID, reason, func(tx pgx.Tx, q *db.Queries, account db.UserCredentialVersionForUpdateRow) error {
 		if grant != nil {
 			if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
-				return iam.ErrUserBanned
+				return errmodel.ErrUserBanned
 			}
 			reserved, err := q.UserIsReserved(ctx, userID)
 			if err != nil {
 				return err
 			}
 			if reserved {
-				return iam.ErrUserBanned
+				return errmodel.ErrUserBanned
 			}
 			contact := account.Email
 			if grant.Channel == "sms" {
@@ -134,16 +135,16 @@ func verifyPasswordHash(hash, algo, pass string) error {
 	var err error
 	switch algo {
 	case iam.HashAlgoLegacyResetRequired:
-		return iam.ErrPasswordResetRequired
+		return errmodel.ErrPasswordResetRequired
 	case "argon2id":
 		ok, err = password.VerifyArgon2id(hash, pass)
 	case "bcrypt":
 		ok, err = password.VerifyBcrypt(hash, pass)
 	default:
-		return iam.ErrPasswordResetRequired
+		return errmodel.ErrPasswordResetRequired
 	}
 	if errors.Is(err, password.ErrInvalidHash) {
-		return iam.ErrPasswordResetRequired
+		return errmodel.ErrPasswordResetRequired
 	}
 	if err != nil || !ok {
 		return jwt.ErrTokenInvalidClaims

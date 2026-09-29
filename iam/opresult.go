@@ -2,6 +2,8 @@ package iam
 
 import (
 	"encoding/json"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // OpResult is the per-item outcome of a batch mutation (#219/#222): batch
@@ -25,11 +27,7 @@ type opResultWire struct {
 func (r OpResult) MarshalJSON() ([]byte, error) {
 	w := opResultWire{ID: r.ID}
 	if r.Err != nil {
-		if e := AsError(r.Err); e != nil && e.Status != 500 {
-			w.Error = string(e.Code)
-		} else {
-			w.Error = string(CodeInternalError)
-		}
+		w.Error = errmodel.Wire(r.Err).Code()
 	}
 	return json.Marshal(w)
 }
@@ -42,7 +40,7 @@ func (r *OpResult) UnmarshalJSON(b []byte) error {
 	r.ID = w.ID
 	r.Err = nil
 	if w.Error != "" {
-		r.Err = E(Code(w.Error))
+		r.Err = errmodel.E(errmodel.Code(w.Error))
 	}
 	return nil
 }

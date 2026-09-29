@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // User directory and lifecycle: lookups, access/ban checks, create, import,
@@ -91,20 +92,20 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
 		return jwt.ErrTokenInvalidClaims
 	}
 	if u.DeletedAt != nil {
-		return iam.ErrUserBanned
+		return errmodel.ErrUserBanned
 	}
 	reserved, err := s.isUserReserved(ctx, strings.TrimSpace(u.ID))
 	if err != nil {
 		return err
 	}
 	if reserved {
-		return iam.ErrUserBanned
+		return errmodel.ErrUserBanned
 	}
 	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 		return err
 	}
 	if !livenessAllowed(u, reserved) {
-		return iam.ErrUserBanned
+		return errmodel.ErrUserBanned
 	}
 	return nil
 }
@@ -607,7 +608,7 @@ func (s *Engine) UpdateAvatarURL(ctx context.Context, id string, avatarURL *stri
 			avatarURL = nil
 		} else {
 			if len(trimmed) > maxAvatarURLLen || strings.ContainsAny(trimmed, "\n\r") {
-				return iam.ErrAvatarURLInvalid
+				return errmodel.ErrAvatarURLInvalid
 			}
 			avatarURL = &trimmed
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -39,7 +40,7 @@ type totpEnrollmentData struct {
 // startTOTPEnrollment creates a short-lived pending authenticator-app secret.
 func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
 	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
-		return "", "", iam.ErrTwoFAMethodUnavailable
+		return "", "", errmodel.ErrTwoFAMethodUnavailable
 	}
 	if _, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey); err != nil {
 		return "", "", fmt.Errorf("totp secret encryption key not configured")
@@ -85,7 +86,7 @@ type totpEnrollment struct {
 func (s *Engine) enableTOTP2FA(ctx context.Context, in totpEnrollment, provenSessionID string) ([]string, bool, error) {
 	userID := in.UserID
 	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
-		return nil, false, iam.ErrTwoFAMethodUnavailable
+		return nil, false, errmodel.ErrTwoFAMethodUnavailable
 	}
 	var pending totpEnrollmentData
 	raw, ok, err := s.ephemReadJSON(ctx, keyTOTPEnrollment+userID, &pending)
@@ -291,7 +292,7 @@ func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) error
 		return err
 	}
 	if user == nil || user.Email == nil || strings.TrimSpace(*user.Email) == "" {
-		return iam.ErrInvalidTwoFAMethod
+		return errmodel.ErrInvalidTwoFAMethod
 	}
 	code := randAlphanumeric(6)
 	email := contact.NormalizeEmail(*user.Email)
@@ -324,7 +325,7 @@ func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 		return false, err
 	}
 	if !ok || data.CodeHash == "" {
-		return false, iam.ErrTwoFACodeExpired
+		return false, errmodel.ErrTwoFACodeExpired
 	}
 	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -332,17 +333,17 @@ func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 	}
 	if user == nil || user.Email == nil || contact.NormalizeEmail(*user.Email) != data.Email {
 		_ = s.ephemDel(ctx, key)
-		return false, iam.ErrTwoFACodeExpired
+		return false, errmodel.ErrTwoFACodeExpired
 	}
 	if !secret.Equal(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
 		if s.recordFailedAttempt(ctx, keyEmail2FASetupAttempts+userID, email2FASetupTTL, maxEmail2FASetupAttempts) {
 			_ = s.ephemDel(ctx, key)
-			return false, iam.ErrTwoFACodeExpired
+			return false, errmodel.ErrTwoFACodeExpired
 		}
 		return false, nil
 	}
 	if err := s.claimProof(ctx, key, raw); err != nil {
-		return false, iam.ErrTwoFACodeExpired
+		return false, errmodel.ErrTwoFACodeExpired
 	}
 	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
 	return true, nil

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Provider links: linking and unlinking external identity providers and
@@ -152,10 +152,10 @@ func linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, pr
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, iam.ErrProviderAlreadyLinked
+			return false, errmodel.ErrProviderAlreadyLinked
 		}
 		if isUniqueViolation(err, "user_providers_user_id_issuer_key") {
-			return false, iam.ErrProviderChangeRequiresUnlink
+			return false, errmodel.ErrProviderChangeRequiresUnlink
 		}
 		return false, err
 	}

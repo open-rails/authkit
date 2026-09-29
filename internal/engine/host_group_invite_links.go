@@ -27,6 +27,7 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -75,7 +76,7 @@ func (s *Engine) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupI
 	role := iam.Role(strings.ToLower(strings.TrimSpace(string(req.Role))))
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if role == "" || invitedBy == "" {
-		return iam.GroupInviteLinkCreated{}, iam.ErrInvalidInvite
+		return iam.GroupInviteLinkCreated{}, errmodel.ErrInvalidInvite
 	}
 	group := iam.GroupBySlug(req.Persona, req.InstanceSlug)
 	sch := s.groupSchemaOrDefault()
@@ -151,7 +152,7 @@ func (s *Engine) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, 
 	}
 	linkID = strings.TrimSpace(linkID)
 	if linkID == "" {
-		return iam.ErrInvalidInvite
+		return errmodel.ErrInvalidInvite
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
@@ -183,7 +184,7 @@ func (s *Engine) RevokeGroupInviteLinkForActor(ctx context.Context, actor iam.Ac
 	}
 	linkID = strings.TrimSpace(linkID)
 	if linkID == "" {
-		return iam.ErrInvalidInvite
+		return errmodel.ErrInvalidInvite
 	}
 	g, err := s.resolveGroup(ctx, s.groupStore(), group)
 	if err != nil {
@@ -219,7 +220,7 @@ func (s *Engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 	code = strings.TrimSpace(code)
 	redeemerUserID = strings.TrimSpace(redeemerUserID)
 	if code == "" || redeemerUserID == "" {
-		return zero, iam.ErrInvalidInvite
+		return zero, errmodel.ErrInvalidInvite
 	}
 	codeHash := sha256Hex(code)
 
@@ -263,10 +264,10 @@ func (s *Engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		return zero, err
 	}
 	if revokedAt != nil {
-		return zero, iam.ErrInviteLinkRevoked
+		return zero, errmodel.ErrInviteLinkRevoked
 	}
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
-		return zero, iam.ErrInviteLinkExpired
+		return zero, errmodel.ErrInviteLinkExpired
 	}
 	// Idempotency: already holds this role => success, no use consumed.
 	already, err := subjectHasRole(ctx, q, groupID, redeemerUserID, role)

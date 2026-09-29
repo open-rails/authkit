@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -55,7 +56,7 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *iam.User, t
 		return iam.ErrUserNotFound
 	}
 	if u.EmailVerified {
-		return iam.ErrEmailAlreadyVerified
+		return errmodel.ErrEmailAlreadyVerified
 	}
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
@@ -121,7 +122,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 		}
 		if u != nil {
 			if u.PhoneVerified {
-				return iam.ErrPhoneAlreadyVerified
+				return errmodel.ErrPhoneAlreadyVerified
 			}
 			if u.PhoneNumber == nil {
 				return iam.ErrUserNotFound

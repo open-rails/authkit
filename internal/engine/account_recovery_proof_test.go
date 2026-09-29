@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	deletedVersion, err := s.q.UserCredentialVersion(t.Context(), user.ID)
 	require.NoError(t, err)
 	_, err = s.verifyContactProof(t.Context(), user.ID, deletedVersion.CredentialVersion, passwordlessChannelEmail, *user.Email, nil)
-	require.ErrorIs(t, err, iam.ErrUserBanned, "standalone contact finalization cannot use the recovery-only login allowance")
+	require.ErrorIs(t, err, errmodel.ErrUserBanned, "standalone contact finalization cannot use the recovery-only login allowance")
 	var verified bool
 	require.NoError(t, s.pg.QueryRow(t.Context(), "SELECT email_verified FROM users WHERE id=$1::uuid", user.ID).Scan(&verified))
 	require.False(t, verified)

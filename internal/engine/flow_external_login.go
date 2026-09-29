@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // CompleteExternalLogin resolves the identity to a user and signs it in.
@@ -82,11 +83,11 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 	// link the provider explicitly.
 	if accountEmail != "" {
 		if u, err := s.GetUserByEmail(ctx, accountEmail); err == nil && u != nil {
-			return "", false, iam.ErrAccountExistsLinkRequired
+			return "", false, errmodel.ErrAccountExistsLinkRequired
 		}
 	}
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
-		return "", false, iam.ErrRegistrationDisabled
+		return "", false, errmodel.ErrRegistrationDisabled
 	}
 	username := s.deriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
 	u, err := s.registerAccount(ctx, accountRegistration{User: iam.ImportUserInput{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})

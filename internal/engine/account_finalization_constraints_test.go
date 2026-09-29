@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +51,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	_, err = pg.Pool.Exec(t.Context(), "INSERT INTO public.host_reference VALUES ($1::uuid)", user.ID)
 	require.NoError(t, err)
 	generation := prepareExpiredDeletion(t, runtime, user.ID)
-	require.ErrorIs(t, runtime.finalizeAccountDeletion(t.Context(), generation, true), iam.ErrUserReferenced)
+	require.ErrorIs(t, runtime.finalizeAccountDeletion(t.Context(), generation, true), errmodel.ErrUserReferenced)
 	var count int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid", user.ID).Scan(&count))
 	require.Equal(t, 1, count, "failed purge rolls back every cascade")

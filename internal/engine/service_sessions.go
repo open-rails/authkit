@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -385,7 +386,7 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 	}
 
 	if (!allowDeleted && account.DeletedAt != nil) || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
-		return nil, iam.ErrUserBanned
+		return nil, errmodel.ErrUserBanned
 	}
 	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
 		return nil, jwt.ErrTokenUnverifiable
@@ -395,7 +396,7 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 		return nil, err
 	}
 	if reserved {
-		return nil, iam.ErrUserBanned
+		return nil, errmodel.ErrUserBanned
 	}
 	row, err := q.UserByID(ctx, userID)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // lockPermissionGroup is the shared lifecycle lock. The caller supplies a
@@ -43,7 +44,7 @@ func (s *Engine) requireDefinedGroupRole(ctx context.Context, st *permissionGrou
 		return err
 	}
 	if _, ok := resolver(groupID, role); !ok {
-		return iam.ErrUnknownRole
+		return errmodel.ErrUnknownRole
 	}
 	return nil
 }

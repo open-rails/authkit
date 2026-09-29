@@ -30,9 +30,9 @@ func TestUsernamePatternMatchesValidator(t *testing.T) {
 
 func TestUsernameLengthErrorsCarryBounds(t *testing.T) {
 	p, _ := UsernamePolicy{MinLength: 6, MaxLength: 8}.Normalize()
-	for s, code := range map[string]Code{"abcde": CodeUsernameTooShort, "abcdefghi": CodeUsernameTooLong} {
-		e := AsError(p.Validate(s))
-		if e == nil || e.Code != code || e.Meta["min_length"] != 6 || e.Meta["max_length"] != 8 {
+	for s, code := range map[string]string{"abcde": "username_too_short", "abcdefghi": "username_too_long"} {
+		e, ok := AsError(p.Validate(s))
+		if !ok || e.Code() != code || e.Metadata()["min_length"] != 6 || e.Metadata()["max_length"] != 8 {
 			t.Errorf("%q: %+v", s, e)
 		}
 	}

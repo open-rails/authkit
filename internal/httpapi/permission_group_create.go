@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -26,12 +27,12 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if !ok || claims.UserID == "" {
 		// Instance ownership needs a user subject; machine principals cannot
 		// create through this route.
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 	var body groupInstanceCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Anti-squat velocity: a create IS a claim — capped per IP and per user

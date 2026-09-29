@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys. Role
@@ -25,7 +26,7 @@ type apiKeyMintRequest struct {
 func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	createdBy, ok := userActorID(w, actor)
@@ -93,7 +94,7 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group 
 // param). 404 if no matching, not-already-revoked key exists in this group.
 func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, tokenID string) {
 	if tokenID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	ok, err := s.svc.RevokeAPIKeyForActor(r.Context(), actor, group, tokenID)
@@ -102,7 +103,7 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, grou
 		return
 	}
 	if !ok {
-		notFound(w, iam.CodeNotFound)
+		fail(w, errmodel.CodeNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": tokenID})

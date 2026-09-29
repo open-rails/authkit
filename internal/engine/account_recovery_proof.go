@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -43,7 +44,7 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *ia
 	var id string
 	err := tx.QueryRow(ctx, `SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state='deleted' AND deleted_at=$2 AND purge_at>statement_timestamp()`, user.ID, user.DeletedAt).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.E(iam.CodeAccountRecoveryExpired)
+		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
 		return err

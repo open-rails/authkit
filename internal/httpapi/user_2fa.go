@@ -10,9 +10,8 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit/iam"
 )
 
 type twoFactorStatusResponse struct {
@@ -36,7 +35,7 @@ type TwoFactorFactorResponse struct {
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 
@@ -66,7 +65,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	scope, err := s.svc.BeginTwoFactorEnrollment(r.Context(), claims.UserID, claims.TwoFAEnrollment, claims.SessionID)
@@ -94,11 +93,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		FactorID    string  `json:"factor_id,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if claims.TwoFAEnrollment && strings.TrimSpace(req.FactorID) != "" {
-		forbidden(w, iam.CodeForbidden)
+		fail(w, errmodel.CodeForbidden)
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
@@ -134,7 +133,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
-			unauthorized(w, iam.CodeInvalidChallenge)
+			fail(w, errmodel.CodeInvalidChallenge)
 		} else {
 			writeError(w, err)
 		}
@@ -169,7 +168,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 			fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 			if err != nil {
-				serverErr(w, iam.CodeTokenIssueFailed, err)
+				serverErr(w, "token_issue_failed", err)
 				return
 			}
 			for k, v := range fresh {
@@ -183,7 +182,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -230,7 +229,7 @@ func removedMFARolesResponse(removed []authflow.RemovedMFARoleAssignment) []map[
 func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
@@ -239,7 +238,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 
 	backupCodes, err := s.svc.RegenerateBackupCodes(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, iam.CodeRegenerateCodesFailed, err)
+		serverErr(w, "regenerate_codes_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})

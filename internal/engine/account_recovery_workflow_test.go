@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -64,7 +65,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 			} `json:"error"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		require.Equal(t, string(iam.CodeAccountRecoveryRequired), body.Error.Code)
+		require.Equal(t, string(errmodel.CodeAccountRecoveryRequired), body.Error.Code)
 		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
 		return body.Error.Metadata.Recovery.Token
 	}

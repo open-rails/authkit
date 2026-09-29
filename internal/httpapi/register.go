@@ -8,6 +8,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 type registrationNextAction string
@@ -67,12 +68,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || strings.TrimSpace(req.Username) == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Per-identifier check: prevents spamming verification emails to the same
@@ -131,12 +132,12 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || req.Password == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
@@ -150,7 +151,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, iam.CodeAbandonFailed, nil)
+				serverErr(w, "abandon_failed", nil)
 				return
 			}
 		}
@@ -162,7 +163,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, iam.CodeAbandonFailed, nil)
+			serverErr(w, "abandon_failed", nil)
 			return
 		}
 	}

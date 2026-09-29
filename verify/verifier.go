@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/dpop"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -30,7 +31,7 @@ const MaxDelegatedRoles = 64
 
 // errPermissionNotGranted rejects a token whose `permissions` claim names a
 // permission outside the issuer remote application's stored grant.
-var errPermissionNotGranted = iam.E(iam.CodePermissionNotGranted)
+var errPermissionNotGranted = errmodel.E(errmodel.CodePermissionNotGranted)
 
 // Verifier validates JWTs from one or more issuers.
 //
@@ -264,11 +265,11 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
-		return Claims{}, true, iam.E(iam.CodeInvalidToken)
+		return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	keyID, secret, ok := iam.ParseAPIKey(v.tokenPrefix, token)
 	if !ok {
-		return Claims{}, true, iam.E(iam.CodeInvalidToken)
+		return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	resolved, rerr := v.enrich.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if rerr != nil {
@@ -281,7 +282,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 			return Claims{}, true, iam.ErrInvalidAccessToken
 		default:
 			// Never leak DB/internal errors through the auth response.
-			return Claims{}, true, iam.E(iam.CodeInvalidToken)
+			return Claims{}, true, errmodel.E(errmodel.CodeInvalidToken)
 		}
 	}
 	return Claims{
@@ -300,7 +301,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*iam.RemoteApplication, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
-		return nil, iam.E(iam.CodeBadIssuer)
+		return nil, errmodel.E(errmodel.CodeBadIssuer)
 	}
 	v.mu.RLock()
 	var src RemoteApplicationSource
@@ -311,12 +312,12 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*iam.R
 	}
 	v.mu.RUnlock()
 	if src == nil {
-		return nil, iam.E(iam.CodeInvalidToken)
+		return nil, errmodel.E(errmodel.CodeInvalidToken)
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
 	if err != nil || ra == nil || !ra.Enabled || ra.Issuer != issuer {
-		return nil, iam.E(iam.CodeBadIssuer)
+		return nil, errmodel.E(errmodel.CodeBadIssuer)
 	}
 	return ra, nil
 }
@@ -356,11 +357,11 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 // uses the full ceiling; a present claim must be a subset or the token fails.
 func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *iam.RemoteApplication, tokenTyp string, claimedPerms []string) (Claims, error) {
 	if v.enrich == nil || ra.ID == "" {
-		return Claims{}, iam.E(iam.CodeInvalidToken)
+		return Claims{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	authority, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
-		return Claims{}, iam.E(iam.CodeInvalidToken)
+		return Claims{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
 
 	perms, err := permissionsWithinAuthority(claimedPerms, authority.Permissions)
@@ -927,7 +928,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
 	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
 	if hasSub && hasDelegatedSub {
-		return Claims{}, iam.E(iam.CodeConflictingSubject)
+		return Claims{}, errmodel.E(errmodel.CodeConflictingSubject)
 	}
 
 	// Remote application access token (#76): a remote_application acting AS
@@ -939,7 +940,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// DOWN-SCOPE the stored authority (#76 amendment), never widen it.
 	if isRemoteAppTyp {
 		if hasSub || hasDelegatedSub {
-			return Claims{}, iam.E(iam.CodeRemoteApplicationAccessHasSubject)
+			return Claims{}, errmodel.E(errmodel.CodeRemoteApplicationAccessHasSubject)
 		}
 		var claimedPerms []string
 		if _, ok := mapClaims["permissions"]; ok {
@@ -949,7 +950,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 			}
 		}
 		if issuer.application == nil {
-			return Claims{}, iam.E(iam.CodeBadIssuer)
+			return Claims{}, errmodel.E(errmodel.CodeBadIssuer)
 		}
 		return v.resolveRemoteApplicationSelf(ctx, issuer.application, tokenTyp, claimedPerms)
 	}
@@ -958,38 +959,38 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	// local account may be implied. Reject it explicitly so a misconfigured
 	// issuer can't slip a local subject into a API key.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
-		return Claims{}, iam.E(iam.CodeAccessTokenHasSub)
+		return Claims{}, errmodel.E(errmodel.CodeAccessTokenHasSub)
 	}
 
 	switch {
 	case hasDelegatedSub && !isDelegatedAccessTyp:
-		return Claims{}, iam.E(iam.CodeDelegatedAccessWrongTyp)
+		return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessWrongTyp)
 	case hasSub && !isAccessTyp:
-		return Claims{}, iam.E(iam.CodeAccessTokenWrongTyp)
+		return Claims{}, errmodel.E(errmodel.CodeAccessTokenWrongTyp)
 	case tokenTyp == "":
-		return Claims{}, iam.E(iam.CodeMissingTokenTyp)
+		return Claims{}, errmodel.E(errmodel.CodeMissingTokenTyp)
 	case !isAccessTyp && !isDelegatedAccessTyp:
-		return Claims{}, iam.E(iam.CodeUnsupportedTokenTyp)
+		return Claims{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
 	case isDelegatedAccessTyp && !hasDelegatedSub:
-		return Claims{}, iam.E(iam.CodeMissingDelegatedSub)
+		return Claims{}, errmodel.E(errmodel.CodeMissingDelegatedSub)
 	case isAccessTyp && !hasSub:
-		return Claims{}, iam.E(iam.CodeMissingSub)
+		return Claims{}, errmodel.E(errmodel.CodeMissingSub)
 	}
 
 	if isDelegatedAccessTyp {
 		// A delegated access token carries tier/roles under `attributes`, never as
 		// top-level claims; reject the top-level forms as token hygiene.
 		if strClaim(mapClaims, "user_tier") != "" {
-			return Claims{}, iam.E(iam.CodeDelegatedAccessHasUserTier)
+			return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessHasUserTier)
 		}
 		if len(strSliceClaim(mapClaims, "roles")) > 0 {
-			return Claims{}, iam.E(iam.CodeDelegatedAccessHasRoles)
+			return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessHasRoles)
 		}
 	}
 	cl := v.extractClaims(mapClaims)
 	if isAccessTyp {
 		if issuer.managed {
-			return Claims{}, iam.E(iam.CodeBadIssuer)
+			return Claims{}, errmodel.E(errmodel.CodeBadIssuer)
 		}
 		if issuer.isLocal {
 			// Native JWTs establish identity, never group/role/permission
@@ -1040,7 +1041,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	if confirmationKind == jwtkit.JWKThumbprintMember {
 		if _, err := dpop.VerifyRequest(r, v.dpopRequestURL(r), tokenStr, confirmation, v.dpopReplay); err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
-				return Claims{}, iam.E(iam.CodeInternalError, iam.WithCause(fmt.Errorf("%w: %w", ErrSenderProofUnavailable, err)))
+				return Claims{}, errmodel.Internal("sender_proof_replay", fmt.Errorf("%w: %w", ErrSenderProofUnavailable, err))
 			}
 			return Claims{}, errDPoPProofRequired
 		}
@@ -1069,7 +1070,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r
 	}
 	dp, ok := cl.DelegatedAccess()
 	if !ok {
-		return Claims{}, DelegatedPrincipal{}, iam.E(iam.CodeNotDelegatedAccessToken)
+		return Claims{}, DelegatedPrincipal{}, errmodel.E(errmodel.CodeNotDelegatedAccessToken)
 	}
 	return cl, dp, nil
 }
@@ -1079,7 +1080,7 @@ func (v *Verifier) verifyDelegatedAccess(ctx context.Context, tokenStr string, r
 func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) (jwt.MapClaims, string, *issuerEntry, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return nil, "", nil, iam.E(iam.CodeMissingToken)
+		return nil, "", nil, errmodel.E(errmodel.CodeMissingToken)
 	}
 
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
@@ -1112,15 +1113,15 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 		}
-		if unavailable := iam.AsError(err); unavailable != nil && unavailable.Code == iam.CodeIssuerKeysUnavailable {
+		if errmodel.CodeOf(err) == errmodel.CodeIssuerKeysUnavailable {
 			// An expired or foreign-audience token is rejected as such, not 503.
 			if cerr := v.checkClaims(mapClaims, match); cerr != nil {
 				return nil, "", nil, cerr
 			}
-			return nil, "", nil, unavailable
+			return nil, "", nil, errmodel.As(err)
 		}
 		if err != nil || tok == nil || !tok.Valid {
-			return nil, "", nil, iam.E(iam.CodeInvalidToken)
+			return nil, "", nil, errmodel.E(errmodel.CodeInvalidToken)
 		}
 	}
 
@@ -1136,25 +1137,25 @@ func (v *Verifier) verifyClaimsWithHeader(ctx context.Context, tokenStr string) 
 // checkClaims enforces issuer match, audience and exp/nbf/iat with skew.
 func (v *Verifier) checkClaims(mapClaims jwt.MapClaims, match *issuerEntry) error {
 	if match == nil {
-		return iam.E(iam.CodeBadIssuer)
+		return errmodel.E(errmodel.CodeBadIssuer)
 	}
 	if !audContainsAny(mapClaims["aud"], match.audiences) {
-		return iam.E(iam.CodeBadAudience)
+		return errmodel.E(errmodel.CodeBadAudience)
 	}
 	skew := v.skew
 	now := time.Now()
 	expUnix, ok := toUnix(mapClaims["exp"])
 	if !ok {
-		return iam.E(iam.CodeMissingExp)
+		return errmodel.E(errmodel.CodeMissingExp)
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return iam.E(iam.CodeAccessTokenExpired)
+		return errmodel.E(errmodel.CodeAccessTokenExpired)
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok && time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-		return iam.E(iam.CodeTokenNotYetValid)
+		return errmodel.E(errmodel.CodeTokenNotYetValid)
 	}
 	if iatUnix, ok := toUnix(mapClaims["iat"]); ok && time.Unix(iatUnix, 0).After(now.Add(skew)) {
-		return iam.E(iam.CodeTokenNotYetValid)
+		return errmodel.E(errmodel.CodeTokenNotYetValid)
 	}
 	return nil
 }
@@ -1331,7 +1332,7 @@ func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEnt
 		match = v.matchIssuer(issuer)
 	}
 	if match == nil {
-		return nil, iam.E(iam.CodeBadIssuer)
+		return nil, errmodel.E(errmodel.CodeBadIssuer)
 	}
 	if match.managed {
 		ra, err := v.remoteApplication(ctx, issuer)
@@ -1344,11 +1345,11 @@ func (v *Verifier) resolveIssuer(ctx context.Context, issuer string) (*issuerEnt
 		case iam.RemoteAppModeJWKS:
 			match.jwksURL = strings.TrimSpace(ra.JWKSURI)
 			if match.jwksURL == "" {
-				return nil, iam.E(iam.CodeBadIssuer)
+				return nil, errmodel.E(errmodel.CodeBadIssuer)
 			}
 		case iam.RemoteAppModeStatic:
 		default:
-			return nil, iam.E(iam.CodeBadIssuer)
+			return nil, errmodel.E(errmodel.CodeBadIssuer)
 		}
 	}
 	return match, nil
@@ -1380,7 +1381,7 @@ func (v *Verifier) algAllowed(alg string) bool {
 func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string) (crypto.PublicKey, error) {
 	iss := ie.issuer
 	if iss == "" {
-		return nil, iam.E(iam.CodeBadIssuer)
+		return nil, errmodel.E(errmodel.CodeBadIssuer)
 	}
 
 	if ie.publicKeys != nil {
@@ -1474,7 +1475,7 @@ func (c *issuerKeys) pastMaxStale(now time.Time) bool {
 }
 
 func issuerKeysUnavailable(cause error) error {
-	return iam.E(iam.CodeIssuerKeysUnavailable, iam.WithCause(cause))
+	return errmodel.E(errmodel.CodeIssuerKeysUnavailable, errmodel.WithCause(cause))
 }
 
 // startRefreshLocked starts the issuer's background refresh loop unless one is
@@ -1789,14 +1790,14 @@ func selectPublicKey(keys map[string]crypto.PublicKey, kid string) (crypto.Publi
 	key := keys[kid]
 	if kid == "" {
 		if len(keys) != 1 {
-			return nil, iam.E(iam.CodeMissingKID)
+			return nil, errmodel.E(errmodel.CodeMissingKID)
 		}
 		for _, candidate := range keys {
 			key = candidate
 		}
 	}
 	if key == nil {
-		return nil, iam.E(iam.CodeUnknownKID)
+		return nil, errmodel.E(errmodel.CodeUnknownKID)
 	}
 	if err := jwtkit.ValidatePublicKey(key); err != nil {
 		return nil, err

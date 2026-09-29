@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/verify"
@@ -35,14 +36,14 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	q := r.URL.Query()
 	if q.Get("link") == "1" || strings.EqualFold(q.Get("link"), "true") {
-		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, iam.CodeAuthRequiredForLink)
+		s.failBrowserFlow(w, r, nil, provider, errmodel.E(errmodel.CodeAuthRequiredForLink))
 		return
 	}
 	// An invitation is a bearer credential: it never rides in a URL, where
 	// history, logs and Referer keep it. POST /{provider}/login binds it to the
 	// flow's server-side state instead.
 	if q.Has("account_invite_token") {
-		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, iam.CodeInvalidRequest)
+		s.failBrowserFlow(w, r, nil, provider, errmodel.E(errmodel.CodeInvalidRequest))
 		return
 	}
 	s.startProviderFlow(w, r, provider, flowStart{login: &loginStart{ui: q.Get("ui"), popupNonce: q.Get("popup_nonce"), returnTo: q.Get("return_to")}})
@@ -59,13 +60,13 @@ func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
 		PopupNonce         string `json:"popup_nonce"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// The response sets the flow's state cookie; a cross-site page must not
 	// bind a flow into this browser.
 	if !s.cookieOriginAllowed(r) {
-		forbidden(w, iam.CodeForbidden)
+		fail(w, errmodel.CodeForbidden)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
@@ -76,7 +77,7 @@ func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -87,7 +88,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	}
 	freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	if err != nil || freshness.StepUpRequiredForSensitiveOps {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authflow.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
@@ -100,16 +101,16 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 // (and any POST) are fetch calls and receive {"auth_url","state"} JSON.
 func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name string, start flowStart) {
 	browserNav := start.login != nil && r.Method != http.MethodPost
-	fail := func(status int, code iam.Code) {
+	reject := func(err error) {
 		if browserNav {
-			s.failBrowserFlow(w, r, nil, name, status, code)
+			s.failBrowserFlow(w, r, nil, name, err)
 			return
 		}
-		sendErr(w, status, code)
+		writeError(w, err)
 	}
 	p, ok := s.provider(name)
 	if !ok {
-		fail(http.StatusBadRequest, iam.CodeUnknownProvider)
+		reject(errmodel.E(errmodel.CodeUnknownProvider))
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -119,7 +120,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	if start.login != nil {
 		login = *start.login
 		if login.ui != "" && login.ui != "popup" {
-			fail(http.StatusBadRequest, iam.CodeInvalidUI)
+			reject(errmodel.E(errmodel.CodeInvalidUI))
 			return
 		}
 	}
@@ -130,7 +131,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	if p.PKCE() {
 		var err error
 		if verifier, challenge, err = oidcstate.GeneratePKCE(); err != nil {
-			fail(http.StatusInternalServerError, iam.CodePKCEGenerationFailed)
+			reject(errmodel.Internal("pkce_generation_failed", err))
 			return
 		}
 	}
@@ -142,11 +143,11 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		State: state, Nonce: nonce, CodeChallenge: challenge, RedirectURI: redirectURI, Params: start.params,
 	})
 	if errors.Is(err, authprovider.ErrProviderUnavailable) {
-		fail(http.StatusServiceUnavailable, iam.CodeProviderUnavailable)
+		reject(errmodel.E(errmodel.CodeProviderUnavailable))
 		return
 	}
 	if err != nil {
-		fail(http.StatusBadRequest, iam.CodeOIDCBeginFailed)
+		reject(errmodel.E(errmodel.CodeOIDCBeginFailed))
 		return
 	}
 	sd := oidcstate.StateData{
@@ -173,7 +174,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		sd.StepUpStartedAt = start.stepUp.StepUpStartedAt
 	}
 	if err := s.svc.PutOIDCState(r.Context(), state, sd); err != nil {
-		fail(http.StatusInternalServerError, iam.CodeStateStoreFailed)
+		reject(errmodel.Internal("state_store_failed", err))
 		return
 	}
 	if browserNav {
@@ -192,7 +193,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	name := r.PathValue("provider")
 	p, ok := s.provider(name)
 	if !ok {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, iam.CodeUnknownProvider)
+		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeUnknownProvider))
 		return
 	}
 	name = p.Name()
@@ -203,13 +204,13 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	if qErr := params.Get("error"); qErr != "" {
 		logIdPCallbackError(name, r)
 		errSD := s.recoverCallbackState(w, r, p)
-		s.failBrowserFlow(w, r, errSD, name, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
+		s.failBrowserFlow(w, r, errSD, name, providerCallbackError(qErr))
 		return
 	}
 	state := params.Get("state")
 	code := params.Get("code")
 	if state == "" || code == "" {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, iam.CodeInvalidRequest)
+		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeInvalidRequest))
 		return
 	}
 
@@ -219,12 +220,12 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	cookieOK := s.stateCookieMatches(r, p, state)
 	s.clearStateCookie(w, r, p, state)
 	if !cookieOK {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, iam.CodeInvalidState)
+		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeInvalidState))
 		return
 	}
 	sd, ok, err := s.svc.ConsumeOIDCState(r.Context(), state)
 	if err != nil || !ok || sd.Provider != name {
-		s.failBrowserFlow(w, r, nil, name, http.StatusBadRequest, iam.CodeInvalidState)
+		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeInvalidState))
 		return
 	}
 
@@ -232,11 +233,11 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		Code: code, CodeVerifier: sd.Verifier, Nonce: sd.Nonce, RedirectURI: sd.RedirectURI,
 	})
 	if errors.Is(err, authprovider.ErrProviderUnavailable) {
-		s.failBrowserFlow(w, r, &sd, name, http.StatusServiceUnavailable, iam.CodeProviderUnavailable)
+		s.failBrowserFlow(w, r, &sd, name, errmodel.E(errmodel.CodeProviderUnavailable))
 		return
 	}
 	if err != nil || strings.TrimSpace(identity.Subject) == "" {
-		s.failBrowserFlow(w, r, &sd, name, http.StatusUnauthorized, iam.CodeOIDCExchangeFailed)
+		s.failBrowserFlow(w, r, &sd, name, errmodel.E(errmodel.CodeOIDCExchangeFailed))
 		return
 	}
 	if s.completeOIDCStepUp(w, r, sd, name, p.Issuer(), identity.Subject, identity.AuthTime) {
@@ -257,8 +258,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		Event: "oidc_login", UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
-		status, code := wireCode(err)
-		s.failBrowserFlow(w, r, &sd, name, status, code)
+		s.failBrowserFlow(w, r, &sd, name, err)
 		return
 	}
 	if out.Kind == authflow.LoginProviderLinked {
@@ -290,7 +290,7 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.settings.FrontendBaseURL)
 		if !ok {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, iam.CodeInvalidBaseURL)
+			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("invalid_base_url", nil))
 			return
 		}
 		deliveredRT := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken
@@ -314,7 +314,7 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 		// nullable address, including on an explicit provider-link callback.
 		user, err := s.svc.AdminGetUser(r.Context(), userID)
 		if err != nil || user == nil {
-			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, iam.CodeUserLookupFailed)
+			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("user_lookup_failed", err))
 			return
 		}
 		s.writeTokenSetWith(w, r, http.StatusOK, iam.NewTokenSet(token, rt, exp), map[string]any{

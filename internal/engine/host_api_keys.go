@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -83,16 +84,16 @@ func (s *Engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.AP
 	}
 	name := strings.TrimSpace(opts.Name)
 	if name == "" {
-		return iam.APIKey{}, "", iam.ErrMissingName
+		return iam.APIKey{}, "", errmodel.ErrMissingName
 	}
 	role := iam.Role(strings.ToLower(strings.TrimSpace(string(opts.Role))))
 	if role == "" {
-		return iam.APIKey{}, "", iam.ErrInvalidRole
+		return iam.APIKey{}, "", errmodel.ErrInvalidRole
 	}
 	now := time.Now().UTC()
 	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
-		return iam.APIKey{}, "", iam.ErrInvalidExpiry
+		return iam.APIKey{}, "", errmodel.ErrInvalidExpiry
 	}
 	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)

@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -27,18 +28,18 @@ type memberRequest struct {
 func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	userID := strings.TrimSpace(body.UserID)
 	email := contact.NormalizeEmail(body.Email)
 	if (userID == "") == (email == "") {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	role := iam.Role(strings.TrimSpace(body.Role))
 	if role == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if email != "" {
@@ -53,7 +54,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			u = nil
 		} else if err != nil {
 			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
-			serverErr(w, iam.CodeDatabaseError, nil)
+			serverErr(w, "database_error", nil)
 			return
 		}
 		if u == nil {
@@ -115,7 +116,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 // groupMemberRemove revokes the user's role in the group.
 func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, userID string) {
 	if userID == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.RemoveGroupMembers(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)})
@@ -134,7 +135,7 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, grou
 func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, userID string, role iam.Role) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if userID == "" || role == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)}, role)
@@ -175,7 +176,7 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group
 func (s *Service) groupRolesList(w http.ResponseWriter, persona iam.Persona) {
 	roles, ok := s.svc.PermissionGroupSchema().Roles(persona)
 	if !ok {
-		notFound(w, iam.CodeNotFound)
+		fail(w, errmodel.CodeNotFound)
 		return
 	}
 	data := make([]map[string]any, 0, len(roles))
@@ -198,7 +199,7 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona iam.Persona) {
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 	groups, err := s.svc.ListSubjectGroups(r.Context(), iam.UserSubject(claims.UserID))
@@ -230,7 +231,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, iam.CodeNotAuthenticated)
+		fail(w, errmodel.CodeNotAuthenticated)
 		return
 	}
 	persona := iam.Persona(strings.TrimSpace(r.URL.Query().Get("persona")))

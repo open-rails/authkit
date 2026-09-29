@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -147,7 +148,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		return out, nil
 	}
 	if proof.SessionID != "" && !completedMFA {
-		return authflow.LoginOutcome{}, iam.ErrStepUpRequired
+		return authflow.LoginOutcome{}, errmodel.ErrStepUpRequired
 	}
 	if proof.DeletionID != "" {
 		return s.finishRecoveryProof(ctx, tx, proof)
@@ -181,7 +182,7 @@ func (s *Engine) sendLoginFactor(ctx context.Context, user *iam.User, proof logi
 	}
 	if selected == nil {
 		if factorID != "" || settings == nil || len(settings.BackupCodes) == 0 {
-			return nil, iam.ErrInvalidCode
+			return nil, errmodel.ErrInvalidCode
 		}
 		return &authflow.TwoFactorChallenge{Method: "backup_code", Challenge: nonce, Factors: factors}, nil
 	}
@@ -278,7 +279,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 			}
 		}
 		if selected == nil {
-			return authflow.LoginOutcome{}, iam.ErrInvalidCode
+			return authflow.LoginOutcome{}, errmodel.ErrInvalidCode
 		}
 		method = selected.Method
 		if method == "totp" {
@@ -291,7 +292,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 		return authflow.LoginOutcome{}, err
 	}
 	if !valid {
-		return authflow.LoginOutcome{}, iam.ErrInvalidCode
+		return authflow.LoginOutcome{}, errmodel.ErrInvalidCode
 	}
 	if err := s.claimProof(ctx, keyTwoFactorChallenge+in.UserID, proof.expected); err != nil {
 		return authflow.LoginOutcome{}, err
@@ -340,10 +341,10 @@ func (s *Engine) authorizeLoginEnrollment(ctx context.Context, in authflow.TwoFa
 		return ctx, err
 	}
 	if strings.EqualFold(strings.TrimSpace(in.Method), "email") && (version.Email == nil || strings.TrimSpace(*version.Email) == "") {
-		return ctx, iam.ErrInvalidTwoFAMethod
+		return ctx, errmodel.ErrInvalidTwoFAMethod
 	}
 	if !independentFactor(proof, authflow.TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
-		return ctx, iam.ErrInvalidTwoFAMethod
+		return ctx, errmodel.ErrInvalidTwoFAMethod
 	}
 	return context.WithValue(ctx, loginEnrollmentKey{}, proof), nil
 }
@@ -409,7 +410,7 @@ func (s *Engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID strin
 		return authflow.LoginOutcome{}, err
 	}
 	if time.Since(fresh.LastAuthenticatedAt) > 10*time.Minute {
-		return authflow.LoginOutcome{}, iam.ErrStepUpRequired
+		return authflow.LoginOutcome{}, errmodel.ErrStepUpRequired
 	}
 	version, err := s.q.UserCredentialVersion(ctx, userID)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/riverqueue/river"
 )
 
@@ -122,7 +123,7 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if err := s.qtx(tx).UserDeleteHard(ctx, userID); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return fmt.Errorf("%w: %s.%s", iam.ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
+			return fmt.Errorf("%w: %s.%s", errmodel.ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
 		}
 		return fmt.Errorf("authkit: final account purge: %w", err)
 	}

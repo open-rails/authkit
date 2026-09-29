@@ -34,6 +34,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -67,7 +68,7 @@ func newApplicationsHTTPClient(allowPrivate bool, r netguard.Resolver) *http.Cli
 		// A redirect out of the proven domain would decouple the fetch from the
 		// domain-control proof (and is a classic SSRF pivot).
 		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return fmt.Errorf("%w: redirects are not followed", iam.ErrApplicationDocumentFetchFailed)
+			return fmt.Errorf("%w: redirects are not followed", errmodel.ErrApplicationDocumentFetchFailed)
 		},
 	}
 }
@@ -86,34 +87,34 @@ func newApplicationsHTTPClient(allowPrivate bool, r netguard.Resolver) *http.Cli
 func (s *Engine) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
-		return "", "", "", fmt.Errorf("%w: domain is required", iam.ErrApplicationDomainInvalid)
+		return "", "", "", fmt.Errorf("%w: domain is required", errmodel.ErrApplicationDomainInvalid)
 	}
 	isDev := s.cfg.Applications.AllowPrivateNetworkJWKS
 	if strings.Contains(domain, "://") {
 		if !isDev {
-			return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name (no scheme)", iam.ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name (no scheme)", errmodel.ErrApplicationDomainInvalid)
 		}
 		u, err := url.Parse(domain)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
 			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
-			return "", "", "", fmt.Errorf("%w: dev domain must be a plain http(s) base URL", iam.ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: dev domain must be a plain http(s) base URL", errmodel.ErrApplicationDomainInvalid)
 		}
 		canonical = u.Scheme + "://" + strings.ToLower(u.Host)
 		return canonical, strings.ToLower(u.Hostname()), canonical + iam.ApplicationWellKnownPath, nil
 	}
 	host = strings.ToLower(domain)
 	if strings.ContainsAny(host, "/@:? #") {
-		return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name", iam.ErrApplicationDomainInvalid)
+		return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name", errmodel.ErrApplicationDomainInvalid)
 	}
 	if err := validateRemoteAppSlug(host); err != nil {
-		return "", "", "", fmt.Errorf("%w: %q is not a valid DNS name", iam.ErrApplicationDomainInvalid, domain)
+		return "", "", "", fmt.Errorf("%w: %q is not a valid DNS name", errmodel.ErrApplicationDomainInvalid, domain)
 	}
 	if !isDev {
 		if net.ParseIP(host) != nil {
-			return "", "", "", fmt.Errorf("%w: IP literals cannot domain-prove", iam.ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: IP literals cannot domain-prove", errmodel.ErrApplicationDomainInvalid)
 		}
 		if netguard.IsInternalHostname(host) || !strings.Contains(host, ".") {
-			return "", "", "", fmt.Errorf("%w: %q is not a public DNS name", iam.ErrApplicationDomainInvalid, host)
+			return "", "", "", fmt.Errorf("%w: %q is not a public DNS name", errmodel.ErrApplicationDomainInvalid, host)
 		}
 	}
 	return host, host, "https://" + host + iam.ApplicationWellKnownPath, nil
@@ -125,28 +126,28 @@ func (s *Engine) resolveApplicationDomain(domain string) (canonical, host, fetch
 func (s *Engine) fetchApplicationDocument(ctx context.Context, fetchURL string) (*iam.ApplicationDocument, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentFetchFailed, err)
+		return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentFetchFailed, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := s.appHTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentFetchFailed, err)
+		return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentFetchFailed, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: GET %s returned %d", iam.ErrApplicationDocumentFetchFailed, fetchURL, resp.StatusCode)
+		return nil, fmt.Errorf("%w: GET %s returned %d", errmodel.ErrApplicationDocumentFetchFailed, fetchURL, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxApplicationDocumentBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentFetchFailed, err)
+		return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentFetchFailed, err)
 	}
 	if len(body) > maxApplicationDocumentBytes {
-		return nil, fmt.Errorf("%w: document exceeds %d bytes", iam.ErrApplicationDocumentInvalid, maxApplicationDocumentBytes)
+		return nil, fmt.Errorf("%w: document exceeds %d bytes", errmodel.ErrApplicationDocumentInvalid, maxApplicationDocumentBytes)
 	}
 	var doc iam.ApplicationDocument
 	// Unknown fields are tolerated (forward-compatible document schema).
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("%w: not valid JSON: %v", iam.ErrApplicationDocumentInvalid, err)
+		return nil, fmt.Errorf("%w: not valid JSON: %v", errmodel.ErrApplicationDocumentInvalid, err)
 	}
 	return &doc, nil
 }
@@ -175,23 +176,23 @@ func (s *Engine) validateApplicationDocument(doc *iam.ApplicationDocument, host 
 		slug = host
 	}
 	if err := validateRemoteAppSlug(slug); err != nil {
-		return nil, fmt.Errorf("%w: invalid slug %q", iam.ErrApplicationDocumentInvalid, slug)
+		return nil, fmt.Errorf("%w: invalid slug %q", errmodel.ErrApplicationDocumentInvalid, slug)
 	}
 
 	issuer := strings.TrimSpace(doc.Issuer)
 	if issuer == "" {
-		return nil, fmt.Errorf("%w: issuer is required", iam.ErrApplicationDocumentInvalid)
+		return nil, fmt.Errorf("%w: issuer is required", errmodel.ErrApplicationDocumentInvalid)
 	}
 	iu, err := url.Parse(issuer)
 	if err != nil || (iu.Scheme != "http" && iu.Scheme != "https") || iu.Hostname() == "" {
-		return nil, fmt.Errorf("%w: issuer must be an http(s) URL", iam.ErrApplicationDocumentInvalid)
+		return nil, fmt.Errorf("%w: issuer must be an http(s) URL", errmodel.ErrApplicationDocumentInvalid)
 	}
 	if !isDev {
 		if iu.Scheme != "https" {
-			return nil, fmt.Errorf("%w: issuer must use https", iam.ErrApplicationDocumentInvalid)
+			return nil, fmt.Errorf("%w: issuer must use https", errmodel.ErrApplicationDocumentInvalid)
 		}
 		if !strings.EqualFold(iu.Hostname(), host) {
-			return nil, fmt.Errorf("%w: issuer host %q must equal the serving domain %q", iam.ErrApplicationDocumentInvalid, iu.Hostname(), host)
+			return nil, fmt.Errorf("%w: issuer host %q must equal the serving domain %q", errmodel.ErrApplicationDocumentInvalid, iu.Hostname(), host)
 		}
 	}
 	if s.reservedIssuer(issuer) || s.accountPeerIssuer(issuer) {
@@ -200,20 +201,20 @@ func (s *Engine) validateApplicationDocument(doc *iam.ApplicationDocument, host 
 
 	mode, err := normalizeRemoteAppTrustSource(strings.TrimSpace(doc.JWKSURI), "", doc.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: isDev})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentInvalid, err)
+		return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentInvalid, err)
 	}
 	var keysJSON []byte
 	if mode == iam.RemoteAppModeStatic {
 		keysJSON, err = json.Marshal(doc.PublicKeys)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentInvalid, err)
+			return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationDocumentInvalid, err)
 		}
 	}
 
 	endpoint := strings.TrimSpace(doc.DocumentEndpoint)
 	if endpoint != "" {
 		if err := validateJWKSURI(endpoint, isDev); err != nil {
-			return nil, fmt.Errorf("%w: document_endpoint: %v", iam.ErrApplicationDocumentInvalid, err)
+			return nil, fmt.Errorf("%w: document_endpoint: %v", errmodel.ErrApplicationDocumentInvalid, err)
 		}
 	}
 
@@ -237,12 +238,12 @@ func isUniqueViolation(err error, constraint string) bool {
 // returns the org persona definition.
 func (s *Engine) applicationsEnabled() (rbac.Persona, error) {
 	if !s.cfg.Applications.SelfRegistration {
-		return rbac.Persona{}, iam.ErrApplicationRegistrationDisabled
+		return rbac.Persona{}, errmodel.ErrApplicationRegistrationDisabled
 	}
 	persona := iam.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
 	if !ok || persona == iam.RootPersona {
-		return rbac.Persona{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared non-root persona", iam.ErrApplicationRegistrationDisabled, persona)
+		return rbac.Persona{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared non-root persona", errmodel.ErrApplicationRegistrationDisabled, persona)
 	}
 	return td, nil
 }
@@ -270,7 +271,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	if s.appAdmission != nil {
 		if err := s.appAdmission(ctx, canonical); err != nil {
-			return nil, fmt.Errorf("%w: %v", iam.ErrApplicationRegistrationDisabled, err)
+			return nil, fmt.Errorf("%w: %v", errmodel.ErrApplicationRegistrationDisabled, err)
 		}
 	}
 	doc, err := s.fetchApplicationDocument(ctx, fetchURL)
@@ -306,7 +307,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	switch {
 	case err == nil:
 		if existing.TrustRoot != iam.ApplicationTrustRootDomain {
-			return nil, iam.ErrApplicationDomainConflict
+			return nil, errmodel.ErrApplicationDomainConflict
 		}
 		if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 			return nil, err
@@ -321,7 +322,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 			Domain:           canonical,
 		})
 		if isUniqueViolation(err, "issuer") {
-			return nil, iam.ErrApplicationIssuerConflict
+			return nil, errmodel.ErrApplicationIssuerConflict
 		}
 		if err != nil {
 			return nil, err
@@ -360,17 +361,17 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	// the application namespace AND in the org persona namespace (live groups
 	// + tombstones).
 	if s.groupSchemaOrDefault().SlugReserved(td.Name, app.Slug) {
-		return nil, fmt.Errorf("%w: slug %q is reserved", iam.ErrApplicationSlugConflict, app.Slug)
+		return nil, fmt.Errorf("%w: slug %q is reserved", errmodel.ErrApplicationSlugConflict, app.Slug)
 	}
 	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug); err == nil {
-		return nil, iam.ErrApplicationSlugConflict
+		return nil, errmodel.ErrApplicationSlugConflict
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	if available, err := st.InstanceSlugAvailable(ctx, iam.GroupBySlug(td.Name, app.Slug)); err != nil {
 		return nil, err
 	} else if !available {
-		return nil, iam.ErrApplicationSlugConflict
+		return nil, errmodel.ErrApplicationSlugConflict
 	}
 	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
@@ -392,11 +393,11 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	})
 	switch {
 	case isUniqueViolation(err, "issuer"):
-		return nil, iam.ErrApplicationIssuerConflict
+		return nil, errmodel.ErrApplicationIssuerConflict
 	case isUniqueViolation(err, "domain"):
-		return nil, iam.ErrApplicationDomainConflict
+		return nil, errmodel.ErrApplicationDomainConflict
 	case isUniqueViolation(err, "slug"):
-		return nil, iam.ErrApplicationSlugConflict
+		return nil, errmodel.ErrApplicationSlugConflict
 	case err != nil:
 		return nil, err
 	}

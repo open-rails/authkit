@@ -13,6 +13,7 @@ import (
 
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testdpop"
@@ -242,7 +243,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		req.Header.Set("DPoP", resourceProof(minted.Token))
 		_, err = v.VerifyRequest(req)
 		require.Error(t, err)
-		require.Equal(t, iam.CodeInternalError, iam.AsError(err).Code)
+		require.Equal(t, errmodel.CodeInternalError, errmodel.CodeOf(err))
 		rejected := httptest.NewRecorder()
 		verify.Required(v)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("storage outage admitted request") })).ServeHTTP(rejected, req)
 		require.Equal(t, 500, rejected.Code)

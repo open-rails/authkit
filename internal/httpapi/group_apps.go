@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // remoteAppRegisterRequest is the body for POST
@@ -31,7 +32,7 @@ type remoteAppRegisterRequest struct {
 func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body remoteAppRegisterRequest
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Default to enabled when the field is omitted; preserve an explicit
@@ -81,7 +82,7 @@ func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, gro
 // before deletion so a manager cannot delete another group's issuer.
 func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, slug string) {
 	if slug == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.DeleteRemoteApplicationForActor(r.Context(), actor, group, slug); err != nil {
@@ -98,7 +99,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, appSlug string, role iam.Role) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if appSlug == "" || role == "" {
-		badRequest(w, iam.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	app, err := s.svc.GetRemoteApplicationBySlug(r.Context(), appSlug)

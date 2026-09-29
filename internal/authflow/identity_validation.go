@@ -1,25 +1,25 @@
 package authflow
 
 import (
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // validationCodes are the identity-policy codes ValidationErrorCode reports:
 // a 400 whose param names the offending field.
-var validationCodes = map[iam.Code]bool{
-	iam.CodeUsernameTooShort: true, iam.CodeUsernameTooLong: true, iam.CodeUsernameMustStartWithLetter: true,
-	iam.CodeUsernameCannotContainAt: true, iam.CodeUsernameCannotStartWithPlus: true, iam.CodeUsernameInvalidCharacters: true,
-	iam.CodeOwnerSlugTaken: true, iam.CodeUsernameNotAllowed: true, iam.CodeRenameRateLimited: true,
-	iam.CodeInvalidEmail: true, iam.CodeInvalidPhoneNumber: true, iam.CodePasswordTooShort: true, iam.CodePasswordTooLong: true,
-	iam.CodePasswordTooCommon: true, iam.CodePasswordContainsIdentifier: true, iam.CodePasswordRequirementsUnmet: true,
-	iam.CodeInvalidPreferredLanguage: true,
+var validationCodes = map[errmodel.Code]bool{
+	errmodel.CodeUsernameTooShort: true, errmodel.CodeUsernameTooLong: true, errmodel.CodeUsernameMustStartWithLetter: true,
+	errmodel.CodeUsernameCannotContainAt: true, errmodel.CodeUsernameCannotStartWithPlus: true, errmodel.CodeUsernameInvalidCharacters: true,
+	errmodel.CodeUsernameInUse: true, errmodel.CodeUsernameNotAllowed: true, errmodel.CodeRenameRateLimited: true,
+	errmodel.CodeInvalidEmail: true, errmodel.CodeInvalidPhoneNumber: true, errmodel.CodePasswordTooShort: true, errmodel.CodePasswordTooLong: true,
+	errmodel.CodePasswordTooCommon: true, errmodel.CodePasswordContainsIdentifier: true, errmodel.CodePasswordRequirementsUnmet: true,
+	errmodel.CodeInvalidPreferredLanguage: true,
 }
 
 // ValidationErrorCode returns the identity-policy code err carries, or "" when
 // err is not a validation failure.
-func ValidationErrorCode(err error) iam.Code {
-	if e := iam.AsError(err); e != nil && validationCodes[e.Code] {
-		return e.Code
+func ValidationErrorCode(err error) errmodel.Code {
+	if code := errmodel.CodeOf(err); validationCodes[code] {
+		return code
 	}
 	return ""
 }

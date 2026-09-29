@@ -4,24 +4,24 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, iam.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthorized)
 		return
 	}
 	if strings.TrimSpace(cl.SessionID) == "" {
-		badRequest(w, iam.CodeMissingSidClaim)
+		fail(w, errmodel.CodeMissingSidClaim)
 		return
 	}
 	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonLogout)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
-		serverErr(w, iam.CodeFailedToLogout, err)
+		serverErr(w, "failed_to_logout", err)
 		return
 	}
 	// ak#271: the server-side session is gone, so the jar value must go too —

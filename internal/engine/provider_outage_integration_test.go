@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -59,7 +60,7 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 	idp.outage.Store("503")
 	status, code := jsonError(start())
 	require.Equal(t, http.StatusServiceUnavailable, status)
-	require.Equal(t, string(iam.CodeProviderUnavailable), code)
+	require.Equal(t, string(errmodel.CodeProviderUnavailable), code)
 	require.ErrorIs(t, health.CheckHealth(ctx), authprovider.ErrProviderUnavailable)
 
 	// Recovery is background; the next login after it simply works.
@@ -75,13 +76,13 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 	require.Equal(t, http.StatusFound, start().Code)
 	status, code = jsonError(callback(f))
 	require.Equal(t, http.StatusServiceUnavailable, status)
-	require.Equal(t, string(iam.CodeProviderUnavailable), code)
+	require.Equal(t, string(errmodel.CodeProviderUnavailable), code)
 	idp.outage.Store("503")
 	f = startOIDCFlow(t, h, "custom")
 	idp.SetNonce(f.nonce)
 	status, code = jsonError(callback(f))
 	require.Equal(t, http.StatusServiceUnavailable, status)
-	require.Equal(t, string(iam.CodeProviderUnavailable), code)
+	require.Equal(t, string(errmodel.CodeProviderUnavailable), code)
 
 	// A genuine rejection from a reachable provider keeps its 401.
 	idp.outage.Store("")
@@ -89,7 +90,7 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 	idp.SetNonce("not-" + f.nonce)
 	status, code = jsonError(callback(f))
 	require.Equal(t, http.StatusUnauthorized, status)
-	require.Equal(t, string(iam.CodeOIDCExchangeFailed), code)
+	require.Equal(t, string(errmodel.CodeOIDCExchangeFailed), code)
 
 	f = startOIDCFlow(t, h, "custom")
 	idp.SetNonce(f.nonce)

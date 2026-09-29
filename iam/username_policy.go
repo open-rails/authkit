@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Username length defaults and the ceiling for a configured maximum.
@@ -54,21 +56,21 @@ func (p UsernamePolicy) ValidateImport(username string) error {
 func (p UsernamePolicy) validate(username string, maxLen int, hyphens bool) error {
 	username = strings.TrimSpace(username)
 	if n := utf8.RuneCountInString(username); n < p.MinLength || n > maxLen {
-		code := CodeUsernameTooShort
+		code := errmodel.CodeUsernameTooShort
 		if n > maxLen {
-			code = CodeUsernameTooLong
+			code = errmodel.CodeUsernameTooLong
 		}
-		return E(code, WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": maxLen}))
+		return errmodel.E(code, errmodel.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": maxLen}))
 	}
 	if !asciiLetter(username[0]) {
-		return E(CodeUsernameMustStartWithLetter)
+		return errmodel.E(errmodel.CodeUsernameMustStartWithLetter)
 	}
 	if strings.Contains(username, "@") {
-		return E(CodeUsernameCannotContainAt)
+		return errmodel.E(errmodel.CodeUsernameCannotContainAt)
 	}
 	for i := 0; i < len(username); i++ {
 		if c := username[i]; !asciiLetter(c) && !(c >= '0' && c <= '9') && c != '_' && !(hyphens && c == '-') {
-			return E(CodeUsernameInvalidCharacters)
+			return errmodel.E(errmodel.CodeUsernameInvalidCharacters)
 		}
 	}
 	return nil

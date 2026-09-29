@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -26,7 +27,7 @@ import (
 // and, for sends, the delivery sentinel.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
-		return authflow.RegisterOutcome{}, iam.ErrRegistrationDisabled
+		return authflow.RegisterOutcome{}, errmodel.ErrRegistrationDisabled
 	}
 	language, err := authflow.NormalizePreferredLanguage(in.PreferredLanguage)
 	if err != nil {
@@ -36,7 +37,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	identifier := strings.TrimSpace(in.Identifier)
 	username := strings.TrimSpace(in.Username)
 	if identifier == "" || username == "" {
-		return authflow.RegisterOutcome{}, iam.ErrInvalidIdentifier
+		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}
 	if err := s.ValidatePassword(in.Password, username, identifier); err != nil {
 		return authflow.RegisterOutcome{}, err
@@ -50,7 +51,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	isPhone := contact.ValidatePhone(identifier) == nil
 	isEmail := contact.ValidateEmail(identifier) == nil
 	if isPhone == isEmail {
-		return authflow.RegisterOutcome{}, iam.ErrInvalidIdentifier
+		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}
 	phc, err := password.HashArgon2id(in.Password)
 	if err != nil {
@@ -62,7 +63,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if isPhone {
 		phone := contact.NormalizePhone(identifier)
 		if requiresVerification && !s.SMSAvailable() {
-			return authflow.RegisterOutcome{}, iam.ErrPhoneRegistrationUnavailable
+			return authflow.RegisterOutcome{}, errmodel.ErrPhoneRegistrationUnavailable
 		}
 		phoneTaken, usernameTaken, err := s.CheckPhoneRegistrationConflict(ctx, phone, username)
 		if err != nil {
@@ -98,7 +99,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 
 	email := contact.NormalizeEmail(identifier)
 	if requiresVerification && !s.HasEmailSender() {
-		return authflow.RegisterOutcome{}, iam.ErrEmailRegistrationUnavailable
+		return authflow.RegisterOutcome{}, errmodel.ErrEmailRegistrationUnavailable
 	}
 	emailTaken, usernameTaken, err := s.CheckPendingRegistrationConflict(ctx, email, username)
 	if err != nil {
@@ -135,7 +136,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 func registrationErr(stage string, err error) error {
 	switch {
 	case errors.Is(err, iam.ErrEmailInUse), errors.Is(err, iam.ErrPhoneInUse), errors.Is(err, iam.ErrUsernameInUse),
-		errors.Is(err, iam.ErrRegistrationDisabled), authflow.ValidationErrorCode(err) != "":
+		errors.Is(err, errmodel.ErrRegistrationDisabled), authflow.ValidationErrorCode(err) != "":
 		return err
 	default:
 		return stageErr(stage, err)
