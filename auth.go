@@ -15,8 +15,8 @@ import (
 	riverhelpers "github.com/open-rails/helpers/river"
 )
 
-// Auth is AuthKit embedded in a host: the engine, its verifier and, when
-// Config.HTTP is set, its HTTP surface. Build it with New, wire any
+// Auth is AuthKit embedded in a host: the engine, its verifier and, unless
+// Config.HTTP is zero, its HTTP surface. Build it with New, wire any
 // entitlements cycle with SetEntitlements, then Start it. Operations are
 // methods, grouped by domain in the auth_*.go files.
 type Auth struct {
@@ -35,10 +35,10 @@ var (
 )
 
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
-// the pool first.
-func New(cfg Config, deps Deps) (_ *Auth, err error) {
+// the pool first. ctx bounds the boot-time database work.
+func New(ctx context.Context, cfg Config, deps Deps) (_ *Auth, err error) {
 	settings := cfg.settings()
-	e, err := engine.New(settings.engine, deps.engine())
+	e, err := engine.New(ctx, settings.engine, deps.engine())
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (a *Auth) Close() {
 // dependency probe; every call re-records.
 func (a *Auth) CheckSMSHealth(ctx context.Context) error { return a.engine.CheckSMSHealth(ctx) }
 
-// Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is nil.
+// Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
 // Mount it at the host root: it owns its anchored paths.
 func (a *Auth) Handler() http.Handler {
 	if a.mount == nil {

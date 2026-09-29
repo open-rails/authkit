@@ -57,7 +57,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
 		},
 	}
-	rt, err := New(cfg, Deps{Postgres: pool})
+	rt, err := New(context.Background(), cfg, Deps{Postgres: pool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
 	client := rt

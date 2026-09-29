@@ -22,12 +22,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testHTTPConfig() *authkit.HTTPConfig {
+func testHTTPConfig() authkit.HTTPConfig {
 	limits := authkit.DefaultRateLimits()
 	for bucket := range limits {
 		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
-	return &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: limits}
+	return authkit.HTTPConfig{DirectPeerIP: true, RateLimits: limits}
 }
 
 func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
@@ -87,11 +87,11 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig(t)
-	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "bad prefix"}
-	_, err := authkit.New(cfg, authkit.Deps{Postgres: pg.Pool})
+	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "bad prefix"}
+	_, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "APIPrefix")
-	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /nowhere"}}
-	_, err = authkit.New(cfg, authkit.Deps{Postgres: pg.Pool})
+	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /nowhere"}}
+	_, err = authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "matches no mounted route")
 	require.NoError(t, pg.Pool.Ping(t.Context()), "a failed construction closed the host-owned pool")
 
@@ -113,14 +113,14 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
 			}
 			cfg := testConfig(t)
-			cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
+			cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
 			if fail {
 				cfg.HTTP.APIPrefix = "invalid prefix"
 			}
 			var runtime *authkit.Auth
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) {
-				runtime, err = authkit.New(cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
+				runtime, err = authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 			})
 			if fail {
 				require.Error(t, err)
@@ -137,7 +137,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 
 func newPublicRuntime(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool) *authkit.Auth {
 	t.Helper()
-	r, err := authkit.New(cfg, authkit.Deps{Postgres: pool})
+	r, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pool})
 	require.NoError(t, err)
 	return r
 }
@@ -146,8 +146,8 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	// No client-IP posture: the HTTP layer refuses after the engine is built.
 	cfg := testConfig(t)
-	cfg.HTTP = &authkit.HTTPConfig{}
-	runtime, err := authkit.New(cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
+	cfg.HTTP = authkit.HTTPConfig{APIPrefix: "/auth"}
+	runtime, err := authkit.New(context.Background(), cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 	require.ErrorContains(t, err, "client-IP posture")
 	require.Nil(t, runtime)
 	require.NoError(t, pg.Pool.Ping(t.Context()), "constructor cleanup must preserve the borrowed host pool")

@@ -1,606 +1,342 @@
 # AuthKit
 
-Embedded auth library for Go services: users, sessions, MFA, passkeys, device
-keys, OAuth/OIDC and Solana login, RBAC permission groups, API keys, signed
-documents and delegated tokens, running in your process against your Postgres
-(18+). Redis only shares rate limits across replicas. Tests exercise the embedded HTTP handlers directly; AuthKit
-owns its PostgreSQL migration source and runs it through migratekit.
+Stop paying for shitty SaaS pay-per-user auth services. Firebase would charge you $4,415 for 1 million monthly-active users; you can self-host that for free inside of the web-server you already run. It's simpler to run auth inside of your Go webserver's binary, in process, on your own Postgres (v18) database.
 
-One module, `github.com/open-rails/authkit`, includes the core and every adapter.
-One root release tag versions them together; adapter import paths are unchanged.
-Framework dependencies enter an application's build only when it imports the corresponding adapter. The embedded engine uses River
-for PostgreSQL maintenance; the root and `verify` packages remain engine-free.
+First install authkit into your Go project:
 
-For local tests, run `scripts/check.sh`. Applications call
-`embedded.ApplyMigrations` with migration credentials before constructing the
-engine, then call `runtime.Start(ctx)` before serving and `runtime.Close()` at shutdown.
+```sh
+go get github.com/open-rails/authkit
+```
 
-See [verification trust and key ownership](docs/verification.md) for local versus
-external identity, application delegation boundaries, and key rotation.
-See [authentication workflows](docs/security/authentication-workflows.md) for
-first-factor continuations, atomic registration, and workflow test coverage.
-See [contact ownership](docs/security/contact-ownership.md) for why unproven
-accounts cannot add login methods and what the first address proof revokes.
-
-Codes, reset tokens, ceremonies, OIDC/SIWS login state and attempt counters
-live in Postgres (`ephemeral_kv`), so every replica shares them. The rate
-limiter is a required choice: `authhttp.Config.Redis` (any
-`redis.UniversalClient`) shares limits across replicas, `PerProcessRateLimits`
-is for a single replica; see [rate limits](docs/security/rate-limits.md). The Redis limiter needs
-atomic Lua (`EVAL`/`EVALSHA`); for Garnet enable `--lua true` and
-`--lua-transaction-mode true`.
-
-## Migrations
+Next let's build a client:
 
 ```go
+package main
+
 import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"slices"
+	"strconv"
+	"sync"
+
+	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
+	authkitgin "github.com/open-rails/authkit/adapters/gin"
+	twilioemail "github.com/open-rails/authkit/adapters/twilio/email"
+	twiliosms "github.com/open-rails/authkit/adapters/twilio/sms"
+	"github.com/open-rails/authkit/iam"
 )
 
-ownerPool, _ := pgxpool.New(ctx, migrationDSN)
-runtimePool, _ := pgxpool.New(ctx, applicationDSN)
-err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{
-	RuntimePool: runtimePool,
-})
-// Pass runtimePool to embedded.Deps{Postgres: runtimePool} when constructing the runtime.
-```
-
-AuthKit owns the embedded migration source, migratekit runner, migration
-ledger and target schema creation. The call is idempotent and must complete
-before `embedded.New`; consumers do not import AuthKit migrations or
-migratekit. Pre-v1 schemas must be rebuilt for the
-[fresh baseline](docs/maintenance/fresh-schema-baseline.md); AuthKit never drops
-existing application data automatically.
-
-`RuntimePool` identifies the application's existing database user through its
-active connection. Both pools must connect to the same database. Initialization
-grants that user AuthKit's schema, table, sequence and function permissions
-directly, plus the runtime objects of managed River. AuthKit creates no database
-roles or memberships, and the host needs no AuthKit-specific `GRANT` script.
-The same normal application login and pool can serve other embedded libraries.
-Both pools remain host-owned. Omit `RuntimePool` for migration-only setup with
-access provisioned separately; runtime credentials never need migration rights.
-
-## PostgreSQL maintenance
-
-AuthKit runs `CleanupExpiredAuthState` through River on startup and hourly.
-It removes expired ephemeral rows, sessions, terminal credentials and expired
-retained history. AuthKit also
-owns the fixed 30-day recoverable account deletion lifecycle and its durable
-application callbacks. There is no separate purge adapter to register.
-
-With no River dependency supplied, `ApplyMigrations` also applies River's own
-migrations to `public`. `New` constructs an owned worker client without starting
-it or running DDL. Call `runtime.Start(ctx)` before serving; `runtime.Close()`
-cancels its workers and releases only AuthKit-owned resources. Runtime pools
-need data access, while initialization uses separate migration credentials.
-`Config.River.Schema` and `MigrationOptions.RiverSchema` select a custom managed
-River schema; `Config.River.CleanupInterval` defaults to one hour.
-
-Applications sharing River with other libraries compose one worker configuration:
-
-```go
-ownership := embedded.RiverFromHost()
-err := embedded.ApplyMigrations(ctx, ownerPool, "profiles", embedded.MigrationOptions{
-	River: ownership, RuntimePool: runtimePool,
-})
-// The host initializes its River schema through River's migrator.
-runtime, err := embedded.New(cfg, embedded.Deps{Postgres: runtimePool, River: ownership})
-jobs, err := riverhelpers.New(ctx, runtimePool, &river.Config{Schema: "public"},
-    runtime.RiverJobs(), billing.RiverJobs())
-err = runtime.Start(ctx) // checks composition; never starts the host client
-err = jobs.Start(ctx)
-// On shutdown: stop jobs before runtime.Close().
-```
-
-`RiverJobs` contributes AuthKit's worker, queue and periodic schedule to the
-neutral `github.com/open-rails/helpers/river` composer. Producer binding happens inside
-composition; no per-library binding call or hand-written host cron is needed.
-The passed host configuration owns the River schema. The
-registry supports one AuthKit engine; duplicate registration fails explicitly.
-With `RiverFromHost`, the host also owns River database permissions; AuthKit
-provisions only its identity schema, leaving the shared fleet's access unchanged.
-
-**Every replica sharing a River schema must carry the same complete periodic
-schedule set.** River's elected leader alone schedules periodic jobs. Separate
-managed AuthKit and OpenRails clients with different schedules in the same
-`public` fleet can starve each other's maintenance. Use the composed host client
-above, or explicitly separate their River schemas. A managed AuthKit fleet is
-appropriate when its replicas all run the same AuthKit workers and schedules.
-
-## Construction
-
-`embedded.New(cfg, deps)` returns the local `*embedded.Runtime`, which owns
-pools, keys, River and lifecycle. `runtime.Client()` returns the engine-free
-`authkit.Client` operation view. That view does not expose local configuration,
-bootstrap or resource access. Creating it starts no additional engine.
-
-Set HTTP policy in the runtime constructor, then obtain and mount its routes:
-
-```go
-cfg.HTTP = authhttp.Config{
-    TrustedProxies: []string{"10.0.0.0/8"}, // or DirectPeerIP when no proxy is present
-    Redis:          rdb,                    // or PerProcessRateLimits for one replica
-    Mount: authhttp.MountOptions{APIPrefix: "/api/v1", RefreshCookie: true},
-}
-runtime, err := embedded.New(cfg, embedded.Deps{Postgres: pg, Email: mailer})
-if err != nil {
-    return err
-}
-defer runtime.Close()
-client := runtime.Client() // application user/group/token operations
-
-routes, err := authkitgin.Routes(runtime)
-if err != nil {
-    return err
-}
-router := gin.New()
-if err := routes.Mount(router); err != nil {
-    return err
-}
-// Compose runtime.RiverJobs() with the host fleet, or start managed workers.
-// Application middleware uses runtime.Verifier(); domain code uses client.
-```
-
-Use the same pattern with `authkitfiber.Routes(runtime).Mount(app)` or
-`authkithttp.Routes(runtime).Mount(mux)` for a standard `http.ServeMux` or Chi
-router. Handle the error returned by `Routes` before calling `Mount`.
-The net/http, Gin, and Fiber adapters all ship in the root module.
-
-Prefer `Config.HTTP` for policy known at construction. `ConfigureHTTP` supports
-provisioning dependencies that become available later and is one-shot. A failed build consumes the attempt and closes
-partial HTTP resources; the operation client remains available. Calling
-`HTTPRoutes` before configuration seals HTTP disabled and returns an error.
-Configure before obtaining route bundles; configuration after Close is refused.
-The runtime closes its HTTP resources before its engine resources.
-
-The HTTP policy chooses groups, API prefix, exclusions, wrappers and refresh
-cookies once through `authhttp.Config.Mount`. The runtime derives concrete
-routes from that policy and enabled identity features. Native route inspection
-shows the actual inventory. JWKS remains at `/.well-known/jwks.json`, browser
-OIDC under `/oidc`, and published documents at their standard root path; mount
-AuthKit on the host root router. No catch-all is installed.
-
-`embedded.New` initializes explicitly declared group containment and the root
-singleton in one transaction. Omitted or empty RBAC leaves shared topology intact. Apply migrations before constructing a database-backed
-runtime. Construction never grants user roles or restores revoked permissions.
-Use `client.OperatorAssignGroupRole` and `client.OperatorUnassignGroupRole` for explicit
-trusted operator commands; request paths use the actor-checked `*As` methods.
-`Operator` describes the host's authority; it is not a built-in persona or role.
-
-The runtime wraps a private engine and exposes only lifecycle, route, verifier,
-job and construction dependencies. It has no public business methods, Genesis,
-database, configuration or signer accessors. The HTTP transport receives its
-local engine capability only while the runtime constructs it. This release
-adds no remote AuthKit client or standalone service.
-
-Native user JWTs establish identity; group memberships, roles and permissions
-are always resolved live when a route requires permission. Native tokens do not
-carry permission authority. The experimental `RootPermissionSnapshot` API has
-been removed. Machine and delegated credentials retain their separate verified
-permission ceilings and scope bindings.
-
-Bans prevent login and refresh. An existing native identity JWT remains valid
-until expiry (15 minutes by default), including on a permission route if its
-current grant remains assigned. Revoking a role takes effect immediately at the
-next permission check. Account liveness can still be explicitly requested with
-`RequiredLive`, `OptionalLive`, or `IsLive`; it is not automatically added to
-admin routes. Ownership mutations retain their current valid-owner invariants.
-
-Select optional coarse entitlement claims explicitly:
-
-```go
-embedded.TokenConfig{EntitlementAllowlist: []string{"premium"}}
-```
-
-Only names actually granted by the entitlement provider are included. Empty
-configuration skips that provider lookup during minting and omits the claim;
-directory/admin provider results remain unfiltered. The allowlist is limited to
-32 distinct names, 128 UTF-8 bytes per name and 2048 encoded JSON bytes. Provider
-failure also omits the claim while allowing login; omission is not a successful
-empty-grant lookup. These are token-time billing snapshots until refresh, not
-live permission checks. Per-product ownership belongs in the billing query API.
-
-## Verification in a host
-
-`runtime.Verifier()` is a `*verify.Verifier`; `verify` imports no Postgres or
-Redis, so a pure resource server depends on it alone.
-`verify.Required`/`Optional` and their `authkitgin` and `authkitfiber` equivalents
-put `verify.Claims` in the request context. `Optional` permits a missing
-credential but rejects a present invalid credential; it never downgrades an
-invalid token to anonymous access. `Required` accepts any supported principal,
-including machine principals, so user-only handlers must also check the result
-of `UserClaims` (or `claims.IsUser()` with `net/http`).
-
-`RequirePermission` resolves the group name once and
-authorizes the immutable UUID: a user is checked live against `GroupID`, a
-group-bound API key must match the scope, an unbound delegated token is
-authorized from its own `permissions`. `AuthorityIssuer` is this deployment's
-`Token.Issuer`; `verify.PermissionScopeFromContext` hands the handler the
-authorized scope.
-
-For a consumer's provider-neutral interface, the same verifier implements
-`AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)`
-using `github.com/open-rails/helpers/auth`. The result exposes immutable identity
-metadata and optional `auth.PermissionChecker` access. `Can` checks a host-resolved
-`auth.Scope{Authority: issuer, ID: immutableGroupID}` and permission against live
-native assignments or the verified machine credential's exact scope and ceiling.
-The runtime wires its native checker automatically. Verify-only hosts can use
-`WithPermissionChecker(client, authorityIssuer)`. Neither identity nor scope
-selects an application's billing account or grants permission by itself.
-
-`AuthenticateRequestLive` explicitly applies immediate account liveness; the
-ordinary method retains the stateless user-session policy. Hosts that already
-verified the request with trusted middleware may explicitly call
-`PrincipalFromVerifiedClaims` after their admission policy. Those claims must come
-from complete verification of this same unchanged request under the host's
-intended issuer, audience, assurance and sender-proof policy. This handoff avoids
-consuming a single-use DPoP proof twice. Ordinary authentication never trusts
-ambient context claims. Retain the resulting principal only for that request.
-
-### Fiber v3
-
-Install AuthKit at the chosen root version, then import
-`github.com/open-rails/authkit/adapters/fiber`. See the
-[single-module upgrade instructions](SEMVER.md#single-module-upgrade) if the
-application previously required an adapter module.
-
-The middleware and typed accessors mirror the Gin adapter. Configure the local
-runtime once as above, then register its inventory:
-
-```go
-routes, err := authkitfiber.Routes(runtime)
-if err != nil {
-    return err
-}
-app := fiber.New()
-app.Get("/api/me", authkitfiber.Required(runtime.Verifier()), func(c fiber.Ctx) error {
-    user, ok := authkitfiber.UserClaims(c)
-    if !ok {
-        return fiber.ErrUnauthorized
-    }
-    return c.JSON(fiber.Map{"user_id": user.UserID})
-})
-if err := routes.Mount(app); err != nil {
-    return err
-}
-```
-
-All installed endpoints appear in `app.GetRoutes(true)`, named with
-`authkitfiber.RouteNamePrefix`. `Mount` takes the root `*fiber.App`; HTTP policy
-was already supplied to `ConfigureHTTP`. Exact method/path conflicts, unsupported
-patterns and disabled HTTP methods are rejected before registration. Put host
-catch-alls after mounting. Unmatched requests follow Fiber's native routing.
-
-`Claims(c)` returns all verified claims, `UserClaims(c)` returns only user
-claims, and `Principal(c)` exposes the authenticated principal. They read the
-standard context available through `c.Context()`, so downstream Go services can
-also use `verify.ClaimsFromContext(c.Context())`. `RequiredLive` adds the same
-live account checks as the Gin and `net/http` middleware; its constructor
-returns an error when the verifier has no liveness source. `RequirePermission`
-applies the same permission policy using a Fiber scope resolver.
-
-Gin and Fiber's `UserClaimsData` names both alias `verify.UserClaimsData`, and
-their accessors delegate to `verify.UserClaimsFromContext`. Only `UserID` is
-guaranteed populated on a successful user result. Profile fields are normally
-absent with `Required`/`Optional`; `RequiredLive` loads the current email,
-verification flag, and username but does not refresh token entitlements or MFA
-claims. See [user-claim presence and freshness](docs/verification.md#user-claims-presence-and-freshness).
-
-## Surfaces
-
-- `docs/api-endpoints.md` — generated route table plus wire notes; CI fails
-  when stale.
-- `docs/naming-policy.md` — user/group naming, renames and aliases.
-- [docs/ownership.md](docs/ownership.md) — role replacement and final-owner protection.
-- [`sdk/auth-ui`](sdk/auth-ui) — `@openrails/auth-ui` browser client, React hooks
-  and UI; each release attaches `openrails-auth-ui-X.Y.Z.tgz`.
-- `SEMVER.md` — what the version contract covers.
-- `SECURITY.md` — reporting and the CI gates.
-
-## Refresh cookie
-
-`MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
-every response body into an `HttpOnly`+`Secure`+`SameSite=Lax` cookie,
-`__Host-authkit_rt` with `Path=/` so a sibling subdomain can neither plant nor
-shadow it (plain-HTTP development uses the unprefixed `authkit_rt`). Cookies
-from earlier releases are migrated on the next refresh; any cookie change must
-go through the [cookie registry](docs/security/cookies.md). Only
-`POST /token` reads it; it requires the cookie and rejects body refresh tokens. Native mounts require body tokens and
-never consume refresh cookies. `DELETE /logout`
-and a refresh failing with `user_banned` clear it; an unknown-token `401`
-never does. The SPA and mount must share an origin. Cookie-mode JSON mutations
-reject cross-origin, opaque-origin and cross-site requests before consuming
-credentials. Omitted `Origin` remains valid for non-browser clients unless fetch
-metadata indicates another site. Origin comparison uses the deployment scheme
-and request host or configured frontend origin; forwarded origin headers are
-never trusted. Browser OIDC callbacks retain their state-cookie binding.
-Cookie mode is off by default.
-
-Mounted JSON API bodies require `Content-Type: application/json` (parameters such
-as `charset=utf-8` are allowed), including when cookie mode is off. Empty-body
-routes retain their existing behavior. JSON clients using body tokens continue
-to work across origins when the host allows them.
-
-## Browser OIDC
-
-`GET /oidc/{provider}/login[?return_to=/app/path][&ui=popup&popup_nonce=…]`
-→ provider → `/oidc/{provider}/callback` (GET, or POST for form_post) → `302`
-to `Frontend.BaseURL + OIDCReturnPath` (default `/login/callback`):
-
-- success: `#access_token=…&refresh_token=…&expires_in=…&provider=…[&return_to=…]`
-  (no `refresh_token` with the refresh cookie);
-- error: `#error=<code>&flow=login|link&provider=…`; `2fa_enrollment_required`
-  carries `enrollment_token`, `enrollment_expires_in`, `allowed_methods`
-  instead of an access token;
-- popup: `postMessage` of `{type: "AUTHKIT_OIDC_RESULT", access_token, …, nonce}`
-  or `{type: "AUTHKIT_OIDC_ERROR", error, flow, provider, nonce}`.
-
-An account invitation never rides in a URL. To sign up with one, the page
-POSTs `{"account_invite_token", "return_to"?, "ui"?, "popup_nonce"?}` to
-`/oidc/{provider}/login` from its own origin and navigates to the returned
-`auth_url`; the invitation is bound to the flow's server-side state. A GET
-carrying `account_invite_token` is refused. On HTTPS the flow's state cookie is
-`__Host-` prefixed. Providers may not share an issuer or use this deployment's.
-
-`return_to` must be app-relative. Linking a provider to an existing account is
-`POST /api/v1/oidc/{provider}/link/start`: it needs fresh authentication
-(`403 step_up_required`) and an existing link for the same issuer must be
-unlinked first (`409 provider_change_requires_unlink`). Completion requires that
-same session to remain live and fresh. Successful linking returns an empty 204
-for JSON, or redirects with `#flow=link&result=success&provider=…`; it retains the
-existing session and issues no tokens or refresh cookie. See
-[credential and recovery grants](docs/security/credential-grants.md).
-
-## RBAC
-
-`Config.RBAC` is `[]embedded.PersonaDef`. Each persona is a permission
-namespace (`org:members:read`) with a role catalog; non-root personas name one
-`Parent`; `root` is the parentless singleton with AuthKit's built-in owner
-role. `Capabilities` opt a persona into the generated
-API-key, remote-application and custom-role routes; `Creation.Enabled` mounts
-`POST /<persona>`. Assignments are rows keyed by persona and role name: treat
-both as durable identifiers and never rename in place; removed names fail
-closed without deleting rows. One role per subject per group; who may create a
-group is the host's decision.
-
-An enabled remote application can own its immutable controlling group. Its
-signed app-self token can use that group's existing member add, role-change,
-removal, member-list and role-list endpoints. Mutations recheck current grants
-and the credential's permission ceiling in the same transaction as the write;
-both the replaced and requested roles must fit. Delegated user tokens do not
-inherit the application's ownership. Registration invitations still require a
-native user. A remote owner assignment in another group is rejected and never
-counts as a remaining owner; ordinary ancestor permission grants are unchanged.
-
-## Signed documents and delegated tokens
-
-`documents.NewService` signs, persists and re-verifies an immutable JSON
-envelope (`type`, `iss`, `aud`, opaque `payload`) with the engine's live key.
-Pass it in `authhttp.Config.Documents`; `MountHandler` then serves
-`GET|HEAD /.well-known/authkit/documents/{digest}` to the remote applications
-pinned in `Config.Documents.Readers` (by id, proven domain or root-registered
-issuer — never slug). Receivers use `documents.NewResolver` and
-`verify.Verifier.VerifyDocument`. The resolver guards nil/default transports
-against private and reserved destinations, including current DNS answers.
-`ResolverOptions.AllowHTTP` is the existing development opt-in for local HTTP
-and private destinations. An explicit custom transport retains the host's network
-policy; resolver timeouts, redirect bounds, response caps and verification still
-apply.
-
-`POST /api/v1/delegated/token` mounts when `Config.Delegated.Audiences` is set
-and requires the one host seam:
-
-```go
-deps.DelegatedAuthorization = func(ctx context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
-	if !mayDelegate(ctx, req.UserID, req.RequestedGrant) {
-		return authkit.DelegationGrant{}, authkit.ErrDelegationRefused // 403 delegation_refused; any other error is 503
+func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
+	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
+	err := authkit.Migrate(
+		ctx,
+		db, // your Postgres pool
+		authkit.MigrateOptions{Schema: "profiles"}, // schema where Authkit's tables will go
+	)
+	if err != nil {
+		return nil, err
 	}
-	return authkit.DelegationGrant{Permissions: []string{"resource:read"}}, nil
+
+	// 2. Authkit needs to send verification and account recovery codes to emails and phone numbers.
+	// Configure your messaging provider (Twilio) here.
+	mailer, err := twilioemail.New(twilioemail.Config{
+		APIKey:    os.Getenv("SENDGRID_API_KEY"),
+		FromEmail: "hello@myapp.com",
+		AppName:   "MyApp",
+	})
+	if err != nil {
+		return nil, err
+	}
+	texter, err := twiliosms.New(twiliosms.Config{
+		AccountSID:          os.Getenv("TWILIO_ACCOUNT_SID"),
+		AuthToken:           os.Getenv("TWILIO_AUTH_TOKEN"),
+		MessagingServiceSID: os.Getenv("TWILIO_MESSAGING_SERVICE_SID"),
+		AppName:             "MyApp",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Build the auth engine.
+	return authkit.New(
+		ctx,
+		authkit.Config{
+			// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
+			Token: authkit.TokenConfig{
+				Issuer:          "https://myapp.com", // who issued this; that's you!
+				IssuedAudiences: []string{"myapp"},   // who this JWT is intended for (doesn't have to be yourself, but usually is)
+			},
+			Keys: authkit.KeysConfig{
+				Path: "/vault/auth", // where your signing keys are stored; a keys.json file
+			},
+			HTTP: authkit.HTTPConfig{
+				DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
+				// Rate limits live in memory; set Redis when you run more than one copy of your server.
+			},
+			Roles: roles, // who may do what; see below
+		},
+		authkit.Deps{
+			Postgres: db,     // required: users, sessions and short-lived auth state
+			Email:    mailer, // sends verification codes, login codes and password resets
+			SMS:      texter, // same, for phone numbers
+		},
+	)
 }
 ```
 
-The request `{audiences, ttl_seconds, delegate_certificate_der_b64url,
-requested_grant}` is clamped to the configured audiences and TTL bounds;
-AuthKit signs only the grant plus every published document digest, bound to
-the delegate's leaf certificate as `cnf: {"x5t#S256": …}` (RFC 8705). A bound
-token verifies only when `r.TLS.PeerCertificates[0]` hashes to that value —
-terminate TLS on the resource server with
-`tls.Config{ClientAuth: tls.RequestClientCert}` or stricter; anything else
-fails `sender_proof_required`.
+Now let's make a shitty Reddit-clone. Oh wait; Reddit is already shit, I forgot lol.
 
-Browser clients can use the same route without client certificates when the
-issuer enables `Config.Delegated.AllowDPoP`. A validated DPoP proof binds the
-result to a browser key as `cnf.jkt`; direct resource calls use the `DPoP`
-authorization scheme and a fresh proof for each request. The host authorizer
-still decides every permission and must handle the JWK binding with a nil
-`DelegateCertificate`. See [browser delegation](docs/browser-delegation.md) for
-the exact wire profile, receiver configuration and browser key lifecycle.
-
-## Application self-registration
-
-`Config.Applications = ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}`
-mounts `POST /api/v1/applications/register` `{"domain": "cozy.art"}`. The
-server fetches `https://<domain>/.well-known/authkit/application.json`; that
-fetch is the domain-control proof (https, no redirects, SSRF-guarded). The
-document declares `issuer`, one of
-`jwks_uri`/`public_keys`, and a requested `slug` (default: the hostname)
-claimed like any org slug. The result is a `registered`-tier remote
-application plus a service-owned `OrgPersona` group. Re-registering the same
-domain re-proves the root and refreshes the keys — that is key rotation; a
-keypair never rotates itself. `Deps.ApplicationAdmission` is the host's cost
-gate.
-
-A group registering an application through its own routes binds the issuer on
-its members' authority alone (`trust_root: "user"`). A later domain proof for
-that issuer takes it over, unless the application is its group's last owner.
-No application may claim this deployment's issuer or an identity provider's
-issuer. Another account issuer (`Token.AccountIssuers`) may be registered only
-by the operator (bootstrap manifest or `Client.UpsertRemoteApplication`): its
-delegated subjects name accounts in the shared store, so a group or domain
-registration under it is refused. Its native user tokens never authenticate
-here; only its application and delegated tokens do.
-
-## Device keys
-
-`Config.DeviceKeys.Enabled` mounts `RouteDeviceKeys` for native clients.
-`POST /api/v1/device-keys/enroll/begin` (email + public key → emailed code)
-and `enroll/finish` (code + signature; an MFA-protected account must also
-present its second factor) enrol a per-machine key. `login/begin` +
-`login/finish` exchange a signed challenge for a short access token and
-nothing else — no refresh session. `GET /api/v1/device-keys`,
-`DELETE /api/v1/device-keys/{id}` and `POST /api/v1/device-keys/revoke-others`
-manage keys; a revoked machine cannot revoke its replacement. A host admitting
-a user's machines reads their live keys with `Client.ActiveDeviceKeys`.
-
-## Two-factor enrollment
-
-`POST /user/2fa` starts (`{method}`) and confirms (`{method, code}`) a TOTP,
-email or SMS factor. The confirming code verifies the enrolling session, so its
-next refresh returns tokens rather than `2fa_required`; other sessions must
-complete 2FA. See [API endpoints](docs/api-endpoints.md#two-factor-authentication).
-
-An email/SMS 2FA code survives a wrong guess (`invalid_code`). The fifth miss
-burns it; that miss and any later submission until a resend return
-`2fa_code_expired`, as does an expired or unsent code.
-
-## Passkey ceremonies
-
-`/api/v1/passkeys/*` covers browser login, registration and management. AuthKit's
-HTTP transport drives the private engine ceremonies; Runtime does not expose
-workflow primitives to embedding applications. Every finish consumes its
-ceremony once and only for the purpose for which it was begun.
-
-## Liveness
-
-`verify.Required` is stateless: a banned or deleted user keeps a valid access
-token until it expires (at most one access TTL). For a surface that cannot
-accept that window:
+First we need moderators; these are the unpaid neckbeards who enforce their arbitrary policies on users (plebians). Let's build that feature first:
 
 ```go
-// Config.HTTP wires the local engine as the liveness source.
-requiredLive, err := authkitgin.RequiredLive(srv.Verifier()) // verify.RequiredLive for net/http
+var roles = authkit.RoleConfig{
+	// Persona's are a type of permission group. root (the whole site) always exists.
+	Personas: map[string]authkit.Persona{
+		// we'll create one permission group per reddit-channel, like /c/golang
+		"channel": {
+			// Our own permissions. Every persona also gets AuthKit's built-ins for free:
+			// channel:self:* (read, update, delete the channel), channel:members:* and, when switched on,
+			// channel:roles:manage and channel:credentials:* (its API keys and apps).
+			Permissions: []string{"channel:posts:edit", "channel:posts:delete", "channel:posts:approve"},
+			// Anyone signed in may start a channel and becomes its owner. Only admins may take /c/announcements.
+			Creation: authkit.GroupCreation{Enabled: true, ReservedSlugs: []string{"announcements"}},
+		},
+	},
+	// Roles are bundles of permissions, scoped to a specific persona.
+	// There is always a singleton persona; root
+	Roles: []authkit.Role{
+		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}}, // edit, delete and approve posts
+		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
+			"channel:*",    // read, edit, and delete any channel
+			"root:users:*", // read, ban, delete and manage user accounts
+		}},
+	},
+}
 ```
 
-It denies banned, deleted, reserved and unknown accounts on the next request
-and hands the handler fresh `Username`/`Email`/`EmailVerified`. Fail-closed:
-one `UserLivenessByIDs` read per request, no cache, a lookup error denies.
-A standalone `verify.NewVerifier()` still needs an explicit
-`WithLiveness(client)`; without a source, live middleware construction returns
-`verify.ErrLivenessUnconfigured`. Hosts can replace a service verifier's source
-with the same setter. Attaching the source does not change stateless middleware.
+Permissions have 3 parts: `<persona>:<resource>:<action>` and they support wildcards like `channel:*` too.
 
-Choose the scope where the check runs by mounting middleware, with no global
-configuration switch or implicit admin-role policy:
+AuthKit gives every persona these permissions for free, so you never list them yourself:
 
-- `verify.Required` and `verify.Optional` keep native-user token checks stateless.
-- `verify.RequiredLive` requires credentials and checks native-user liveness.
-- `verify.OptionalLive` admits anonymous requests without a lookup; presented
-  credentials must verify, and native users must pass the liveness check.
+| Permission | Lets you |
+|---|---|
+| `channel:self:read` | see the channel's settings: its id, name and rename history |
+| `channel:self:update` | rename it or change its display name |
+| `channel:self:delete` | delete it |
+| `channel:members:read` | see who holds which role in it |
+| `channel:members:manage` | give someone a role, change it, or take it away |
+| `channel:roles:manage` | define the channel's own custom roles (only when `CustomRoles` is on) |
+| `channel:credentials:read`, `channel:credentials:manage` | list, or create and revoke, the channel's API keys and connected apps (only when `APIKeys` or `RemoteApplications` is on) |
 
-The Gin and Fiber adapters expose matching `RequiredLive` and `OptionalLive`
-constructors. Mount the returned native middleware on routes, groups, or the
-whole application using the framework's usual registration methods.
+The root group has its own:
+
+| Permission | Lets you |
+|---|---|
+| `root:users:read` | look through users and their sign-in history |
+| `root:users:ban` | ban and unban |
+| `root:users:delete` | delete an account, or restore it within its 30 days |
+| `root:users:manage` | edit someone else's account and sign them out everywhere |
+| `root:users:invite` | invite someone to create an account |
+| `root:members:read`, `root:members:manage` | see or hand out site-wide roles |
+
+It has no `self`, because nobody renames or deletes the whole site.
+
+A channel's members are the people who hold a role there: its owner and moderators. Readers and posters don't need to be members; who may post is your app's call.
+
+On every boot, AuthKit makes sure `ADMIN_EMAIL` is one. If there's no such account yet, AuthKit makes one with no password, and its owner signs in with "forgot password".
+
+Channels are data, not config: they're made while the site runs. People make them with AuthKit's own route, `POST /api/v1/channel` with `{"slug": "golang"}`, and become that channel's owner. Code makes them with `CreateGroup`. Here our admin opens /c/announcements, a name only admins may take.
 
 ```go
-requiredLive, err := verify.RequiredLive(srv.Verifier())
-if err != nil { return err }
-optionalLive, err := verify.OptionalLive(srv.Verifier())
-if err != nil { return err }
-mux.Handle("/admin/", requiredLive(adminHandler)) // explicit sensitive-route policy
-mux.Handle("/profile", optionalLive(profileHandler))
-// Alternatively, wrap the unwrapped application handler instead of its routes:
-handler := optionalLive(applicationHandler)
+func seed(ctx context.Context, auth *authkit.Auth) error {
+	email := os.Getenv("ADMIN_EMAIL")
+	if email == "" {
+		return errors.New("set ADMIN_EMAIL to the first admin's address")
+	}
+	// The operator is your own code, trusted to do anything.
+	admin, err := auth.EnsureUserRole(ctx, iam.OperatorActor(), iam.RootGroup(), iam.UserByEmail(email), "admin")
+	if err != nil {
+		return err
+	}
+	// Acting as the admin now. Later boots find the channel already made.
+	_, _, err = auth.CreateGroup(ctx, iam.UserActor(admin.ID), iam.NewGroup{Persona: "channel", Slug: "announcements"})
+	return err
+}
 ```
 
-Mount on a route, a subtree/group, or the outer application handler according to
-the host's policy; choose one scope to avoid redundant lookups. Anonymous
-requests through `OptionalLive` remain anonymous. Invalid credentials, banned
-accounts, and liveness-backend failures are refused instead of becoming
-anonymous. These checks do not grant admin permissions; authorization remains a
-separate route policy. Verified machine/external principals retain the existing
-verifier behavior and do not acquire a native-user directory lookup.
+Great. Now let's mount authkit's http handlers. This lets your end-users register and login.
 
-AuthKit's built-in root-permission operations resolve permissions live, without
-an implicit account-ban lookup. Existing native access tokens authenticate until
-expiry; bans prevent login and refresh. Hosts can explicitly select the live
-middleware above when they need immediate account revocation. Deleted or
-reserved users cannot perform authority mutations, and ownership transitions
-retain their stricter valid-owner checks.
+```go
+func main() { log.Fatal(run(context.Background())) }
 
-## Sessions across issuers
+func run(ctx context.Context) error {
+	db, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	auth, err := newAuth(ctx, db)
+	if err != nil {
+		return err
+	}
+	defer auth.Close()
+	if err := auth.Start(ctx); err != nil { // background maintenance jobs
+		return err
+	}
+	if err := seed(ctx, auth); err != nil {
+		return err
+	}
+	r := gin.Default()
+	if err := authkitgin.Mount(r, auth); err != nil { // /api/v1/*, /.well-known/jwks.json, /oidc/* with social logins
+		return err
+	}
+	mountForum(r, auth)
+	return r.Run(":8080")
+}
+```
 
-Deployments sharing one account schema under different issuers (separate site
-logins, shared accounts) each set `Token.AccountIssuers` to the same issuer set.
+Admins can already look after people with AuthKit's own routes: `GET /api/v1/admin/users` to see everyone, and `POST /api/v1/admin/users/{user_id}/ban` (or `/unban`). The admin's `root:users:*` opens those doors.
 
-| Operation | Refresh sessions revoked on |
-| --- | --- |
-| `DELETE /logout`, `DELETE /user/sessions[/{id}]`, `RevokeIssuerSessions`, session-cap eviction, refresh reuse | this issuer |
-| `AdminRevokeAccountSessions[As]` (`POST /admin/users/{user_id}/sessions/revoke`), password change/reset/admin set, contact change, ban, deletion | every account issuer |
+Badges are handed out per channel, too. Bob can moderate /c/golang and nowhere else. The owner of /c/golang, or any admin, pins the badge on him with `PUT /c/golang/moderators/{bob's user id}`; AuthKit's own `PUT /api/v1/channel/golang/members/{user_id}/roles/moderator` does the same. Then every forum route asks AuthKit about the channel in its URL. Bob gets in at /c/golang and is turned away at /c/rust, while admins get in everywhere. Roles are checked live, so a badge taken away stops working right away.
 
-The emergency revoke also revokes device keys and returns
-`authkit.AccountSessionRevocation`: covered issuers, per-issuer counts, and live
-sessions left under unlisted issuers (nonzero means incomplete configuration).
-Each revoked session is recorded under its own issuer, plus one
-`account_sessions_revoked` event.
+```go
+func mountForum(r *gin.Engine, auth *authkit.Auth) {
+	f := &forum{auth: auth, posts: map[int]*Post{}}
+	signedIn := authkitgin.Required(auth.Verifier())
+	// may signs the person in, then asks AuthKit: do they hold perm in the channel from the URL?
+	may := func(perm iam.Perm) gin.HandlerFunc {
+		return authkitgin.RequirePermission(auth, perm, func(c *gin.Context) iam.GroupRef {
+			return iam.GroupByID(c.GetString("channel"))
+		})
+	}
 
-Revocation stops refresh and step-up re-authentication at once. It does not
-recall issued access tokens: `verify.Required` accepts them until `exp`
-(`AccessTokenDuration`), and `RequiredLive`/`AllowLive` check account liveness
-and live permissions, not sessions. Removing the account's roles cuts privileged
-access immediately. Bans block login and refresh; existing native access tokens
-retain their remaining lifetime unless explicit live-account verification is used.
+	ch := r.Group("/c/:channel", f.channel) // every route below knows its channel
+	ch.GET("/posts", f.list(true))          // anyone can read
+	ch.POST("/posts", signedIn, f.create)   // anyone signed in can post
+	ch.GET("/queue", may("channel:posts:approve"), f.list(false))
+	ch.PATCH("/posts/:id", may("channel:posts:edit"), f.edit)
+	ch.DELETE("/posts/:id", may("channel:posts:delete"), f.remove)
+	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approve)
+	ch.PUT("/moderators/:user_id", signedIn, f.appoint) // AuthKit checks who may hand out badges
+	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)
+}
+```
 
-## Recoverable account deletion
+Last come the posts. Each one belongs to a channel. They live in memory to keep the story short; a real app would keep them in a table. See how `create` asks AuthKit who is posting.
 
-Every accepted account deletion is soft for exactly 30 days. Ownership must be
-transferred, or the group deleted, before its last eligible owner can delete
-their account. Repeating deletion does not restart the clock. AuthKit revokes
-existing sessions immediately, retains the identity for recovery, and schedules
-a River finalizer for that account's exact deadline.
+```go
+type Post struct {
+	ID        int    `json:"id"`
+	ChannelID string `json:"channel_id"`
+	AuthorID  string `json:"author_id"`
+	Title     string `json:"title" binding:"required"`
+	Body      string `json:"body"`
+	Approved  bool   `json:"approved"` // new posts wait for a moderator
+}
 
-Pass optional `OnSoftDelete`, `OnHardDelete` and `OnRestore` functions in
-`embedded.Deps`. Each receives `(context.Context, authkit.UserDeletion)` and
-returns an error. The payload contains a deletion generation `ID`, `UserID`,
-`DeletedAt` and `PurgeAt`. Soft callbacks must preserve recoverable host data;
-restore callbacks undo reversible soft work. Hard callbacks run after the
-deadline and before physical identity purge, so they can remove host foreign
-keys. Final purge waits for all required applications to finish successfully.
+type forum struct {
+	auth   *authkit.Auth
+	mu     sync.Mutex
+	posts  map[int]*Post
+	nextID int
+}
 
-Callbacks run at least once, outside database transactions, in lifecycle order
-for each user and application. They must be idempotent and honor cancellation;
-River retries errors without losing the cleanup. Nil means no application work
-for that stage. The host does not poll a backlog or acknowledge events.
+// channel finds the channel in the URL, or answers 404.
+func (f *forum) channel(c *gin.Context) {
+	g, err := f.auth.Group(c.Request.Context(), iam.GroupBySlug("channel", c.Param("channel")))
+	if err != nil {
+		authkitgin.Error(c, err)
+		return
+	}
+	c.Set("channel", g.ID)
+}
 
-`Token.AccountIssuers` identifies deployments sharing account lifecycle. Each
-issuer must compose its River fleet once before deletion affects it (until
-then deletion fails with a logged cause, and startup warns naming it); AuthKit
-remembers that issuer's River schema and queues callbacks directly into it,
-even while the application is offline. Separate River schemas are supported,
-but AuthKit and every participating fleet must address the same physical
-database for atomic insertion. Binding verifies that identity, including
-schema-bound pool copies. An issuer may bind a different River schema once it
-has no active deletion generations or pending callbacks. The transition is
-atomic and fences old runtime producers; active work must finish first.
+func (f *forum) list(approved bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		out := []Post{}
+		for _, p := range f.posts {
+			if p.ChannelID == c.GetString("channel") && p.Approved == approved {
+				out = append(out, *p)
+			}
+		}
+		slices.SortFunc(out, func(a, b Post) int { return a.ID - b.ID })
+		c.JSON(http.StatusOK, out)
+	}
+}
 
-Terminal generation and delivery history uses AuthKit's internal 90-day
-retention and bounded maintenance batches. Active generations and unfinished
-callbacks are never expired; old completed River jobs safely no-op afterward.
+func (f *forum) create(c *gin.Context) {
+	who, ok := authkitgin.Actor(c) // who is posting?
+	if !ok || who.Kind() != iam.ActorUser {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only people can post"})
+		return
+	}
+	var p Post
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	p.ID, p.ChannelID, p.AuthorID, p.Approved = f.nextID, c.GetString("channel"), who.ID(), false
+	f.posts[p.ID] = &p
+	c.JSON(http.StatusCreated, p)
+}
 
-Trusted operators can use `client.OperatorRestoreUsers`; authorized HTTP
-administrators use `POST /admin/users/{user_id}/restore`. Recovery before the
-deadline invalidates that generation's finalizer without reviving revoked
-sessions. Once finalization starts after the deadline, restoration is refused.
-There is no public immediate-purge operation or configurable retention period.
+func (f *forum) edit(c *gin.Context) {
+	var in Post
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	f.withPost(c, func(p *Post) { p.Title, p.Body = in.Title, in.Body })
+}
 
-A deleted user can prove their identity through the existing password,
-passwordless, passkey, external-login or Solana login flow. Existing MFA still
-applies. Successful proof returns `409 account_recovery_required` with an opaque
-`recovery` object instead of a session. Submit its `token` to
-`POST /account/recovery/confirm` to restore explicitly, then sign in normally.
-The one-use confirmation expires within ten minutes and before the deletion
-deadline; it is bound to that issuer, credential version and deletion generation.
-It cannot authenticate API requests, enroll new MFA factors, or refresh a session.
-Required but missing MFA enrollment needs operator recovery; no enrollment
-access token is issued for a deleted account. Login never restores implicitly.
+func (f *forum) approve(c *gin.Context) { f.withPost(c, func(p *Post) { p.Approved = true }) }
+func (f *forum) remove(c *gin.Context)  { f.withPost(c, func(p *Post) { delete(f.posts, p.ID) }) }
+
+// withPost finds the post in the URL and changes it, or answers 404.
+// A post from another channel isn't here, so /c/rust can't reach a /c/golang post.
+func (f *forum) withPost(c *gin.Context, change func(*Post)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id, _ := strconv.Atoi(c.Param("id"))
+	p, ok := f.posts[id]
+	if !ok || p.ChannelID != c.GetString("channel") {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no such post"})
+		return
+	}
+	change(p)
+	c.JSON(http.StatusOK, p)
+}
+
+// appoint pins the moderator badge on someone in this channel (PUT) or takes it back (DELETE).
+// AuthKit decides whether the caller may: this channel's owner or an admin, yes; Bob, no.
+func (f *forum) appoint(c *gin.Context) {
+	actor, _ := authkitgin.Actor(c) // no actor? AuthKit refuses the empty one
+	change := f.auth.AssignGroupRoles
+	if c.Request.Method == http.MethodDelete {
+		change = f.auth.UnassignGroupRoles
+	}
+	who := []iam.Subject{iam.UserSubject(c.Param("user_id"))}
+	res, err := change(c.Request.Context(), actor, iam.GroupByID(c.GetString("channel")), who, "moderator")
+	if err == nil {
+		err = res[0].Err
+	}
+	if err != nil {
+		authkitgin.Error(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+```
+
+More: [routes](docs/api-endpoints.md) · [tokens and claims](docs/verification.md) · [rate limits](docs/security/rate-limits.md) · [keys.json](jwtkit/KEY_ROTATION.md)

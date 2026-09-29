@@ -2,6 +2,7 @@
 package testhttp
 
 import (
+	"context"
 	"crypto"
 	"testing"
 
@@ -12,16 +13,16 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Runtime builds a runtime serving httpCfg (nil: headless) on a scratch
+// Runtime builds a runtime serving httpCfg (zero: headless) on a scratch
 // database, with one Google provider so provider routes exist.
-func Runtime(t testing.TB, httpCfg *authkit.HTTPConfig) *authkit.Auth {
+func Runtime(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	signer, err := jwtkit.NewRSASigner(2048, "runtime-http-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := authkit.New(authkit.Config{
+	runtime, err := authkit.New(context.Background(), authkit.Config{
 		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test"}},
 		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
 		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
@@ -37,6 +38,6 @@ func Runtime(t testing.TB, httpCfg *authkit.HTTPConfig) *authkit.Auth {
 }
 
 // HTTP is a rate-limit-free, direct-peer HTTP configuration for tests.
-func HTTP() *authkit.HTTPConfig {
-	return &authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true}
+func HTTP() authkit.HTTPConfig {
+	return authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true}
 }

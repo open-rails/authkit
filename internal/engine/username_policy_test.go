@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
@@ -12,7 +13,7 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
-	rt, err := New(cfg, Deps{Postgres: pg.Pool})
+	rt, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
 
@@ -31,6 +32,6 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Metadata(), "imports keep the 64-character import ceiling")
 
 	cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
-	_, err = New(cfg, Deps{Postgres: pg.Pool})
+	_, err = New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "invalid username policy")
 }

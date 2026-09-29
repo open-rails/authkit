@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"crypto"
 	"encoding/json"
 	"net/http"
@@ -56,10 +57,10 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "sms-health")
 	require.NoError(t, err)
-	auth, err := authkit.New(authkit.Config{
+	auth, err := authkit.New(context.Background(), authkit.Config{
 		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
 		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
-		HTTP:  &authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
+		HTTP:  authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
 	}, authkit.Deps{Postgres: testdb.Pool(t), SMS: sender})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)

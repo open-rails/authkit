@@ -20,7 +20,7 @@ func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Au
 	t.Helper()
 	cfg := testhttp.HTTP()
 	for _, m := range mutate {
-		m(cfg)
+		m(&cfg)
 	}
 	return testhttp.Runtime(t, cfg)
 }
@@ -33,7 +33,7 @@ func TestMountRejectsInvalidConfiguration(t *testing.T) {
 	if err := authkitfiber.Mount(app, nil); err == nil {
 		t.Fatal("nil surface accepted")
 	}
-	if err := authkitfiber.Mount(app, testhttp.Runtime(t, nil)); err == nil {
+	if err := authkitfiber.Mount(app, testhttp.Runtime(t, authkit.HTTPConfig{})); err == nil {
 		t.Fatal("headless runtime accepted")
 	}
 	if routes := app.GetRoutes(); len(routes) != 0 {

@@ -16,7 +16,7 @@ import (
 func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
-	runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ctx := t.Context()

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -47,7 +48,7 @@ func credentialRoles() RoleConfig {
 func newCredentialFixture(t *testing.T) *credentialFixture {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
-	e, err := New(credentialConfig(credentialRoles()), Deps{Postgres: pg.Pool})
+	e, err := New(context.Background(), credentialConfig(credentialRoles()), Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(e.Close)
 	f := &credentialFixture{t: t, e: e, pool: pg.Pool, acme: iam.GroupBySlug("org", "acme")}
@@ -450,7 +451,7 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	c := f.issue(t, manager, "member", false)
 	control := f.issue(t, f.founder, "manager", false)
 	boot := func(roles RoleConfig) (*Engine, error) {
-		e, err := New(credentialConfig(roles), Deps{Postgres: f.pool})
+		e, err := New(context.Background(), credentialConfig(roles), Deps{Postgres: f.pool})
 		if err == nil {
 			t.Cleanup(e.Close)
 		}

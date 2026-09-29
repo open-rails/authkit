@@ -1,6 +1,8 @@
 package authkit
 
 import (
+	"reflect"
+
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -10,8 +12,8 @@ import (
 // The one place public configuration becomes internal settings. Every
 // exported field must be mapped; TestConfigMapping fails otherwise.
 
-// settings is what New hands the internals: the engine's settings and, when
-// Config.HTTP is set, the HTTP layer's.
+// settings is what New hands the internals: the engine's settings and, unless
+// Config.HTTP is zero, the HTTP layer's.
 type settings struct {
 	engine engine.Config
 	http   *httpapi.Config
@@ -40,7 +42,7 @@ func (c Config) settings() settings {
 		SolanaNetwork:         c.SolanaNetwork,
 		SessionEventRetention: c.SessionEventRetention,
 	}}
-	if c.HTTP != nil {
+	if !reflect.ValueOf(c.HTTP).IsZero() {
 		h := c.HTTP.internal()
 		s.http = &h
 	}

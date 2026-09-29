@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -39,7 +40,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "member"}}}
-	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ids := make([]string, 5)
