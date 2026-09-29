@@ -88,6 +88,15 @@ func (l *eventLog) await(t *testing.T, kind iam.EventKind, userID string) {
 	}, time.Minute, 50*time.Millisecond, "no %s event", kind)
 }
 
+// proveOwnEmail verifies a registrant's address from its own session, which
+// keeps its password.
+func (h *host) proveOwnEmail(email string, own tokens) {
+	h.t.Helper()
+	require.Less(h.t, h.post("/verify/request", map[string]string{"identifier": email}, "").status, 300)
+	resp := h.post("/verify/confirm", map[string]string{"identifier": email, "code": h.verificationCode(email)}, own.AccessToken)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+}
+
 // sig is what an event says, without its id and time.
 func sig(e iam.Event) string {
 	return fmt.Sprintf("%s user=%s group=%s persona=%s app=%s by=%s:%s %q->%q", e.Kind, e.UserID, e.GroupID, e.Persona, e.ApplicationID, e.ActorKind, e.ActorID, e.Previous, e.Current)
@@ -122,6 +131,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	aliceTokens := h.register(aliceEmail)
 	alice := account{id: h.userID(aliceEmail), email: aliceEmail}
 	expect(byUser(alice.id, iam.Event{Kind: iam.EventUserRegistered, UserID: alice.id}))
+	h.proveOwnEmail(aliceEmail, aliceTokens)
 
 	t.Run("refused bans record nothing", func(t *testing.T) {
 		resp := h.post("/admin/users/"+staff.id+"/ban", map[string]string{"until": "infinite"}, aliceTokens.AccessToken)
@@ -142,7 +152,6 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	}
 	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserUnbanned, UserID: alice.id}))
 
-	h.verifyEmail(alice.id)
 	aliceToken := h.login(alice).AccessToken
 	newEmail := unique("alicenew") + "@security.test"
 	resp = h.post("/verify/request", map[string]string{"identifier": newEmail, "password": password}, aliceToken)
@@ -279,7 +288,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	registered := h.register(email)
 	secrets = append(secrets, registered.AccessToken, registered.RefreshToken)
 	user := account{id: h.userID(email), email: email}
-	h.verifyEmail(user.id)
+	h.proveOwnEmail(email, registered)
 	session := h.login(user)
 	secrets = append(secrets, session.AccessToken, session.RefreshToken)
 
