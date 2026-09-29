@@ -265,7 +265,7 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 			v = contact.NormalizeEmail(v)
 			email = &v
 		}
-		if _, err := at.tx.Exec(ctx, `UPDATE users SET email=$2, email_verified=false, updated_at=now() WHERE id=$1::uuid AND email IS DISTINCT FROM $2::text::public.citext`, userID, email); err != nil {
+		if err := at.q.UserSetEmail(ctx, db.UserSetEmailParams{ID: userID, Email: email}); err != nil {
 			return revoked, mapUserUniqueViolation(err)
 		}
 	}
@@ -278,27 +278,20 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 			v = contact.NormalizePhone(v)
 			phone = &v
 		}
-		if _, err := at.tx.Exec(ctx, `UPDATE users SET phone_number=$2, phone_verified=false, updated_at=now() WHERE id=$1::uuid AND phone_number IS DISTINCT FROM $2`, userID, phone); err != nil {
+		if err := at.q.UserSetPhone(ctx, db.UserSetPhoneParams{ID: userID, PhoneNumber: phone}); err != nil {
 			return revoked, mapUserUniqueViolation(err)
 		}
 	}
-	for _, flag := range []struct {
-		set    *bool
-		column string
-	}{{u.EmailVerified, "email"}, {u.PhoneVerified, "phone_number"}} {
-		if flag.set == nil {
-			continue
-		}
-		verified := "email_verified"
-		if flag.column == "phone_number" {
-			verified = "phone_verified"
-		}
-		tag, err := at.tx.Exec(ctx, `UPDATE users SET `+verified+`=$2, updated_at=now() WHERE id=$1::uuid AND (NOT $2 OR `+flag.column+` IS NOT NULL)`, userID, *flag.set)
-		if err != nil {
+	if u.EmailVerified != nil {
+		n, err := at.q.UserSetEmailVerifiedIfPresent(ctx, db.UserSetEmailVerifiedIfPresentParams{ID: userID, Verified: *u.EmailVerified})
+		if err := verifiedFlagSet("email_verified", n, err); err != nil {
 			return revoked, err
 		}
-		if tag.RowsAffected() == 0 {
-			return revoked, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(verified))
+	}
+	if u.PhoneVerified != nil {
+		n, err := at.q.UserSetPhoneVerifiedIfPresent(ctx, db.UserSetPhoneVerifiedIfPresentParams{ID: userID, Verified: *u.PhoneVerified})
+		if err := verifiedFlagSet("phone_verified", n, err); err != nil {
+			return revoked, err
 		}
 	}
 	if u.Email != nil || u.Phone != nil || u.EmailVerified != nil || u.PhoneVerified != nil {
@@ -311,7 +304,7 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 		if err != nil {
 			return revoked, err
 		}
-		if _, err := at.tx.Exec(ctx, `UPDATE users SET avatar_url=$2, updated_at=now() WHERE id=$1::uuid`, userID, avatar); err != nil {
+		if err := at.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: userID, AvatarURL: avatar}); err != nil {
 			return revoked, err
 		}
 	}
@@ -324,12 +317,12 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 			}
 			language = &normalized
 		}
-		if _, err := at.tx.Exec(ctx, `UPDATE users SET preferred_language=$2, updated_at=now() WHERE id=$1::uuid`, userID, language); err != nil {
+		if err := at.q.UserSetPreferredLanguage(ctx, db.UserSetPreferredLanguageParams{ID: userID, PreferredLanguage: language}); err != nil {
 			return revoked, err
 		}
 	}
 	if u.Password != nil || u.PasswordHash != nil {
-		hash, algo, err := s.passwordForUpdate(ctx, at.tx, userID, u)
+		hash, algo, err := s.passwordForUpdate(ctx, at.q, userID, u)
 		if err != nil {
 			return revoked, err
 		}
@@ -343,6 +336,15 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 	return revoked, nil
 }
 
+// verifiedFlagSet is the outcome of setting a verified flag: no row changed
+// means the account has no address to verify.
+func verifiedFlagSet(param string, changed int64, err error) error {
+	if err == nil && changed == 0 {
+		return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(param))
+	}
+	return err
+}
+
 // keepMFAHolderProven refuses a contact change that leaves an account with a
 // second factor, or holding MFA-required roles, without a proven contact: the
 // next proof (a reset to the new address) would retire that factor, handing
@@ -353,7 +355,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 	if err != nil || before.Unproven || !after.Unproven {
 		return err
 	}
-	enrolled, err := userHasEnabledMFA(ctx, tx, userID)
+	enrolled, err := db.New(tx).MFAUsable(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -368,16 +370,16 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 
 // passwordForUpdate validates a new password against the policy and the
 // account's current identifiers, or an imported hash, and returns what to store.
-func (s *Engine) passwordForUpdate(ctx context.Context, tx pgx.Tx, userID string, u iam.UserUpdate) (hash, algo string, err error) {
+func (s *Engine) passwordForUpdate(ctx context.Context, q *db.Queries, userID string, u iam.UserUpdate) (hash, algo string, err error) {
 	if u.PasswordHash != nil {
 		hash, algo = strings.TrimSpace(u.PasswordHash.Hash), strings.TrimSpace(u.PasswordHash.Algo)
 		return hash, algo, validatePasswordHashForStorage(hash, algo)
 	}
-	var username, email *string
-	if err := tx.QueryRow(ctx, `SELECT username::text, email::text FROM users WHERE id=$1::uuid`, userID).Scan(&username, &email); err != nil {
+	user, err := q.UserByID(ctx, userID)
+	if err != nil {
 		return "", "", err
 	}
-	if err := s.ValidatePassword(*u.Password, deref(username), deref(email)); err != nil {
+	if err := s.ValidatePassword(*u.Password, deref(user.Username), deref(user.Email)); err != nil {
 		return "", "", err
 	}
 	hash, err = password.HashArgon2id(*u.Password)
@@ -427,8 +429,7 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 		if len(patch) == 0 {
 			return nil
 		}
-		_, err := at.tx.Exec(ctx, `UPDATE users SET metadata=(COALESCE(metadata,'{}'::jsonb) || $2::jsonb) - $3::text[], updated_at=now() WHERE id=$1::uuid`, userID, raw, drop)
-		return err
+		return at.q.UserPatchMetadata(ctx, db.UserPatchMetadataParams{ID: userID, Patch: raw, DropKeys: drop})
 	})
 }
 
@@ -452,8 +453,8 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 	var revoked []revokedSession
 	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersBan, selfRefused, func(at accountTx) error {
 		if b.KeepExisting {
-			var inForce bool
-			if err := at.tx.QueryRow(ctx, `SELECT banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until>now()) FROM users WHERE id=$1::uuid`, userID).Scan(&inForce); err != nil {
+			inForce, err := at.q.UserBanInForce(ctx, userID)
+			if err != nil {
 				return err
 			}
 			if inForce {
@@ -486,8 +487,8 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 // lifts their own ban.
 func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string) error {
 	return s.withAccountMutation(ctx, a, userID, iam.PermRootUsersBan, selfRefused, func(at accountTx) error {
-		var inForce bool
-		if err := at.tx.QueryRow(ctx, `SELECT banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until>now()) FROM users WHERE id=$1::uuid`, at.userID).Scan(&inForce); err != nil {
+		inForce, err := at.q.UserBanInForce(ctx, at.userID)
+		if err != nil {
 			return err
 		}
 		if err := at.q.UserClearBan(ctx, userID); err != nil || !inForce {
@@ -541,8 +542,7 @@ func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.C
 		// A repeat keeps the recovery window; a repeat by anyone but the
 		// account records their deletion, which signing in never undoes (P6).
 		if !at.self {
-			_, err := at.tx.Exec(ctx, `UPDATE account_deletions SET deleted_by=$2::uuid WHERE user_id=$1::uuid AND state='deleted'`, userID, at.by)
-			return nil, err
+			return nil, at.q.AccountDeletionSetDeletedBy(ctx, db.AccountDeletionSetDeletedByParams{UserID: userID, DeletedBy: at.by})
 		}
 		return nil, nil
 	}
@@ -592,16 +592,14 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, 
 			if revoked, err = s.softDeleteTx(ctx, at, client, id); err != nil {
 				return err
 			}
-			var deletion iam.UserDeletion
-			err = at.tx.QueryRow(ctx, `UPDATE account_deletions SET purge_at=statement_timestamp()
- WHERE user_id=$1::uuid AND state='deleted' RETURNING id::text, user_id::text, deleted_at, purge_at`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
+			deletion, err := at.q.AccountDeletionPurgeNow(ctx, id)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil // already finalizing or purged
 			}
 			if err != nil {
 				return err
 			}
-			return s.enqueueAccountFinalizer(ctx, at.tx, client, deletion, false)
+			return s.enqueueAccountFinalizer(ctx, at.tx, client, iam.UserDeletion(deletion), false)
 		})
 		if err == nil {
 			s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))
@@ -667,14 +665,13 @@ func (s *Engine) ResetAccountMFA(ctx context.Context, userID string) error {
 	err := s.withAccountMutation(ctx, iam.SystemActor(), userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
 		var err error
 		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
-			if _, err := at.tx.Exec(ctx, `UPDATE user_passkeys SET deleted_at=now() WHERE user_id=$1::uuid AND deleted_at IS NULL`, userID); err != nil {
+			if err := q.PasskeysDeleteByUser(ctx, userID); err != nil {
 				return err
 			}
 			if err := q.MFADeleteAllFactors(ctx, userID); err != nil {
 				return err
 			}
-			_, err := at.tx.Exec(ctx, `DELETE FROM mfa_settings WHERE user_id=$1::uuid`, userID)
-			return err
+			return q.MFASettingsDelete(ctx, userID)
 		})
 		return err
 	})

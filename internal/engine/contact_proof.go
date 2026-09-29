@@ -104,7 +104,8 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userI
 		q.UserProvidersDeleteByUser,
 		q.PasskeysDeleteByUser,
 		func(ctx context.Context, userID string) error {
-			return q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID})
+			_, err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID})
+			return err
 		},
 		q.MFADeleteAllFactors,
 		q.MFAResetSettings,

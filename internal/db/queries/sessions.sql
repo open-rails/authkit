@@ -1,13 +1,5 @@
 -- Refresh-session queries.
 
--- name: SessionCreateLock :exec
--- Transaction-scoped advisory lock that serializes concurrent session creation for
--- the same (user, issuer). Taken before the cap count + evict + insert so those run
--- on a consistent view and the active session count can never exceed
--- SessionMaxPerUser under concurrent logins. Auto-released at transaction end; MUST
--- be called inside a transaction.
-SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
-
 -- name: SessionInsert :one
 INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
@@ -96,13 +88,6 @@ WHERE user_id = sqlc.arg(user_id) AND issuer = ANY(sqlc.arg(issuers)::text[])
   AND revoked_at IS NULL
 RETURNING id::text, issuer;
 
--- name: DeviceKeysRevokeAllExcept :exec
--- A credential change ends every device key of the account but keep_id, the
--- one presenting the change.
-UPDATE user_device_keys SET revoked_at = now()
-WHERE user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL
-  AND (sqlc.narg(keep_id)::uuid IS NULL OR id <> sqlc.narg(keep_id)::uuid);
-
 -- name: SessionsCountActiveOutsideIssuers :one
 -- Live sessions an account-wide revocation could not reach: issuers missing
 -- from the configured account issuer set.
@@ -159,3 +144,14 @@ FOR UPDATE;
 SELECT ('pwd' = ANY(auth_methods))::boolean AS proved
 FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
+
+-- name: UserSessionLive :one
+-- The session check (#412): whether the account is usable, and whether the
+-- sign-in it names (session_id or device_key_id; '' = none) is still a live
+-- refresh session or device key of the account.
+SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = sqlc.arg(user_id)::uuid)::boolean AS usable,
+  (sqlc.arg(session_id)::text = '' AND sqlc.arg(device_key_id)::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF(sqlc.arg(session_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF(sqlc.arg(device_key_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in;

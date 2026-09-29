@@ -67,6 +67,14 @@ type MfaSetting struct {
 	UpdatedAt   time.Time
 }
 
+type PermissionGroup struct {
+	ID        string
+	Persona   string
+	CreatedAt time.Time
+	// Retained inactive group state; the trusted host owns retention and purge.
+	DeletedAt *time.Time
+}
+
 // Federation principals: external systems that authenticate by signing JWTs verified against configured keys.
 type RemoteApplication struct {
 	ID         string

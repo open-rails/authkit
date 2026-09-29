@@ -9,6 +9,16 @@ import (
 	"context"
 )
 
+const advisoryXactLock = `-- name: AdvisoryXactLock :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// Transaction-scoped advisory lock on key, released when the transaction ends.
+func (q *Queries) AdvisoryXactLock(ctx context.Context, key string) error {
+	_, err := q.db.Exec(ctx, advisoryXactLock, key)
+	return err
+}
+
 const currentDatabase = `-- name: CurrentDatabase :one
 SELECT current_database()::text
 `

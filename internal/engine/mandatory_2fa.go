@@ -144,7 +144,7 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 	if subject.Kind != iam.SubjectKindUser {
 		return fmt.Errorf("role %q requires MFA, which an application cannot hold: %w", role, iam.ErrRoleNotAssignable)
 	}
-	ok, err := userHasEnabledMFA(ctx, q, strings.TrimSpace(subject.ID))
+	ok, err := db.New(q).MFAUsable(ctx, strings.TrimSpace(subject.ID))
 	if err != nil {
 		return err
 	}
@@ -152,11 +152,6 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 		return iam.ErrTwoFAEnrollmentRequired
 	}
 	return nil
-}
-
-// userHasEnabledMFA reports whether 2FA is enabled and has a factor.
-func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, error) {
-	return db.New(q).MFAUsable(ctx, userID)
 }
 
 // removeMFARequiredUserRoles strips a user's MFA-required role assignments when

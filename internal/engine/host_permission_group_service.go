@@ -96,10 +96,9 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	if !errors.Is(err, iam.ErrGroupNotFound) {
 		return "", err
 	}
-	// DO NOTHING keeps a concurrent singleton insert from aborting a caller's
-	// enclosing transaction. Root has no mutable name claim.
-	err = st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona)
-		VALUES ('root') ON CONFLICT DO NOTHING RETURNING id::text`).Scan(&id)
+	// No row: a concurrent transaction created root. Root has no mutable name
+	// claim.
+	id, err = db.New(st.q).PermissionGroupEnsureRoot(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st.RootGroupID(ctx)
 	}

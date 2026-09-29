@@ -245,12 +245,21 @@ func (q *Queries) DeviceKeysByUser(ctx context.Context, userID string) ([]UserDe
 	return items, nil
 }
 
-const deviceKeysRevokeAll = `-- name: DeviceKeysRevokeAll :execrows
-UPDATE user_device_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL
+const deviceKeysRevokeAllExcept = `-- name: DeviceKeysRevokeAllExcept :execrows
+UPDATE user_device_keys SET revoked_at = now()
+WHERE user_id = $1::uuid AND revoked_at IS NULL
+  AND ($2::uuid IS NULL OR id <> $2::uuid)
 `
 
-func (q *Queries) DeviceKeysRevokeAll(ctx context.Context, userID string) (int64, error) {
-	result, err := q.db.Exec(ctx, deviceKeysRevokeAll, userID)
+type DeviceKeysRevokeAllExceptParams struct {
+	UserID string
+	KeepID *string
+}
+
+// Ends every live device key of the account but keep_id (optional), e.g. the
+// one presenting a credential change.
+func (q *Queries) DeviceKeysRevokeAllExcept(ctx context.Context, arg DeviceKeysRevokeAllExceptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deviceKeysRevokeAllExcept, arg.UserID, arg.KeepID)
 	if err != nil {
 		return 0, err
 	}

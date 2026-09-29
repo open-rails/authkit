@@ -10,24 +10,6 @@ import (
 	"time"
 )
 
-const deviceKeysRevokeAllExcept = `-- name: DeviceKeysRevokeAllExcept :exec
-UPDATE user_device_keys SET revoked_at = now()
-WHERE user_id = $1::uuid AND revoked_at IS NULL
-  AND ($2::uuid IS NULL OR id <> $2::uuid)
-`
-
-type DeviceKeysRevokeAllExceptParams struct {
-	UserID string
-	KeepID *string
-}
-
-// A credential change ends every device key of the account but keep_id, the
-// one presenting the change.
-func (q *Queries) DeviceKeysRevokeAllExcept(ctx context.Context, arg DeviceKeysRevokeAllExceptParams) error {
-	_, err := q.db.Exec(ctx, deviceKeysRevokeAllExcept, arg.UserID, arg.KeepID)
-	return err
-}
-
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
 FROM refresh_sessions
@@ -102,22 +84,6 @@ func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionB
 	return i, err
 }
 
-const sessionCreateLock = `-- name: SessionCreateLock :exec
-
-SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
-`
-
-// Refresh-session queries.
-// Transaction-scoped advisory lock that serializes concurrent session creation for
-// the same (user, issuer). Taken before the cap count + evict + insert so those run
-// on a consistent view and the active session count can never exceed
-// SessionMaxPerUser under concurrent logins. Auto-released at transaction end; MUST
-// be called inside a transaction.
-func (q *Queries) SessionCreateLock(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, sessionCreateLock, key)
-	return err
-}
-
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
        auth_methods, mfa_authenticated_at
@@ -177,6 +143,7 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 }
 
 const sessionInsert = `-- name: SessionInsert :one
+
 INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
 RETURNING id::text, family_id::text
@@ -199,6 +166,7 @@ type SessionInsertRow struct {
 	FamilyID string
 }
 
+// Refresh-session queries.
 func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (SessionInsertRow, error) {
 	row := q.db.QueryRow(ctx, sessionInsert,
 		arg.ID,
@@ -557,4 +525,34 @@ func (q *Queries) SessionsRevokeFamily(ctx context.Context, familyID string) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const userSessionLive = `-- name: UserSessionLive :one
+SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = $1::uuid)::boolean AS usable,
+  ($2::text = '' AND $3::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF($2::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF($3::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in
+`
+
+type UserSessionLiveParams struct {
+	UserID      string
+	SessionID   string
+	DeviceKeyID string
+}
+
+type UserSessionLiveRow struct {
+	Usable   bool
+	SignedIn bool
+}
+
+// The session check (#412): whether the account is usable, and whether the
+// sign-in it names (session_id or device_key_id; ” = none) is still a live
+// refresh session or device key of the account.
+func (q *Queries) UserSessionLive(ctx context.Context, arg UserSessionLiveParams) (UserSessionLiveRow, error) {
+	row := q.db.QueryRow(ctx, userSessionLive, arg.UserID, arg.SessionID, arg.DeviceKeyID)
+	var i UserSessionLiveRow
+	err := row.Scan(&i.Usable, &i.SignedIn)
+	return i, err
 }
