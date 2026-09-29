@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,70 +12,14 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
-	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
-
-// The local provider exchanges actual HTTP tokens; OIDC additionally signs and
-// verifies an ID token through discovery and JWKS. Only the external IdP is fake.
-type providerTestIdentity struct {
-	Subject  string `json:"sub"`
-	Email    string `json:"email"`
-	Verified *bool  `json:"email_verified,omitempty"`
-	Nonce    string `json:"nonce"`
-}
-
-func newSecurityTestProvider(t *testing.T, srv *httpapi.Service, oidc bool) authprovider.Provider {
-	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, "provider-test")
-	require.NoError(t, err)
-	var provider *httptest.Server
-	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": provider.URL, "authorization_endpoint": provider.URL + "/authorize", "token_endpoint": provider.URL + "/token", "jwks_uri": provider.URL + "/jwks", "id_token_signing_alg_values_supported": []string{"RS256"}})
-		case "/jwks":
-			_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwtkit.PublicToJWK(signer.PublicKey(), signer.KID(), signer.Algorithm())}})
-		case "/token":
-			require.NoError(t, r.ParseForm())
-			code := r.PostFormValue("code")
-			raw, err := base64.RawURLEncoding.DecodeString(code)
-			require.NoError(t, err)
-			var claims jwt.MapClaims
-			require.NoError(t, json.Unmarshal(raw, &claims))
-			claims["iss"] = provider.URL
-			claims["aud"] = "security-client"
-			claims["iat"] = time.Now().Unix()
-			claims["exp"] = time.Now().Add(time.Minute).Unix()
-			token, err := signer.Sign(r.Context(), claims)
-			require.NoError(t, err)
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": code, "token_type": "Bearer", "id_token": token})
-		case "/me":
-			raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-			require.NoError(t, err)
-			_, _ = w.Write(raw)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(provider.Close)
-	var cfg authprovider.Provider
-	if oidc {
-		cfg = authprovider.OIDC("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithTrustedEmailVerification(true))
-	} else {
-		cfg = testOAuth2Provider("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithScopes("openid", "email", "profile"))
-	}
-	srv.SetProviders(cfg)
-	return cfg
-}
 
 func completeSecurityProviderCallback(t *testing.T, srv *httpapi.Service, cfg authprovider.Provider, start *httptest.ResponseRecorder, identity providerTestIdentity) *httptest.ResponseRecorder {
 	t.Helper()
@@ -274,4 +219,147 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	allowed := serveAuthJSON(srv, http.MethodPost, "/oidc/"+cfg.Name()+"/link/start", "{}", token)
 	require.Equal(t, http.StatusOK, allowed.Code, allowed.Body.String())
+}
+
+// OIDC and OAuth2 run the same continuation workflow, including the actual
+// token endpoint, browser state cookie, new account transaction and MFA finish.
+func TestProviderAuthenticationWorkflow(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := newServerTestConfig()
+	cfg.Registration.PasswordlessLogin, cfg.Registration.PasswordlessAutoRegistration = true, true
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
+	f := newAccountFlow(t, pg.Pool, cfg)
+	for _, oidc := range []bool{true, false} {
+		t.Run(fmt.Sprint("oidc=", oidc), func(t *testing.T) {
+			f.t = t
+			provider := newSecurityTestProvider(t, f.service, oidc)
+			f.mount() // providers are configured before the public mount is built
+			verified := true
+			identity := providerTestIdentity{Subject: "provider-" + uniqueSuffix(), Email: uniqueEmail("provider-flow"), Verified: &verified}
+			first, fragment := f.providerLogin(provider, identity, "", true)
+			f.expect(302, first)
+			require.Equal(t, "2fa_enrollment_required", fragment.Get("error"))
+			require.Equal(t, "/checkout", fragment.Get("return_to"))
+			require.Equal(t, provider.Name(), fragment.Get("provider"))
+			grant := fragment.Get("enrollment_token")
+			require.NotEmpty(t, grant)
+			require.Empty(t, fragment.Get("access_token"))
+			require.Empty(t, fragment.Get("refresh_token"))
+			require.ElementsMatch(t, []any{"oauth"}, unverifiedAccessClaims(t, grant)["amr"])
+			var methods []string
+			require.NoError(t, json.Unmarshal([]byte(fragment.Get("allowed_methods")), &methods))
+			require.Contains(t, methods, "sms")
+			phone := uniquePhone()
+			f.expect(202, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone}))
+			enrolled := f.expect(200, f.request("POST", "/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone, "code": sentCode(t, f.sms, testoutbox.Verification)}))
+			f.session(enrolled.Tokens, "oauth", "sms", "otp", "mfa")
+			next, _ := f.providerLogin(provider, identity, "", false)
+			f.expect(403, next)
+			require.Equal(t, "2fa_required", next.Error.Code)
+			require.Equal(t, "sms", next.Error.Metadata.Method)
+			finished := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": next.Error.Metadata.UserID, "challenge": next.Error.Metadata.Challenge, "code": lastSent(f.sms, testoutbox.LoginCode).Code}))
+			f.session(finished.TokenSet, "oauth", "sms", "otp", "mfa")
+			require.Equal(t, provider.Name(), unverifiedAccessClaims(t, finished.AccessToken)["provider"])
+			// A known provider identity never creates a second account or re-enrolls.
+			uid, _, err := f.service.Backend().GetProviderLinkByIssuer(t.Context(), provider.Issuer(), identity.Subject)
+			require.NoError(t, err)
+			require.Equal(t, next.Error.Metadata.UserID, uid)
+			// Hold completion after source validation, then unlink concurrently.
+			// The source row must remain locked until the session is committed.
+			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(t.Context(), uid, "Provider-backup-password-123"))
+			next, _ = f.providerLogin(provider, identity, "", false)
+			f.expect(403, next)
+			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": lastSent(f.sms, testoutbox.LoginCode).Code}
+			unlink := func(ctx context.Context) error {
+				removed, err := f.service.Backend().UnlinkProviderUnlessLast(ctx, uid, provider.Name())
+				if err != nil {
+					return err
+				}
+				if !removed {
+					return fmt.Errorf("provider unlink refused")
+				}
+				return nil
+			}
+			completed := f.completeWhileRevoking(uid, func() flowResponse { return f.post("/2fa/verify", body) }, unlink)
+			f.expect(200, completed)
+			f.session(completed.TokenSet, "oauth", "sms", "otp", "mfa")
+			// Deleting and recreating the same issuer/subject cannot revive a grant
+			// that belonged to the previous immutable provider-link row.
+			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
+			stale, _ := f.providerLogin(provider, identity, "", false)
+			f.expect(403, stale)
+			code := lastSent(f.sms, testoutbox.LoginCode).Code
+			require.NoError(t, unlink(t.Context()))
+			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
+			f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": uid, "challenge": stale.Error.Metadata.Challenge, "code": code}))
+
+		})
+	}
+}
+
+func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(t *testing.T) {
+	for _, oidc := range []bool{true, false} {
+		t.Run(fmt.Sprintf("oidc_%v", oidc), func(t *testing.T) {
+			ctx := context.Background()
+			srv, _, _ := passwordlessTestServer(t, true)
+			provider := newSecurityTestProvider(t, srv, oidc)
+			uid := mustPasswordUser(t, srv, "audit-link-revoke")
+			_, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "audit", nil, []string{"pwd"}, nil)
+			require.NoError(t, err)
+			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
+			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
+			require.NoError(t, srv.Backend().RevokeIssuerSessions(ctx, uid, nil))
+			identity := providerTestIdentity{Subject: "audit-revoked-link-" + uniqueSuffix()}
+			callback := completeSecurityProviderCallback(t, srv, provider, start, identity)
+			owner, _, linkErr := srv.Backend().GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
+			t.Logf("callback=%d linked owner=%s lookup=%v", callback.Code, owner, linkErr)
+			require.Error(t, linkErr, "revoked initiating session must not be able to add a provider and obtain a new session")
+		})
+	}
+}
+
+func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
+	for _, oidc := range []bool{true, false} {
+		t.Run(fmt.Sprintf("oidc_%v", oidc), func(t *testing.T) {
+			ctx := context.Background()
+			srv, _, _ := passwordlessTestServer(t, true)
+			provider := newSecurityTestProvider(t, srv, oidc)
+			uid := mustPasswordUser(t, srv, "link-browser")
+			sid, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "link", nil, []string{"pwd"}, nil)
+			require.NoError(t, err)
+			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
+			require.Equal(t, http.StatusOK, start.Code)
+			var startBody struct {
+				AuthURL string `json:"auth_url"`
+			}
+			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &startBody))
+			authURL, err := url.Parse(startBody.AuthURL)
+			require.NoError(t, err)
+			raw, err := json.Marshal(providerTestIdentity{Subject: "browser-link-" + uniqueSuffix(), Nonce: authURL.Query().Get("nonce")})
+			require.NoError(t, err)
+			query := url.Values{"state": {authURL.Query().Get("state")}, "code": {base64.RawURLEncoding.EncodeToString(raw)}}
+			request := httptest.NewRequest(http.MethodGet, "/oidc/"+provider.Name()+"/callback?"+query.Encode(), nil)
+			for _, cookie := range start.Result().Cookies() {
+				request.AddCookie(cookie)
+			}
+			callback := httptest.NewRecorder()
+			oidcHandler(srv).ServeHTTP(callback, request)
+			require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
+			location, err := url.Parse(callback.Header().Get("Location"))
+			require.NoError(t, err)
+			fragment, err := url.ParseQuery(location.Fragment)
+			require.NoError(t, err)
+			require.Equal(t, "link", fragment.Get("flow"))
+			require.Equal(t, "success", fragment.Get("result"))
+			require.Empty(t, fragment.Get("access_token"))
+			require.Empty(t, fragment.Get("refresh_token"))
+			for _, cookie := range callback.Result().Cookies() {
+				require.Negative(t, cookie.MaxAge, "callback may only clear consumed state cookies")
+			}
+			sessions, err := srv.Backend().ListUserSessions(ctx, uid)
+			require.NoError(t, err)
+			require.Len(t, sessions, 1)
+			require.Equal(t, sid, sessions[0].ID)
+		})
+	}
 }

@@ -4,37 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
-
-// Advancing time is confined to disposable test state. There is no public
-// immediate-delete operation or configurable shortened recovery period.
-func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
-	t.Helper()
-	require.NoError(t, s.softDelete(t.Context(), userID))
-	_, err := s.pg.Exec(t.Context(), "UPDATE users SET deleted_at=statement_timestamp()-interval '31 days' WHERE id=$1::uuid", userID)
-	require.NoError(t, err)
-	var generation string
-	require.NoError(t, s.pg.QueryRow(t.Context(), `UPDATE account_deletions d SET deleted_at=u.deleted_at,purge_at=u.deleted_at+interval '720 hours'
- FROM users u WHERE d.user_id=$1::uuid AND d.state='deleted' AND u.id=d.user_id RETURNING d.id::text`, userID).Scan(&generation))
-	deliver := func() {
-		rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND completed_at IS NULL ORDER BY id", generation)
-		require.NoError(t, err)
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-		require.NoError(t, err)
-		for _, id := range ids {
-			require.NoError(t, s.deliverAccountEvent(t.Context(), id))
-		}
-	}
-	deliver()
-	require.NoError(t, s.finalizeAccountDeletion(t.Context(), generation, false))
-	deliver()
-	return generation
-}
 
 func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)

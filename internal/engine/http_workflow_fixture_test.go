@@ -2,6 +2,7 @@ package engine
 
 // Shared fixtures for the retained public workflows and focused security checks.
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -19,10 +20,12 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +43,7 @@ import (
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/open-rails/authkit/jwtkit"
@@ -993,4 +997,285 @@ func assertWireGolden(t *testing.T, name string, value any) {
 		}
 	}
 	match(expected, actual, name)
+}
+
+// One actual HTTP/PG/store rig serves each workflow, including delivery and the
+// eventual authenticated request. Delivery is the only substituted boundary.
+type accountFlow struct {
+	t       *testing.T
+	service *httpapi.Service
+	server  *httptest.Server
+	email   *testoutbox.Outbox
+	sms     *testoutbox.Outbox
+}
+
+type flowResponse struct {
+	status int
+	raw    string
+	iam.TokenSet
+	Tokens      iam.TokenSet `json:"token_set"`
+	ReturnTo    string       `json:"return_to"`
+	Secret      string       `json:"secret"`
+	BackupCodes []string     `json:"backup_codes"`
+	Error       struct {
+		Code     string `json:"code"`
+		Metadata struct {
+			UserID           string                            `json:"user_id"`
+			Challenge        string                            `json:"challenge"`
+			Method           string                            `json:"method"`
+			TokenSet         iam.TokenSet                      `json:"token_set"`
+			AllowedMethods   []string                          `json:"allowed_methods"`
+			AvailableFactors []httpapi.TwoFactorFactorResponse `json:"available_factors"`
+			BackupCodes      []string                          `json:"backup_codes"`
+		} `json:"metadata"`
+	} `json:"error"`
+}
+
+func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg Config, extra ...coreOpt) *accountFlow {
+	t.Helper()
+	f := &accountFlow{t: t, email: &testoutbox.Outbox{}, sms: &testoutbox.Outbox{}}
+	cfg.Frontend.BaseURL = "https://app.example"
+	cfg.Frontend.VerifyPath, cfg.Frontend.PasswordlessPath, cfg.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
+	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
+	opts := []coreOpt{withEmailSender(f.email.Email()), withSMSSender(f.sms.SMS())}
+	opts = append(opts, extra...)
+	var err error
+	f.service, err = newTestService(newServerClient(t, cfg, pool, opts...), workflowHTTPConfig())
+	require.NoError(t, err)
+	f.mount()
+	t.Cleanup(func() { f.server.Close() })
+	t.Cleanup(f.service.Close)
+	return f
+}
+
+func (f *accountFlow) mount() {
+	f.t.Helper()
+	if f.server != nil {
+		f.server.Close()
+	}
+	mounted, err := httpapi.NewMount(f.service, httpapi.MountOptions{})
+	require.NoError(f.t, err)
+	f.server = httptest.NewServer(mounted)
+	f.server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+}
+
+// Long lifecycle tests share one client IP. Keep the real memory/Redis limiter
+// installed without turning repeated legitimate setup into a brute-force test.
+// TestWorkflowRateLimits separately proves the small configured boundary.
+func workflowHTTPConfig() httpapi.Config {
+	limits := httpapi.DefaultRateLimits()
+	for bucket := range limits {
+		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
+	}
+	return httpapi.Config{DirectPeerIP: true, RateLimits: limits}
+}
+
+func (f *accountFlow) request(method, path, token string, body any) flowResponse {
+	f.t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(f.t, err)
+	req, err := http.NewRequest(method, f.server.URL+httpapi.DefaultAPIPath+path, bytes.NewReader(data))
+	require.NoError(f.t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := f.server.Client().Do(req)
+	require.NoError(f.t, err)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(f.t, err)
+	out := flowResponse{status: resp.StatusCode, raw: string(raw)}
+	if len(raw) > 0 && resp.Header.Get("Content-Type") == "application/json" {
+		require.NoError(f.t, json.Unmarshal(raw, &out), string(raw))
+	}
+	return out
+}
+
+func (f *accountFlow) post(path string, body any) flowResponse {
+	return f.request("POST", path, "", body)
+}
+
+func (f *accountFlow) expect(status int, r flowResponse) flowResponse {
+	f.t.Helper()
+	require.Equal(f.t, status, r.status, r.raw)
+	return r
+}
+
+func (f *accountFlow) session(tokens iam.TokenSet, amr ...string) {
+	f.t.Helper()
+	require.NotEmpty(f.t, tokens.RefreshToken)
+	require.Greater(f.t, tokens.ExpiresIn, int64(0))
+	claims, err := f.service.Verifier().Verify(context.Background(), tokens.AccessToken)
+	require.NoError(f.t, err)
+	require.NotEmpty(f.t, claims.UserID)
+	require.ElementsMatch(f.t, amr, claims.AMR)
+	f.expect(200, f.request("GET", "/me", tokens.AccessToken, nil))
+}
+
+func (f *accountFlow) deliveredLink(raw, path, channel string) string {
+	f.t.Helper()
+	u, err := url.Parse(raw)
+	require.NoError(f.t, err)
+	require.Equal(f.t, "https://app.example"+path, u.Scheme+"://"+u.Host+u.Path)
+	require.Empty(f.t, u.RawQuery)
+	fragment, err := url.ParseQuery(u.Fragment)
+	require.NoError(f.t, err)
+	require.Equal(f.t, "ready", fragment.Get("status"))
+	require.Equal(f.t, channel, fragment.Get("channel"))
+	require.NotEmpty(f.t, fragment.Get("token"))
+	return fragment.Get("token")
+}
+
+func (f *accountFlow) verifyCode(phone bool) string {
+	if phone {
+		return sentCode(f.t, f.sms, testoutbox.Verification)
+	}
+	return sentCode(f.t, f.email, testoutbox.Verification)
+}
+
+func (f *accountFlow) verifyURL(phone bool) string {
+	if phone {
+		return lastSent(f.sms, testoutbox.Verification).Link
+	}
+	return f.email.Last(f.t, testoutbox.Verification, "").Link
+}
+
+// flowTOTP is secret's code for the current step.
+func flowTOTP(t *testing.T, secret string) string {
+	return testTOTPCode(t, secret, time.Now().Unix()/30)
+}
+
+func (f *accountFlow) providerLogin(provider authprovider.Provider, identity providerTestIdentity, invite string, browser bool) (flowResponse, url.Values) {
+	f.t.Helper()
+	begin, err := json.Marshal(map[string]string{"return_to": "/checkout", "account_invite_token": invite})
+	require.NoError(f.t, err)
+	start, err := f.server.Client().Post(f.server.URL+"/oidc/"+provider.Name()+"/login", "application/json", bytes.NewReader(begin))
+	require.NoError(f.t, err)
+	defer start.Body.Close()
+	require.Equal(f.t, 200, start.StatusCode)
+	var begun struct {
+		AuthURL string `json:"auth_url"`
+	}
+	require.NoError(f.t, json.NewDecoder(start.Body).Decode(&begun))
+	authURL, err := url.Parse(begun.AuthURL)
+	require.NoError(f.t, err)
+	identity.Nonce = authURL.Query().Get("nonce")
+	raw, err := json.Marshal(identity)
+	require.NoError(f.t, err)
+	query := url.Values{"state": {authURL.Query().Get("state")}, "code": {base64.RawURLEncoding.EncodeToString(raw)}}
+	if !browser {
+		query.Set("format", "json")
+	}
+	req, err := http.NewRequest("GET", f.server.URL+"/oidc/"+provider.Name()+"/callback?"+query.Encode(), nil)
+	require.NoError(f.t, err)
+	for _, cookie := range start.Cookies() {
+		req.AddCookie(cookie)
+	}
+	callback, err := f.server.Client().Do(req)
+	require.NoError(f.t, err)
+	defer callback.Body.Close()
+	require.Equal(f.t, "no-store", callback.Header.Get("Cache-Control"))
+	data, err := io.ReadAll(callback.Body)
+	require.NoError(f.t, err)
+	out := flowResponse{status: callback.StatusCode, raw: string(data)}
+	if browser {
+		target, err := url.Parse(callback.Header.Get("Location"))
+		require.NoError(f.t, err)
+		require.Empty(f.t, target.RawQuery)
+		frag, err := url.ParseQuery(target.Fragment)
+		require.NoError(f.t, err)
+		return out, frag
+	}
+	require.NoError(f.t, json.Unmarshal(data, &out), string(data))
+	return out, nil
+}
+
+// The local provider exchanges actual HTTP tokens; OIDC additionally signs and
+// verifies an ID token through discovery and JWKS. Only the external IdP is fake.
+type providerTestIdentity struct {
+	Subject  string `json:"sub"`
+	Email    string `json:"email"`
+	Verified *bool  `json:"email_verified,omitempty"`
+	Nonce    string `json:"nonce"`
+}
+
+func newSecurityTestProvider(t *testing.T, srv *httpapi.Service, oidc bool) authprovider.Provider {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, "provider-test")
+	require.NoError(t, err)
+	var provider *httptest.Server
+	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": provider.URL, "authorization_endpoint": provider.URL + "/authorize", "token_endpoint": provider.URL + "/token", "jwks_uri": provider.URL + "/jwks", "id_token_signing_alg_values_supported": []string{"RS256"}})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwtkit.PublicToJWK(signer.PublicKey(), signer.KID(), signer.Algorithm())}})
+		case "/token":
+			require.NoError(t, r.ParseForm())
+			code := r.PostFormValue("code")
+			raw, err := base64.RawURLEncoding.DecodeString(code)
+			require.NoError(t, err)
+			var claims jwt.MapClaims
+			require.NoError(t, json.Unmarshal(raw, &claims))
+			claims["iss"] = provider.URL
+			claims["aud"] = "security-client"
+			claims["iat"] = time.Now().Unix()
+			claims["exp"] = time.Now().Add(time.Minute).Unix()
+			token, err := signer.Sign(r.Context(), claims)
+			require.NoError(t, err)
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": code, "token_type": "Bearer", "id_token": token})
+		case "/me":
+			raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+			require.NoError(t, err)
+			_, _ = w.Write(raw)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(provider.Close)
+	var cfg authprovider.Provider
+	if oidc {
+		cfg = authprovider.OIDC("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithTrustedEmailVerification(true))
+	} else {
+		cfg = testOAuth2Provider("security-provider", provider.URL, "security-client", "local-secret", authprovider.WithScopes("openid", "email", "profile"))
+	}
+	srv.SetProviders(cfg)
+	return cfg
+}
+
+// Advancing time is confined to disposable test state. There is no public
+// immediate-delete operation or configurable shortened recovery period.
+func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
+	t.Helper()
+	require.NoError(t, s.softDelete(t.Context(), userID))
+	_, err := s.pg.Exec(t.Context(), "UPDATE users SET deleted_at=statement_timestamp()-interval '31 days' WHERE id=$1::uuid", userID)
+	require.NoError(t, err)
+	var generation string
+	require.NoError(t, s.pg.QueryRow(t.Context(), `UPDATE account_deletions d SET deleted_at=u.deleted_at,purge_at=u.deleted_at+interval '720 hours'
+ FROM users u WHERE d.user_id=$1::uuid AND d.state='deleted' AND u.id=d.user_id RETURNING d.id::text`, userID).Scan(&generation))
+	deliver := func() {
+		rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND completed_at IS NULL ORDER BY id", generation)
+		require.NoError(t, err)
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		require.NoError(t, err)
+		for _, id := range ids {
+			require.NoError(t, s.deliverAccountEvent(t.Context(), id))
+		}
+	}
+	deliver()
+	require.NoError(t, s.finalizeAccountDeletion(t.Context(), generation, false))
+	deliver()
+	return generation
+}
+
+func meUsername(t *testing.T, f *accountFlow, token string) string {
+	t.Helper()
+	me := f.expect(200, f.request("GET", "/me", token, nil))
+	var body struct {
+		Username string `json:"username"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(me.raw), &body), me.raw)
+	return body.Username
 }
