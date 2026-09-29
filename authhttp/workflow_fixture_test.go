@@ -35,9 +35,9 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -275,27 +275,27 @@ func newDelegatedVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, au
 	return v
 }
 
-// Test-only embedded.Deps builders so a call site names only what it wires.
-type coreOpt func(*embedded.Deps)
+// Test-only authkit.Deps builders so a call site names only what it wires.
+type coreOpt func(*authkit.Deps)
 
-func withPostgres(pool *pgxpool.Pool) coreOpt { return func(d *embedded.Deps) { d.Postgres = pool } }
+func withPostgres(pool *pgxpool.Pool) coreOpt { return func(d *authkit.Deps) { d.Postgres = pool } }
 
-func withEmailSender(s embedded.EmailSender) coreOpt { return func(d *embedded.Deps) { d.Email = s } }
+func withEmailSender(s authkit.EmailSender) coreOpt { return func(d *authkit.Deps) { d.Email = s } }
 
-func withSMSSender(s embedded.SMSSender) coreOpt { return func(d *embedded.Deps) { d.SMS = s } }
+func withSMSSender(s authkit.SMSSender) coreOpt { return func(d *authkit.Deps) { d.SMS = s } }
 
-func withClock(now func() time.Time) coreOpt { return func(d *embedded.Deps) { d.Clock = now } }
+func withClock(now func() time.Time) coreOpt { return func(d *authkit.Deps) { d.Clock = now } }
 
-func withSolanaSNSResolver(r embedded.SolanaSNSResolver) coreOpt {
-	return func(d *embedded.Deps) { d.SolanaSNSResolver = r }
+func withSolanaSNSResolver(r authkit.SolanaSNSResolver) coreOpt {
+	return func(d *authkit.Deps) { d.SolanaSNSResolver = r }
 }
 
-func withDelegatedAuthorization(a embedded.DelegationAuthorizer) coreOpt {
-	return func(d *embedded.Deps) { d.DelegatedAuthorization = a }
+func withDelegatedAuthorization(a iam.DelegationAuthorizer) coreOpt {
+	return func(d *authkit.Deps) { d.DelegatedAuthorization = a }
 }
 
-func depsOf(opts ...coreOpt) embedded.Deps {
-	var d embedded.Deps
+func depsOf(opts ...coreOpt) authkit.Deps {
+	var d authkit.Deps
 	for _, o := range opts {
 		if o != nil {
 			o(&d)
@@ -304,9 +304,9 @@ func depsOf(opts ...coreOpt) embedded.Deps {
 	return d
 }
 
-// coreFromConfig is embedded.New with the pool positional and Deps composed
+// coreFromConfig is authkit.New with the pool positional and Deps composed
 // from options; without Redis it runs on the default memory store.
-func coreFromConfig(cfg embedded.Config, pool *pgxpool.Pool, opts ...coreOpt) (*testRuntime, error) {
+func coreFromConfig(cfg authkit.Config, pool *pgxpool.Pool, opts ...coreOpt) (*testRuntime, error) {
 	return newTestRuntime(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, opts...)...))
 }
 
@@ -339,7 +339,7 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 
 	// A remote application addresses its token to THIS platform (ak#324: the
 	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
-	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{
+	token, err := authkit.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{
 		Issuer:    issuer,
 		Audiences: []string{"test-app"},
 		TTL:       time.Minute,
@@ -442,7 +442,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
-	cfg.Passkeys = embedded.PasskeyConfig{
+	cfg.Passkeys = authkit.PasskeyConfig{
 		RPID:             "example.com",
 		RPDisplayName:    "Example",
 		Origins:          []string{"https://example.com"},
@@ -474,7 +474,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodPost, "/passkeys/register/finish", string(attest(t, authn, creation)), setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var created embedded.Passkey
+	var created authkit.Passkey
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
 	require.NotEmpty(t, created.ID)
 	require.True(t, created.BackupEligible)
@@ -506,7 +506,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.RefreshToken)
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
-	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
 	require.ElementsMatch(t, []any{"swk", "mfa"}, claims["amr"])
 	require.NotZero(t, claims["auth_time"])
 
@@ -534,7 +534,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
-		Data []embedded.Passkey `json:"data"`
+		Data []authkit.Passkey `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
 	require.Len(t, listed.Data, 1)
@@ -617,7 +617,7 @@ type captureEmailSender struct {
 	deviceNotices []string
 }
 
-func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ embedded.DeviceKeyNotice) error {
+func (s *captureEmailSender) SendDeviceKeyEnrolled(_ context.Context, email, _ string, _ authkit.DeviceKeyNotice) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deviceNotices = append(s.deviceNotices, email)
@@ -630,7 +630,7 @@ func (s *captureEmailSender) deviceKeyNotices() []string {
 	return append([]string(nil), s.deviceNotices...)
 }
 
-func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg embedded.VerificationMessage) error {
+func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg authkit.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
@@ -675,7 +675,7 @@ func (s *captureEmailSender) lastLoginCode() string {
 
 func (s *captureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
 
-func (s *captureEmailSender) SendContactChanged(context.Context, string, string, embedded.ContactChange) error {
+func (s *captureEmailSender) SendContactChanged(context.Context, string, string, authkit.ContactChange) error {
 	return nil
 }
 
@@ -721,7 +721,7 @@ type captureSMSSender struct {
 	verifyURL   string
 }
 
-func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg embedded.VerificationMessage) error {
+func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg authkit.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
@@ -751,7 +751,7 @@ func (s *captureSMSSender) lastLoginCode() string {
 	return s.loginCode
 }
 
-func (s *captureSMSSender) SendContactChanged(context.Context, string, embedded.ContactChange) error {
+func (s *captureSMSSender) SendContactChanged(context.Context, string, authkit.ContactChange) error {
 	return nil
 }
 
@@ -821,7 +821,7 @@ func passwordlessTestServer(t *testing.T, autoRegister bool) (*Service, *capture
 // drive runs one generated route handler at a concrete (no sub-resource) path,
 // with the caller's claims set, and returns the recorder. Sub-resource DELETEs
 // (:key / :app / :invite) are driven inline via driveSub.
-func (s *Service) drive(t *testing.T, gr embedded.GeneratedRoute, instanceSlug, caller, body string) *httptest.ResponseRecorder {
+func (s *Service) drive(t *testing.T, gr authkit.GeneratedRoute, instanceSlug, caller, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	path := strings.ReplaceAll(gr.Path, ":instance_slug", instanceSlug)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, strings.NewReader(body))
@@ -834,7 +834,7 @@ func (s *Service) drive(t *testing.T, gr embedded.GeneratedRoute, instanceSlug, 
 
 // driveSub runs a sub-resource handler (DELETE with :key/:app/:invite) at a
 // concrete path, with claims set.
-func (s *Service) driveSub(t *testing.T, gr embedded.GeneratedRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
+func (s *Service) driveSub(t *testing.T, gr authkit.GeneratedRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
 	t.Helper()
 	path := repl.Replace(gr.Path)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, nil)
@@ -865,21 +865,21 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // enabled: a slug pattern tighter than the built-in rule (no dots), one
 // reserved slug escalated to the root "site-admin" role, and remote
 // applications on for the role-assignment route.
-func instanceCreateTestConfig() embedded.Config {
+func instanceCreateTestConfig() authkit.Config {
 	cfg := newServerTestConfig()
-	cfg.RBAC = []embedded.PersonaDef{
-		{Name: iam.RootPersona, Roles: []embedded.RoleDef{
+	cfg.RBAC = []authkit.PersonaDef{
+		{Name: iam.RootPersona, Roles: []authkit.RoleDef{
 			{Name: "site-admin", Permissions: []string{"root:resources:read"}},
 		}},
 		{
 			Name:         "org",
 			Parent:       iam.RootPersona,
-			Capabilities: embedded.PersonaCapabilities{RemoteApplications: true},
-			Roles: []embedded.RoleDef{
+			Capabilities: iam.PersonaCapabilities{RemoteApplications: true},
+			Roles: []authkit.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
 				{Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},
 			},
-			Creation: embedded.InstanceCreationDef{
+			Creation: iam.InstanceCreationDef{
 				Enabled:                true,
 				SlugPattern:            `[a-z0-9][a-z0-9-]{0,30}`,
 				ReservedSlugs:          []string{"platform"},
@@ -1025,29 +1025,29 @@ var testSigner = sync.OnceValue(func() *jwtkit.RSASigner {
 	return s
 })
 
-func testKeys() embedded.KeysConfig {
+func testKeys() authkit.KeysConfig {
 	s := testSigner()
-	return embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+	return authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
 }
 
-func newServerTestConfig() embedded.Config {
-	return embedded.Config{
+func newServerTestConfig() authkit.Config {
+	return authkit.Config{
 		Keys: testKeys(),
-		Token: embedded.TokenConfig{
+		Token: authkit.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
-		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
+		Registration: authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
+		DeviceKeys:   authkit.DeviceKeysConfig{Enabled: true},
 		// The harness's IdPs and JWKS endpoints are loopback httptest servers.
-		Applications: embedded.ApplicationsConfig{AllowPrivateNetworkJWKS: true},
+		Applications: authkit.ApplicationsConfig{AllowPrivateNetworkJWKS: true},
 	}
 }
 
 // newServerClient builds the embedded engine that a client-first NewServer wraps
 // (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
-func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *testRuntime {
+func newServerClient(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool, engineOpts ...coreOpt) *testRuntime {
 	t.Helper()
 	c, err := newTestRuntime(cfg, depsOf(append([]coreOpt{withPostgres(pool)}, engineOpts...)...))
 	require.NoError(t, err)

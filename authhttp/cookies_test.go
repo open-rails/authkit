@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +42,7 @@ func TestCookieRegistry(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("secure=%v", secure), func(t *testing.T) {
 			cfg := newServerTestConfig()
-			cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+			cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 			cfg.Frontend.BaseURL = "http://app.example.test"
 			if secure {
 				cfg.Frontend.BaseURL = "https://app.example.test"

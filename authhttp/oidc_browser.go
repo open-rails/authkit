@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
@@ -19,7 +19,7 @@ import (
 // flowStart is what a browser flow start records beyond the state machine's
 // own state/nonce/PKCE values.
 type flowStart struct {
-	link   *embedded.ExternalLinkAuthorization
+	link   *authkit.ExternalLinkAuthorization
 	stepUp *oidckit.StateData // StepUp* fields to carry
 	params map[string]string  // extra authorization parameters
 	login  *loginStart
@@ -89,7 +89,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
-	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &embedded.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
+	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authkit.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
 }
 
 // startProviderFlow begins a login, link or step-up flow: it generates state,
@@ -123,8 +123,8 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		}
 	}
 
-	state := embedded.RandB64(32)
-	nonce := embedded.RandB64(16)
+	state := authkit.RandB64(32)
+	nonce := authkit.RandB64(16)
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error
@@ -242,12 +242,12 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var link *embedded.ExternalLinkAuthorization
+	var link *authkit.ExternalLinkAuthorization
 	if sd.LinkUserID != "" {
-		link = &embedded.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
+		link = &authkit.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
 	}
-	out, err := s.svc.CompleteExternalLogin(r.Context(), embedded.ExternalLoginInput{
-		Identity: embedded.ExternalIdentity{
+	out, err := s.svc.CompleteExternalLogin(r.Context(), authkit.ExternalLoginInput{
+		Identity: authkit.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
@@ -260,7 +260,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.failBrowserFlow(w, r, &sd, name, status, code)
 		return
 	}
-	if out.Kind == embedded.LoginProviderLinked {
+	if out.Kind == authkit.LoginProviderLinked {
 		if wantsJSONResponse(r) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -270,7 +270,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	if out.Kind != embedded.LoginSessionIssued {
+	if out.Kind != authkit.LoginSessionIssued {
 		s.browserLoginContinuation(w, r, out, name, sd)
 		return
 	}
@@ -279,7 +279,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 // emitBrowserLogin hands the browser its session as a popup postMessage, a
 // JSON body, or a fragment redirect — the transport half of the callback.
-func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session embedded.IssuedSession, sd oidckit.StateData) {
+func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authkit.IssuedSession, sd oidckit.StateData) {
 	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
 	// ak#271: the popup document and the fragment redirect both hand the
 	// browser its tokens in script-readable form by design. The ACCESS token

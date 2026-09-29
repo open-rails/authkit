@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/open-rails/authkit/verify"
@@ -24,7 +25,7 @@ const (
 
 // Runtime is a started-or-not AuthKit runtime plus its captured mount.
 type Runtime struct {
-	*embedded.Runtime
+	*authkit.Runtime
 	Mount  *authhttp.Mount
 	Outbox *Outbox
 }
@@ -38,7 +39,7 @@ func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := embedded.ApplyMigrations(ctx, pool, Schema); err != nil {
+	if err := authkit.ApplyMigrations(ctx, pool, Schema); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -61,37 +62,37 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		Mount:        authhttp.MountOptions{RefreshCookie: true},
 	}}
 	outbox := &Outbox{}
-	cfg := embedded.Config{
+	cfg := authkit.Config{
 		HTTP:   capture,
 		Schema: Schema,
-		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
+		Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		}},
-		Token: embedded.TokenConfig{
+		Token: authkit.TokenConfig{
 			Issuer:          baseURL,
 			IssuedAudiences: []string{Audience},
 		},
-		Frontend: embedded.FrontendConfig{BaseURL: baseURL},
-		Registration: embedded.RegistrationConfig{
-			Verification:      embedded.RegistrationVerificationRequired,
+		Frontend: authkit.FrontendConfig{BaseURL: baseURL},
+		Registration: authkit.RegistrationConfig{
+			Verification:      iam.RegistrationVerificationRequired,
 			PasswordlessLogin: true,
 		},
-		TwoFactor: embedded.TwoFactorConfig{
-			Mode:          embedded.TwoFactorOptional,
+		TwoFactor: authkit.TwoFactorConfig{
+			Mode:          iam.TwoFactorOptional,
 			TOTPSecretKey: []byte("auth-ui-e2e-totp-key-32-bytes!!!"),
 		},
-		Passkeys: embedded.PasskeyConfig{
+		Passkeys: authkit.PasskeyConfig{
 			RPID:          "localhost",
 			RPDisplayName: "auth-ui e2e",
 			Origins:       []string{baseURL},
 		},
 		// Dummy credentials: mounts the provider link/login routes for the
 		// contract; the upstream exchange is not exercised.
-		Identity:      embedded.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("e2e", "e2e")}},
+		Identity:      authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("e2e", "e2e")}},
 		SolanaNetwork: "devnet",
 	}
-	rt, err := embedded.New(cfg, embedded.Deps{
+	rt, err := authkit.New(cfg, authkit.Deps{
 		Postgres: pool,
 		Email:    emailSender{outbox},
 		SMS:      smsSender{outbox},
@@ -115,13 +116,13 @@ type mountCapture struct {
 
 type surface struct {
 	*authhttp.Service
-	routes []embedded.HTTPRoute
+	routes []authkit.HTTPRoute
 }
 
-func (s surface) Routes() []embedded.HTTPRoute { return s.routes }
-func (s surface) Verifier() *verify.Verifier   { return s.Service.Verifier() }
+func (s surface) Routes() []authkit.HTTPRoute { return s.routes }
+func (s surface) Verifier() *verify.Verifier  { return s.Service.Verifier() }
 
-func (m *mountCapture) BuildHTTP(backend embedded.HTTPBackend) (embedded.HTTPSurface, error) {
+func (m *mountCapture) BuildHTTP(backend authkit.HTTPBackend) (authkit.HTTPSurface, error) {
 	svc, err := authhttp.New(backend, m.cfg)
 	if err != nil {
 		return nil, err
@@ -134,7 +135,7 @@ func (m *mountCapture) BuildHTTP(backend embedded.HTTPBackend) (embedded.HTTPSur
 	m.mount = mount
 	s := surface{Service: svc}
 	for _, r := range mount.Routes() {
-		s.routes = append(s.routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+		s.routes = append(s.routes, authkit.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
 	}
 	return s, nil
 }

@@ -1,5 +1,5 @@
 // Package securitytest attacks AuthKit the way an embedding host exposes it:
-// embedded.New with an authhttp surface mounted under /auth/v1, a real
+// authkit.New with an authhttp surface mounted under /auth/v1, a real
 // PostgreSQL database and real ephemeral stores. docs/security-tests.md maps
 // each threat to its test.
 package securitytest
@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -47,7 +47,7 @@ var signer = sync.OnceValue(func() *jwtkit.RSASigner {
 type host struct {
 	t       *testing.T
 	cfg     hostConfig
-	runtime *embedded.Runtime
+	runtime *authkit.Runtime
 	client  iam.Client
 	pool    *pgxpool.Pool
 	server  *httptest.Server
@@ -55,8 +55,8 @@ type host struct {
 }
 
 type hostConfig struct {
-	engine embedded.Config
-	deps   embedded.Deps
+	engine authkit.Config
+	deps   authkit.Deps
 	http   authhttp.Config
 }
 
@@ -66,7 +66,7 @@ func withRedis(rdb *redis.Client) hostOption {
 	return func(c *hostConfig) { c.http.Redis = rdb }
 }
 
-func withEngine(fn func(*embedded.Config)) hostOption {
+func withEngine(fn func(*authkit.Config)) hostOption {
 	return func(c *hostConfig) { fn(&c.engine) }
 }
 
@@ -92,31 +92,31 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 	mail := &outbox{}
 	s := signer()
 	cfg := hostConfig{
-		engine: embedded.Config{
-			Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
-			Token: embedded.TokenConfig{
+		engine: authkit.Config{
+			Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+			Token: authkit.TokenConfig{
 				Issuer:            issuer,
 				IssuedAudiences:   []string{audience},
 				ExpectedAudiences: []string{audience},
 			},
-			Registration: embedded.RegistrationConfig{
-				NativeUserMode: embedded.RegistrationModeOpen,
-				Verification:   embedded.RegistrationVerificationOptional,
+			Registration: authkit.RegistrationConfig{
+				NativeUserMode: iam.RegistrationModeOpen,
+				Verification:   iam.RegistrationVerificationOptional,
 			},
-			TwoFactor: embedded.TwoFactorConfig{
-				Mode:          embedded.TwoFactorOptional,
-				Methods:       []embedded.TwoFactorMethod{embedded.TwoFactorTOTP, embedded.TwoFactorEmail},
+			TwoFactor: authkit.TwoFactorConfig{
+				Mode:          iam.TwoFactorOptional,
+				Methods:       []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorEmail},
 				TOTPSecretKey: bytes.Repeat([]byte{7}, 32),
 			},
 		},
-		deps: embedded.Deps{Postgres: pg.Pool, Email: mail},
+		deps: authkit.Deps{Postgres: pg.Pool, Email: mail},
 		http: authhttp.Config{DirectPeerIP: true, Mount: authhttp.MountOptions{APIPrefix: apiPrefix}},
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	cfg.engine.HTTP = cfg.http
-	runtime, err := embedded.New(cfg.engine, cfg.deps)
+	runtime, err := authkit.New(cfg.engine, cfg.deps)
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	h := &host{t: t, cfg: cfg, pool: pg.Pool, mail: mail}
@@ -125,7 +125,7 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 
 // fork serves runtime's configured routes; every route shares the one
 // canonical AuthKit mount.
-func (h *host) fork(runtime *embedded.Runtime) *host {
+func (h *host) fork(runtime *authkit.Runtime) *host {
 	h.t.Helper()
 	routes, err := runtime.HTTPRoutes()
 	require.NoError(h.t, err)
@@ -296,7 +296,7 @@ func (o *outbox) last(t *testing.T, pattern string) string {
 	return ""
 }
 
-func (o *outbox) SendVerification(_ context.Context, email, _ string, msg embedded.VerificationMessage) error {
+func (o *outbox) SendVerification(_ context.Context, email, _ string, msg authkit.VerificationMessage) error {
 	return o.add("verification to=" + email + " code=" + msg.Code + " link=" + msg.LinkURL)
 }
 
@@ -323,10 +323,10 @@ func (o *outbox) SendLoginCode(_ context.Context, email, _, code string) error {
 
 func (o *outbox) SendWelcome(context.Context, string, string) error { return nil }
 
-func (o *outbox) SendContactChanged(context.Context, string, string, embedded.ContactChange) error {
+func (o *outbox) SendContactChanged(context.Context, string, string, authkit.ContactChange) error {
 	return nil
 }
 
-func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, embedded.DeviceKeyNotice) error {
+func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, authkit.DeviceKeyNotice) error {
 	return nil
 }

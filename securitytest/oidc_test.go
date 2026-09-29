@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -22,7 +22,7 @@ const frontend = "https://app.security.test"
 
 // withHTTPSProviders serves the given providers from an HTTPS deployment.
 func withHTTPSProviders(providers ...authprovider.Provider) hostOption {
-	return withEngine(func(c *embedded.Config) {
+	return withEngine(func(c *authkit.Config) {
 		c.Identity.Providers = providers
 		c.Frontend.BaseURL = frontend
 	})
@@ -59,12 +59,12 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	s := signer()
 	build := func(providers ...authprovider.Provider) error {
-		runtime, err := embedded.New(embedded.Config{
-			Keys:     embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
-			Token:    embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
-			Identity: embedded.IdentityConfig{Providers: providers},
+		runtime, err := authkit.New(authkit.Config{
+			Keys:     authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+			Token:    authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
+			Identity: authkit.IdentityConfig{Providers: providers},
 			HTTP:     authhttp.Config{DirectPeerIP: true},
-		}, embedded.Deps{Postgres: pg.Pool})
+		}, authkit.Deps{Postgres: pg.Pool})
 		if runtime != nil {
 			runtime.Close()
 		}

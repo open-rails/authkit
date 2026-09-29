@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/ratelimit"
@@ -138,7 +138,7 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 	require.NoError(t, err)
 	keys := &rotatingKeys{}
 	keys.current.Store(&jwtkit.StaticKeySource{Active: old, Pubs: map[string]crypto.PublicKey{old.KID(): old.PublicKey()}})
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) { c.Keys = embedded.KeysConfig{Source: keys} }))
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Source: keys} }))
 	a := h.newAccount("rotation")
 	compromised := h.login(a).AccessToken
 	kids := func() []string {
@@ -166,7 +166,7 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 // AcceptUntil (TestSecurityRefreshCookieUpgrade).
 func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
-		withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
+		withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
 	a := h.newAccount("cookie")
 	login := func(header http.Header) response {
 		return h.do(request{method: http.MethodPost, path: "/password/login", header: header,
@@ -245,7 +245,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
-				withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = tc.baseURL }))
+				withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = tc.baseURL }))
 			a := h.newAccount("upgrade")
 			login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 			require.Equal(t, http.StatusOK, login.status, login.String())
@@ -284,7 +284,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 	})
 	t.Run("same-path duplicates are still refused", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
-			withEngine(func(c *embedded.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
+			withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
 		login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 		valid := cookieNamed(login.cookies, "authkit_rt", "/")

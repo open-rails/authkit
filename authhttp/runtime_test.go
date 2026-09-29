@@ -14,8 +14,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	authkithttp "github.com/open-rails/authkit/adapters/http"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ import (
 func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	policy := workflowHTTPConfig()
 	policy.Mount.APIPrefix = "/auth"
 	cfg.HTTP = policy
@@ -120,9 +121,9 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	}
 }
 
-func newPublicRuntime(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool) *embedded.Runtime {
+func newPublicRuntime(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool) *authkit.Runtime {
 	t.Helper()
-	r, err := embedded.New(cfg, embedded.Deps{Postgres: pool})
+	r, err := authkit.New(cfg, authkit.Deps{Postgres: pool})
 	require.NoError(t, err)
 	return r
 }

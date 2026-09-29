@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testdpop"
@@ -29,7 +29,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
-	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
+	cfg.Delegated = authkit.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
 	var authorizations atomic.Int32
 	var observed iam.DelegationRequest
 	var mu sync.Mutex

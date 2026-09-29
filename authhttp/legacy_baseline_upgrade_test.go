@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
@@ -60,8 +60,8 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			userID, username := seedRetiredAccount(t, pg.Pool, src.schema)
 
 			pool := schemaPool(t, pg.URL, src.schema)
-			require.NoError(t, embedded.ApplyMigrations(ctx, pool, src.schema))
-			require.NoError(t, embedded.ApplyMigrations(ctx, pool, "fresh_reference"))
+			require.NoError(t, authkit.ApplyMigrations(ctx, pool, src.schema))
+			require.NoError(t, authkit.ApplyMigrations(ctx, pool, "fresh_reference"))
 			db := sqlDB(t, pg.URL)
 			diff, err := migratekit.SchemaDiff(ctx, db, src.schema, "fresh_reference")
 			require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			require.Equal(t, 4, recorded)
 			require.NotZero(t, converted)
 			// A second boot converts nothing and applies nothing.
-			require.NoError(t, embedded.ApplyMigrations(ctx, pool, src.schema))
+			require.NoError(t, authkit.ApplyMigrations(ctx, pool, src.schema))
 
 			cfg := newServerTestConfig()
 			cfg.Schema = src.schema
@@ -99,7 +99,7 @@ func TestRetiredBaselineRefusesInFlightDeletion(t *testing.T) {
 	_, err := pg.Pool.Exec(ctx, `UPDATE profiles.users SET deleted_at = now() WHERE id = $1`, userID)
 	require.NoError(t, err)
 
-	err = embedded.ApplyMigrations(ctx, schemaPool(t, pg.URL, "profiles"), "profiles")
+	err = authkit.ApplyMigrations(ctx, schemaPool(t, pg.URL, "profiles"), "profiles")
 	require.Error(t, err)
 	for _, want := range []string{"1 soft-deleted account(s)", "retired deletion lifecycle", "AuthKit v0.124.0", "nothing was changed"} {
 		require.Contains(t, err.Error(), want)
@@ -120,7 +120,7 @@ func TestRetiredBaselineRefusesHandEditedSchema(t *testing.T) {
 	applyRetired(t, pg, "profiles", "0001_schema.up.sql")
 	_, err := pg.Pool.Exec(ctx, `ALTER TABLE profiles.users ADD COLUMN nickname text`)
 	require.NoError(t, err)
-	err = embedded.ApplyMigrations(ctx, schemaPool(t, pg.URL, "profiles"), "profiles")
+	err = authkit.ApplyMigrations(ctx, schemaPool(t, pg.URL, "profiles"), "profiles")
 	require.ErrorIs(t, err, migratekit.ErrSchemaMismatch)
 	require.Contains(t, err.Error(), "nickname")
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +20,7 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, iam.CodeMissingSidClaim)
 		return
 	}
-	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonLogout)
+	ctx := authkit.WithSessionRevokeReason(r.Context(), authkit.SessionRevokeReasonLogout)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
 		serverErr(w, iam.CodeFailedToLogout, err)
 		return

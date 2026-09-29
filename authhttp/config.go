@@ -13,7 +13,7 @@ import (
 )
 
 // Config is the HTTP layer's configuration. Engine data lives in
-// embedded.Config and engine dependencies in embedded.Deps; this is only what
+// authkit.Config and engine dependencies in authkit.Deps; this is only what
 // the transport itself decides: client-IP posture, rate limiting, languages,
 // published documents.
 type Config struct {
@@ -22,7 +22,7 @@ type Config struct {
 	Mount MountOptions
 
 	// DPoPRequestURL returns the externally visible delegation endpoint URL when
-	// a proxy rewrites its path. Nil uses embedded.Config.Token.Issuer's origin and the
+	// a proxy rewrites its path. Nil uses authkit.Config.Token.Issuer's origin and the
 	// received escaped path. Never derive it from untrusted forwarding headers.
 	DPoPRequestURL func(*http.Request) string
 
@@ -72,7 +72,7 @@ type Config struct {
 	// Documents are the published-document providers (normally
 	// *documents.Service values) served at the RouteDocuments mount and
 	// stamped by the delegated-token mint route (#260/#261). Requires
-	// embedded.Config.Documents.Readers.
+	// authkit.Config.Documents.Readers.
 	Documents []DocumentProvider
 }
 

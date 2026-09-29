@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/adapters/twilio/internal/twiliocommon"
-	"github.com/open-rails/authkit/embedded"
 )
 
 const sendGridMailSendURL = "https://api.sendgrid.com/v3/mail/send"
@@ -24,7 +24,7 @@ type Message struct {
 }
 
 // VerificationBuilder renders a verification email.
-type VerificationBuilder func(ctx context.Context, email, username string, msg embedded.VerificationMessage) Message
+type VerificationBuilder func(ctx context.Context, email, username string, msg authkit.VerificationMessage) Message
 
 // PasswordResetBuilder renders a password reset email.
 type PasswordResetBuilder func(ctx context.Context, email, username, resetURL string) Message
@@ -98,7 +98,7 @@ func (s *Sender) httpClient() *http.Client {
 	return twiliocommon.DefaultHTTPClient(s.Client)
 }
 
-func (s *Sender) SendVerification(ctx context.Context, email, username string, msg embedded.VerificationMessage) error {
+func (s *Sender) SendVerification(ctx context.Context, email, username string, msg authkit.VerificationMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func contextLanguage(ctx context.Context) string {
 	return twiliocommon.ContextLanguage(ctx)
 }
 
-func defaultVerificationMessage(ctx context.Context, app string, msg embedded.VerificationMessage) Message {
+func defaultVerificationMessage(ctx context.Context, app string, msg authkit.VerificationMessage) Message {
 	copy := copyForContext(ctx, app)
 	intro := copy.verifyIntro
 	if strings.TrimSpace(msg.Purpose) == "contact_change" {
@@ -231,7 +231,7 @@ func (s *Sender) SendWelcome(ctx context.Context, email, username string) error 
 	return s.sendEmail(ctx, email, Message{Subject: copy.welcomeSubject, TextBody: copy.welcomeBody, HTMLBody: html, Categories: []string{"auth", "welcome"}})
 }
 
-func (s *Sender) SendContactChanged(ctx context.Context, email, username string, change embedded.ContactChange) error {
+func (s *Sender) SendContactChanged(ctx context.Context, email, username string, change authkit.ContactChange) error {
 	app := s.appLabel()
 	subject := fmt.Sprintf("Your %s %s was changed", app, change.Field)
 	intro := fmt.Sprintf("The %s on your %s account was changed to %s. If this was not you, secure your account now.", change.Field, app, change.NewValue)
@@ -239,7 +239,7 @@ func (s *Sender) SendContactChanged(ctx context.Context, email, username string,
 	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "contact-changed"}})
 }
 
-func (s *Sender) SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice embedded.DeviceKeyNotice) error {
+func (s *Sender) SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice authkit.DeviceKeyNotice) error {
 	app := s.appLabel()
 	device := strings.TrimSpace(notice.Label)
 	if device == "" {

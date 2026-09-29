@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -24,15 +24,15 @@ import (
 // and an explicit Catalog so a bounded "roles-admin" role (holds
 // merchant:roles:manage but none of the billing perms) can be built for the
 // escalation tests.
-func hardeningTestConfig() embedded.Config {
-	return embedded.Config{
+func hardeningTestConfig() authkit.Config {
+	return authkit.Config{
 		Keys:  testKeys(),
-		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
-		RBAC: []embedded.PersonaDef{{
+		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
+		RBAC: []authkit.PersonaDef{{
 			Name: "merchant", Parent: iam.RootPersona,
-			Capabilities: embedded.PersonaCapabilities{CustomRoles: true},
+			Capabilities: iam.PersonaCapabilities{CustomRoles: true},
 			Catalog:      []string{"merchant:billing:read", "merchant:billing:write", "merchant:catalog:read", "merchant:roles:manage"},
-			Roles: []embedded.RoleDef{
+			Roles: []authkit.RoleDef{
 				{Name: "roles-admin", Permissions: []string{"merchant:roles:manage"}},
 			},
 		}},
@@ -58,16 +58,16 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	return &Service{svc: coreSvc}, pool, owner
 }
 
-func defineRoleGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
+func defineRoleGR(persona string) authkit.GeneratedRoute {
+	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
 }
 
-func deleteRoleGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
+func deleteRoleGR(persona string) authkit.GeneratedRoute {
+	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
 }
 
-func memberRoleAssignGR(persona string) embedded.GeneratedRoute {
-	return embedded.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
+func memberRoleAssignGR(persona string) authkit.GeneratedRoute {
+	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
 }
 
 // TestCustomRoleRedefineRejectsEscalation_HTTP is the #247 SECURITY fix: a
@@ -166,7 +166,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = fixtureBackend(s.svc).Enable2FA(ctx, subject, "email", nil, embedded.AllowAdditionalFactors)
+	_, err = fixtureBackend(s.svc).Enable2FA(ctx, subject, "email", nil, authkit.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = s.driveSub(t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

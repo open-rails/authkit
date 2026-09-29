@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	secret, _, err := fixtureBackend(srv.svc).StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
-	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, embedded.TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: embedded.FirstFactorOnly})
+	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, authkit.TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authkit.FirstFactorOnly})
 	require.NoError(t, err)
 
 	publicKey, privateKey := newDeviceKey(t)
@@ -75,7 +75,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &enrolled))
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email", "otp", "mfa"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
 	require.Equal(t, user.ID, claims["sub"])
 
 	var keys int

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -96,7 +95,7 @@ func (s *Service) capabilities() AuthCapabilities {
 	return AuthCapabilities{
 		Registration: AuthRegistrationCapabilities{
 			Mode:                string(cfg.Registration.NativeUserMode),
-			InviteTokenRequired: cfg.Registration.NativeUserMode == embedded.RegistrationModeInviteOnly,
+			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
 		},
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: AuthUsernameCapabilities{

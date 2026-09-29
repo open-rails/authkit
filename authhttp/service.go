@@ -12,14 +12,14 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
 	dpopRequestURL      func(*http.Request) string
-	svc                 embedded.HTTPBackend
+	svc                 authkit.HTTPBackend
 	verifier            *verify.Verifier
 	rl                  RateLimiter
 	closers             []func() // background work stopped by Close (#305)

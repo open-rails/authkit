@@ -15,7 +15,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -35,7 +35,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 		return
 	}
 	userID := strings.TrimSpace(body.UserID)
-	email := embedded.NormalizeEmail(body.Email)
+	email := authkit.NormalizeEmail(body.Email)
 	if (userID == "") == (email == "") {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
@@ -46,7 +46,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 		return
 	}
 	if email != "" {
-		if err := embedded.ValidateEmail(email); err != nil {
+		if err := authkit.ValidateEmail(email); err != nil {
 			writeError(w, err)
 			return
 		}

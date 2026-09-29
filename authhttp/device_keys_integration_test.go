@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -58,7 +58,7 @@ func deviceKeyTestServer(t *testing.T, engineOpts ...coreOpt) (*Service, *captur
 	return deviceKeyTestServerWithConfig(t, newServerTestConfig(), engineOpts...)
 }
 
-func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...coreOpt) (*Service, *captureEmailSender) {
+func deviceKeyTestServerWithConfig(t *testing.T, cfg authkit.Config, engineOpts ...coreOpt) (*Service, *captureEmailSender) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	sender := &captureEmailSender{}
@@ -172,7 +172,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	enrolled := finishDeviceEnrollment(t, srv, sender, enrollment, privateKey)
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelPassword, claims["acr"])
+	require.Equal(t, authkit.AssuranceLevelPassword, claims["acr"])
 	require.Equal(t, enrolled.DeviceKey.ID, claims["device_key_id"])
 	require.NotEmpty(t, claims["auth_time"])
 	require.NotEmpty(t, claims["sub"])

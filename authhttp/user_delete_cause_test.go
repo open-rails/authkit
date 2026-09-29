@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -45,7 +44,7 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	const peer = "https://peer.example"
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Token.AccountIssuers = []string{cfg.Token.Issuer, peer}
 	core := newServerClient(t, cfg, pg.Pool)
 	t.Cleanup(core.Close)

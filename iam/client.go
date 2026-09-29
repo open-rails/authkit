@@ -7,7 +7,7 @@ import (
 )
 
 // Client is the portable application operation contract returned by
-// embedded.Runtime.Client. The local implementation calls the private engine
+// authkit.Runtime.Client. The local implementation calls the private engine
 // directly; a future remote implementation can preserve these typed operations.
 // Inputs and results carry no process resources. Privileged operations require
 // trusted host authority; this contract does not expose them over HTTP.

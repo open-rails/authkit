@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
@@ -37,7 +37,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = accountIssuers
 		cfg.Token.AccessTokenDuration = ttl
-		cfg.RBAC = []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "operator", Permissions: embedded.IntrinsicRootPermissions()})}
+		cfg.RBAC = []authkit.PersonaDef{authkit.IntrinsicRootPersona(authkit.RoleDef{Name: "operator", Permissions: authkit.IntrinsicRootPermissions()})}
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(srv.Close)
@@ -143,7 +143,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 			var reason *string
 			require.NoError(t, rows.Scan(&issuer, &event, &sid, &reason))
 			require.NotNil(t, reason)
-			require.Equal(t, string(embedded.SessionRevokeReasonAdminRevokeAll), *reason)
+			require.Equal(t, string(authkit.SessionRevokeReasonAdminRevokeAll), *reason)
 			require.Equal(t, event == "account_sessions_revoked", sid == "")
 			got = append(got, issuer+" "+event)
 		}

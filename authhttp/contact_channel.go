@@ -8,7 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
@@ -27,8 +27,8 @@ type contactChannel struct {
 	requestVerification  func(context.Context, string) error
 	requestChange        func(ctx context.Context, userID, id string) error
 	requestPasswordReset func(ctx context.Context, id string, ip, ua *string) error
-	getUser              func(context.Context, string) (*embedded.User, error)
-	isVerified           func(*embedded.User) bool
+	getUser              func(context.Context, string) (*iam.User, error)
+	isVerified           func(*iam.User) bool
 	pendingExists        func(context.Context, string) (bool, error)
 
 	errVerifyUnavailable iam.Code
@@ -39,8 +39,8 @@ type contactChannel struct {
 
 func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
-		validate:        embedded.ValidateEmail,
-		normalize:       embedded.NormalizeEmail,
+		validate:        authkit.ValidateEmail,
+		normalize:       authkit.NormalizeEmail,
 		senderAvailable: s.svc.HasEmailSender,
 		requestVerification: func(ctx context.Context, id string) error {
 			return s.svc.RequestEmailVerification(ctx, id, 0)
@@ -50,7 +50,7 @@ func (s *Service) emailChannel() contactChannel {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
 		getUser:    s.svc.GetUserByEmail,
-		isVerified: func(u *embedded.User) bool { return u.EmailVerified },
+		isVerified: func(u *iam.User) bool { return u.EmailVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
@@ -64,8 +64,8 @@ func (s *Service) emailChannel() contactChannel {
 
 func (s *Service) phoneChannel() contactChannel {
 	return contactChannel{
-		validate:        embedded.ValidatePhone,
-		normalize:       embedded.NormalizePhone,
+		validate:        authkit.ValidatePhone,
+		normalize:       authkit.NormalizePhone,
 		senderAvailable: s.svc.SMSAvailable,
 		requestVerification: func(ctx context.Context, id string) error {
 			return s.svc.RequestPhoneVerification(ctx, id, 0)
@@ -75,7 +75,7 @@ func (s *Service) phoneChannel() contactChannel {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
 		getUser:    s.svc.GetUserByPhone,
-		isVerified: func(u *embedded.User) bool { return u.PhoneVerified },
+		isVerified: func(u *iam.User) bool { return u.PhoneVerified },
 		pendingExists: func(ctx context.Context, id string) (bool, error) {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
@@ -177,7 +177,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	in := embedded.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	in := authkit.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
@@ -209,7 +209,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	if out.Kind == embedded.LoginContactChanged {
+	if out.Kind == authkit.LoginContactChanged {
 		noContent(w)
 		return
 	}
@@ -283,7 +283,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if _, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword); err != nil {
-		if embedded.ValidationErrorCode(err) != "" {
+		if authkit.ValidationErrorCode(err) != "" {
 			writeError(w, err)
 			return
 		}

@@ -2,14 +2,15 @@ package authhttp
 
 import (
 	"errors"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"strings"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -60,7 +61,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 // handleUser2FAPOST: decode, the freshness gate, rate limits, one engine
 // call, one switch. The enrollment policy (factor slot, method availability,
 // phone/code validation, SMS setup code, TOTP hand-out, enable) is
-// embedded.EnrollTwoFactor (ak#318).
+// authkit.EnrollTwoFactor (ak#318).
 func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
@@ -108,7 +109,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	starting := strings.TrimSpace(req.Code) == ""
 	switch {
 	case method == "sms" && starting && phone != "" && strings.HasPrefix(phone, "+"):
-		if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, embedded.NormalizePhone(phone)) {
+		if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, authkit.NormalizePhone(phone)) {
 			return
 		}
 	case method == "totp" && starting:
@@ -125,7 +126,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	if claims.TwoFAEnrollment {
 		challenge = claims.JTI
 	}
-	out, err := s.svc.EnrollTwoFactor(r.Context(), embedded.TwoFactorEnrollInput{
+	out, err := s.svc.EnrollTwoFactor(r.Context(), authkit.TwoFactorEnrollInput{
 		LoginChallenge: challenge, SessionID: claims.SessionID, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 		UserID: claims.UserID, Mode: scope.Mode, Method: method, Code: req.Code,
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
@@ -139,11 +140,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch out.Kind {
-	case embedded.TwoFactorEnrollDefaultSet:
+	case authkit.TwoFactorEnrollDefaultSet:
 		noContent(w)
-	case embedded.TwoFactorEnrollCodeSent:
+	case authkit.TwoFactorEnrollCodeSent:
 		accepted(w)
-	case embedded.TwoFactorEnrollTOTPStarted:
+	case authkit.TwoFactorEnrollTOTPStarted:
 		writeJSON(w, http.StatusOK, map[string]any{
 			"method":      "totp",
 			"secret":      out.Secret,
@@ -196,7 +197,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	if factorID == "" {
 		factorID = strings.TrimSpace(body.FactorID)
 	}
-	var removed []embedded.RemovedMFARoleAssignment
+	var removed []authkit.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {
 		removed, err = s.svc.Disable2FAWithRemovedRoles(r.Context(), claims.UserID)
@@ -211,7 +212,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"removed_roles": removedMFARolesResponse(removed)})
 }
 
-func removedMFARolesResponse(removed []embedded.RemovedMFARoleAssignment) []map[string]any {
+func removedMFARolesResponse(removed []authkit.RemovedMFARoleAssignment) []map[string]any {
 	out := make([]map[string]any, 0, len(removed))
 	for _, r := range removed {
 		out = append(out, map[string]any{
@@ -243,7 +244,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})
 }
 
-func twoFactorFactorResponses(factors []embedded.TwoFactorFactor) []twoFactorFactorResponse {
+func twoFactorFactorResponses(factors []authkit.TwoFactorFactor) []twoFactorFactorResponse {
 	out := make([]twoFactorFactorResponse, 0, len(factors))
 	for _, factor := range factors {
 		out = append(out, twoFactorFactorResponse{

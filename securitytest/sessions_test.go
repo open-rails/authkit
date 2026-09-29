@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
-func strictRotation(c *embedded.Config) { c.Token.RefreshRotationGrace = -1 }
+func strictRotation(c *authkit.Config) { c.Token.RefreshRotationGrace = -1 }
 
 // TestSecurityRefreshTokenTheft replays a stolen refresh token after its
 // legitimate holder rotated it. Reuse must revoke the whole family, so the
@@ -155,7 +155,7 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 // host deployment does.
 func (h *host) replica() *host {
 	h.t.Helper()
-	r, err := embedded.New(h.cfg.engine, h.cfg.deps)
+	r, err := authkit.New(h.cfg.engine, h.cfg.deps)
 	require.NoError(h.t, err)
 	h.t.Cleanup(r.Close)
 	return h.fork(r)
@@ -166,8 +166,8 @@ func (h *host) replica() *host {
 // account. It must not be able to install a credential that outlives the
 // revocation (new password, passkey, second factor) or delete the account.
 func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) {
-		c.Passkeys = embedded.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
 	}))
 	ctx := context.Background()
 	attacks := []struct {
@@ -256,8 +256,8 @@ func delegateCertificate(t *testing.T) string {
 // than its parent access token, so minting one from a revoked session or a
 // banned account would extend a thief's access past revocation.
 func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) {
-		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
 	}), func(c *hostConfig) {
 		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
@@ -303,8 +303,8 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	var mu sync.Mutex
 	var grant []string
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
-		c.Delegated = embedded.DelegatedConfig{Audiences: []string{"resource.security.test"}}
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
 	}), func(c *hostConfig) {
 		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			mu.Lock()
@@ -332,7 +332,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		perms []string
 	}{
 		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
-		{"root authority the user lacks", manager, []string{embedded.PermRootUsersBan}},
+		{"root authority the user lacks", manager, []string{authkit.PermRootUsersBan}},
 		{"wildcard", moderator, []string{"*"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -344,11 +344,11 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
 		resp := mint(manager, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = mint(moderator, embedded.PermRootUsersBan, "resource:read")
+		resp = mint(moderator, authkit.PermRootUsersBan, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
-		perm := iam.Perm(embedded.PermRootUsersBan)
+		perm := iam.Perm(authkit.PermRootUsersBan)
 		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: verify.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
 		ok, err := verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)

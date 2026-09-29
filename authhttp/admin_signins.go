@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -14,7 +14,7 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	events, err := s.svc.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
+	events, err := s.svc.ListSessionEvents(r.Context(), userID, authkit.SessionEventCreated, authkit.SessionEventFailed)
 	if err != nil {
 		serverErr(w, iam.CodeFailedToListSignins, err)
 		return

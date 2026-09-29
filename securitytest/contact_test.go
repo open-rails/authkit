@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +37,7 @@ func (p *stubProvider) Exchange(context.Context, authprovider.ExchangeRequest) (
 }
 
 func withProviders(providers ...authprovider.Provider) hostOption {
-	return withEngine(func(c *embedded.Config) { c.Identity.Providers = providers })
+	return withEngine(func(c *authkit.Config) { c.Identity.Providers = providers })
 }
 
 // providerCallback completes a browser provider login in one client.
@@ -108,8 +108,8 @@ func contactOf(t *testing.T, r response) (string, string) {
 // method that would outlive the real owner reclaiming it.
 func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
 	provider := &stubProvider{name: "linkidp", trusted: true}
-	h := newHost(t, withHTTP(generousLimits), withProviders(provider), withEngine(func(c *embedded.Config) {
-		c.Passkeys = embedded.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
+	h := newHost(t, withHTTP(generousLimits), withProviders(provider), withEngine(func(c *authkit.Config) {
+		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
 		c.SolanaNetwork = "devnet"
 	}))
 	email := unique("squat") + "@security.test"
@@ -151,7 +151,7 @@ func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
 // could have). The first proof of the address by its real owner must leave
 // the attacker nothing: no session, password, provider, device key or factor.
 func TestSecurityPreRegistrationTakeover(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
 		c.Registration.PasswordlessLogin = true
 	}))
 	ctx := context.Background()
@@ -246,9 +246,9 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 // TestSecurityRegistrationNeverSelfVerifies: no registration policy marks an
 // address verified without a proof of it.
 func TestSecurityRegistrationNeverSelfVerifies(t *testing.T) {
-	for _, policy := range []embedded.RegistrationVerificationPolicy{embedded.RegistrationVerificationNone, embedded.RegistrationVerificationOptional} {
+	for _, policy := range []iam.RegistrationVerificationPolicy{iam.RegistrationVerificationNone, iam.RegistrationVerificationOptional} {
 		t.Run(string(policy), func(t *testing.T) {
-			h := newHost(t, withHTTP(generousLimits), withEngine(func(c *embedded.Config) { c.Registration.Verification = policy }))
+			h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) { c.Registration.Verification = policy }))
 			email := unique("selfverify") + "@security.test"
 			s := h.register(email)
 			u, err := h.client.GetUserByEmail(context.Background(), email)

@@ -8,7 +8,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			badRequest(w, iam.CodePasswordResetRequired)
 			return
 		}
-		if embedded.ValidationErrorCode(changeErr) != "" {
+		if authkit.ValidationErrorCode(changeErr) != "" {
 			writeError(w, changeErr)
 			return
 		}

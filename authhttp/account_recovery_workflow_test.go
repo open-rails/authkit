@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ import (
 func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	core := newServerClient(t, cfg, pg.Pool)
 	t.Cleanup(core.Close)
 	srv, err := newTestService(core, workflowHTTPConfig())
@@ -59,7 +59,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 			Error struct {
 				Code     string `json:"code"`
 				Metadata struct {
-					Recovery embedded.AccountRecoveryConfirmation `json:"recovery"`
+					Recovery authkit.AccountRecoveryConfirmation `json:"recovery"`
 				} `json:"metadata"`
 			} `json:"error"`
 		}

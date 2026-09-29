@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	claims := unverifiedAccessClaims(t, stepped.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelPassword, claims["acr"])
+	require.Equal(t, authkit.AssuranceLevelPassword, claims["acr"])
 	sid := claims["sid"]
 	var beforeTime, afterTime time.Time
 	var beforeAMR, afterAMR []string
@@ -130,10 +130,10 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	claims = unverifiedAccessClaims(t, mfa.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
-	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
 	passwordAgain := f.expect(200, f.request("POST", "/step-up/password", mfa.AccessToken, map[string]any{"password": pass})).Tokens
 	require.ElementsMatch(t, claims["amr"], unverifiedAccessClaims(t, passwordAgain.AccessToken)["amr"], "password re-auth preserves actual MFA proof")
-	require.Equal(t, embedded.AssuranceLevelMFA, unverifiedAccessClaims(t, passwordAgain.AccessToken)["acr"])
+	require.Equal(t, authkit.AssuranceLevelMFA, unverifiedAccessClaims(t, passwordAgain.AccessToken)["acr"])
 
 	// A fresh factor proof permits management but cannot replace the factor.
 	replacement := f.expect(200, f.request("POST", "/user/2fa", mfa.AccessToken, map[string]any{"method": "totp"}))

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	utilsstrings "github.com/gofiber/utils/v2/strings"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // RouteNamePrefix identifies routes registered by Mount in app.GetRoutes().
@@ -44,9 +44,9 @@ func Mount(app *fiber.App, svc *authhttp.Service, options ...authhttp.MountOptio
 	if err != nil {
 		return err
 	}
-	routes := make([]embedded.HTTPRoute, 0, len(mount.Routes()))
+	routes := make([]authkit.HTTPRoute, 0, len(mount.Routes()))
 	for _, r := range mount.Routes() {
-		routes = append(routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+		routes = append(routes, authkit.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
 	}
 	return mountHTTPRoutes(app, routes)
 }
@@ -76,7 +76,7 @@ func fiberRoutePath(path string) (string, error) {
 	return strings.Join(parts, "/"), nil
 }
 
-func mountHTTPRoutes(app *fiber.App, routes []embedded.HTTPRoute) error {
+func mountHTTPRoutes(app *fiber.App, routes []authkit.HTTPRoute) error {
 	if app == nil {
 		return errors.New("authkitfiber: Mount requires a Fiber app")
 	}

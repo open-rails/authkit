@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -44,7 +44,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
 	mint := func(perms []string) string {
 		t.Helper()
-		token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
+		token, err := authkit.MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
 		require.NoError(t, err)
 		return token
 	}

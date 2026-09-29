@@ -3,21 +3,21 @@ package authhttp
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
 // writeLoginContinuation is the one JSON presentation of first-factor outcomes.
 // It returns false only for an issued session, whose surrounding envelope may
 // carry registration/passwordless metadata.
-func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request, out embedded.LoginOutcome, extra map[string]any) bool {
+func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request, out authkit.LoginOutcome, extra map[string]any) bool {
 	switch out.Kind {
-	case embedded.LoginSessionIssued:
+	case authkit.LoginSessionIssued:
 		return false
-	case embedded.LoginRecoveryRequired:
+	case authkit.LoginRecoveryRequired:
 		w.Header().Set("Cache-Control", "no-store")
 		sendErrData(w, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
-	case embedded.LoginTwoFactorRequired:
+	case authkit.LoginTwoFactorRequired:
 		metadata := loginChallengeMetadata(out.UserID, out.Challenge)
 		for key, value := range extra {
 			metadata[key] = value
@@ -26,9 +26,9 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 			metadata["return_to"] = out.ReturnTo
 		}
 		sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, metadata)
-	case embedded.LoginTwoFAEnrollmentRequired:
+	case authkit.LoginTwoFAEnrollmentRequired:
 		sendErrData(w, http.StatusForbidden, iam.CodeTwoFAEnrollmentRequired, map[string]any{"user_id": out.UserID, "requires_2fa_enrollment": true, "allowed_methods": out.AllowedMethods, "token_set": out.Enrollment, "return_to": out.ReturnTo})
-	case embedded.LoginVerificationRequired:
+	case authkit.LoginVerificationRequired:
 		writeVerificationRequired(w, out.Verification.Identifier, out.Verification.Channel)
 	default:
 		unauthorized(w, loginRejectionCode(out.Reason))
@@ -36,6 +36,6 @@ func (s *Service) writeLoginContinuation(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
-func loginChallengeMetadata(userID string, ch *embedded.TwoFactorChallenge) map[string]any {
-	return map[string]any{"user_id": userID, "method": ch.Method, "verification_id": embedded.MaskDestination(ch.Destination), "challenge": ch.Challenge, "default_factor": twoFactorFactorResponse{ID: ch.Factor.ID, Method: ch.Factor.Method, IsDefault: ch.Factor.IsDefault, PhoneNumber: ch.Factor.PhoneNumber}, "available_factors": twoFactorFactorResponses(ch.Factors)}
+func loginChallengeMetadata(userID string, ch *authkit.TwoFactorChallenge) map[string]any {
+	return map[string]any{"user_id": userID, "method": ch.Method, "verification_id": authkit.MaskDestination(ch.Destination), "challenge": ch.Challenge, "default_factor": twoFactorFactorResponse{ID: ch.Factor.ID, Method: ch.Factor.Method, IsDefault: ch.Factor.IsDefault, PhoneNumber: ch.Factor.PhoneNumber}, "available_factors": twoFactorFactorResponses(ch.Factors)}
 }

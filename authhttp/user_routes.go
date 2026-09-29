@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +75,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	normalized, err := embedded.NormalizePreferredLanguage(language)
+	normalized, err := authkit.NormalizePreferredLanguage(language)
 	if err != nil || !s.supportsLanguage(normalized) {
 		badRequest(w, iam.CodeInvalidPreferredLanguage)
 		return

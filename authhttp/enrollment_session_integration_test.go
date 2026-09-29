@@ -3,7 +3,8 @@ package authhttp
 import (
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		require.Empty(t, enabled.Tokens.RefreshToken, "step-up style response never rotates the refresh token")
 		claims := unverifiedAccessClaims(t, enabled.Tokens.AccessToken)
 		require.ElementsMatch(t, []any{"pwd", method, "otp", "mfa"}, claims["amr"])
-		require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
+		require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
 		require.Equal(t, true, claims["mfa_enrolled"])
 		require.Contains(t, enabled.raw, `"fresh_auth"`)
 		refreshed := f.expect(200, refresh(enrolling.RefreshToken))
@@ -106,7 +107,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 // Forced enrollment ends with a 2FA-verified session for every proven method.
 func TestForcedEmailEnrollmentIssuesVerifiedSession(t *testing.T) {
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorRequired
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
 	f := newAccountFlow(t, testdb.Pool(t), cfg)
 	ctx := t.Context()
 	email := uniqueEmail("forced-email")

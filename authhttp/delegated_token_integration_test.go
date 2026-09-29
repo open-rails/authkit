@@ -20,8 +20,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -173,9 +173,9 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 
 	keySource := newSwappableKeySource(t, "bound-kid-1")
 	cfg := newServerTestConfig()
-	cfg.Keys = embedded.KeysConfig{Source: keySource}
-	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
-	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
+	cfg.Keys = authkit.KeysConfig{Source: keySource}
+	cfg.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
+	cfg.Documents = authkit.DocumentsConfig{Readers: []authkit.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 
 	delegate := newDelegateCertificate(t, nil)
 	hostDocument := documents.Digest([]byte("host-doc-" + suffix))
@@ -239,7 +239,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	req := requests[0]
 	require.Equal(t, user.ID, req.UserID)
 	require.Equal(t, []string{"tensorhub.net", "other.example"}, req.Audiences)
-	require.Equal(t, embedded.DefaultDelegatedTTLDefault, req.TTL)
+	require.Equal(t, authkit.DefaultDelegatedTTLDefault, req.TTL)
 	require.Equal(t, jwtkit.CertificateSHA256(delegate.Leaf.Raw), req.ConfirmationCertificateSHA256)
 	require.Equal(t, delegate.Leaf.Raw, req.DelegateCertificate.Raw)
 	require.JSONEq(t, testRequestedGrant, string(req.RequestedGrant))
@@ -259,7 +259,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, docSvc.Reference().Digest, stamped[documentsTestType])
 	require.Equal(t, hostDocument, stamped["example.host-doc/v1"], "authorizer documents ride alongside registered providers")
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
-	require.Equal(t, int64(embedded.DefaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
+	require.Equal(t, int64(authkit.DefaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
 	require.WithinDuration(t, time.Unix(exp, 0), resp.ExpiresAt, time.Second)
 
 	// ak#270: revocable by id, fresh per mint.
@@ -336,8 +336,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Contains(t, badAud.Body.String(), "invalid_audiences")
 
 	for requested, want := range map[int]int64{
-		10:     int64(embedded.DefaultDelegatedTTLFloor / time.Second),
-		999999: int64(embedded.DefaultDelegatedTTLCeiling / time.Second),
+		10:     int64(authkit.DefaultDelegatedTTLFloor / time.Second),
+		999999: int64(authkit.DefaultDelegatedTTLCeiling / time.Second),
 		600:    600,
 	} {
 		before := len(requests)
@@ -430,7 +430,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// Construction guards: the route never mounts without its authorizer, and
 	// an authorizer without a route is dead wiring.
 	noAuthorizer := newServerTestConfig()
-	noAuthorizer.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
+	noAuthorizer.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
 	_, err = newServer(newServerClient(t, noAuthorizer, pool))
 	require.ErrorContains(t, err, "Deps.DelegatedAuthorization")
 	_, err = newServer(newServerClient(t, newServerTestConfig(), pool, withDelegatedAuthorization(authorizer)))
@@ -451,9 +451,9 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 
 	keySource := newSwappableKeySource(t, "rotate-kid-1")
 	cfg := newServerTestConfig()
-	cfg.Keys = embedded.KeysConfig{Source: keySource}
-	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
-	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
+	cfg.Keys = authkit.KeysConfig{Source: keySource}
+	cfg.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
+	cfg.Documents = authkit.DocumentsConfig{Readers: []authkit.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(
 		func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{}, nil

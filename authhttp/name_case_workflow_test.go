@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -19,7 +18,7 @@ import (
 func TestUsernameCaseWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.Registration.Verification = embedded.RegistrationVerificationRequired
+	cfg.Registration.Verification = iam.RegistrationVerificationRequired
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := t.Context()
 	suffix := uniqueSuffix()

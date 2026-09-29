@@ -3,13 +3,14 @@ package authkithttp
 
 import (
 	"fmt"
-	"github.com/open-rails/authkit/embedded"
 	"net/http"
+
+	"github.com/open-rails/authkit"
 )
 
-type Bundle struct{ routes []embedded.HTTPRoute }
+type Bundle struct{ routes []authkit.HTTPRoute }
 
-func Routes(runtime *embedded.Runtime) (*Bundle, error) {
+func Routes(runtime *authkit.Runtime) (*Bundle, error) {
 	routes, err := runtime.HTTPRoutes()
 	if err != nil {
 		return nil, err

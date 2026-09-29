@@ -42,7 +42,7 @@ type Verifier struct {
 	skew           time.Duration
 	algorithms     []string
 
-	// tokenPrefix is the host application's API-key brand prefix (see embedded.Config
+	// tokenPrefix is the host application's API-key brand prefix (see authkit.Config
 	// APIKeyPrefix). Used to detect API keys in the middleware
 	// before JWT verification. Empty -> bare "st_".
 	tokenPrefix string

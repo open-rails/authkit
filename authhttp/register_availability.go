@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -58,7 +58,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 	if username != "" {
 		if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-			code := embedded.ValidationErrorCode(err)
+			code := authkit.ValidationErrorCode(err)
 			if code == "" {
 				// Not a validation error — an internal failure.
 				s.logInternalError(r, "register_availability", "username", "database_error", err)
@@ -72,10 +72,10 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		}
 	}
 	if email != "" {
-		if err := embedded.ValidateEmail(email); err != nil {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: embedded.ValidationErrorCode(err).String()}
+		if err := authkit.ValidateEmail(email); err != nil {
+			resp.Email = &registrationAvailabilityField{Available: false, Error: authkit.ValidationErrorCode(err).String()}
 		} else {
-			checkEmail = embedded.NormalizeEmail(email)
+			checkEmail = authkit.NormalizeEmail(email)
 			emailNeedsConflictCheck = true
 		}
 	}
@@ -117,10 +117,10 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
-	if err := embedded.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: embedded.ValidationErrorCode(err).String()}, nil
+	if err := authkit.ValidatePhone(phone); err != nil {
+		return &registrationAvailabilityField{Available: false, Error: authkit.ValidationErrorCode(err).String()}, nil
 	}
-	phone = embedded.NormalizePhone(phone)
+	phone = authkit.NormalizePhone(phone)
 
 	phoneTaken, _, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), phone, "")
 	if err != nil {

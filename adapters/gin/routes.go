@@ -2,16 +2,17 @@ package authkitgin
 
 import (
 	"errors"
+
 	"github.com/gin-gonic/gin"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 // Bundle contains the runtime's already configured route inventory.
-type Bundle struct{ routes []embedded.HTTPRoute }
+type Bundle struct{ routes []authkit.HTTPRoute }
 
 // Routes obtains the local runtime's HTTP surface without constructing a server,
 // engine or additional HTTP state. ConfigureHTTP must precede this call.
-func Routes(runtime *embedded.Runtime) (*Bundle, error) {
+func Routes(runtime *authkit.Runtime) (*Bundle, error) {
 	routes, err := runtime.HTTPRoutes()
 	if err != nil {
 		return nil, err

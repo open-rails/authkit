@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
 // handlePasswordLoginPOST: decode, rate-limit, one engine call, one switch.
 // The login policy (identifier resolution, pending-registration recovery, the
 // verification gate, credentials, liveness, 2FA, session) is
-// embedded.PasswordLogin (ak#318).
+// authkit.PasswordLogin (ak#318).
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Identifier string `json:"identifier"` // email, phone number, or username
@@ -30,7 +30,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	out, err := s.svc.PasswordLogin(r.Context(), embedded.PasswordLoginInput{
+	out, err := s.svc.PasswordLogin(r.Context(), authkit.PasswordLoginInput{
 		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 type registrationNextAction string
@@ -54,9 +54,9 @@ func preferredLanguageFromRequest(r *http.Request) string {
 // handleRegisterUnifiedPOST: decode, rate-limit, one engine call, one switch.
 // The registration policy (identifier classification, validation, verification
 // mode, conflicts, the pending write + code send, the session) is
-// embedded.Register (ak#318).
+// authkit.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
-	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeClosed {
+	if s.svc.Config().Registration.NativeUserMode == iam.RegistrationModeClosed {
 		registrationDisabled(w)
 		return
 	}
@@ -81,7 +81,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out, err := s.svc.Register(r.Context(), embedded.RegisterInput{
+	out, err := s.svc.Register(r.Context(), authkit.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
 		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
 		UserAgent: r.UserAgent(), IP: s.requestIP(r),
@@ -93,12 +93,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	var tokens *iam.TokenSet
 	nextAction := registrationNextActionNone
 	switch out.Kind {
-	case embedded.RegisterLoginRequired:
+	case authkit.RegisterLoginRequired:
 		s.writeLoginContinuation(w, r, *out.Login, nil)
 		return
-	case embedded.RegisterVerifyEmail:
+	case authkit.RegisterVerifyEmail:
 		nextAction = registrationNextActionVerifyEmail
-	case embedded.RegisterVerifyPhone:
+	case authkit.RegisterVerifyPhone:
 		nextAction = registrationNextActionVerifyPhone
 	default:
 		delivered := s.deliverRefreshToken(w, r, out.Session.TokenSet())
@@ -144,7 +144,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	}
 
 	if strings.HasPrefix(identifier, "+") {
-		phone := embedded.NormalizePhone(identifier)
+		phone := authkit.NormalizePhone(identifier)
 		// Only delete when the password matches; otherwise respond ok without
 		// revealing whether a pending registration exists (anti-enumeration).
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {

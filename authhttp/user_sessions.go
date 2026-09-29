@@ -7,7 +7,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 		badRequest(w, iam.CodeMissingSessionID)
 		return
 	}
-	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevoke)
+	ctx := authkit.WithSessionRevokeReason(r.Context(), authkit.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
 		serverErr(w, iam.CodeFailedToRevoke, err)
 		return
@@ -61,7 +61,7 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
-	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevokeAll)
+	ctx := authkit.WithSessionRevokeReason(r.Context(), authkit.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, nil); err != nil {
 		serverErr(w, iam.CodeFailedToRevokeAll, err)
 		return

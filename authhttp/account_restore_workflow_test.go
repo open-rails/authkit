@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -13,8 +13,8 @@ import (
 func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
-	cfg.RBAC = []embedded.PersonaDef{embedded.IntrinsicRootPersona(embedded.RoleDef{Name: "operator", Permissions: []string{embedded.PermRootUsersDelete, embedded.PermRootUsersRecover}})}
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
+	cfg.RBAC = []authkit.PersonaDef{authkit.IntrinsicRootPersona(authkit.RoleDef{Name: "operator", Permissions: []string{authkit.PermRootUsersDelete, authkit.PermRootUsersRecover}})}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()

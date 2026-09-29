@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
 )
@@ -29,11 +30,11 @@ func (s *Service) Close() {
 }
 
 // New assembles a local HTTP transport inside HTTPConfiguration.BuildHTTP.
-// Applications normally set embedded.Config.HTTP instead. Runtime and portable
+// Applications normally set authkit.Config.HTTP instead. Runtime and portable
 // Clients deliberately do not implement HTTPBackend.
-func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
+func New(client authkit.HTTPBackend, hcfg Config) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
-		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed embedded.HTTPBackend (Postgres is mandatory)")
+		return nil, errors.New("authkit: authhttp.New requires a Postgres-backed authkit.HTTPBackend (Postgres is mandatory)")
 	}
 	if err := hcfg.Validate(); err != nil {
 		return nil, err
@@ -72,7 +73,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 		// #240: wire the documented per-request forced-2FA-enrollment gate from
 		// the host's TwoFactor policy. Required mode challenges every existing
 		// un-enrolled user on their next request, not just at mint time.
-		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == embedded.TwoFactorRequired),
+		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == iam.TwoFactorRequired),
 	}
 	// SSRF guard on JWKS fetches. Applications.AllowPrivateNetworkJWKS is the
 	// local-federation carve-out (#257): loopback/private JWKS the guarded
@@ -150,7 +151,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 // `relation "users" does not exist`. Fail-open on probe errors
 // (connectivity, permissions): those surface elsewhere; only a definitive
 // "table missing" fails construction.
-func probeMigrations(client embedded.HTTPBackend) error {
+func probeMigrations(client authkit.HTTPBackend) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var exists bool
@@ -161,12 +162,12 @@ func probeMigrations(client embedded.HTTPBackend) error {
 	if err != nil || exists {
 		return nil
 	}
-	return fmt.Errorf("authkit: schema %q has no users table — call embedded.ApplyMigrations before constructing the server", client.Schema())
+	return fmt.Errorf("authkit: schema %q has no users table — call authkit.ApplyMigrations before constructing the server", client.Schema())
 }
 
 // validate enforces the cross-layer dependency requirements for the configured
 // feature set (Config.Validate covers the HTTP layer's own fields).
-func (s *Service) validate(cfg embedded.Config) error {
+func (s *Service) validate(cfg authkit.Config) error {
 	// #212: the registration-verification policy must be satisfiable by a
 	// configured delivery sender at CONSTRUCTION time. Fail here with an error
 	// instead of panicking later when handlers are mounted.
@@ -186,7 +187,7 @@ func (s *Service) validate(cfg embedded.Config) error {
 	// #277: the delegated mint route never runs without its host authorizer,
 	// and an authorizer with no route is dead wiring. Both refuse at construction.
 	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
-		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set embedded.Deps.DelegatedAuthorization")
+		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set authkit.Deps.DelegatedAuthorization")
 	}
 	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
 		return fmt.Errorf("authkit: Deps.DelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")

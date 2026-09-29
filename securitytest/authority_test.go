@@ -15,8 +15,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -24,18 +24,18 @@ import (
 
 const orgPersona iam.Persona = "org"
 
-func withRBAC(c *embedded.Config) {
-	c.RBAC = []embedded.PersonaDef{
-		embedded.IntrinsicRootPersona(
-			embedded.RoleDef{Name: "superadmin", Permissions: embedded.IntrinsicRootPermissions()},
-			embedded.RoleDef{Name: "moderator", Permissions: []string{embedded.PermRootUsersBan}},
-			embedded.RoleDef{Name: "admin", Permissions: []string{embedded.PermRootUsersBan, embedded.PermRootUsersRecover, embedded.PermRootResourcesRead}},
+func withRBAC(c *authkit.Config) {
+	c.RBAC = []authkit.PersonaDef{
+		authkit.IntrinsicRootPersona(
+			authkit.RoleDef{Name: "superadmin", Permissions: authkit.IntrinsicRootPermissions()},
+			authkit.RoleDef{Name: "moderator", Permissions: []string{authkit.PermRootUsersBan}},
+			authkit.RoleDef{Name: "admin", Permissions: []string{authkit.PermRootUsersBan, authkit.PermRootUsersRecover, authkit.PermRootResourcesRead}},
 		),
 		{
 			Name:         orgPersona,
 			Parent:       iam.RootPersona,
-			Capabilities: embedded.PersonaCapabilities{RemoteApplications: true, APIKeys: true, CustomRoles: true},
-			Roles: []embedded.RoleDef{
+			Capabilities: iam.PersonaCapabilities{RemoteApplications: true, APIKeys: true, CustomRoles: true},
+			Roles: []authkit.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
 				{Name: "manager", Permissions: []string{"org:members:manage", "org:members:read", "org:credentials:manage", "org:credentials:read", "org:roles:manage", "org:roles:read", "org:catalog:read"}},
 			},
@@ -345,8 +345,8 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 // deployment's own or its identity providers' issuers, and naming an
 // unregistered issuer first must not keep it from the domain that controls it.
 func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
-		c.Applications = embedded.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+		c.Applications = authkit.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("squat-client", "squat-secret")}
 	}))
 	ctx := context.Background()
@@ -394,9 +394,9 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 // shadows this deployment's own issuer.
 func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	const peerIssuer = "https://peer.security.test"
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *embedded.Config) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
 		c.Token.AccountIssuers = []string{issuer, peerIssuer}
-		c.Applications = embedded.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
+		c.Applications = authkit.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("peer-client", "peer-secret")}
 	}))
 	ctx := context.Background()
@@ -432,17 +432,17 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
-			_, err := h.client.OperatorApplyBootstrapManifest(ctx, embedded.BootstrapManifest{RemoteApplications: []embedded.BootstrapManifestRemoteApplication{
+			_, err := h.client.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
-			}}, embedded.BootstrapReconcileOptions{})
+			}}, iam.BootstrapReconcileOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
 	})
 
 	enabled := true
-	_, err = h.client.OperatorApplyBootstrapManifest(ctx, embedded.BootstrapManifest{RemoteApplications: []embedded.BootstrapManifestRemoteApplication{
+	_, err = h.client.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
-	}}, embedded.BootstrapReconcileOptions{})
+	}}, iam.BootstrapReconcileOptions{})
 	require.NoError(t, err)
 
 	user := h.newAccount("peeruser")

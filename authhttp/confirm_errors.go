@@ -6,7 +6,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -23,7 +23,7 @@ func confirmBackendError(err error) bool {
 			return false
 		}
 	}
-	return embedded.ValidationErrorCode(err) == ""
+	return authkit.ValidationErrorCode(err) == ""
 }
 
 // confirmBackendFailed writes the 500 for a backend failure and reports whether

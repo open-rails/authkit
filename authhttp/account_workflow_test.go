@@ -20,8 +20,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -60,7 +60,7 @@ type flowResponse struct {
 	} `json:"error"`
 }
 
-func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg embedded.Config, extra ...coreOpt) *accountFlow {
+func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg authkit.Config, extra ...coreOpt) *accountFlow {
 	t.Helper()
 	f := &accountFlow{t: t, email: &captureEmailSender{}, sms: &captureSMSSender{}}
 	cfg.Frontend.BaseURL = "https://app.example"
@@ -170,8 +170,8 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.PasswordlessLogin, cfg.Registration.PasswordlessAutoRegistration = true, true
-	cfg.Registration.Verification = embedded.RegistrationVerificationRequired
-	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
+	cfg.Registration.Verification = iam.RegistrationVerificationRequired
+	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := context.Background()
 	inviter, _ := createAccountInvite(t, f.service, pg.Pool, uniqueEmail("unused"))
@@ -339,10 +339,10 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.PasswordlessLogin, cfg.Registration.PasswordlessAutoRegistration = true, true
-	cfg.TwoFactor.Mode = embedded.TwoFactorRequired
-	cfg.Registration.Verification = embedded.RegistrationVerificationRequired
-	cfg.Passkeys = embedded.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
-	cfg.RBAC = []embedded.PersonaDef{{Name: iam.RootPersona, Roles: []embedded.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
+	cfg.Registration.Verification = iam.RegistrationVerificationRequired
+	cfg.Passkeys = authkit.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
+	cfg.RBAC = []authkit.PersonaDef{{Name: iam.RootPersona, Roles: []authkit.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := context.Background()
 	// Registration proof reaches a restricted enrollment token. Complete an
@@ -442,7 +442,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	verify := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "verification_required", verify.Error.Code)
 	require.NoError(t, f.service.svc.MarkEmailVerified(ctx, user.ID))
-	backups, err := fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, embedded.AllowAdditionalFactors)
+	backups, err := fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, authkit.AllowAdditionalFactors)
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email}))
 	ch := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
@@ -458,7 +458,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	// A fresh UV passkey satisfies Required mode and an MFA-required role without
 	// inventing a second traditional factor. The returned JWT passes /me.
 	bootstrapCfg := cfg
-	bootstrapCfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	bootstrapCfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	bootstrap := newServerClient(t, bootstrapCfg, pg.Pool)
 	_, err = bootstrap.EnsureRootGroup(ctx)
 	require.NoError(t, err)
@@ -489,14 +489,14 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	// Revoke-all must see the session committed by refresh-derived MFA, even
 	// when revocation began while that completion held the source session.
 	optionalCfg := cfg
-	optionalCfg.TwoFactor.Mode = embedded.TwoFactorOptional
+	optionalCfg.TwoFactor.Mode = iam.TwoFactorOptional
 	old := newAccountFlow(t, pg.Pool, optionalCfg)
 	refreshUser, err := old.service.svc.CreateUser(ctx, uniqueEmail("revoke-all"), "revall"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, old.service.svc.AdminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
 	require.NoError(t, old.service.svc.MarkEmailVerified(ctx, refreshUser.ID))
 	initial := old.expect(200, old.post("/password/login", map[string]any{"identifier": *refreshUser.Email, "password": "Correct-horse-battery-1"}))
-	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, refreshUser.ID, "email", nil, embedded.AllowAdditionalFactors)
+	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, refreshUser.ID, "email", nil, authkit.AllowAdditionalFactors)
 	require.NoError(t, err)
 	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 	require.Equal(t, "2fa_required", needed.Error.Code)
@@ -559,7 +559,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.Registration.PasswordlessLogin, cfg.Registration.PasswordlessAutoRegistration = true, true
-	cfg.TwoFactor.Mode = embedded.TwoFactorRequired
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
 	f := newAccountFlow(t, pg.Pool, cfg)
 	for _, oidc := range []bool{true, false} {
 		t.Run(fmt.Sprint("oidc=", oidc), func(t *testing.T) {

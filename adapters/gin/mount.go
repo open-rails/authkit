@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/embedded"
 )
 
 // Mount registers AuthKit's configured routes directly on router. Each route,
@@ -39,9 +39,9 @@ func Mount(router *gin.Engine, svc *authhttp.Service, options ...authhttp.MountO
 	if err != nil {
 		return err
 	}
-	routes := make([]embedded.HTTPRoute, 0, len(mount.Routes()))
+	routes := make([]authkit.HTTPRoute, 0, len(mount.Routes()))
 	for _, r := range mount.Routes() {
-		routes = append(routes, embedded.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
+		routes = append(routes, authkit.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
 	}
 	return mountHTTPRoutes(router, routes)
 }
@@ -49,7 +49,7 @@ func Mount(router *gin.Engine, svc *authhttp.Service, options ...authhttp.MountO
 // Gin rejects incompatible wildcard branches by panicking. Replay the proposed
 // tree on a scratch engine so configuration errors cannot partially mount the
 // real application. Reuse Gin's own rules rather than maintaining a matcher.
-func validateMountRoutes(router *gin.Engine, routes []embedded.HTTPRoute) (err error) {
+func validateMountRoutes(router *gin.Engine, routes []authkit.HTTPRoute) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("authkitgin: incompatible route configuration: %v; use MountOptions.ExcludeRoutes for host replacements", recovered)
@@ -91,11 +91,11 @@ func ginRoutePath(routePath string) (string, error) {
 	return strings.Join(parts, "/"), nil
 }
 
-func mountHTTPRoutes(router *gin.Engine, routes []embedded.HTTPRoute) error {
+func mountHTTPRoutes(router *gin.Engine, routes []authkit.HTTPRoute) error {
 	if router == nil {
 		return errors.New("authkitgin: Mount requires a Gin engine")
 	}
-	routes = append([]embedded.HTTPRoute(nil), routes...)
+	routes = append([]authkit.HTTPRoute(nil), routes...)
 
 	for i := range routes {
 		converted, err := ginRoutePath(routes[i].Path)

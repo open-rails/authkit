@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
@@ -30,7 +30,7 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	defer victim.Close()
 	victimURL := strings.Replace(victim.URL, "127.0.0.1", "localhost", 1)
 	cfg := newServerTestConfig()
-	cfg.Frontend = embedded.FrontendConfig{BaseURL: victimURL}
+	cfg.Frontend = authkit.FrontendConfig{BaseURL: victimURL}
 	core := newServerClient(t, cfg, pg.Pool)
 	srv, err := newTestService(core, Config{DirectPeerIP: true})
 	require.NoError(t, err)

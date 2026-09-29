@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestNewMountRequiresService(t *testing.T) {
 func TestMountCatalog(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.DeviceKeys.Enabled = false
 	client := newServerClient(t, cfg, pg.Pool)
 	svc, err := newServer(client, WithoutRateLimiter())
@@ -44,7 +45,7 @@ func TestMountCatalog(t *testing.T) {
 		}, routes[RouteRef{http.MethodGet, "/api/v1/me"}])
 		require.Equal(t, MountedRoute{
 			Method: http.MethodGet, Path: "/api/v1/admin/users/{user_id}", Group: RouteAdmin,
-			Auth: AuthPermission, Permission: embedded.PermRootResourcesRead,
+			Auth: AuthPermission, Permission: authkit.PermRootResourcesRead,
 		}, routes[RouteRef{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
 		require.Equal(t, AuthOptional, routes[RouteRef{http.MethodPost, "/api/v1/verify/request"}].Auth)
 		for _, route := range mount.Routes() {
@@ -177,7 +178,7 @@ func TestMountCatalog(t *testing.T) {
 
 	t.Run("custom prefix retains MFA enrollment exemptions", func(t *testing.T) {
 		mfaConfig := cfg
-		mfaConfig.TwoFactor.Mode = embedded.TwoFactorRequired
+		mfaConfig.TwoFactor.Mode = iam.TwoFactorRequired
 		mfaConfig.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
 		mfaService, err := newServer(newServerClient(t, mfaConfig, pg.Pool), WithoutRateLimiter())
 		require.NoError(t, err)
@@ -213,9 +214,9 @@ func TestMountCatalog(t *testing.T) {
 func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Identity.Providers = []authprovider.Provider{testOAuth2Provider("catalog", "https://idp.example", "client", "secret")}
-	cfg.Documents.Readers = []embedded.DocumentReader{{Issuer: "https://reader.example"}}
+	cfg.Documents.Readers = []authkit.DocumentReader{{Issuer: "https://reader.example"}}
 	client := newServerClient(t, cfg, pg.Pool)
 	doc, err := documents.NewService(t.Context(), documents.ServiceConfig{
 		Type: "example.mount-catalog/v1", Payload: json.RawMessage(`{"catalog":true}`),

@@ -12,8 +12,9 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -214,7 +215,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 			ctx := context.Background()
 			pool := testdb.Pool(t)
 			settings := newServerTestConfig()
-			settings.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
+			settings.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
 			srv, err := newServer(newServerClient(t, settings, pool), WithoutRateLimiter())
 			require.NoError(t, err)
 			cfg := newSecurityTestProvider(t, srv, kind == "oidc")
@@ -256,7 +257,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := fixtureBackend(srv.svc).StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, embedded.TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: embedded.AllowAdditionalFactors})
+	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, authkit.TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authkit.AllowAdditionalFactors})
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)

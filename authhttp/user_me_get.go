@@ -3,12 +3,12 @@ package authhttp
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
-// handleUserMeGET: the profile projection is embedded.UserProfile (ak#318);
+// handleUserMeGET: the profile projection is authkit.UserProfile (ak#318);
 // the transport contributes only what the verified claims and the provider
 // registry know.
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +17,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
-	profile, err := s.svc.UserProfile(r.Context(), embedded.ProfileInput{
+	profile, err := s.svc.UserProfile(r.Context(), authkit.ProfileInput{
 		UserID:                 claims.UserID,
 		ClaimsUsername:         claims.Username,
 		AuthTime:               claims.AuthTime,

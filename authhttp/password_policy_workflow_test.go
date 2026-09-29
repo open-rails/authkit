@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/password"
@@ -16,7 +15,7 @@ import (
 func TestConfiguredPasswordPolicyIsEnforcedAndPublished(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Password = password.Policy{MinLength: 12, MaxLength: 20}
 	f := newAccountFlow(t, pg.Pool, cfg)
 
@@ -83,7 +82,7 @@ func policyError(t *testing.T, r flowResponse, code, param string) map[string]an
 func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))
@@ -117,7 +116,7 @@ func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) 
 func TestHostPasswordCompositionAndUsernameBounds(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.Password = password.Policy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
 	cfg.Username = iam.UsernamePolicy{MinLength: 6, MaxLength: 12}
 	f := newAccountFlow(t, pg.Pool, cfg)

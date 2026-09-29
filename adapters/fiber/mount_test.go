@@ -14,10 +14,11 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -40,23 +41,23 @@ func newMountService(t *testing.T) *authhttp.Service {
 		t.Fatal(err)
 	}
 	factory := &testHTTPFactory{}
-	client, err := embedded.New(embedded.Config{
+	client, err := authkit.New(authkit.Config{
 		HTTP: factory,
-		Token: embedded.TokenConfig{
+		Token: authkit.TokenConfig{
 			Issuer: "https://example.com", IssuedAudiences: []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour,
 		},
-		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
+		Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		}},
-		Registration: embedded.RegistrationConfig{
-			NativeUserMode: embedded.RegistrationModeOpen,
-			Verification:   embedded.RegistrationVerificationNone,
+		Registration: authkit.RegistrationConfig{
+			NativeUserMode: iam.RegistrationModeOpen,
+			Verification:   iam.RegistrationVerificationNone,
 		},
-		Identity: embedded.IdentityConfig{Providers: []authprovider.Provider{
+		Identity: authkit.IdentityConfig{Providers: []authprovider.Provider{
 			authprovider.Google("google-client", "google-secret"),
 		}},
-	}, embedded.Deps{Postgres: pool})
+	}, authkit.Deps{Postgres: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,8 +358,8 @@ func TestMountRejectsDisabledMethodsBeforeRegistration(t *testing.T) {
 type testHTTPFactory struct{ service *authhttp.Service }
 type testHTTPSurface struct{ *authhttp.Service }
 
-func (*testHTTPSurface) Routes() []embedded.HTTPRoute { return nil }
-func (f *testHTTPFactory) BuildHTTP(backend embedded.HTTPBackend) (embedded.HTTPSurface, error) {
+func (*testHTTPSurface) Routes() []authkit.HTTPRoute { return nil }
+func (f *testHTTPFactory) BuildHTTP(backend authkit.HTTPBackend) (authkit.HTTPSurface, error) {
 	service, err := authhttp.New(backend, authhttp.Config{DisableRateLimiting: true, DirectPeerIP: true})
 	if err != nil {
 		return nil, err

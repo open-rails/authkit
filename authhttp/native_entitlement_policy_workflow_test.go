@@ -7,7 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -36,8 +37,8 @@ func TestNativeEntitlementAllowlistRegistrationLoginRefresh(t *testing.T) {
 		t.Helper()
 		cfg := newServerTestConfig()
 		cfg.Token.EntitlementAllowlist = allowlist
-		cfg.TwoFactor.Mode = embedded.TwoFactorDisabled
-		core := newServerClient(t, cfg, pg.Pool, func(deps *embedded.Deps) { deps.Entitlements = provider })
+		cfg.TwoFactor.Mode = iam.TwoFactorDisabled
+		core := newServerClient(t, cfg, pg.Pool, func(deps *authkit.Deps) { deps.Entitlements = provider })
 		t.Cleanup(core.Close)
 		srv, err := newTestService(core, workflowHTTPConfig())
 		require.NoError(t, err)

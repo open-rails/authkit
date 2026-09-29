@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/dpop"
-	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -290,7 +290,7 @@ func resolveDelegatedAudiences(allowed, requested []string) ([]string, error) {
 // bounds: absent/non-positive mints the default; anything else is clamped
 // into [floor, ceiling]. The CONFIG is never silently clamped (that refuses
 // at construction); the per-request value is.
-func clampDelegatedTTL(cfg embedded.DelegatedConfig, requestedSeconds int) time.Duration {
+func clampDelegatedTTL(cfg authkit.DelegatedConfig, requestedSeconds int) time.Duration {
 	if requestedSeconds <= 0 {
 		return cfg.TTLDefault
 	}
