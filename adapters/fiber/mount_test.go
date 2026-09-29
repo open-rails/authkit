@@ -16,13 +16,13 @@ import (
 	"github.com/open-rails/authkit/internal/testhttp"
 )
 
-func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Auth {
+func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Client {
 	t.Helper()
 	cfg := testhttp.HTTP()
 	for _, m := range mutate {
 		m(&cfg)
 	}
-	return testhttp.Auth(t, cfg)
+	return testhttp.Client(t, cfg)
 }
 
 func TestMountRejectsInvalidConfiguration(t *testing.T) {
@@ -33,7 +33,7 @@ func TestMountRejectsInvalidConfiguration(t *testing.T) {
 	if err := authkitfiber.Mount(app, nil); err == nil {
 		t.Fatal("nil surface accepted")
 	}
-	if err := authkitfiber.Mount(app, testhttp.Auth(t, authkit.HTTPConfig{})); err == nil {
+	if err := authkitfiber.Mount(app, testhttp.Client(t, authkit.HTTPConfig{})); err == nil {
 		t.Fatal("headless runtime accepted")
 	}
 	if routes := app.GetRoutes(); len(routes) != 0 {

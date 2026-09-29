@@ -112,7 +112,7 @@ func Identity(c fiber.Ctx) (auth.Identity, bool) {
 	return cl.Identity()
 }
 
-// Actor returns the actor the verified caller acts as, for passing to *authkit.Auth
+// Actor returns the actor the verified caller acts as, for passing to *authkit.Client
 // operations. ok is false when the caller carries no AuthKit authority.
 func Actor(c fiber.Ctx) (iam.Actor, bool) {
 	if c == nil {

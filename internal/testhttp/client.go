@@ -13,16 +13,16 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// Auth builds an Auth serving httpCfg (zero: headless) on a scratch database,
+// Client builds a Client serving httpCfg (zero: headless) on a scratch database,
 // with Google and GitHub providers so provider routes exist.
-func Auth(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
+func Client(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Client {
 	t.Helper()
-	return AuthAt(t, "https://example.com", httpCfg)
+	return ClientAt(t, "https://example.com", httpCfg)
 }
 
-// AuthAt is Auth with its issuer, whose path is the surface's base path.
+// ClientAt is Client with its issuer, whose path is the surface's base path.
 // GitHub's static endpoints let a login start without network access.
-func AuthAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.Auth {
+func ClientAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.Client {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	signer, err := jwtkit.NewRSASigner(2048, "runtime-http-test")

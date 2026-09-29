@@ -19,7 +19,7 @@ import (
 //
 // A persona is a type of permission group (channel, org, merchant). A
 // permission group is one instance of a persona, created at run time by the
-// host (Auth.CreateGroup) for an entity of its own, such as the channel
+// host (Client.CreateGroup) for an entity of its own, such as the channel
 // /c/golang. root is the persona with exactly one group, the whole site; it
 // always exists. A permission is `<persona>:<resource>:<action>`; `*` may
 // replace the action (`channel:posts:*`) or everything after the persona
@@ -53,7 +53,7 @@ type PersonaOption uint8
 
 const (
 	// CustomRoles lets group owners define roles at run time, composed from
-	// the persona's permissions (Auth.DefineGroupRole). It registers
+	// the persona's permissions (Client.DefineGroupRole). It registers
 	// Roles.Manage.
 	CustomRoles PersonaOption = iota + 1
 	// APIKeys mounts the group API-key routes. It registers Credentials.

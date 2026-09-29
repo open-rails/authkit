@@ -40,7 +40,7 @@ var readmeRoles = authkit.RoleConfig{
 var errReadmeChannelTaken = errors.New("that channel already exists")
 
 // readmeCreateChannel is README.md's createChannel, verbatim.
-func readmeCreateChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth, name, ownerID string) error {
+func readmeCreateChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Client, name, ownerID string) error {
 	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		owner := iam.UserSubject(ownerID)
 		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))

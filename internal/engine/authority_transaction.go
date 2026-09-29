@@ -249,7 +249,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 		if c.role.IsOwner() && st.reconcile {
 			err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.Subject{})
 			if errors.Is(err, iam.ErrLastOwner) {
-				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (Auth.OwnerlessGroups lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
+				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (Client.OwnerlessGroups lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
 				return nil
 			}
 			return err

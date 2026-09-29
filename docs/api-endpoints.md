@@ -1,8 +1,8 @@
 # AuthKit API Endpoints Reference
 
-The route table below documents AuthKit's route registry (each route's auth tier, rate-limit bucket and requirements). `(*authkit.Auth).Routes()` is the source of truth for mounted routes.
+The route table below documents AuthKit's route registry (each route's auth tier, rate-limit bucket and requirements). `(*authkit.Client).Routes()` is the source of truth for mounted routes.
 
-`(*authkit.Auth).Handler()` requires `Content-Type: application/json` for JSON API request
+`(*authkit.Client).Handler()` requires `Content-Type: application/json` for JSON API request
 bodies. Cookie-enabled mounts validate origin and fetch metadata before JSON
 mutations execute; browser OIDC callbacks keep their separate state-bound
 form-post protocol. See the [refresh-cookie contract](../README.md#refresh-cookie).
@@ -76,7 +76,7 @@ response is:
 
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
-`(*authkit.Auth).LoadBootstrapManifestFile`, `ParseBootstrapManifestYAML` (each
+`(*authkit.Client).LoadBootstrapManifestFile`, `ParseBootstrapManifestYAML` (each
 `root_role` resolves to a root role of `Config.Roles`), and
 `ApplyBootstrapManifest(ctx, manifest, opts)`, or
 `EnsureUserRole` for a single first admin. Bootstrap uses an existing account only through a
@@ -206,7 +206,7 @@ explicitly. Mount `verify.RequiredLive` (or `authkitgin.RequiredLive`,
 banned, deleted, reserved and unknown accounts on the user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
 FRESH as of that lookup — **do not read the account per request to refresh
 display fields.** Roles and entitlements are not re-enriched. `verifier.IsLive`
-is the bare predicate; the batch read underneath is `Auth.Users(ctx, ids)`
+is the bare predicate; the batch read underneath is `Client.Users(ctx, ids)`
 (`iam.User.Live`).
 
 Fail-closed, no cache: a lookup error denies, and there is exactly one liveness
@@ -226,7 +226,7 @@ authorized native user before running the elevated operation. This covers the
 admin directory, ban, recovery and deletion endpoints. Credential-based checks
 for non-user principals remain unchanged; ordinary AUTH routes stay stateless.
 
-**Rendering users to other users**: use `Auth.PublicUsers(ctx, ids) →
+**Rendering users to other users**: use `Client.PublicUsers(ctx, ids) →
 map[string]iam.PublicUser`, never `Users` (whose `iam.User` carries contact
 details) and never a direct read of `profiles.users`. `iam.PublicUser` is
 `{ID, Username, AvatarURL, CreatedAt, Deleted}`. Soft-deleted users return as
@@ -430,7 +430,7 @@ from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
 `iat`, `nbf`, `exp`, `jti`, `token_use=service` and `permissions: []`. An OAuth
 `scope` claim grants nothing. AuthKit's default mint lifetime is 15 minutes.
 
-Use `authkit.MintServiceJWT` or `(*authkit.Auth).MintServiceJWT` on the caller side,
+Use `authkit.MintServiceJWT` or `(*authkit.Client).MintServiceJWT` on the caller side,
 and `(*verify.Verifier).VerifyServiceJWT` on the receiver side. Verification uses registered issuers/JWKS, including
 remote-application issuer lazy-load; disabled issuer rows fail closed. AuthKit parses requested
 permissions but does not grant them. The resource service must
@@ -493,7 +493,7 @@ the account had a factor is refused (`2fa_required`) until re-enrolled with it.
 An account that needs MFA (an MFA-required role, or Required 2FA) and has a
 passkey but no factor signs in with the passkey; any other first factor answers
 `403 passkey_required`, never an enrollment token; if the passkey is lost, the
-system's `Auth.ResetAccountMFA` clears the account's second factors so its
+system's `Client.ResetAccountMFA` clears the account's second factors so its
 next sign-in enrolls one. Device-key enrollment refuses a revoked key or one
 bound to another account before asking for a second factor, and spends a
 backup code only when the key is enrolled. A password change or reset revokes
@@ -525,7 +525,7 @@ server stores trusted remote applications; delegated tokens minted by those
 issuers (carrying `delegated_sub`) are then validated by the Verifier with
 in-house JWKS fetch/refresh (no external push/sync).
 
-Delegated access JWTs are minted with `(*authkit.Auth).MintDelegatedAccessToken`.
+Delegated access JWTs are minted with `(*authkit.Client).MintDelegatedAccessToken`.
 They carry `typ=delegated-access+jwt`, `delegated_sub`, resource-defined
 `permissions`, optional JSON `attributes`, and no normal `sub`. The validated
 `iss` is the remote-application identity. `delegated_sub` must be the issuer's **immutable, never-reassigned**

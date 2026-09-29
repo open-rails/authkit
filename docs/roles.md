@@ -60,8 +60,8 @@ cfg := authkit.Config{Roles: rbac /* ... */}
   sessions, keeps its roles, and the next sign-in enrolls a factor.
 
 Names read at run time (a request parameter, a config file) resolve through
-the schema: `Auth.Persona(name)`, `Auth.Permission(text)` and
-`Auth.Role(persona, name)` return the typed value or an error
+the schema: `Client.Persona(name)`, `Client.Permission(text)` and
+`Client.Role(persona, name)` return the typed value or an error
 (`iam.ErrUnknownGroupPersona`, `iam.ErrUnknownPermission`,
 `iam.ErrRoleNotAssignable`). A role is `<persona>:<name>` in its text form
 (`MarshalText`); rows and AuthKit's routes use the bare name.
@@ -175,6 +175,6 @@ in every group it holds a role in.
 `Can` considers the actor's roles on the group and on root; a `root:`
 permission counts only on root and never stands in for a persona permission. An
 unregistered permission returns `iam.ErrUnknownPermission`, never a silent
-false. `RequirePermission` (on `*authkit.Auth`, `verify`, and the gin and fiber
+false. `RequirePermission` (on `*authkit.Client`, `verify`, and the gin and fiber
 adapters) authenticates the request and panics when the route is built with an
 unregistered permission. AuthKit's own routes refuse delegated tokens.

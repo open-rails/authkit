@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newUsersRuntime(t *testing.T) *authkit.Auth {
+func newUsersRuntime(t *testing.T) *authkit.Client {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	auth := newPublicRuntime(t, testConfig(t), pg.Pool)

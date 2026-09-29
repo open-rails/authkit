@@ -1,7 +1,7 @@
 package httpapi
 
 // ak#260: the mounted published-document surface. AuthKit owns the store, the
-// publish lifecycle (Auth.PublishDocument) and this route; reader
+// publish lifecycle (Client.PublishDocument) and this route; reader
 // authorization is config (Config.Documents.Readers), never a host callback.
 
 import (

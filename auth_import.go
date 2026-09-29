@@ -17,7 +17,7 @@ import (
 // ApplyBootstrapManifest seeds accounts, their root roles and remote
 // applications. See iam.BootstrapManifestUser for how existing accounts are
 // found; nothing runs it implicitly.
-func (a *Auth) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions) (iam.BootstrapResult, error) {
+func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions) (iam.BootstrapResult, error) {
 	return a.engine.ApplyBootstrapManifest(ctx, m, o)
 }
 
@@ -30,7 +30,7 @@ func (a *Auth) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManife
 // owner role, or a role covering role (a re-run, including on the account an
 // earlier call created). Any other account gets iam.ErrContactNotVerified,
 // so a pre-registered account is never adopted. A username never finds one.
-func (a *Auth) EnsureUserRole(ctx context.Context, u iam.UserRef, group iam.GroupRef, role iam.Role) (iam.User, error) {
+func (a *Client) EnsureUserRole(ctx context.Context, u iam.UserRef, group iam.GroupRef, role iam.Role) (iam.User, error) {
 	return a.engine.EnsureUserRole(ctx, u, group, role)
 }
 
@@ -38,20 +38,20 @@ func (a *Auth) EnsureUserRole(ctx context.Context, u iam.UserRef, group iam.Grou
 // chunks that commit independently. Every row is reported: see iam.ImportRow
 // and iam.ImportConflict. Invalid rows are rejected alone; a database error
 // stops the import and the rows of committed chunks are still reported.
-func (a *Auth) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions) (iam.ImportResult, error) {
+func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions) (iam.ImportResult, error) {
 	return a.engine.ImportUsers(ctx, rows, o)
 }
 
 // ImportSolanaLinks reserves legacy wallet addresses for their accounts
 // without making them login methods; only a later Sign-In with Solana proof
 // verifies one.
-func (a *Auth) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
+func (a *Client) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
 	return a.engine.ImportSolanaLinks(ctx, rows)
 }
 
 // LinkProvider links an external identity to an account as a login method.
 // Browser flows link through the provider login instead.
-func (a *Auth) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
+func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
 	return a.engine.LinkProvider(ctx, userID, l)
 }
 
@@ -62,13 +62,13 @@ const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 // ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
 // fields, empty manifests, structurally invalid entries and a root_role that
 // is not a root role of Config.Roles.
-func (a *Auth) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
+func (a *Client) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	return a.engine.ParseBootstrapManifestYAML(raw)
 }
 
 // LoadBootstrapManifestFile reads and parses a bootstrap manifest; an empty
 // path reads DefaultBootstrapManifestPath.
-func (a *Auth) LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
+func (a *Client) LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = DefaultBootstrapManifestPath

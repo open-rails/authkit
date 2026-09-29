@@ -8,8 +8,8 @@ import (
 // The app declares its personas, permissions and roles once, with
 // authkit.NewRoles, and passes those values around; a string never converts
 // to one, so a misspelled name is a compile error. A name read at run time
-// (a request parameter, a config file) goes through the schema: Auth.Persona,
-// Auth.Permission and Auth.Role. The text forms (MarshalText) are for wire
+// (a request parameter, a config file) goes through the schema: Client.Persona,
+// Client.Permission and Client.Role. The text forms (MarshalText) are for wire
 // formats; decoding one checks only its syntax.
 
 // Persona is a type of permission group (`channel`, `org`, `merchant`). A

@@ -121,7 +121,7 @@ func (s *Engine) SetEntitlements(p EntitlementsProvider) {
 }
 
 // entitlementsProvider is read on request paths, concurrently with
-// Auth.SetEntitlements during wiring.
+// Client.SetEntitlements during wiring.
 func (s *Engine) entitlementsProvider() EntitlementsProvider {
 	if b := s.entitlements.Load(); b != nil {
 		return b.provider

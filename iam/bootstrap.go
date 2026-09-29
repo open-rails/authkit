@@ -4,7 +4,7 @@ import "time"
 
 // BootstrapManifest is genesis seed data: accounts, their root roles and
 // remote applications. ApplyBootstrapManifest applies it as a host operation;
-// Auth.ParseBootstrapManifestYAML reads one from its YAML file format.
+// Client.ParseBootstrapManifestYAML reads one from its YAML file format.
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser
 	RemoteApplications []BootstrapManifestRemoteApplication

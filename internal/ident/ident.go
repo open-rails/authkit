@@ -2,7 +2,7 @@
 // stored rows, verified token claims, its compiled role schema and its own
 // tests. A string that fails the syntax check yields the zero value, which
 // matches and grants nothing. Host input goes through the schema instead
-// (Auth.Persona, Auth.Permission, Auth.Role).
+// (Client.Persona, Client.Permission, Client.Role).
 package ident
 
 import (

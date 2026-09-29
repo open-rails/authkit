@@ -22,7 +22,7 @@ const (
 
 // Runtime is a started-or-not AuthKit instance plus its captured deliveries.
 type Runtime struct {
-	*authkit.Auth
+	*authkit.Client
 	Outbox *Outbox
 }
 
@@ -95,5 +95,5 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Auth: rt, Outbox: outbox}, nil
+	return &Runtime{Client: rt, Outbox: outbox}, nil
 }

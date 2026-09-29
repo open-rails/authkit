@@ -25,7 +25,7 @@ func TestMountValidatesConfiguration(t *testing.T) {
 	require.Error(t, Mount(nil, nil))
 	router := gin.New()
 	require.Error(t, Mount(router, nil))
-	require.Error(t, Mount(router, testhttp.Auth(t, authkit.HTTPConfig{})), "a headless runtime has no surface")
+	require.Error(t, Mount(router, testhttp.Client(t, authkit.HTTPConfig{})), "a headless runtime has no surface")
 	require.Empty(t, router.Routes())
 }
 
@@ -44,7 +44,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testhttp.HTTP()
 			tc.cfg(&cfg)
-			auth := testhttp.Auth(t, cfg)
+			auth := testhttp.Client(t, cfg)
 			canonical := auth.Handler()
 			router := gin.New()
 			router.GET("/host-before", func(c *gin.Context) { c.String(http.StatusOK, "before") })
@@ -99,7 +99,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 			io.WriteString(w, r.PathValue("provider")+":"+r.Context().Value(mountContextKey{}).(string))
 		})
 	}
-	auth := testhttp.Auth(t, cfg)
+	auth := testhttp.Client(t, cfg)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		if c.GetHeader("X-Host-Deny") == "yes" {
@@ -137,7 +137,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 
 func TestMountLeavesUnmatchedRequestsToGin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	auth := testhttp.Auth(t, testhttp.HTTP())
+	auth := testhttp.Client(t, testhttp.HTTP())
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 	require.NoError(t, Mount(router, auth))
@@ -160,7 +160,7 @@ func TestMountLeavesUnmatchedRequestsToGin(t *testing.T) {
 
 func TestMountRejectsGinConflictsBeforeRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	auth := testhttp.Auth(t, testhttp.HTTP())
+	auth := testhttp.Client(t, testhttp.HTTP())
 	for _, path := range []string{"/api/v1/me", "/api/v1/admin/users/:name", "/api/v1/*rest"} {
 		t.Run(path, func(t *testing.T) {
 			router := gin.New()
@@ -182,7 +182,7 @@ func TestMountRejectsGinConflictsBeforeRegistration(t *testing.T) {
 	router.GET("/api/v1/me", func(c *gin.Context) { c.String(http.StatusOK, "host profile") })
 	cfg := testhttp.HTTP()
 	cfg.Exclude = []string{"GET /api/v1/me"}
-	require.NoError(t, Mount(router, testhttp.Auth(t, cfg)))
+	require.NoError(t, Mount(router, testhttp.Client(t, cfg)))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
 	require.Equal(t, "host profile", w.Body.String())
@@ -200,7 +200,7 @@ func TestMountRejectsUnsupportedPathsBeforeRegistration(t *testing.T) {
 
 func TestMountRejectsGinMiddlewareLimitBeforeRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	auth := testhttp.Auth(t, testhttp.HTTP())
+	auth := testhttp.Client(t, testhttp.HTTP())
 	router := gin.New()
 	// Gin accepts 62 middleware handlers but rejects the 63rd terminal
 	// handler. The scratch engine must include the host's middleware chain.

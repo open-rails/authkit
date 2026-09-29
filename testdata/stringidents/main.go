@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	var auth *authkit.Auth
+	var auth *authkit.Client
 	ctx := context.Background()
 	_, _ = auth.EnsureUserRole(ctx, iam.UserByEmail("admin@example.com"), iam.RootGroup(), "admin") // want error
 	_, _ = auth.Can(ctx, iam.UserActor("user"), iam.RootGroup(), "root:users:ban")                  // want error

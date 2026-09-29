@@ -536,7 +536,7 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	})
 }
 
-// ownerlessGroups pages through Auth.OwnerlessGroups one group at a time.
+// ownerlessGroups pages through Client.OwnerlessGroups one group at a time.
 func (h *host) ownerlessGroups() []string {
 	h.t.Helper()
 	var ids []string

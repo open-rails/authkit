@@ -9,7 +9,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// PermissionChecker checks an actor's live authority in a group; *authkit.Auth
+// PermissionChecker checks an actor's live authority in a group; *authkit.Client
 // is one. Can is false for a dead actor, an unknown group or an actor bound
 // to another group, and ErrUnknownPermission for an unregistered perm.
 type PermissionChecker interface {
@@ -20,7 +20,7 @@ type PermissionChecker interface {
 }
 
 // Authority authenticates requests and checks permissions: what
-// RequirePermission needs. *authkit.Auth is one.
+// RequirePermission needs. *authkit.Client is one.
 type Authority interface {
 	PermissionChecker
 	Verifier() *Verifier

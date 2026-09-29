@@ -56,7 +56,7 @@ func opErr(res []iam.OpResult, err error) error {
 	return res[0].Err
 }
 
-// accountOps is every account mutation on Auth, by name.
+// accountOps is every account mutation on Client, by name.
 func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 	ctx := context.Background()
 	email := func() *string { v := unique("edited") + "@security.test"; return &v }

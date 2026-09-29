@@ -33,7 +33,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
+func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
 	err := authkit.Migrate(
 		ctx,
@@ -150,7 +150,7 @@ The only built-in role for every permission group is just `owner`. When owner is
 Now let's seed a reddit admin using `ADMIN_EMAIL`:
 
 ```go
-func seed(ctx context.Context, auth *authkit.Auth) (iam.User, error) {
+func seed(ctx context.Context, auth *authkit.Client) (iam.User, error) {
 	email := os.Getenv("ADMIN_EMAIL")
 	if email == "" {
 		return iam.User{}, errors.New("set ADMIN_EMAIL to the first admin's address")
@@ -170,7 +170,7 @@ var errChannelTaken = errors.New("that channel already exists")
 
 // createChannel makes channel name, owned by ownerID: our row and AuthKit's permission group
 // commit together or not at all.
-func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth, name, ownerID string) error {
+func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Client, name, ownerID string) error {
 	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		owner := iam.UserSubject(ownerID)
 		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
@@ -320,7 +320,7 @@ Switch on social logins (Google, Apple, GitHub, Discord), API keys or custom rol
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 
 ```go
-func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
+func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 	f := &forum{auth: auth, db: db, posts: map[int]*Post{}}
 	signedIn := authkitgin.Required(auth.Verifier())
 

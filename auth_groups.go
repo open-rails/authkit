@@ -21,23 +21,23 @@ import (
 // (zero actor, unknown group, unassignable role, dead actor).
 
 // AssignGroupRoles assigns role to each subject, replacing the role it holds.
-func (a *Auth) AssignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
+func (a *Client) AssignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
 	return a.engine.AssignGroupRoles(ctx, actor, ref, subjects, role)
 }
 
 // UnassignGroupRoles revokes role from each subject holding it.
-func (a *Auth) UnassignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
+func (a *Client) UnassignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
 	return a.engine.UnassignGroupRoles(ctx, actor, ref, subjects, role)
 }
 
 // RemoveGroupMembers strips each subject's role in the group.
-func (a *Auth) RemoveGroupMembers(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error) {
+func (a *Client) RemoveGroupMembers(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error) {
 	return a.engine.RemoveGroupMembers(ctx, actor, ref, subjects)
 }
 
 // GroupRoles returns the direct role of each subject holding one in the group
 // (at most iam.MaxBatch subjects). Subjects without a role are absent.
-func (a *Auth) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
+func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
 	return a.engine.GroupRoles(ctx, ref, subjects)
 }
 
@@ -48,30 +48,30 @@ func (a *Auth) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.
 
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
 // Absence is iam.ErrGroupNotFound.
-func (a *Auth) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
+func (a *Client) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
 	return a.engine.Group(ctx, ref)
 }
 
 // Groups reads many groups by id in one query, soft-deleted ones included.
 // Unknown ids are absent. At most iam.MaxBatch ids.
-func (a *Auth) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
+func (a *Client) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
 	return a.engine.Groups(ctx, ids)
 }
 
 // ListGroups lists the groups of a persona, oldest first, a page at a time.
-func (a *Auth) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
+func (a *Client) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
 	return a.engine.ListGroups(ctx, q)
 }
 
 // ListGroupMembers lists the subjects holding a role in a group, a page at a
 // time.
-func (a *Auth) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
+func (a *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
 	return a.engine.ListGroupMembers(ctx, ref, q)
 }
 
 // ListSubjectGroups lists the live groups a subject holds a role in, a page at
 // a time.
-func (a *Auth) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
+func (a *Client) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
 	return a.engine.ListSubjectGroups(ctx, s, p)
 }
 
@@ -80,7 +80,7 @@ func (a *Auth) ListSubjectGroups(ctx context.Context, s iam.Subject, p iam.PageR
 // left without one by the credential sweep at boot, which only logs it. An
 // owner whose required MFA enrollment is pending does not count. Assign one
 // with AssignGroupRoles.
-func (a *Auth) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
+func (a *Client) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
 	return a.engine.OwnerlessGroups(ctx, p)
 }
 
@@ -93,20 +93,20 @@ func (a *Auth) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.List
 // CreateGroup creates a group of a declared persona. g.Owner, when set, must
 // be a live account (not banned, deleted or reserved); it becomes the
 // group's owner.
-func (a *Auth) CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error) {
+func (a *Client) CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error) {
 	return a.engine.CreateGroup(ctx, g, options(opts).tx)
 }
 
 // DeleteGroup soft-deletes a group: it stops resolving and granting at once,
 // while its rows stay until PurgeGroup. Deleting a deleted group is a no-op.
-func (a *Auth) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
+func (a *Client) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
 	return a.engine.DeleteGroup(ctx, ref, options(opts).tx)
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, custom role, API key, invite and application in it. Purging an
 // unknown group is a no-op.
-func (a *Auth) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
+func (a *Client) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
 	return a.engine.PurgeGroup(ctx, ref, options(opts).tx)
 }
 
@@ -139,13 +139,13 @@ func InTx(tx pgx.Tx) Option { return func(o *operationOptions) { o.tx = tx } }
 // cover the old and new permissions; redefining a role users hold also needs
 // `<persona>:members:manage`, and one API keys or applications hold
 // `<persona>:credentials:manage`.
-func (a *Auth) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
+func (a *Client) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
 	return a.engine.DefineGroupRole(ctx, actor, ref, name, perms...)
 }
 
 // DeleteGroupRole deletes a custom role and every reference to it, under
 // DefineGroupRole's rule.
-func (a *Auth) DeleteGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, role iam.Role) error {
+func (a *Client) DeleteGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, role iam.Role) error {
 	return a.engine.DeleteGroupRole(ctx, actor, ref, role)
 }
 
@@ -153,27 +153,27 @@ func (a *Auth) DeleteGroupRole(ctx context.Context, actor iam.Actor, ref iam.Gro
 // or deleted user, a revoked key, an unknown group or an actor bound to
 // another group is false. An unregistered perm is iam.ErrUnknownPermission,
 // never a silent false.
-func (a *Auth) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+func (a *Client) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.engine.Can(ctx, actor, ref, perm)
 }
 
 // EffectivePermissions returns actor's effective grant patterns per group id
 // (globs verbatim, glob-match with iam.Perm.Matches). Groups granting nothing
 // are absent. At most iam.MaxBatch groups.
-func (a *Auth) EffectivePermissions(ctx context.Context, actor iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
+func (a *Client) EffectivePermissions(ctx context.Context, actor iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
 	return a.engine.EffectivePermissions(ctx, actor, refs)
 }
 
 // KnownPermission reports whether perm is registered in a persona catalog of
 // Config.Roles, AuthKit's built-ins included.
-func (a *Auth) KnownPermission(perm iam.Perm) bool { return a.engine.KnownPermission(perm) }
+func (a *Client) KnownPermission(perm iam.Perm) bool { return a.engine.KnownPermission(perm) }
 
 // Names read at run time (a request parameter, a config file, a stored row
 // of the host's) become typed values only through the schema.
 
 // Persona resolves a persona name: iam.ErrUnknownGroupPersona unless
 // Config.Roles declares it (root always is).
-func (a *Auth) Persona(name string) (iam.Persona, error) {
+func (a *Client) Persona(name string) (iam.Persona, error) {
 	p, ok := a.engine.PermissionGroupSchema().PersonaNamed(name)
 	if !ok {
 		return iam.Persona{}, fmt.Errorf("persona %q: %w", name, iam.ErrUnknownGroupPersona)
@@ -183,7 +183,7 @@ func (a *Auth) Persona(name string) (iam.Persona, error) {
 
 // Permission resolves a concrete permission: iam.ErrUnknownPermission unless
 // it is registered.
-func (a *Auth) Permission(text string) (iam.Perm, error) {
+func (a *Client) Permission(text string) (iam.Perm, error) {
 	p, ok := a.engine.PermissionGroupSchema().Permission(text)
 	if !ok {
 		return iam.Perm{}, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, text)
@@ -195,7 +195,7 @@ func (a *Auth) Permission(text string) (iam.Perm, error) {
 // owner role, else iam.ErrRoleNotAssignable. When the persona has
 // CustomRoles, any valid name resolves; whether a group defines it is checked
 // where the role is used.
-func (a *Auth) Role(persona iam.Persona, name string) (iam.Role, error) {
+func (a *Client) Role(persona iam.Persona, name string) (iam.Role, error) {
 	return a.engine.PermissionGroupSchema().ParseRole(persona, name)
 }
 
@@ -203,6 +203,6 @@ func (a *Auth) Role(persona iam.Persona, name string) (iam.Role, error) {
 // requires perm in group, checked live. For a group taken from the request,
 // use verify.RequirePermission or an adapter's RequirePermission with a
 // resolver. It panics at construction on an unregistered perm.
-func (a *Auth) RequirePermission(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
+func (a *Client) RequirePermission(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
 	return verify.RequirePermission(a, perm, func(*http.Request) iam.GroupRef { return group })
 }

@@ -73,7 +73,7 @@ type Config struct {
 	Delegated DelegatedConfig
 
 	// Documents configures the published signed-document surface (#260): the
-	// remote applications that may fetch documents (Auth.PublishDocument) from
+	// remote applications that may fetch documents (Client.PublishDocument) from
 	// GET|HEAD {BasePath}/.well-known/authkit/documents/{digest}. Without readers the
 	// route is not mounted and nothing may be published.
 	Documents DocumentsConfig

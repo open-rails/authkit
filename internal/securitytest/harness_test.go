@@ -46,7 +46,7 @@ var signer = sync.OnceValue(func() *jwtkit.RSASigner {
 type host struct {
 	t      *testing.T
 	cfg    hostConfig
-	auth   *authkit.Auth
+	auth   *authkit.Client
 	pool   *pgxpool.Pool
 	server *httptest.Server
 	mail   *outbox
@@ -134,7 +134,7 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 
 // fork serves runtime's configured routes; every route shares the one
 // canonical AuthKit mount.
-func (h *host) fork(runtime *authkit.Auth) *host {
+func (h *host) fork(runtime *authkit.Client) *host {
 	h.t.Helper()
 	require.NotNil(h.t, runtime.Handler())
 	server := httptest.NewServer(runtime.Handler())
@@ -391,7 +391,7 @@ func (p phones) SendContactChanged(context.Context, string, iam.ContactChange) e
 
 // roleIn resolves the role name for ref's persona through the schema, as a
 // host reading a name at run time does.
-func roleIn(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, name string) iam.Role {
+func roleIn(t testing.TB, auth *authkit.Client, ref iam.GroupRef, name string) iam.Role {
 	t.Helper()
 	g, err := auth.Group(t.Context(), ref)
 	require.NoError(t, err)
@@ -410,7 +410,7 @@ func (h *host) role(persona iam.Persona, name string) iam.Role {
 
 // grantRole assigns the role name of ref's persona with system authority; the
 // test fails otherwise.
-func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, name string) {
+func grantRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
 	res, err := auth.AssignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
 	require.NoError(t, err)
@@ -419,7 +419,7 @@ func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.S
 
 // revokeRole unassigns the role name with system authority; the test fails
 // otherwise.
-func revokeRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, name string) {
+func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
 	res, err := auth.UnassignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
 	require.NoError(t, err)
