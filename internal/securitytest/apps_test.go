@@ -237,72 +237,90 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	owner := h.newAccount("regowner")
 	group, base := h.newOrg("registrar", owner)
 	ownerToken := h.login(owner).AccessToken
-	register := func(token, slug string, s *jwtkit.RSASigner) response {
-		return h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": "https://" + slug + ".security.test",
-			"public_keys": []map[string]string{{"kid": s.KID(), "public_key_pem": pemOf(t, s.PublicKey())}}}, token)
+	type registered struct {
+		registrar account
+		slug      string
+		signer    *jwtkit.RSASigner
+		app       iam.RemoteApplication
 	}
+	// register has registrar (a manager, or the owner) register an application
+	// holding member. Every application is registered before the first token
+	// is verified: the verifier refreshes its application set on a timer.
+	register := func(registrar account, token string) registered {
+		t.Helper()
+		r := registered{registrar: registrar, slug: unique("regapp")}
+		r.signer = newSigner(t, r.slug)
+		resp := h.post(base+"/remote-applications", map[string]any{"slug": r.slug, "issuer": "https://" + r.slug + ".security.test",
+			"public_keys": []map[string]string{{"kid": r.signer.KID(), "public_key_pem": pemOf(t, r.signer.PublicKey())}}}, token)
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+		var err error
+		r.app, err = h.auth.RemoteApplication(ctx, "https://"+r.slug+".security.test")
+		require.NoError(t, err)
+		resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + r.slug + "/roles/member", token: token})
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		return r
+	}
+	manager := func(prefix string) (account, string) {
+		m := h.newAccount(prefix)
+		h.grant(group, m, "manager")
+		return m, h.login(m).AccessToken
+	}
+	removedManager, removedToken := manager("regremoved")
+	bannedManager, bannedToken := manager("regbanned")
+	bystander, _ := manager("regbystander")
+	removedApp, bannedApp := register(removedManager, removedToken), register(bannedManager, bannedToken)
+	ownerApp := register(owner, ownerToken)
+
 	gate := h.auth.RequirePermission(group, "org:catalog:read")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	hostRoute := func(token string) int {
-		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
-		r.Header.Set("Authorization", "Bearer "+token)
+	hostRoute := func(r registered) int {
+		req := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
+		req.Header.Set("Authorization", "Bearer "+appToken(t, r.signer, r.app.Issuer))
 		w := httptest.NewRecorder()
-		gate.ServeHTTP(w, r)
+		gate.ServeHTTP(w, req)
 		return w.Code
+	}
+	for _, r := range []registered{removedApp, bannedApp, ownerApp} {
+		require.Equal(t, http.StatusNoContent, hostRoute(r), "control: an application works while its registrar does")
 	}
 
 	t.Run("an API key registers no application", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "manager"})
-		resp := register(key.Secret, unique("keyapp"), newSigner(t, "keyapp"))
+		resp := h.post(base+"/remote-applications", map[string]any{"slug": unique("keyapp"), "issuer": "https://" + unique("keyapp") + ".security.test",
+			"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}}, key.Secret)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	})
-
+	t.Run("an application never outranks its registrar", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + removedApp.slug + "/roles/owner", token: ownerToken})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(removedApp.app.ID)})
+		require.NoError(t, err)
+		require.Equal(t, iam.Role("member"), roles[iam.RemoteApplicationSubject(removedApp.app.ID)])
+	})
 	for _, tc := range []struct {
 		name string
+		app  registered
 		end  func(a account)
 	}{
-		{"the registrar is removed from the group", func(a account) {
+		{"the registrar is removed from the group", removedApp, func(a account) {
 			resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + a.id, token: ownerToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}},
-		{"the registrar is banned", func(a account) {
+		{"the registrar is banned", bannedApp, func(a account) {
 			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{Reason: "abuse"}))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			manager := h.newAccount("regmanager")
-			h.grant(group, manager, "manager")
-			token := h.login(manager).AccessToken
-			slug := unique("regapp")
-			s := newSigner(t, slug)
-			require.Equal(t, http.StatusCreated, register(token, slug, s).status)
-			app, err := h.auth.RemoteApplication(ctx, "https://"+slug+".security.test")
-			require.NoError(t, err)
-			resp := h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + slug + "/roles/owner", token: ownerToken})
-			require.Equal(t, http.StatusForbidden, resp.status, "the application outranked its registrar: %s", resp)
-			resp = h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + slug + "/roles/member", token: token})
-			require.Equal(t, http.StatusOK, resp.status, resp.String())
-			appTok := appToken(t, s, app.Issuer)
-			require.Equal(t, http.StatusNoContent, hostRoute(appTok), "control: the application works while its registrar does")
-
-			tc.end(manager)
-			roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)})
+			tc.end(tc.app.registrar)
+			roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(tc.app.app.ID)})
 			require.NoError(t, err)
 			require.Empty(t, roles, "the application kept its role past its registrar's authority")
-			require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, hostRoute(appToken(t, s, app.Issuer)))
+			require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, hostRoute(tc.app))
 		})
 	}
-
-	t.Run("control: the owner's application survives a manager's removal", func(t *testing.T) {
-		slug := unique("ownerapp")
-		s := newSigner(t, slug)
-		require.Equal(t, http.StatusCreated, register(ownerToken, slug, s).status)
-		resp := h.do(request{method: http.MethodPut, path: base + "/remote-applications/" + slug + "/roles/member", token: ownerToken})
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		manager := h.newAccount("regbystander")
-		h.grant(group, manager, "manager")
-		resp = h.do(request{method: http.MethodDelete, path: base + "/members/" + manager.id, token: ownerToken})
+	t.Run("control: another registrar's application survives a manager's removal", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + bystander.id, token: ownerToken})
 		require.Less(t, resp.status, 300, resp.String())
-		require.Equal(t, http.StatusNoContent, hostRoute(appToken(t, s, "https://"+slug+".security.test")))
+		require.Equal(t, http.StatusNoContent, hostRoute(ownerApp))
 	})
 }
 

@@ -120,11 +120,16 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
   })
   expect(me).toMatchObject({ status: 200, profile: { email } })
 
-  const fresh = await page.evaluate(
-    (pw) => (window as unknown as Win).auth.stepUpWithPassword(pw),
-    password
-  )
-  expect(fresh.step_up_required_for_sensitive_actions).toBe(false)
+  // A password never re-proves an account with a second factor.
+  const refused = await page.evaluate(async (pw) => {
+    try {
+      await (window as unknown as Win).auth.stepUpWithPassword(pw)
+      return "stepped up"
+    } catch (e) {
+      return (e as { code?: string }).code
+    }
+  }, password)
+  expect(refused).toBe("step_up_required")
 
   // A second client stands in for a reload: the cookie alone restores it.
   const restored = await page.evaluate(async () => {
