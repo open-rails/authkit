@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -57,7 +56,7 @@ type host struct {
 type hostConfig struct {
 	engine authkit.Config
 	deps   authkit.Deps
-	http   authhttp.Config
+	http   authkit.HTTPConfig
 }
 
 type hostOption func(*hostConfig)
@@ -70,14 +69,14 @@ func withEngine(fn func(*authkit.Config)) hostOption {
 	return func(c *hostConfig) { fn(&c.engine) }
 }
 
-func withHTTP(fn func(*authhttp.Config)) hostOption {
+func withHTTP(fn func(*authkit.HTTPConfig)) hostOption {
 	return func(c *hostConfig) { fn(&c.http) }
 }
 
 // generousLimits keeps the ordinary per-IP buckets out of the way of tests
 // that exercise something other than rate limiting.
-func generousLimits(c *authhttp.Config) {
-	limits := authhttp.DefaultRateLimits()
+func generousLimits(c *authkit.HTTPConfig) {
+	limits := authkit.DefaultRateLimits()
 	for bucket, limit := range limits {
 		limit.Limit = 10000
 		limit.Cooldown = 0
@@ -110,12 +109,12 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 			},
 		},
 		deps: authkit.Deps{Postgres: pg.Pool, Email: mail},
-		http: authhttp.Config{DirectPeerIP: true, Mount: authhttp.MountOptions{APIPrefix: apiPrefix}},
+		http: authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: apiPrefix},
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	cfg.engine.HTTP = cfg.http
+	cfg.engine.HTTP = &cfg.http
 	runtime, err := authkit.New(cfg.engine, cfg.deps)
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
@@ -127,10 +126,8 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 // canonical AuthKit mount.
 func (h *host) fork(runtime *authkit.Runtime) *host {
 	h.t.Helper()
-	routes, err := runtime.HTTPRoutes()
-	require.NoError(h.t, err)
-	require.NotEmpty(h.t, routes)
-	server := httptest.NewServer(routes[0].Handler)
+	require.NotNil(h.t, runtime.Handler())
+	server := httptest.NewServer(runtime.Handler())
 	h.t.Cleanup(server.Close)
 	out := *h
 	out.runtime, out.client, out.server = runtime, runtime.Client(), server

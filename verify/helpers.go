@@ -19,7 +19,7 @@ const DefaultOutboundTimeout = netguard.DefaultTimeout
 func NewSSRFGuardedClient() *http.Client { return netguard.Client(netguard.DefaultTimeout, false) }
 
 // forbidden writes a 403 with the given code through the one authkit writer,
-// so responses are byte-identical whether a route is mounted through authhttp
+// so responses are byte-identical whether a route is mounted through AuthKit's handler
 // or the verify package directly.
 func forbidden(w http.ResponseWriter, code iam.Code) {
 	iam.WriteError(w, iam.E(code, iam.WithStatus(http.StatusForbidden)))

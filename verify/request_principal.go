@@ -13,8 +13,8 @@ import (
 
 // WithPermissionChecker configures live scoped permission checks on the
 // generic request principal. authorityIssuer identifies the checker's authority,
-// not a value taken from the incoming credential. authhttp wires its runtime
-// automatically; verify-only hosts may pass their embedded or remote Client.
+// not a value taken from the incoming credential. authkit.New wires its engine
+// automatically; other hosts pass any PermissionChecker.
 func (v *Verifier) WithPermissionChecker(checker PermissionChecker, authorityIssuer string) *Verifier {
 	v.mu.Lock()
 	v.permissionChecker, v.permissionAuthority = checker, strings.TrimSpace(authorityIssuer)

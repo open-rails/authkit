@@ -4,7 +4,7 @@ import "time"
 
 // Wire shapes shared by every HTTP success response (#313). Error responses
 // use ErrorEnvelope; these are the success-side vocabulary, defined once here
-// so authhttp handlers marshal typed values instead of map literals.
+// so HTTP handlers marshal typed values instead of map literals.
 
 // TokenSet is the one session-token envelope. A session-establishing route
 // returns it as the whole body, or under "token_set" when the response says

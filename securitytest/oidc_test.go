@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -63,7 +62,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 			Keys:     authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
 			Token:    authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
 			Identity: authkit.IdentityConfig{Providers: providers},
-			HTTP:     authhttp.Config{DirectPeerIP: true},
+			HTTP:     &authkit.HTTPConfig{DirectPeerIP: true},
 		}, authkit.Deps{Postgres: pg.Pool})
 		if runtime != nil {
 			runtime.Close()

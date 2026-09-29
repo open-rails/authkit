@@ -7,10 +7,10 @@ on:
     paths:
       - 'sdk/auth-ui/**'
       - '*.go'
-      - 'authhttp/**'
-      - 'embedded/**'
+      - 'iam/**'
       - 'internal/**'
       - 'authprovider/**'
+      - 'documents/**'
       - 'verify/**'
       - 'jwtkit/**'
       - 'ratelimit/**'

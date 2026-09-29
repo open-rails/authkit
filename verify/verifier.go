@@ -35,7 +35,7 @@ var errPermissionNotGranted = iam.E(iam.CodePermissionNotGranted)
 // Verifier validates JWTs from one or more issuers.
 //
 // For verify-only mode, create with NewVerifier and add issuers via AddIssuer.
-// For issuing mode, authhttp.Service creates a Verifier internally.
+// For issuing mode, httpapi.Service creates a Verifier internally.
 type Verifier struct {
 	dpopReplay     dpop.ReplayGuard
 	dpopRequestURL func(*http.Request) string
@@ -65,14 +65,9 @@ type Verifier struct {
 	// gate in VerifyRequest (#148). Set from TwoFactor.Mode == Required.
 	requireMFAEnrollment bool
 
-	// mfaEnrollmentExemptPaths is the set of route paths (suffix-matched) exempt
-	// from requireMFAEnrollment and from the TwoFAEnrollment-only-token gate —
-	// see SetMFAEnrollmentExemptPaths (#243). Nil/empty exempts nothing
-	// (fail-closed default for a verify-only Verifier that never calls it).
-	mfaEnrollmentExemptPaths map[string]bool
-	// mfaEnrollmentExemptRoutes are the ANCHORED exempt paths (mount prefix +
-	// route path) MountHandler registers; once present they are matched exactly
-	// and the suffix set above is not consulted (ak#324).
+	// mfaEnrollmentExemptRoutes are the ANCHORED paths exempt from
+	// requireMFAEnrollment and the TwoFAEnrollment-only-token gate; see
+	// AddMFAEnrollmentExemptRoutes. Empty exempts nothing (fail closed).
 	mfaEnrollmentExemptRoutes map[string]bool
 
 	// Remote-application lazy-load coherence state. fedSource is the store the

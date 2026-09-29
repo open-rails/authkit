@@ -163,7 +163,7 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 					}
 					return c.SendStatus(http.StatusNoContent)
 				}
-				want := authkitfiber.UserClaimsData{
+				want := verify.UserClaimsData{
 					UserID: "user-1", Email: "user@example.com", EmailVerified: true,
 					Username: "writer", SessionID: "session-1", Entitlements: []string{"blog"},
 					AMR: []string{"pwd"}, ACR: "urn:example:loa:1", AuthTime: authTime, MFAEnrolled: true,
@@ -542,7 +542,7 @@ func TestRequiredLive(t *testing.T) {
 	}
 }
 
-func TestFallbackPreservesHTTPRouting(t *testing.T) {
+func TestMountPreservesHTTPResponses(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Del("X-Remove")
@@ -558,7 +558,9 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 		return c.Next()
 	})
 	app.Get("/health", func(c fiber.Ctx) error { return c.SendString("healthy") })
-	app.Use(authkitfiber.Fallback(mux))
+	if err := authkitfiber.Mount(app, surface{mux, []string{"POST /api/items/{id}"}}); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		method, path string
 		status       int
@@ -567,7 +569,7 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 		{http.MethodGet, "/health", http.StatusOK, "healthy"},
 		{http.MethodPost, "/api/items/123?q=value", http.StatusCreated, "123:value"},
 		{http.MethodGet, "/api/items/123", http.StatusMethodNotAllowed, "Method Not Allowed"},
-		{http.MethodGet, "/missing", http.StatusNotFound, "404 page not found"},
+		{http.MethodGet, "/missing", http.StatusNotFound, "Not Found"},
 	} {
 		status, headers, body := request(t, app, tc.method, tc.path, "")
 		if status != tc.status || !strings.Contains(body, tc.body) {
@@ -587,7 +589,7 @@ func TestFallbackPreservesHTTPRouting(t *testing.T) {
 	}
 }
 
-func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
+func TestMountDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
 		app := fiber.New()
 		app.Use(func(c fiber.Ctx) error {
@@ -596,10 +598,12 @@ func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 			}
 			return c.Next()
 		})
-		app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := authkitfiber.Mount(app, surface{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/destination", http.StatusFound)
-		})))
-		status, headers, body := request(t, app, http.MethodGet, "/", "")
+		}), []string{"GET /x"}}); err != nil {
+			t.Fatal(err)
+		}
+		status, headers, body := request(t, app, http.MethodGet, "/x", "")
 		if status != http.StatusFound || headers.Get("Location") != "/destination" {
 			t.Fatalf("redirect = %d %v %q", status, headers, body)
 		}
@@ -613,7 +617,7 @@ func TestFallbackDoesNotInventContentTypeForHTTPHandler(t *testing.T) {
 	}
 }
 
-func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
+func TestMountContentTypeAfterExplicitStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string
 		setHeader  func(http.Header)
@@ -624,7 +628,7 @@ func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
-			app.Use(authkitfiber.Fallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := authkitfiber.Mount(app, surface{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tc.setHeader != nil {
 					tc.setHeader(w.Header())
 				}
@@ -632,8 +636,10 @@ func TestFallbackContentTypeAfterExplicitStatus(t *testing.T) {
 				w.Write(nil)
 				io.WriteString(w, "<html>first body</html>")
 				io.WriteString(w, "plain suffix")
-			})))
-			status, headers, body := request(t, app, http.MethodGet, "/", "")
+			}), []string{"GET /x"}}); err != nil {
+				t.Fatal(err)
+			}
+			status, headers, body := request(t, app, http.MethodGet, "/x", "")
 			if status != http.StatusCreated || headers.Get("Content-Type") != tc.want || body != "<html>first body</html>plain suffix" {
 				t.Fatalf("response = %d %v %q; want content type %q", status, headers, body, tc.want)
 			}
@@ -703,3 +709,12 @@ func TestOptionalLive(t *testing.T) {
 		t.Fatalf("banned: status=%d calls=%d", status, calls)
 	}
 }
+
+// surface mounts a plain handler under fixed patterns.
+type surface struct {
+	handler  http.Handler
+	patterns []string
+}
+
+func (s surface) Handler() http.Handler { return s.handler }
+func (s surface) Patterns() []string    { return s.patterns }

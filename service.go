@@ -66,11 +66,7 @@ const HashAlgoLegacyResetRequired = "legacy-reset-required"
 
 // engine owns local business logic and resources behind Runtime and Client.
 type engine struct {
-	httpMu      sync.Mutex
-	httpFrozen  bool
-	httpSurface HTTPSurface
-	closed      bool
-	closeOnce   sync.Once
+	closeOnce sync.Once
 
 	maintenance  *riverMaintenance
 	onSoftDelete func(context.Context, iam.UserDeletion) error

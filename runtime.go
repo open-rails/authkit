@@ -2,9 +2,10 @@ package authkit
 
 import (
 	"context"
-	"errors"
+	"net/http"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
 )
@@ -12,7 +13,13 @@ import (
 // Runtime owns the local engine and its resources. Applications perform all
 // business and administrator operations through Client. The engine is a named,
 // private field so none of its operation or storage methods escape on Runtime.
-type Runtime struct{ engine *engine }
+type Runtime struct {
+	engine      *engine
+	verifier    *verify.Verifier
+	requireLive func(http.Handler) http.Handler
+	http        *httpapi.Service
+	mount       *httpapi.Mount
+}
 
 // New constructs one local runtime, including Config.HTTP when configured.
 func New(cfg Config, deps Deps) (*Runtime, error) {
@@ -20,21 +27,7 @@ func New(cfg Config, deps Deps) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := engine.initializeGroups(); err != nil {
-		engine.Close()
-		return nil, err
-	}
-	if cfg.HTTP != nil {
-		if engine.pg == nil {
-			engine.Close()
-			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
-		}
-		if err := engine.ConfigureHTTP(cfg.HTTP); err != nil {
-			engine.Close()
-			return nil, err
-		}
-	}
-	return &Runtime{engine: engine}, nil
+	return assemble(engine, cfg.HTTP)
 }
 
 // NewWithKeys constructs a runtime with an explicit fixed signing keyset.
@@ -43,21 +36,31 @@ func NewWithKeys(cfg Config, keys Keyset, deps Deps) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	return assemble(engine, cfg.HTTP)
+}
+
+func assemble(engine *engine, httpCfg *HTTPConfig) (_ *Runtime, err error) {
+	r := &Runtime{engine: engine}
+	defer func() {
+		if err != nil {
+			r.Close()
+		}
+	}()
 	if err := engine.initializeGroups(); err != nil {
-		engine.Close()
 		return nil, err
 	}
-	if cfg.HTTP != nil {
-		if engine.pg == nil {
-			engine.Close()
-			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
-		}
-		if err := engine.ConfigureHTTP(cfg.HTTP); err != nil {
-			engine.Close()
+	if r.verifier, err = engine.newVerifier(); err != nil {
+		return nil, err
+	}
+	if r.requireLive, err = verify.RequiredLive(r.verifier); err != nil {
+		return nil, err
+	}
+	if httpCfg != nil {
+		if r.http, r.mount, err = newHTTP(engine, r.verifier, *httpCfg); err != nil {
 			return nil, err
 		}
 	}
-	return &Runtime{engine: engine}, nil
+	return r, nil
 }
 
 func (r *Runtime) Client() iam.Client {
@@ -67,23 +70,25 @@ func (r *Runtime) Client() iam.Client {
 	return r.engine.Client()
 }
 
+// Close releases AuthKit-owned resources. Host-owned dependencies stay open.
 func (r *Runtime) Close() {
-	if r != nil {
-		r.engine.Close()
+	if r == nil {
+		return
 	}
+	r.http.Close()
+	r.engine.Close()
 }
 
 func (r *Runtime) Start(ctx context.Context) error      { return r.engine.Start(ctx) }
 func (r *Runtime) RiverJobs() riverhelpers.Contribution { return r.engine.RiverJobs() }
-
-// ConfigureHTTP is for hosts that must finish provisioning before selecting
-// HTTP policy. Prefer Config.HTTP when the policy is known at construction.
-func (r *Runtime) ConfigureHTTP(cfg HTTPConfiguration) error { return r.engine.ConfigureHTTP(cfg) }
-func (r *Runtime) HTTPRoutes() ([]HTTPRoute, error)          { return r.engine.HTTPRoutes() }
-func (r *Runtime) Verifier() *verify.Verifier                { return r.engine.Verifier() }
 
 // SetEntitlementsProvider resolves the AuthKit/billing construction cycle.
 // The provider remains a host-owned dependency, not a Client operation.
 func (r *Runtime) SetEntitlementsProvider(provider EntitlementsProvider) {
 	r.engine.SetEntitlementsProvider(provider)
 }
+
+// CheckSMSHealth probes, without sending, whether the SMS sender can deliver
+// and records the verdict that gates phone flows. Register it as a recurring
+// dependency probe; every call re-records.
+func (r *Runtime) CheckSMSHealth(ctx context.Context) error { return r.engine.CheckSMSHealth(ctx) }

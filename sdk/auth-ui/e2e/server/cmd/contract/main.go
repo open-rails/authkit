@@ -62,7 +62,7 @@ func run(out, dsn string) error {
 		status, _, _ := iam.DescribeCode(code)
 		c.ErrorCodes = append(c.ErrorCodes, errorCode{Code: code.String(), Status: status})
 	}
-	for _, r := range rt.Mount.Routes() {
+	for _, r := range rt.Routes() {
 		c.Routes = append(c.Routes, route{Method: r.Method, Path: r.Path, Group: string(r.Group), Auth: string(r.Auth), Permission: string(r.Permission)})
 	}
 	sort.Slice(c.Routes, func(i, j int) bool {

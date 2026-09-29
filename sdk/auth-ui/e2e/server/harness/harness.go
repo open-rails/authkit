@@ -10,12 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/ratelimit"
-	"github.com/open-rails/authkit/verify"
 )
 
 const (
@@ -23,10 +20,9 @@ const (
 	Audience = "auth-ui-e2e"
 )
 
-// Runtime is a started-or-not AuthKit runtime plus its captured mount.
+// Runtime is a started-or-not AuthKit runtime plus its captured deliveries.
 type Runtime struct {
 	*authkit.Runtime
-	Mount  *authhttp.Mount
 	Outbox *Outbox
 }
 
@@ -52,18 +48,17 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	limits := authhttp.DefaultRateLimits()
+	limits := authkit.DefaultRateLimits()
 	for bucket := range limits {
-		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
+		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
-	capture := &mountCapture{cfg: authhttp.Config{
-		DirectPeerIP: true,
-		RateLimits:   limits,
-		Mount:        authhttp.MountOptions{RefreshCookie: true},
-	}}
 	outbox := &Outbox{}
 	cfg := authkit.Config{
-		HTTP:   capture,
+		HTTP: &authkit.HTTPConfig{
+			DirectPeerIP:         true,
+			RateLimits:           limits,
+			RefreshCookie:        true,
+		},
 		Schema: Schema,
 		Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
@@ -100,42 +95,5 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	if capture.mount == nil {
-		rt.Close()
-		return nil, errors.New("harness: HTTP surface was not built")
-	}
-	return &Runtime{Runtime: rt, Mount: capture.mount, Outbox: outbox}, nil
-}
-
-// mountCapture is authhttp.Config.BuildHTTP that also keeps the Mount, whose
-// Routes() carry the group and auth tier the runtime's route list drops.
-type mountCapture struct {
-	cfg   authhttp.Config
-	mount *authhttp.Mount
-}
-
-type surface struct {
-	*authhttp.Service
-	routes []authkit.HTTPRoute
-}
-
-func (s surface) Routes() []authkit.HTTPRoute { return s.routes }
-func (s surface) Verifier() *verify.Verifier  { return s.Service.Verifier() }
-
-func (m *mountCapture) BuildHTTP(backend any) (authkit.HTTPSurface, error) {
-	svc, err := authhttp.New(backend.(authhttp.Backend), m.cfg)
-	if err != nil {
-		return nil, err
-	}
-	mount, err := authhttp.NewMount(svc, m.cfg.Mount)
-	if err != nil {
-		svc.Close()
-		return nil, err
-	}
-	m.mount = mount
-	s := surface{Service: svc}
-	for _, r := range mount.Routes() {
-		s.routes = append(s.routes, authkit.HTTPRoute{Method: r.Method, Path: r.Path, Handler: mount})
-	}
-	return s, nil
+	return &Runtime{Runtime: rt, Outbox: outbox}, nil
 }

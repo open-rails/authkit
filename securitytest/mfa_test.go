@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/authhttp"
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit"
 	"github.com/stretchr/testify/require"
 )
 
 // behindProxy lets a test present distinct client addresses through a
 // declared loopback proxy.
-func behindProxy(c *authhttp.Config) {
+func behindProxy(c *authkit.HTTPConfig) {
 	c.DirectPeerIP = false
 	c.TrustedProxies = []string{"127.0.0.0/8", "::1/128"}
 }
@@ -74,8 +73,8 @@ func wrongCode(code string) string {
 // TestSecuritySecondFactorLockout: someone who knows only a user's id must not
 // be able to exhaust that user's second-factor budget from other addresses.
 func TestSecuritySecondFactorLockout(t *testing.T) {
-	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authhttp.Config) {
-		c.RateLimits = map[string]ratelimit.Limit{authhttp.RL2FAVerify: {Limit: 3, Window: 10 * time.Minute}}
+	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authkit.HTTPConfig) {
+		c.RateLimits = map[string]authkit.RateLimit{"auth_2fa_verify": {Limit: 3, Window: 10 * time.Minute}}
 	}))
 	victim := h.newAccount("mfalock")
 	h.enrollEmail2FA(victim)

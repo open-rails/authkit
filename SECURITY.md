@@ -39,8 +39,8 @@ required workflow passes.
 ## Running locally
 
 ```bash
-pnpm --dir authhttp/testdata install --frozen-lockfile
-pnpm --dir authhttp/testdata exec playwright install --with-deps chromium
+pnpm --dir testdata install --frozen-lockfile
+pnpm --dir testdata exec playwright install --with-deps chromium
 scripts/check.sh all       # workflows and contracts; starts local compose services if needed
 scripts/check.sh contracts # contracts only
 

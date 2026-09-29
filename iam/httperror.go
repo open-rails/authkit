@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// Stripe-style HTTP error envelope, shared by authhttp and the core-free verify
+// Stripe-style HTTP error envelope, shared by the HTTP layer and the DB-less verify
 // package so both surfaces emit an identical shape. Structurally identical to
 // openrails' pkg/api.ErrorResponse (the ecosystem-wide error contract): the
 // machine-readable `code` is stable, `type` categorizes it, `message` is human
@@ -91,7 +91,7 @@ func envelope(status int, code Code, param string, metadata map[string]any) Erro
 }
 
 // WriteError writes err as the canonical error envelope — the ONE writer
-// behind authhttp and verify.
+// behind the HTTP layer and verify.
 func WriteError(w http.ResponseWriter, err error) {
 	status, env := ErrorEnvelopeFor(err)
 	w.Header().Set("Content-Type", "application/json")

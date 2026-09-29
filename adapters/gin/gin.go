@@ -11,26 +11,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Fallback adapts a neutral handler (authhttp.MountHandler) for use as a gin
-// NoRoute fallback. gin pre-sets 404 on the response before running NoRoute
-// handlers, which silently overrides any handler that relies on the implicit
-// 200-on-first-write; this clears the pending status so the mounted handler's
-// own status wins (its 404s still 404).
-//
-//	router.NoRoute(authkitgin.Fallback(mount))
-//
-// For explicit wildcard mounts (r.Any("/oidc/*path", …)) plain gin.WrapH is
-// fine — gin only pre-sets 404 on the NoRoute path.
-//
-// Deprecated: use Mount to register ordinary routes visible to router.Routes().
-// Fallback remains available for hosts adapting a custom HTTP handler.
-func Fallback(h http.Handler) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.WriteHeader(http.StatusOK)
-		h.ServeHTTP(c.Writer, c.Request)
-	}
-}
-
 // Required is the gin-native form of verify.Required (#209): validates the
 // Bearer token and stores claims in the request context, aborting with the
 // verifier's 401 on failure. Use it directly on gin routes/groups instead of
@@ -100,15 +80,11 @@ func Principal(c *gin.Context) (iam.Principal, bool) {
 	return p, p.Kind != ""
 }
 
-// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
-// optional fields and the token-time versus live-profile freshness contract.
-type UserClaimsData = verify.UserClaimsData
-
 // UserClaims reads a verified local user without performing a database lookup.
 // Profile availability depends on Required/Optional versus RequiredLive.
-func UserClaims(c *gin.Context) (UserClaimsData, bool) {
+func UserClaims(c *gin.Context) (verify.UserClaimsData, bool) {
 	if c == nil || c.Request == nil {
-		return UserClaimsData{}, false
+		return verify.UserClaimsData{}, false
 	}
 	return verify.UserClaimsFromContext(c.Request.Context())
 }

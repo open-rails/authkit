@@ -9,13 +9,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Assignability in both directions proves that the old adapter name is an
-// alias, including for consumers storing UserClaims as a function value.
-var (
-	_ authkitgin.UserClaimsData                        = verify.UserClaimsData{}
-	_ verify.UserClaimsData                            = authkitgin.UserClaimsData{}
-	_ func(*gin.Context) (verify.UserClaimsData, bool) = authkitgin.UserClaims
-)
+var _ func(*gin.Context) (verify.UserClaimsData, bool) = authkitgin.UserClaims
 
 func TestUserClaimsReadsRequestContext(t *testing.T) {
 	if _, ok := authkitgin.UserClaims(nil); ok {

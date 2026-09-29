@@ -96,29 +96,8 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// SetMFAEnrollmentExemptPaths installs the set of route paths that stay
-// reachable to a request blocked by the requireMFAEnrollment gate or carrying a
-// TwoFAEnrollment-only token (#243): the 2FA enroll/challenge/verify surface.
-// AuthKit's server derives this set from its authoritative route registry
-// (authhttp.RouteSpec.MFAEnrollmentExempt) at construction, so a renamed or
-// added enroll route can't silently drift out of the allowlist. A Verifier that
-// never calls this (verify-only, no WithRequireMFAEnrollment) exempts nothing.
-// Paths are suffix-matched against the incoming request path, since AuthKit
-// routes are prefix-neutral (a host may mount them under any prefix).
-func (v *Verifier) SetMFAEnrollmentExemptPaths(paths []string) *Verifier {
-	m := make(map[string]bool, len(paths))
-	for _, p := range paths {
-		p = strings.TrimRight(strings.TrimSpace(p), "/")
-		if p != "" {
-			m[p] = true
-		}
-	}
-	v.mfaEnrollmentExemptPaths = m
-	return v
-}
-
 // AddMFAEnrollmentExemptRoutes registers ANCHORED exempt paths (mount prefix +
-// route path), matched exactly. authhttp.MountHandler calls it with the prefix
+// route path), matched exactly. httpapi.MountHandler calls it with the prefix
 // it mounted under; once any anchored route is registered the suffix match of
 // SetMFAEnrollmentExemptPaths is no longer consulted, so a host route that
 // merely ends in "/user/2fa" cannot be reached with an enrollment-only token
@@ -138,27 +117,15 @@ func (v *Verifier) AddMFAEnrollmentExemptRoutes(paths []string) *Verifier {
 }
 
 // mfaEnrollmentExemptPath reports whether a path is one a forced-enrollment-gated
-// user must still reach. See SetMFAEnrollmentExemptPaths / AddMFAEnrollmentExemptRoutes.
+// user must still reach. See AddMFAEnrollmentExemptRoutes.
 func (v *Verifier) mfaEnrollmentExemptPath(method, path string) bool {
 	if method != http.MethodGet && method != http.MethodPost && method != http.MethodDelete {
 		return false
 	}
 	path = strings.TrimRight(path, "/")
 	v.mu.RLock()
-	anchored, exact := len(v.mfaEnrollmentExemptRoutes) > 0, v.mfaEnrollmentExemptRoutes[path]
-	v.mu.RUnlock()
-	if anchored {
-		return exact
-	}
-	if len(v.mfaEnrollmentExemptPaths) == 0 {
-		return false
-	}
-	for suffix := range v.mfaEnrollmentExemptPaths {
-		if path == suffix || strings.HasSuffix(path, suffix) {
-			return true
-		}
-	}
-	return false
+	defer v.mu.RUnlock()
+	return v.mfaEnrollmentExemptRoutes[path]
 }
 
 // Optional validates when Authorization is present; otherwise passes through.

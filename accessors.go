@@ -101,14 +101,6 @@ func (s *engine) Close() {
 }
 
 func (s *engine) close() {
-	s.httpMu.Lock()
-	s.closed = true
-	surface := s.httpSurface
-	s.httpSurface = nil
-	s.httpMu.Unlock()
-	if surface != nil {
-		surface.Close()
-	}
 	s.closeRiver()
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()

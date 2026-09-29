@@ -1,8 +1,6 @@
 package authkit
 
 import (
-	"context"
-	"errors"
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
@@ -36,16 +34,11 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 
 func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	surface := &testHTTPSurface{}
-	cfg := Config{HTTP: httpBuildFunc(func(backend any) (HTTPSurface, error) {
-		_, err := backend.(iam.Client).GroupInstanceForSlug(context.Background(), iam.RootGroup())
-		require.NoError(t, err, "topology must exist before HTTP construction")
-		return surface, errors.New("invalid HTTP policy")
-	})}
+	// No client-IP posture: the HTTP layer refuses after the engine is built.
+	cfg := Config{HTTP: &HTTPConfig{}}
 	runtime, err := NewWithKeys(cfg, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
-	require.ErrorContains(t, err, "invalid HTTP policy")
+	require.ErrorContains(t, err, "client-IP posture")
 	require.Nil(t, runtime)
-	require.EqualValues(t, 1, surface.closed.Load())
 	require.NoError(t, pg.Pool.Ping(t.Context()), "constructor cleanup must preserve the borrowed host pool")
 }
 

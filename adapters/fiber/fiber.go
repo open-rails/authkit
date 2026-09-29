@@ -12,15 +12,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Fallback adapts authhttp.MountHandler to Fiber. Register it last with
-// app.Use so host routes win and all AuthKit paths retain their full prefix.
-//
-// Deprecated: use Mount to register AuthKit as ordinary, inspectable Fiber
-// routes. Fallback remains available for hosts adapting a custom HTTP handler.
-func Fallback(h http.Handler) fiber.Handler {
-	return httpHandler(h)
-}
-
 func httpHandler(h http.Handler) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		r, err := adaptor.ConvertRequest(c, true)
@@ -120,16 +111,12 @@ func Principal(c fiber.Ctx) (iam.Principal, bool) {
 	return p, p.Kind != ""
 }
 
-// UserClaimsData is the shared local-user view. See verify.UserClaimsData for
-// optional fields and the token-time versus live-profile freshness contract.
-type UserClaimsData = verify.UserClaimsData
-
 // UserClaims returns only a verified local user, never a machine principal or
 // an external issuer's subject. It performs no database lookup; profile
 // availability depends on Required/Optional versus RequiredLive.
-func UserClaims(c fiber.Ctx) (UserClaimsData, bool) {
+func UserClaims(c fiber.Ctx) (verify.UserClaimsData, bool) {
 	if c == nil {
-		return UserClaimsData{}, false
+		return verify.UserClaimsData{}, false
 	}
 	return verify.UserClaimsFromContext(c.Context())
 }

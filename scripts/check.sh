@@ -26,7 +26,7 @@ go run ./cmd/authkit-migrate \
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
-  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/authhttp/testdata/node_modules/@playwright/test}
+  export AUTHKIT_PLAYWRIGHT_MODULE=${AUTHKIT_PLAYWRIGHT_MODULE:-$PWD/testdata/node_modules/@playwright/test}
   go test -race -count=1 -p 1 -tags browser -json ./... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 - <<'PY'
@@ -58,12 +58,6 @@ required = {
                      'TestSecurityProviderPKCE', 'TestSecurityFormPostCallbackIsBounded',
                      'TestSecurityOutboundAddressGuard', 'TestSecurityPurgedUsernameStaysReserved',
                      'TestSecurityRefreshCookieUpgrade'),
-    'authhttp': ('TestCookieRegistry', 'TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
-                 'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
-                 'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
-                 'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
-                 'TestAccountRecoveryPasswordConfirmationBoundary',
-                 'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
     '': ('TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
                  'TestAccountDeletionGenerationOrderingAndFinalization',
                  'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',
@@ -73,7 +67,13 @@ required = {
                  'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
                  'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer',
                  'TestAccountCallbackCanObserveBindingDuringManagedShutdown',
-                 'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge'),
+                 'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge',
+                 'TestCookieRegistry', 'TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
+                 'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow',
+                 'TestCookieLoginBrowserTwoSites', 'TestBrowserDelegationWorkflow',
+                 'TestWorkflowRateLimits', 'TestOperatorAccountRestoreHTTPRequiresCurrentAuthority',
+                 'TestAccountRecoveryPasswordConfirmationBoundary',
+                 'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies'),
 }
 passed = {(e.get('Package'), e.get('Test')) for e in events if e.get('Action') == 'pass'}
 missing = [f'{pkg}/{name}' for pkg, tests in required.items() for name in tests

@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	authkithttp "github.com/open-rails/authkit/adapters/http"
-
 	"github.com/open-rails/authkit/sdk/auth-ui/e2e/server/harness"
 )
 
@@ -58,12 +56,8 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 		return err
 	}
 
-	routes, err := authkithttp.Routes(rt.Runtime)
-	if err != nil {
-		return err
-	}
 	mux := http.NewServeMux()
-	if err := routes.Mount(mux); err != nil {
+	if err := rt.Mount(mux); err != nil {
 		return err
 	}
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {

@@ -303,7 +303,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 	// Deps.Postgres MAY be nil at the core layer (verify-only construction or
 	// config-only unit tests need no store): a nil pool yields a Runtime with
 	// no querier. The mandatory-Postgres contract (#106) is enforced at the
-	// host-facing authhttp constructor, not here.
+	// HTTP surface, not here.
 	svc, err := newClient(norm, keySource, gs, deps)
 	if err != nil {
 		return nil, err
@@ -349,7 +349,7 @@ func normalizeRegistrationVerification(v iam.RegistrationVerificationPolicy) (ia
 	value := iam.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(string(v))))
 	if value == "" {
 		// Empty => none (matches the Config doc and the zero-config path: "required"
-		// with no sender wired would make authhttp.New fail).
+		// with no sender wired would make httpapi.New fail).
 		return iam.RegistrationVerificationNone, nil
 	}
 	switch value {

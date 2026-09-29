@@ -11,10 +11,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authhttp"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +52,8 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 
 	t.Run("Redis budgets are shared by every replica", func(t *testing.T) {
 		rdb := testdb.ScratchRedis(t)
-		limit := func(c *authhttp.Config) {
-			c.RateLimits = map[string]ratelimit.Limit{authhttp.RLPasswordLogin: {Limit: 3, Window: time.Hour}}
+		limit := func(c *authkit.HTTPConfig) {
+			c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
 		}
 		one := newHost(t, withRedis(rdb), withHTTP(limit))
 		two := one.replica()
@@ -73,8 +72,8 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 // guesses cannot lock the owner out, the guessing address stays blocked even
 // with the right password, and IPv6 clients are limited per /64.
 func TestSecurityPasswordLimitIsPerAddress(t *testing.T) {
-	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authhttp.Config) {
-		c.RateLimits = map[string]ratelimit.Limit{authhttp.RLPasswordLogin: {Limit: 3, Window: time.Hour}}
+	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authkit.HTTPConfig) {
+		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
 	}))
 	a := h.newAccount("peraddress")
 	attempt := func(ip, pass string) response {
@@ -105,8 +104,8 @@ func TestSecurityPasswordLimitIsPerAddress(t *testing.T) {
 // TestSecurityClientAddressSpoofing: with no declared proxy, forwarding headers
 // are attacker input and must not create fresh per-address budgets.
 func TestSecurityClientAddressSpoofing(t *testing.T) {
-	h := newHost(t, withHTTP(func(c *authhttp.Config) {
-		c.RateLimits = map[string]ratelimit.Limit{authhttp.RLPasswordLogin: {Limit: 3, Window: time.Hour}}
+	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
+		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
 	}))
 	for i := range 4 {
 		resp := h.do(request{method: http.MethodPost, path: "/password/login",
@@ -165,7 +164,7 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 // name is read only as a lone pre-v0.137 cookie until the registry's
 // AcceptUntil (TestSecurityRefreshCookieUpgrade).
 func TestSecurityRefreshCookieCSRF(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
+	h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
 		withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "https://app.security.test" }))
 	a := h.newAccount("cookie")
 	login := func(header http.Header) response {
@@ -174,7 +173,7 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	}
 	var jar *http.Cookie
 	for _, c := range login(nil).cookies {
-		if c.Name == authhttp.RefreshCookieName {
+		if c.Name == iam.RefreshCookieName {
 			jar = c
 		}
 	}
@@ -196,7 +195,7 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 		{"same-site sibling", http.Header{"Sec-Fetch-Site": {"same-site"}}, []*http.Cookie{jar}},
 		{"foreign Origin", http.Header{"Origin": {"https://evil.test"}}, []*http.Cookie{jar}},
 		{"opaque Origin", http.Header{"Origin": {"null"}}, []*http.Cookie{jar}},
-		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: authhttp.RefreshCookieName, Value: "attacker"}}},
+		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: iam.RefreshCookieName, Value: "attacker"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := refresh(tc.header, tc.cookies...)
@@ -211,7 +210,7 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	t.Run("cross-site login plants no cookie", func(t *testing.T) {
 		resp := login(http.Header{"Origin": {"https://evil.test"}, "Sec-Fetch-Site": {"cross-site"}})
 		for _, c := range resp.cookies {
-			require.NotEqual(t, authhttp.RefreshCookieName, c.Name)
+			require.NotEqual(t, iam.RefreshCookieName, c.Name)
 		}
 	})
 	t.Run("control: same-origin refresh", func(t *testing.T) {
@@ -244,7 +243,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
+			h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
 				withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = tc.baseURL }))
 			a := h.newAccount("upgrade")
 			login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
@@ -277,13 +276,13 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 		})
 	}
 	t.Run("a browser with no refresh cookie is simply signed out", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }))
+		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }))
 		resp := h.do(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token"}})
 		require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		require.Equal(t, "no_session", resp.errorCode())
 	})
 	t.Run("same-path duplicates are still refused", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authhttp.Config) { c.Mount.RefreshCookie = true }),
+		h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
 			withEngine(func(c *authkit.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
 		login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")

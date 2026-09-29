@@ -7,8 +7,8 @@ To use existing disposable services, set that variable and
 Install the browser dependency once with:
 
 ```sh
-pnpm --dir authhttp/testdata install --frozen-lockfile
-pnpm --dir authhttp/testdata exec playwright install chromium
+pnpm --dir testdata install --frozen-lockfile
+pnpm --dir testdata exec playwright install chromium
 ```
 
 `workflows` and `contracts` select either half of the command. CI has one

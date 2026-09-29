@@ -1,7 +1,7 @@
 # Cookie compatibility
 
 Browsers keep cookies across AuthKit upgrades, so a cookie's shape is a
-contract. `authhttp/cookies.go` holds the registry of every refresh and OIDC
+contract. `internal/httpapi/cookies.go` holds the registry of every refresh and OIDC
 state cookie variant AuthKit has ever issued (name, path, domain, `Secure`):
 
 - Setting or rotating a cookie expires the historical variants the browser
@@ -18,7 +18,7 @@ state cookie variant AuthKit has ever issued (name, path, domain, `Secure`):
 
 **Changing a cookie** (name, path, domain, prefix): add the new shape as a new
 registry variant marked `Current`, keep the old one as historical, and append it
-to `authhttp/testdata/cookie-registry.golden`. Never edit or remove a variant
+to `testdata/cookie-registry.golden`. Never edit or remove a variant
 or a golden line. `TestCookieRegistry` fails when the cookies AuthKit sets
 differ from the registry's current variants or the registry differs from the
 golden list; `TestSecurityRefreshCookieUpgrade` proves an earlier release's jar

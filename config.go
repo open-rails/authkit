@@ -14,10 +14,9 @@ import (
 // grouped by concern into typed sub-structs (#108). It carries DATA/POLICY only;
 // runtime dependencies (Postgres, senders) are Deps.
 type Config struct {
-	// HTTP configures the optional runtime-owned HTTP surface during New.
-	// Pass authhttp.Config. Nil keeps the runtime headless; hosts that must
-	// provision first may call ConfigureHTTP before obtaining routes instead.
-	HTTP HTTPConfiguration
+	// HTTP configures the HTTP surface New builds. Nil keeps the runtime
+	// headless: operations and Verifier only.
+	HTTP *HTTPConfig
 
 	// River configures mandatory PostgreSQL cleanup; in-memory TTL stays local.
 	River RiverConfig
@@ -75,7 +74,7 @@ type Config struct {
 	// which remote-application reader slugs may fetch published documents from
 	// GET|HEAD /.well-known/authkit/documents/{digest}. Publication is never
 	// public — an empty list with a mounted documents surface refuses at
-	// construction (authhttp.New), fail-closed like the publisher itself.
+	// construction (httpapi.New), fail-closed like the publisher itself.
 	Documents DocumentsConfig
 
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
@@ -130,7 +129,7 @@ type ApplicationsConfig struct {
 // mint mechanics (audience-subset clamp, TTL clamp, certificate binding,
 // document stamping, KID reconciliation) live in AuthKit; the host contributes
 // the required delegation authorizer (WithDelegatedAuthorization) and optional
-// document providers (authhttp.WithDocuments).
+// document providers (httpapi.WithDocuments).
 type DelegatedConfig struct {
 	// AllowDPoP allows browser-key binding. The authorizer must handle requests
 	// with ConfirmationJWKThumbprintSHA256 set and DelegateCertificate nil.
