@@ -98,6 +98,8 @@ Add a row and a test for every new attack class.
 | Registration resend tells a pending sign-up from an account | `TestSecurityRegistrationResendRevealsNothing` |
 | Device-key enrollment refuses a real authenticator-app or SMS second factor | `TestSecurityDeviceKeyIndependentFactors` |
 | Anonymous verification request by phone reveals whether a number exists or is verified | `TestSecurityVerifyRequestByPhoneRevealsNothing` |
+| A refused or rolled-back change reaches the host's event hook, a committed one is missed or duplicated, or a failed delivery is dropped or overtaken | `TestSecurityEventsRecordOnlyCommittedChanges` |
+| An event hands the host a password, hash, token or code | `TestSecurityEventsCarryNoSecrets` |
 | The public `devicekey` client enrolls without an independent second factor, crosses signing domains, or revives a revoked or foreign key; a login token revokes other machines | `TestSecurityDeviceKeyClient` |
 | A route under `HTTPConfig.BasePath` escapes to the host root; an OIDC `redirect_uri` names a callback the mount doesn't serve; JWKS or documents unreachable from the issuer; BasePath disagrees with the issuer | `TestSecurityBasePathConfinesSurface` |
 
