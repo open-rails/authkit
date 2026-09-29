@@ -139,14 +139,14 @@ root role assignments and remote applications.
 | POST | `{oidc}/{provider}/step-up/callback` | browser_oidc | public | `auth_oidc_callback` | Identity.Providers |
 | POST | `{api}/delegated/token` | delegated | required | `delegated_token_mint` | Delegated.Audiences |
 | POST | `{api}/applications/register` | applications | signed request (domain proof) | `application_register` | Applications.SelfRegistration |
-| POST | `{api}/admin/users/{user_id}/restore` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
+| POST | `{api}/admin/users/{user_id}/restore` | admin | required (engine: `root:users:delete` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users` | admin | `root:users:read` | `auth_admin_user_sessions_list` |  |
-| DELETE | `{api}/admin/users/{user_id}` | admin | `root:users:delete` | `auth_admin_user_sessions_revoke_all` |  |
+| DELETE | `{api}/admin/users/{user_id}` | admin | required (engine: `root:users:delete` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}` | admin | `root:users:read` |  |  |
-| POST | `{api}/admin/users/{user_id}/ban` | admin | `root:users:ban` | `auth_admin_user_sessions_revoke_all` |  |
-| POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | `root:users:manage` | `auth_admin_user_sessions_revoke_all` |  |
+| POST | `{api}/admin/users/{user_id}/ban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
+| POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | required (engine: `root:users:manage` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}/signins` | admin | `root:users:read` |  |  |
-| POST | `{api}/admin/users/{user_id}/unban` | admin | `root:users:ban` | `auth_admin_user_sessions_revoke_all` |  |
+| POST | `{api}/admin/users/{user_id}/unban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
 | POST | `{api}/org` | permission_groups | required |  | Roles.Personas |
 | GET | `{api}/org/{instance_slug}` | permission_groups | `org:self:read` |  | Roles.Personas |
@@ -190,13 +190,10 @@ Standalone `verify.NewVerifier()` users wire `verifier.WithLiveness(auth)`
 explicitly. Mount `verify.RequiredLive` /
 `RequiredLiveUser` (or the `authkitgin` twins) instead of `Required`. It denies
 banned, deleted, reserved and unknown accounts on the user's NEXT request, and hands the handler `Username`/`Email`/`EmailVerified`
-FRESH as of that lookup — **do not call `AdminGetUser` per request to refresh
-display fields.** Roles and entitlements are not re-enriched: they have their own
-live reads (`RoleSlugsByUsers`, `verify.Allow`, `ListEntitlements`).
-`verifier.AllowLive(...)` is `verify.Allow` with the liveness precondition —
-"live AND permitted" in one call, so a banned user who still holds a permission
-assignment is denied. `verifier.IsLive` is the bare predicate; the batch read
-underneath is `Client.UserLivenessByIDs(ctx, ids)`.
+FRESH as of that lookup — **do not read the account per request to refresh
+display fields.** Roles and entitlements are not re-enriched. `verifier.IsLive`
+is the bare predicate; the batch read underneath is `Auth.Users(ctx, ids)`
+(`iam.User.Live`).
 
 Fail-closed, no cache: a lookup error denies, and there is exactly one liveness
 lookup per gated request with no memoization (any cache reintroduces the window
@@ -215,16 +212,14 @@ authorized native user before running the elevated operation. This covers the
 admin directory, ban, recovery and deletion endpoints. Credential-based checks
 for non-user principals remain unchanged; ordinary AUTH routes stay stateless.
 
-**Rendering users to other users** (ak#268, v0.92.0): use
-`Client.PublicUsersByIDs(ctx, ids) → map[string]PublicUserRef`, never
-`UsersByIDs` (whose `UserRef` carries `Email` and is the PRIVILEGED projection)
-and never a direct read of `profiles.users`. `PublicUserRef` is
-`{ID, Username, AvatarURL, CreatedAt, Deleted}` — no email or host profile fields
-exists on the type. Soft-deleted users return as TOMBSTONES (`Deleted` set,
-display fields blank); banned users return normally (a ban is an access
-decision, not a visibility one); unknown ids are absent.
-`ref.DisplayName()` / `authkit.PublicDisplayName(refs, id)` render
-`user-<id8>` for tombstoned and unresolved ids, so no caller needs a fallback
+**Rendering users to other users**: use `Auth.PublicUsers(ctx, ids) →
+map[string]iam.PublicUser`, never `Users` (whose `iam.User` carries contact
+details) and never a direct read of `profiles.users`. `iam.PublicUser` is
+`{ID, Username, AvatarURL, CreatedAt, Deleted}`. Soft-deleted users return as
+TOMBSTONES (`Deleted` set, display fields blank); banned users return normally
+(a ban is an access decision, not a visibility one); unknown ids are absent.
+`u.DisplayName()` / `iam.PublicDisplayName(users, id)` render `user-<id8>` for
+tombstoned and unresolved ids, so no caller needs a fallback
 branch. Derived assets (extra avatar sizes, CDN rewrites) stay host-owned.
 
 ---
