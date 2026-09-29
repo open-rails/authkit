@@ -91,12 +91,12 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	h.grant(iam.RootGroup(), staff, "credentials-admin")
 	staffToken := h.login(staff).AccessToken
 	attacker := newSigner(t, "partner-kid")
-	resp := h.post("/root/x/remote-applications", map[string]any{"slug": "partner", "issuer": partnerIssuer,
+	resp := h.post("/groups/"+h.rootGroupID()+"/remote-applications", map[string]any{"slug": "partner", "issuer": partnerIssuer,
 		"public_keys": []map[string]string{{"kid": "partner-kid", "public_key_pem": pemOf(t, attacker.PublicKey())}}}, staffToken)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), iam.RemoteApplication{Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	resp = h.do(request{method: http.MethodDelete, path: "/root/x/remote-applications/partner", token: staffToken})
+	resp = h.do(request{method: http.MethodDelete, path: "/groups/" + h.rootGroupID() + "/remote-applications/partner", token: staffToken})
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 
 	stored, err := h.auth.RemoteApplication(ctx, partnerIssuer)

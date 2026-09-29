@@ -44,5 +44,5 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 		+ (SELECT count(*) FROM information_schema.tables WHERE table_schema='profiles' AND table_name='group_persona_parents')`).Scan(&containment))
 	require.Zero(t, containment, "0005 drops the stored containment tree")
 	_, err = pg.Pool.Exec(ctx, "INSERT INTO profiles.permission_groups(persona) VALUES('channel')")
-	require.Error(t, err, "a non-root group needs a slug")
+	require.NoError(t, err, "0011: a group is an id and a persona")
 }
