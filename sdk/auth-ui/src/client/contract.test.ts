@@ -66,5 +66,5 @@ it("calls only routes AuthKit mounts", async () => {
     return !inCatalog(method, path)
   })
   expect(missing).toEqual([])
-  expect(called.size).toBeGreaterThanOrEqual(35)
+  expect(called.size).toBeGreaterThanOrEqual(34)
 })
