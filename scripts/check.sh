@@ -86,8 +86,8 @@ fi
 
 if [[ "$mode" != workflows ]]; then
   go vet ./...
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
+  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
   git diff --exit-code -- internal/db
   test -z "$(git ls-files --others --exclude-standard -- internal/db)"
   scripts/check-compatibility.sh
