@@ -80,7 +80,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Auth, error) {
 				DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
 				// Rate limits live in memory; set Redis when you run more than one copy of your server.
 			},
-			Roles: roles, // who may do what; see below
+			Roles: roles, // See below for our RBAC system
 		},
 		authkit.Deps{
 			Postgres: db,     // required: users, sessions and short-lived auth state
@@ -97,29 +97,25 @@ First we need moderators; these are the unpaid neckbeards who enforce their arbi
 
 ```go
 var roles = authkit.RoleConfig{
-	// Persona's are a type of permission group. root (the whole site) always exists.
+	// Persona's are types of permission groups. root (the whole site) exists by default.
 	Personas: map[string]authkit.Persona{
-		// we'll create one permission group per reddit-channel, like /c/golang
+		// we'll have permission group per reddit-channel, like /c/golang
 		"channel": {
-			// Our own permissions. Every persona also gets AuthKit's built-ins for free:
-			// channel:members:* and, when switched on, channel:roles:manage and
-			// channel:credentials:* (its API keys and apps).
+			// Our own custom permissions, in addition to the ones that authkit includes automatically.
 			Permissions: []string{
 				"channel:posts:edit", "channel:posts:delete", "channel:posts:approve",
-				"channel:metadata:edit", // change the channel's name, description and rules
+				"channel:self:edit",   // change the channel's own data: its name, description and rules
+				"channel:self:delete", // delete the channel ("self" is just our name for the channel itself)
 			},
 		},
-		// root needs no entry, but deleting a channel is a job for site admins
-		"root": {Permissions: []string{"root:channels:delete"}},
 	},
 	// Roles are bundles of permissions, scoped to a specific persona.
 	// There is always a singleton persona; root
 	Roles: []authkit.Role{
 		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}}, // edit, delete and approve posts
 		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
-			"channel:*",            // edit any channel and everything in it
-			"root:users:*",         // read, ban, delete and manage user accounts
-			"root:channels:delete", // delete any channel
+			"channel:*",    // everything in every channel, deleting it included
+			"root:users:*", // read, ban, delete and manage user accounts
 		}},
 	},
 }
@@ -136,9 +132,9 @@ AuthKit gives every persona these permissions for free, so you never list them y
 | `channel:roles:manage` | define the channel's own custom roles (only when `CustomRoles` is on) |
 | `channel:credentials:read`, `channel:credentials:manage` | list, or create and revoke, the channel's API keys and connected apps (only when `APIKeys` or `RemoteApplications` is on) |
 
-What a channel's data is, and who may change it, is your app's call; that's why `channel:metadata:edit` and `root:channels:delete` are ours.
+What a channel's data is, and who may change it, is your app's call; that's why `channel:self:edit` and `channel:self:delete` are ours. A channel's owner holds them, so owners can edit or delete their own channel; moderators can't.
 
-The root group has its own:
+For the root persona (single permission group), they get these, defined by authkit:
 
 | Permission | Lets you |
 |---|---|
@@ -149,11 +145,11 @@ The root group has its own:
 | `root:users:invite` | invite someone to create an account |
 | `root:members:read`, `root:members:manage` | see or hand out site-wide roles |
 
-A channel's members are the people who hold a role there: its owner and moderators. Readers and posters don't need to be members; who may post is your app's call.
-
-On every boot, AuthKit makes sure `ADMIN_EMAIL` is one. If there's no such account yet, AuthKit makes one with no password, and its owner signs in with "forgot password". Admins can edit other people's accounts, so AuthKit has them set up two-factor sign-in the first time they log in.
+The only built-in role for every permission group is just `owner`. When owner is assigned to a user, that user automatically gets `<persona>:*` permissions, which is full permission over the entire channel, or root (entire site).
 
 Channels are data, not config: they're made while the site runs. A channel is ours: our `channels` table keeps its name and description, and the ID of the permission group where AuthKit keeps its roles. People start one with our own route, `POST /c` with `{"name": "golang"}`, and become that channel's owner; our route decides who may and which names are taken. It asks AuthKit for the group in the same transaction as our row, so neither ever exists without the other. Here our admin opens /c/announcements, a name `POST /c` never hands out.
+
+Now let's seed a reddit admin using `ADMIN_EMAIL`:
 
 ```go
 func seed(ctx context.Context, db *pgxpool.Pool, auth *authkit.Auth) error {
@@ -246,10 +242,6 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 			return iam.GroupByID(c.GetString("channel"))
 		})
 	}
-	// admin asks the same about the whole site
-	admin := func(perm iam.Perm) gin.HandlerFunc {
-		return authkitgin.RequirePermission(auth, perm, func(*gin.Context) iam.GroupRef { return iam.RootGroup() })
-	}
 
 	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
 	ch := r.Group("/c/:channel", f.channel) // every route below knows its channel
@@ -261,8 +253,8 @@ func mountForum(r *gin.Engine, auth *authkit.Auth, db *pgxpool.Pool) {
 	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approve)
 	ch.PUT("/moderators/:user_id", signedIn, f.appoint) // AuthKit checks who may hand out badges
 	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)
-	ch.PATCH("", may("channel:metadata:edit"), f.editChannel)
-	ch.DELETE("", admin("root:channels:delete"), f.deleteChannel)
+	ch.PATCH("", may("channel:self:edit"), f.editChannel)
+	ch.DELETE("", may("channel:self:delete"), f.deleteChannel)
 }
 ```
 
