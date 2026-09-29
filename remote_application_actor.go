@@ -119,7 +119,7 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 // of the role appID currently holds there (none for a new application).
 func (s *engine) authorizeApplicationControl(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor, appID string) error {
 	sch := s.groupSchemaOrDefault()
-	capability := PermCredentialsManage(persona)
+	capability := iam.PermCredentialsManage(persona)
 	if appID != "" {
 		role, err := st.directRole(ctx, gid, iam.RemoteAppSubject(appID))
 		if err != nil {
@@ -137,7 +137,7 @@ func (s *engine) authorizeApplicationControl(ctx context.Context, st *Permission
 	if err != nil {
 		return err
 	}
-	if !anyGrantCovers(sch.ResolveGrants(asg, resolver), capability) || (actor.remote != nil && !actor.remote.HasPermission(capability)) {
+	if !iam.AnyGrantCovers(sch.ResolveGrants(asg, resolver), capability) || (actor.remote != nil && !actor.remote.HasPermission(capability)) {
 		return iam.ErrInsufficientRoleAuthority
 	}
 	return nil

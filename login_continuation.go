@@ -9,7 +9,9 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // loginProof is server-owned first-factor provenance. One current record per
@@ -32,25 +34,13 @@ type loginProof struct {
 	expected        []byte
 }
 
-// LoginChallengeInput supplies the second proof; clients never supply AMR or
-// first-factor provenance. Backup codes are independently stored recovery keys.
-type LoginChallengeInput struct {
-	UserID     string
-	Challenge  string
-	FactorID   string
-	Code       string
-	BackupCode bool
-	UserAgent  string
-	IP         string
-}
-
 func (s *engine) loadLoginProof(ctx context.Context, userID, nonce string) (loginProof, error) {
 	var proof loginProof
 	raw, ok, err := s.ephemReadJSON(ctx, keyTwoFactorChallenge+userID, &proof)
 	if err != nil {
 		return proof, err
 	}
-	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !SecretEqual(proof.NonceHash, sha256Hex(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
+	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !secret.Equal(proof.NonceHash, sha256Hex(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
@@ -58,12 +48,12 @@ func (s *engine) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	return proof, nil
 }
 
-func independentFactor(proof loginProof, factor TwoFactorFactor) bool {
+func independentFactor(proof loginProof, factor authflow.TwoFactorFactor) bool {
 	return !hasAuthMethod(proof.Input.AuthMethods, factor.Method) || (factor.Method != "email" && factor.Method != "sms")
 }
 
-func (s *engine) loginFactors(proof loginProof, settings *TwoFactorSettings) []TwoFactorFactor {
-	var factors []TwoFactorFactor
+func (s *engine) loginFactors(proof loginProof, settings *authflow.TwoFactorSettings) []authflow.TwoFactorFactor {
+	var factors []authflow.TwoFactorFactor
 	if settings == nil || !settings.Enabled {
 		return factors
 	}
@@ -75,34 +65,34 @@ func (s *engine) loginFactors(proof loginProof, settings *TwoFactorSettings) []T
 	return factors
 }
 
-func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (LoginOutcome, error) {
+func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (authflow.LoginOutcome, error) {
 	if proof.Version <= 0 || len(proof.Input.AuthMethods) == 0 {
-		return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
 	user, err := s.lockAuthenticationAccount(ctx, q, proof.Input.UserID, proof.Version, proof.SessionID == "")
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := s.bindRecoveryGeneration(ctx, tx, user, &proof); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
 	status, statusErr := s.MFAStatusWith(settings, settingsErr)
 	if statusErr != nil {
-		return LoginOutcome{}, statusErr
+		return authflow.LoginOutcome{}, statusErr
 	}
 	if len(proof.expected) > 0 {
 		if err := s.claimProof(ctx, keyTwoFactorChallenge+user.ID, proof.expected); err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 	}
 	// Enrollment/challenge selection is shared by password, passwordless and
@@ -111,16 +101,16 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
 	gateErr := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.Input.AuthMethods, status, nil)
 	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, ErrTwoFARequired) {
-		return LoginOutcome{}, gateErr
+		return authflow.LoginOutcome{}, gateErr
 	}
-	out := LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
+	out := authflow.LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
 	if needsChallenge || gateErr != nil {
 		// Enrollment JWTs authorize account mutations. A deleted account may
 		// complete an existing factor, but never receives an enrollment token.
 		if proof.DeletionID != "" && !needsChallenge {
-			return LoginOutcome{}, gateErr
+			return authflow.LoginOutcome{}, gateErr
 		}
-		nonce := RandB64(32)
+		nonce := secret.RandB64(32)
 		proof.NonceHash = sha256Hex(nonce)
 		proof.Issuer = s.cfg.Token.Issuer
 		proof.Enrollment = !needsChallenge
@@ -128,57 +118,57 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (Login
 			proof.AuthenticatedAt = time.Now().UTC()
 		}
 		if err := s.ephemSetJSON(ctx, keyTwoFactorChallenge+user.ID, proof, 10*time.Minute); err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 		if needsChallenge {
-			out.Kind = LoginTwoFactorRequired
+			out.Kind = authflow.LoginTwoFactorRequired
 			out.Challenge, err = s.sendLoginFactor(ctx, user, proof, nonce, settings, "")
 			if err != nil {
-				return LoginOutcome{}, err
+				return authflow.LoginOutcome{}, err
 			}
 		} else {
-			out.Kind = LoginTwoFAEnrollmentRequired
+			out.Kind = authflow.LoginTwoFAEnrollmentRequired
 			for _, method := range s.TwoFactorAllowedMethods() {
-				if (method != "email" || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, TwoFactorFactor{Method: method}) {
+				if (method != "email" || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.TwoFactorFactor{Method: method}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
-			authTime, amr, acr := (SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims()
+			authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims()
 			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, user, &status, map[string]any{"2fa_enrollment": true}, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
 			if err != nil {
-				return LoginOutcome{}, err
+				return authflow.LoginOutcome{}, err
 			}
 			tokens := iam.NewTokenSet(token, "", expires)
 			out.Enrollment = &tokens
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 		return out, nil
 	}
 	if proof.SessionID != "" && !completedMFA {
-		return LoginOutcome{}, iam.ErrStepUpRequired
+		return authflow.LoginOutcome{}, iam.ErrStepUpRequired
 	}
 	if proof.DeletionID != "" {
 		return s.finishRecoveryProof(ctx, tx, proof)
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
 	s.LogSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(proof.Input.IP), nullable(proof.Input.UserAgent))
-	out.Kind = LoginSessionIssued
+	out.Kind = authflow.LoginSessionIssued
 	out.Session = &session
 	return out, nil
 }
 
-func (s *engine) sendLoginFactor(ctx context.Context, user *iam.User, proof loginProof, nonce string, settings *TwoFactorSettings, factorID string) (*TwoFactorChallenge, error) {
+func (s *engine) sendLoginFactor(ctx context.Context, user *iam.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
 	factors := s.loginFactors(proof, settings)
-	var selected *TwoFactorFactor
+	var selected *authflow.TwoFactorFactor
 	for i := range factors {
 		if factorID != "" {
 			if factors[i].ID == factorID {
@@ -193,18 +183,18 @@ func (s *engine) sendLoginFactor(ctx context.Context, user *iam.User, proof logi
 		if factorID != "" || settings == nil || len(settings.BackupCodes) == 0 {
 			return nil, iam.ErrInvalidCode
 		}
-		return &TwoFactorChallenge{Method: "backup_code", Challenge: nonce, Factors: factors}, nil
+		return &authflow.TwoFactorChallenge{Method: "backup_code", Challenge: nonce, Factors: factors}, nil
 	}
 	destination, err := s.send2FACodeForUser(ctx, user, "login:"+proof.NonceHash, *selected)
 	if err != nil {
 		return nil, err
 	}
-	return &TwoFactorChallenge{Method: selected.Method, Destination: destination, Challenge: nonce, Factor: *selected, Factors: factors}, nil
+	return &authflow.TwoFactorChallenge{Method: selected.Method, Destination: destination, Challenge: nonce, Factor: *selected, Factors: factors}, nil
 }
 
 // ResendLoginChallenge changes the selected independent factor while retaining
 // the first-factor proof and its original expiry.
-func (s *engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*TwoFactorChallenge, error) {
+func (s *engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error) {
 	proof, err := s.loadLoginProof(ctx, userID, nonce)
 	if err != nil || proof.Enrollment {
 		return nil, jwt.ErrTokenUnverifiable
@@ -238,37 +228,37 @@ func (s *engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 
 // CompleteLoginChallenge gives one current first-factor grant one successful
 // second-factor completion and commits its session while holding the account lock.
-func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeInput) (LoginOutcome, error) {
+func (s *engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error) {
 	proof, err := s.loadLoginProof(ctx, in.UserID, in.Challenge)
 	if err != nil || proof.Enrollment {
-		return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	if err := s.chargeLoginProofAttempt(ctx, proof); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	defer tx.Rollback(ctx)
 	q := s.qtx(tx)
 	user, err := s.lockAuthenticationAccount(ctx, q, in.UserID, proof.Version, proof.DeletionID != "")
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := s.bindRecoveryGeneration(ctx, tx, user, &proof); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	proof, err = s.loadLoginProof(ctx, in.UserID, in.Challenge)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	settings, err := s.get2FASettings(ctx, q, in.UserID)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	method := "backup_code"
 	var valid bool
@@ -276,7 +266,7 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 		valid, err = s.verifyBackupCode(ctx, q, in.UserID, strings.TrimSpace(in.Code))
 	} else {
 		factors := s.loginFactors(proof, settings)
-		var selected *TwoFactorFactor
+		var selected *authflow.TwoFactorFactor
 		for i := range factors {
 			if in.FactorID != "" {
 				if factors[i].ID == in.FactorID {
@@ -288,7 +278,7 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 			}
 		}
 		if selected == nil {
-			return LoginOutcome{}, iam.ErrInvalidCode
+			return authflow.LoginOutcome{}, iam.ErrInvalidCode
 		}
 		method = selected.Method
 		if method == "totp" {
@@ -298,41 +288,41 @@ func (s *engine) CompleteLoginChallenge(ctx context.Context, in LoginChallengeIn
 		}
 	}
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if !valid {
-		return LoginOutcome{}, iam.ErrInvalidCode
+		return authflow.LoginOutcome{}, iam.ErrInvalidCode
 	}
 	if err := s.claimProof(ctx, keyTwoFactorChallenge+in.UserID, proof.expected); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	methods := append(append([]string(nil), proof.Input.AuthMethods...), method, "otp", "mfa")
-	proof.Input.AuthMethods = normalizeAuthMethods(methods)
+	proof.Input.AuthMethods = authflow.NormalizeAuthMethods(methods)
 	proof.Input.IP = in.IP
 	proof.Input.UserAgent = in.UserAgent
 	status, err := s.MFAStatusWith(settings, nil)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if proof.DeletionID != "" {
 		return s.finishRecoveryProof(ctx, tx, proof)
 	}
 	session, _, evicted, err := s.issueLoginSessionTx(ctx, q, user, status, proof.Input)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
 	s.LogSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(in.IP), nullable(in.UserAgent))
-	return LoginOutcome{Kind: LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
+	return authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
 }
 
 type loginEnrollmentKey struct{}
 
-func (s *engine) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrollInput) (context.Context, error) {
-	if in.Mode != FirstFactorOnly {
+func (s *engine) authorizeLoginEnrollment(ctx context.Context, in authflow.TwoFactorEnrollInput) (context.Context, error) {
+	if in.Mode != authflow.FirstFactorOnly {
 		return ctx, nil
 	}
 	proof, err := s.loadLoginProof(ctx, in.UserID, in.LoginChallenge)
@@ -352,13 +342,13 @@ func (s *engine) authorizeLoginEnrollment(ctx context.Context, in TwoFactorEnrol
 	if strings.EqualFold(strings.TrimSpace(in.Method), "email") && (version.Email == nil || strings.TrimSpace(*version.Email) == "") {
 		return ctx, iam.ErrInvalidTwoFAMethod
 	}
-	if !independentFactor(proof, TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
+	if !independentFactor(proof, authflow.TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
 		return ctx, iam.ErrInvalidTwoFAMethod
 	}
 	return context.WithValue(ctx, loginEnrollmentKey{}, proof), nil
 }
 
-func (s *engine) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrollInput, out TwoFactorEnrollOutcome) (TwoFactorEnrollOutcome, error) {
+func (s *engine) completeFactorEnrollment(ctx context.Context, in authflow.TwoFactorEnrollInput, out authflow.TwoFactorEnrollOutcome) (authflow.TwoFactorEnrollOutcome, error) {
 	proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof)
 	if !ok {
 		return out, nil
@@ -370,7 +360,7 @@ func (s *engine) completeFactorEnrollment(ctx context.Context, in TwoFactorEnrol
 	proof.Input.IP = in.IP
 	login, err := s.finishFirstFactor(ctx, proof)
 	if err != nil {
-		return TwoFactorEnrollOutcome{}, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	out.Login = &login
 	return out, nil
@@ -413,17 +403,17 @@ func (s *engine) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 
 // ContinueRefreshMFA is called only after validating the refresh credential.
 // An old session must repeat a first factor before sensitive factor enrollment.
-func (s *engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error) {
+func (s *engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (authflow.LoginOutcome, error) {
 	fresh, err := s.SessionFreshness(ctx, userID, sessionID, time.Now())
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if time.Since(fresh.LastAuthenticatedAt) > 10*time.Minute {
-		return LoginOutcome{}, iam.ErrStepUpRequired
+		return authflow.LoginOutcome{}, iam.ErrStepUpRequired
 	}
 	version, err := s.q.UserCredentialVersion(ctx, userID)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	return s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: fresh.LastAuthenticatedAt, SessionID: sessionID, Input: LoginSessionInput{UserID: userID, AuthMethods: fresh.AuthMethods, Event: "refresh_mfa"}})
 }

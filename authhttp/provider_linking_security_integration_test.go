@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -257,7 +258,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := fixtureBackend(srv.svc).StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, authkit.TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authkit.AllowAdditionalFactors})
+	_, err = fixtureBackend(srv.svc).EnableTOTP2FA(ctx, authkit.TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)

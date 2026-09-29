@@ -6,6 +6,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/password"
 )
@@ -77,11 +78,11 @@ func (s *engine) rehashPassword(ctx context.Context, userID, hash, algo, pass st
 // ChangePassword verifies the current password, replaces it, invalidates recovery
 // grants and revokes other sessions atomically. keepSessionID may preserve one.
 func (s *engine) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
-	return s.changePassword(ctx, userID, new, &current, keepSessionID, nil, SessionRevokeReasonPasswordChange)
+	return s.changePassword(ctx, userID, new, &current, keepSessionID, nil, authflow.SessionRevokeReasonPasswordChange)
 }
 
 // SetPasswordAfterFreshAuth performs the same mutation for a host-authorized
 // fresh authentication, without requiring the previous password.
 func (s *engine) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
-	return s.changePassword(ctx, userID, new, nil, keepSessionID, nil, SessionRevokeReasonPasswordChange)
+	return s.changePassword(ctx, userID, new, nil, keepSessionID, nil, authflow.SessionRevokeReasonPasswordChange)
 }

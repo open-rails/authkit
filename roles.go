@@ -25,7 +25,7 @@ func (s *engine) splitConfiguredRootRoles(roles []string) (live []string, remove
 	}
 	valid := map[string]struct{}{}
 	if s.groupSchema != nil {
-		if root, ok := s.groupSchema.types[iam.RootPersona]; ok {
+		if root, ok := s.groupSchema.Persona(iam.RootPersona); ok {
 			for _, r := range root.Roles {
 				valid[string(normalizeRootRoleSlug(r.Name))] = struct{}{}
 			}

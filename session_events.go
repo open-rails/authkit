@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -24,7 +25,7 @@ const sessionEventsPruneBatchSize = 5000
 
 // ListSessionEvents returns a user's recent session events, most recent first
 // (capped at listSessionEventsLimit). No eventTypes means all event types.
-func (s *engine) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {
+func (s *engine) ListSessionEvents(ctx context.Context, userID string, eventTypes ...authflow.SessionEventType) ([]authflow.AuthSessionEvent, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -45,14 +46,14 @@ func (s *engine) ListSessionEvents(ctx context.Context, userID string, eventType
 	if err != nil {
 		return nil, err
 	}
-	out := make([]AuthSessionEvent, 0, len(rows))
+	out := make([]authflow.AuthSessionEvent, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, AuthSessionEvent{
+		out = append(out, authflow.AuthSessionEvent{
 			OccurredAt: r.OccurredAt,
 			Issuer:     r.Issuer,
 			UserID:     r.UserID,
 			SessionID:  r.SessionID,
-			Event:      SessionEventType(r.Event),
+			Event:      authflow.SessionEventType(r.Event),
 			Method:     r.Method,
 			Reason:     r.Reason,
 			IPAddr:     r.IpAddr,
@@ -64,7 +65,7 @@ func (s *engine) ListSessionEvents(ctx context.Context, userID string, eventType
 
 // logSessionEvent is the single best-effort sink. No Postgres (verify-only
 // construction) means no history; an insert failure is loud but non-fatal.
-func (s *engine) logSessionEvent(ctx context.Context, e AuthSessionEvent) {
+func (s *engine) logSessionEvent(ctx context.Context, e authflow.AuthSessionEvent) {
 	if s.pg == nil {
 		return
 	}
@@ -95,12 +96,12 @@ func (s *engine) LogSessionCreated(ctx context.Context, userID string, method st
 	if m != "" {
 		mPtr = &m
 	}
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
-		Event:      SessionEventCreated,
+		Event:      authflow.SessionEventCreated,
 		Method:     mPtr,
 		IPAddr:     ip,
 		UserAgent:  ua,
@@ -108,24 +109,24 @@ func (s *engine) LogSessionCreated(ctx context.Context, userID string, method st
 }
 
 func (s *engine) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
-		Event:      SessionEventRevoked,
+		Event:      authflow.SessionEventRevoked,
 		Reason:     reason,
 	})
 }
 
 // LogPasswordChanged records a password change event for a user (best-effort).
 func (s *engine) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
-		Event:      SessionEventPasswordChange,
+		Event:      authflow.SessionEventPasswordChange,
 		IPAddr:     ip,
 		UserAgent:  ua,
 	})
@@ -133,12 +134,12 @@ func (s *engine) LogPasswordChanged(ctx context.Context, userID string, sessionI
 
 // LogPasswordRecovery records a password recovery event for a user (best-effort).
 func (s *engine) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
-		Event:      SessionEventPasswordRecovery,
+		Event:      authflow.SessionEventPasswordRecovery,
 		Method:     &method,
 		IPAddr:     ip,
 		UserAgent:  ua,
@@ -147,12 +148,12 @@ func (s *engine) LogPasswordRecovery(ctx context.Context, userID string, method,
 
 // LogSessionFailed records a failed session event for a user (best-effort).
 func (s *engine) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
-		Event:      SessionEventFailed,
+		Event:      authflow.SessionEventFailed,
 		Reason:     reason,
 		IPAddr:     ip,
 		UserAgent:  ua,

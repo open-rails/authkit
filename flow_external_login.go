@@ -13,55 +13,26 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
-
-// ExternalIdentity is a provider-verified identity.
-type ExternalIdentity struct {
-	Provider          string // provider slug (the configured name)
-	Issuer            string
-	Subject           string
-	Email             string
-	EmailVerified     bool
-	PreferredUsername string
-	DisplayName       string
-}
-
-// ExternalLoginInput is an external-identity login or link attempt.
-type ExternalLoginInput struct {
-	Identity ExternalIdentity
-	// Link authorizes a provider mutation only; it never creates a session.
-	Link               *ExternalLinkAuthorization
-	AccountInviteToken string
-	Event              string // session-created audit event, e.g. "oidc_login"
-	UserAgent          string
-	IP                 string
-}
-
-// ExternalLinkAuthorization records the fresh session that initiated linking.
-// It is carried only in server-side browser state, never accepted from a callback.
-type ExternalLinkAuthorization struct {
-	UserID          string
-	SessionID       string
-	AuthenticatedAt time.Time
-}
 
 // CompleteExternalLogin resolves the identity to a user and signs it in.
 // Resolution errors: ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
 // ErrUserCreationFailed. Session and MFA errors come from the shared login workflow.
-func (s *engine) CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (LoginOutcome, error) {
+func (s *engine) CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error) {
 	userID, created, err := s.ResolveExternalIdentity(ctx, in)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if in.Link != nil {
-		return LoginOutcome{Kind: LoginProviderLinked, UserID: userID}, nil
+		return authflow.LoginOutcome{Kind: authflow.LoginProviderLinked, UserID: userID}, nil
 	}
 	var version int64
 	var providerID string
 	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, in.Identity.Issuer, in.Identity.Subject).Scan(&version, &providerID)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
 	out.Created = created
@@ -74,7 +45,7 @@ func (s *engine) CompleteExternalLogin(ctx context.Context, in ExternalLoginInpu
 // ResolveExternalIdentity maps a verified provider identity to a local user
 // without issuing a session: the explicit link target, the already-linked
 // account, or a newly registered one (created reports the last case).
-func (s *engine) ResolveExternalIdentity(ctx context.Context, in ExternalLoginInput) (userID string, created bool, err error) {
+func (s *engine) ResolveExternalIdentity(ctx context.Context, in authflow.ExternalLoginInput) (userID string, created bool, err error) {
 	id := in.Identity
 	issuer, provider := id.Issuer, id.Provider
 	var emailPtr *string

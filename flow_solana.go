@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/siws"
 )
@@ -103,45 +104,45 @@ func (s *engine) consumeSIWSChallenge(ctx context.Context, nonce string) (siws.C
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
 // It shares the normal MFA/recovery/session tail with other first factors.
-func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error) {
+func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (authflow.LoginOutcome, error) {
 	var userID string
 	var created bool
 	if s.pg == nil {
-		return LoginOutcome{}, fmt.Errorf("postgres not configured")
+		return authflow.LoginOutcome{}, fmt.Errorf("postgres not configured")
 	}
 
 	// Parse the signed message to get the input fields
 	parsedInput, err := siws.ParseMessage(string(output.SignedMessage))
 	if err != nil {
-		return LoginOutcome{}, fmt.Errorf("failed to parse signed message: %w", err)
+		return authflow.LoginOutcome{}, fmt.Errorf("failed to parse signed message: %w", err)
 	}
 
 	// Consume the nonce (single-use): only one concurrent caller wins it, so a
 	// replayed signed message cannot be verified twice (authkit #90).
 	challengeData, found, err := s.consumeSIWSChallenge(ctx, parsedInput.Nonce)
 	if err != nil {
-		return LoginOutcome{}, fmt.Errorf("failed to consume challenge: %w", err)
+		return authflow.LoginOutcome{}, fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return LoginOutcome{}, fmt.Errorf("%w", iam.ErrSIWSChallengeNotFound)
+		return authflow.LoginOutcome{}, fmt.Errorf("%w", iam.ErrSIWSChallengeNotFound)
 	}
 
 	// Run the stateless verification (expiry, address, domain, timestamps,
 	// public-key consistency, signature) against the server-issued challenge.
 	if err := verifySIWSChallenge(challengeData, parsedInput, output, time.Now().UTC()); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 
 	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
 	if err != nil {
-		return LoginOutcome{}, fmt.Errorf("look up Solana link: %w", err)
+		return authflow.LoginOutcome{}, fmt.Errorf("look up Solana link: %w", err)
 	}
 	if found {
 		userID = existingUserID
 		created = false
 		if !verified {
 			if err := s.verifyImportedSolanaLink(ctx, userID, output.Account.Address); err != nil {
-				return LoginOutcome{}, fmt.Errorf("verify imported Solana link: %w", err)
+				return authflow.LoginOutcome{}, fmt.Errorf("verify imported Solana link: %w", err)
 			}
 		}
 	} else {
@@ -149,7 +150,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		// disabled: an existing wallet still logs in via the branch above, but
 		// no NEW account may be auto-created here.
 		if !s.PublicNativeUserRegistrationEnabled() {
-			return LoginOutcome{}, iam.ErrRegistrationDisabled
+			return authflow.LoginOutcome{}, iam.ErrRegistrationDisabled
 		}
 		username := strings.TrimSpace(challengeData.Username)
 		if username == "" || s.ValidateUsername(username) != nil || !s.usernameAvailable(ctx, username) {
@@ -162,14 +163,14 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		// Create user with no email/phone
 		u, err := s.createUser(ctx, "", username)
 		if err != nil {
-			return LoginOutcome{}, fmt.Errorf("failed to create user: %w", err)
+			return authflow.LoginOutcome{}, fmt.Errorf("failed to create user: %w", err)
 		}
 		userID = u.ID
 		created = true
 
 		// Link wallet to user
 		if err := s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil); err != nil {
-			return LoginOutcome{}, fmt.Errorf("failed to link wallet: %w", err)
+			return authflow.LoginOutcome{}, fmt.Errorf("failed to link wallet: %w", err)
 		}
 	}
 
@@ -183,7 +184,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 	var providerID string
 	err = s.pg.QueryRow(ctx, `SELECT u.credential_version,p.id::text FROM users u JOIN user_providers p ON p.user_id=u.id WHERE u.id=$1::uuid AND p.issuer=$2 AND p.subject=$3 AND p.verified_at IS NOT NULL`, userID, s.solanaIssuer(), output.Account.Address).Scan(&version, &providerID)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
 	out.Created = created

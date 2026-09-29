@@ -23,7 +23,7 @@ func softDeleteRuntime(t *testing.T) (*Runtime, *pgxpool.Pool) {
 	cfg := maintenanceConfig()
 	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
-	cfg.RBAC = []PersonaDef{{Name: iam.RootPersona}, {Name: "channel", Parent: iam.RootPersona, Roles: []RoleDef{{Name: "reader", Permissions: []string{"channel:posts:read"}}}}, {Name: "section", Parent: "channel"}}
+	cfg.RBAC = []iam.PersonaDef{{Name: iam.RootPersona}, {Name: "channel", Parent: iam.RootPersona, Roles: []iam.RoleDef{{Name: "reader", Permissions: []string{"channel:posts:read"}}}}, {Name: "section", Parent: "channel"}}
 	runtimeConfig := pg.Pool.Config()
 	runtimeConfig.MaxConns = 1
 	runtimePool, err := pgxpool.NewWithConfig(t.Context(), runtimeConfig)

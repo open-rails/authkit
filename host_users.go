@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -190,17 +192,17 @@ func (s *engine) CreateUser(ctx context.Context, email, username string) (*iam.U
 
 func (s *engine) normalizeImportUserInput(input iam.ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
-		if err := ValidateEmail(trimmed); err != nil {
+		if err := contact.ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		v := NormalizeEmail(trimmed)
+		v := contact.NormalizeEmail(trimmed)
 		email = &v
 	}
 	if trimmed := strings.TrimSpace(input.PhoneNumber); trimmed != "" {
-		if err := ValidatePhone(trimmed); err != nil {
+		if err := contact.ValidatePhone(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		v := NormalizePhone(trimmed)
+		v := contact.NormalizePhone(trimmed)
 		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
@@ -425,7 +427,7 @@ func (s *engine) BanUser(ctx context.Context, userID string, reason *string, unt
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logRevokedSessions(ctx, userID, revoked, string(SessionRevokeReasonBanned))
+	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonBanned))
 	return nil
 }
 
@@ -489,7 +491,7 @@ func (s *engine) softDeleteUser(ctx context.Context, actorUserID, id string) err
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logRevokedSessions(ctx, id, revoked, string(SessionRevokeReasonSoftDeleted))
+	s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))
 	return nil
 }
 
@@ -582,10 +584,10 @@ func (s *engine) updateEmail(ctx context.Context, id, email string) error {
 	if s.pg == nil {
 		return nil
 	}
-	if err := ValidateEmail(email); err != nil {
+	if err := contact.ValidateEmail(email); err != nil {
 		return err
 	}
-	trimmed := NormalizeEmail(email)
+	trimmed := contact.NormalizeEmail(email)
 	u, err := s.getUserByID(ctx, id)
 	if err != nil {
 		return err

@@ -7,6 +7,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 const (
@@ -111,7 +113,7 @@ func normalizePhoneVerificationPurpose(purpose string) string {
 }
 
 func phoneVerificationKey(purpose, phone string) string {
-	return keyPhoneVerify + normalizePhoneVerificationPurpose(purpose) + ":" + NormalizePhone(phone)
+	return keyPhoneVerify + normalizePhoneVerificationPurpose(purpose) + ":" + contact.NormalizePhone(phone)
 }
 
 // storePhoneVerification issues one verification record per (purpose, phone),
@@ -124,14 +126,14 @@ func (s *engine) storePhoneVerification(ctx context.Context, purpose, phone, use
 		ttl = defaultPhoneVerificationTTL
 	}
 	purpose = normalizePhoneVerificationPurpose(purpose)
-	phone = NormalizePhone(phone)
+	phone = contact.NormalizePhone(phone)
 	key := phoneVerificationKey(purpose, phone)
 	s.deletePhoneVerification(ctx, key)
 	version, err := s.q.UserCredentialVersion(ctx, userID)
 	if err != nil {
 		return err
 	}
-	data := phoneVerificationData{ID: RandB64(16), Version: version.CredentialVersion, UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
+	data := phoneVerificationData{ID: secret.RandB64(16), Version: version.CredentialVersion, UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
@@ -159,7 +161,7 @@ func (s *engine) consumePhoneVerification(ctx context.Context, purpose, phone, c
 	if err != nil {
 		return "", err
 	}
-	if !ok || data.ID == "" || data.Version <= 0 || !SecretEqual(data.CodeHash, codeHash) {
+	if !ok || data.ID == "" || data.Version <= 0 || !secret.Equal(data.CodeHash, codeHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimProof(ctx, key, raw); err != nil {
@@ -186,7 +188,7 @@ func (s *engine) storeEmailVerification(ctx context.Context, userID string, emai
 	if err != nil {
 		return err
 	}
-	data := emailVerifyData{ID: RandB64(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
+	data := emailVerifyData{ID: secret.RandB64(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
@@ -211,7 +213,7 @@ func (s *engine) RecordFailedEmailVerifyCode(ctx context.Context, email string) 
 	if !s.useEphemeralStore() {
 		return
 	}
-	email = NormalizeEmail(strings.TrimSpace(email))
+	email = contact.NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return
 	}
@@ -239,7 +241,7 @@ func (s *engine) ClearEmailVerifyCodeAttempts(ctx context.Context, email string)
 	if !s.useEphemeralStore() {
 		return
 	}
-	email = NormalizeEmail(strings.TrimSpace(email))
+	email = contact.NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return
 	}
@@ -249,7 +251,7 @@ func (s *engine) ClearEmailVerifyCodeAttempts(ctx context.Context, email string)
 // invalidateEmailVerifyCodes deletes the outstanding pending registration and
 // existing-user verification record for the address once the attempt cap is hit.
 func (s *engine) invalidateEmailVerifyCodes(ctx context.Context, email string) {
-	email = NormalizeEmail(strings.TrimSpace(email))
+	email = contact.NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return
 	}
@@ -268,7 +270,7 @@ func (s *engine) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) 
 	if !s.useEphemeralStore() {
 		return
 	}
-	phone = NormalizePhone(strings.TrimSpace(phone))
+	phone = contact.NormalizePhone(strings.TrimSpace(phone))
 	if phone == "" {
 		return
 	}
@@ -283,7 +285,7 @@ func (s *engine) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string)
 	if !s.useEphemeralStore() {
 		return
 	}
-	phone = NormalizePhone(strings.TrimSpace(phone))
+	phone = contact.NormalizePhone(strings.TrimSpace(phone))
 	if phone == "" {
 		return
 	}
@@ -294,7 +296,7 @@ func (s *engine) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string)
 // attempt cap is hit: the pending phone registration and the existing-user
 // "verify_phone" record (the two unauthenticated confirm paths).
 func (s *engine) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
-	phone = NormalizePhone(strings.TrimSpace(phone))
+	phone = contact.NormalizePhone(strings.TrimSpace(phone))
 	if phone == "" {
 		return
 	}
@@ -371,7 +373,7 @@ func (s *engine) consumeTwoFactorCode(ctx context.Context, key, codeHash, method
 	if !ok {
 		return false, iam.ErrTwoFACodeExpired
 	}
-	match := SecretEqual(data.CodeHash, codeHash) &&
+	match := secret.Equal(data.CodeHash, codeHash) &&
 		(method == "" || strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)))
 	if !match {
 		if s.recordFailedAttempt(ctx, keyTwoFactorCodeAttempts+key, twoFactorCodeTTL, maxTwoFactorCodeAttempts) {

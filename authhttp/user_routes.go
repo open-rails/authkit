@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +74,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	normalized, err := authkit.NormalizePreferredLanguage(language)
+	normalized, err := authflow.NormalizePreferredLanguage(language)
 	if err != nil || !s.supportsLanguage(normalized) {
 		badRequest(w, iam.CodeInvalidPreferredLanguage)
 		return

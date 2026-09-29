@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +83,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			badRequest(w, iam.CodePasswordResetRequired)
 			return
 		}
-		if authkit.ValidationErrorCode(changeErr) != "" {
+		if authflow.ValidationErrorCode(changeErr) != "" {
 			writeError(w, changeErr)
 			return
 		}

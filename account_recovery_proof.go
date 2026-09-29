@@ -9,15 +9,9 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/secret"
 )
-
-// AccountRecoveryConfirmation is an opaque proof, never an access token or
-// session. Confirmation restores this deletion generation without signing in.
-type AccountRecoveryConfirmation struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	PurgeAt   time.Time `json:"purge_at"`
-}
 
 type accountRecoveryProof struct {
 	AuthMethods []string  `json:"auth_methods"`
@@ -61,24 +55,24 @@ func (s *engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *ia
 	return nil
 }
 
-func (s *engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof loginProof) (LoginOutcome, error) {
+func (s *engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof loginProof) (authflow.LoginOutcome, error) {
 	var now, purgeAt time.Time
 	if err := tx.QueryRow(ctx, `SELECT statement_timestamp(),purge_at FROM account_deletions WHERE id=$1::uuid AND user_id=$2::uuid AND state='deleted' AND purge_at>statement_timestamp()`, proof.DeletionID, proof.Input.UserID).Scan(&now, &purgeAt); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	expires := now.Add(10 * time.Minute)
 	if purgeAt.Before(expires) {
 		expires = purgeAt
 	}
-	token := RandB64(32)
+	token := secret.RandB64(32)
 	record := accountRecoveryProof{UserID: proof.Input.UserID, Generation: proof.DeletionID, Issuer: s.cfg.Token.Issuer, Version: proof.Version, ExpiresAt: expires, AuthMethods: proof.Input.AuthMethods}
 	if err := s.ephemSetJSON(ctx, "account-recovery:"+sha256Hex(token), record, expires.Sub(now)); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
-	return LoginOutcome{Kind: LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
+	return authflow.LoginOutcome{Kind: authflow.LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &authflow.AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
 }
 
 func (s *engine) ConfirmAccountRecovery(ctx context.Context, token string) error {

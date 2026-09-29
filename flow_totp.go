@@ -16,6 +16,9 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 const (
@@ -75,7 +78,7 @@ type TOTPEnrollment struct {
 	UserID      string
 	Code        string
 	MakeDefault bool
-	Mode        FactorEnrollmentMode
+	Mode        authflow.FactorEnrollmentMode
 }
 
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
@@ -298,7 +301,7 @@ func (s *engine) sendEmail2FASetupCode(ctx context.Context, userID string) error
 		return iam.ErrInvalidTwoFAMethod
 	}
 	code := randAlphanumeric(6)
-	email := NormalizeEmail(*user.Email)
+	email := contact.NormalizeEmail(*user.Email)
 	if err := s.ephemSetJSON(ctx, keyEmail2FASetup+userID, email2FASetupData{Email: email, CodeHash: sha256Hex(code)}, email2FASetupTTL); err != nil {
 		return err
 	}
@@ -334,11 +337,11 @@ func (s *engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 	if err != nil {
 		return false, err
 	}
-	if user == nil || user.Email == nil || NormalizeEmail(*user.Email) != data.Email {
+	if user == nil || user.Email == nil || contact.NormalizeEmail(*user.Email) != data.Email {
 		_ = s.ephemDel(ctx, key)
 		return false, iam.ErrTwoFACodeExpired
 	}
-	if !SecretEqual(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+	if !secret.Equal(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
 		if s.recordFailedAttempt(ctx, keyEmail2FASetupAttempts+userID, email2FASetupTTL, maxEmail2FASetupAttempts) {
 			_ = s.ephemDel(ctx, key)
 			return false, iam.ErrTwoFACodeExpired

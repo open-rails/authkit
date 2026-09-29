@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +27,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	hostPool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(hostPool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []PersonaDef{
-		{Name: iam.RootPersona, Roles: []RoleDef{{Name: "manager", Permissions: []string{"root:members:manage", "root:credentials:manage", "root:users:ban"}}, {Name: "reader", Permissions: []string{"root:users:ban"}}}},
-		{Name: "org", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true}, Catalog: []string{"org:records:read", "org:records:write", "org:members:manage", "org:credentials:manage"}, Roles: []RoleDef{{Name: "reader", Permissions: []string{"org:records:read"}}, {Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}}}},
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []iam.PersonaDef{
+		{Name: iam.RootPersona, Roles: []iam.RoleDef{{Name: "manager", Permissions: []string{"root:members:manage", "root:credentials:manage", "root:users:ban"}}, {Name: "reader", Permissions: []string{"root:users:ban"}}}},
+		{Name: "org", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true}, Catalog: []string{"org:records:read", "org:records:write", "org:members:manage", "org:credentials:manage"}, Roles: []iam.RoleDef{{Name: "reader", Permissions: []string{"org:records:read"}}, {Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}}}},
 	}}, Keyset{}, Deps{Postgres: hostPool})
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	root, err := svc.EnsureRootGroup(ctx)
@@ -203,11 +204,11 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				if strings.HasPrefix(op, "mfa") {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = iam.TwoFactorOptional
-					cfg.RBAC = []PersonaDef{{Name: "org", Parent: iam.RootPersona, Roles: []RoleDef{{Name: iam.OwnerRole, Permissions: []string{"org:*"}, RequiresMFA: true}}}}
+					cfg.RBAC = []iam.PersonaDef{{Name: "org", Parent: iam.RootPersona, Roles: []iam.RoleDef{{Name: iam.OwnerRole, Permissions: []string{"org:*"}, RequiresMFA: true}}}}
 					raceSvc = mustNewWithKeys(t, cfg, Keyset{}, Deps{Postgres: hostPool})
-					_, err := raceSvc.Enable2FA(ctx, one, "email", nil, AllowAdditionalFactors)
+					_, err := raceSvc.Enable2FA(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
-					_, err = raceSvc.Enable2FA(ctx, two, "email", nil, AllowAdditionalFactors)
+					_, err = raceSvc.Enable2FA(ctx, two, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
 				}
 				factors := map[string]string{}

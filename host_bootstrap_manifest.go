@@ -11,6 +11,8 @@ import (
 	"github.com/open-rails/authkit/iam"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/password"
 	"gopkg.in/yaml.v3"
@@ -210,7 +212,7 @@ func (s *engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 		return result, err
 	}
 	for _, revoke := range revocations {
-		s.logRevokedSessions(ctx, revoke.userID, revoke.ids, string(SessionRevokeReasonAdminSetPassword))
+		s.logRevokedSessions(ctx, revoke.userID, revoke.ids, string(authflow.SessionRevokeReasonAdminSetPassword))
 	}
 	s.logRBACDrift(ctx)
 	return result, nil
@@ -356,7 +358,7 @@ func (s *engine) findBootstrapUser(ctx context.Context, q *db.Queries, user iam.
 		}
 	}
 	if email := strings.TrimSpace(user.Email); email != "" {
-		row, err := q.UserByEmail(ctx, NormalizeEmail(email))
+		row, err := q.UserByEmail(ctx, contact.NormalizeEmail(email))
 		if err == nil {
 			return userFromByEmailRow(row), nil
 		}
@@ -365,7 +367,7 @@ func (s *engine) findBootstrapUser(ctx context.Context, q *db.Queries, user iam.
 		}
 	}
 	if phone := strings.TrimSpace(user.PhoneNumber); phone != "" {
-		normalized := NormalizePhone(phone)
+		normalized := contact.NormalizePhone(phone)
 		row, err := q.UserByPhone(ctx, &normalized)
 		if err == nil {
 			return userFromByPhoneRow(row), nil

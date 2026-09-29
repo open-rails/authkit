@@ -10,7 +10,10 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 const (
@@ -62,7 +65,7 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, req.AccountInviteToken)
 	mode := normalizePasswordlessMode(req.Mode)
-	language, err := NormalizePreferredLanguage(req.PreferredLanguage)
+	language, err := authflow.NormalizePreferredLanguage(req.PreferredLanguage)
 	if err != nil {
 		return iam.PasswordlessStartResult{}, err
 	}
@@ -120,7 +123,7 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 		rec.CodeHash = sha256Hex(code)
 	}
 	if mode == PasswordlessModeLink || mode == PasswordlessModeBoth {
-		linkToken = RandB64(32)
+		linkToken = secret.RandB64(32)
 		rec.LinkHash = sha256Hex(linkToken)
 	}
 	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
@@ -137,19 +140,9 @@ func (s *engine) StartPasswordless(ctx context.Context, req iam.PasswordlessStar
 	return iam.PasswordlessStartResult{Sent: true, Channel: channel, Code: code, LinkURL: linkURL}, nil
 }
 
-// PasswordlessLoginInput selects either a typed code or a link token, never
-// both, and supplies request metadata for the resulting authentication.
-type PasswordlessLoginInput struct {
-	Identifier string
-	Code       string
-	Token      string
-	UserAgent  string
-	IP         string
-}
-
-func (s *engine) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error) {
+func (s *engine) PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
-		return LoginOutcome{}, iam.ErrPasswordlessDisabled
+		return authflow.LoginOutcome{}, iam.ErrPasswordlessDisabled
 	}
 	var rec passwordlessChallenge
 	var ok bool
@@ -158,44 +151,44 @@ func (s *engine) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInpu
 		hash := sha256Hex(in.Token)
 		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
 		if lookupErr != nil {
-			return LoginOutcome{}, lookupErr
+			return authflow.LoginOutcome{}, lookupErr
 		}
 		if !found {
-			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
 		rec, ok, err = s.loadPasswordlessChallenge(ctx, key)
 		if err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
-		if !ok || !SecretEqual(rec.LinkHash, hash) {
-			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+		if !ok || !secret.Equal(rec.LinkHash, hash) {
+			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
 		if in.Identifier != "" {
 			channel, identifier, err := normalizePasswordlessIdentifier(in.Identifier)
 			if err != nil || channel != rec.Channel || identifier != rec.Identifier {
-				return LoginOutcome{}, jwt.ErrTokenInvalidClaims
+				return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 			}
 		}
 
 	} else if in.Token == "" && in.Identifier != "" && in.Code != "" {
 		channel, identifier, e := normalizePasswordlessIdentifier(in.Identifier)
 		if e != nil {
-			return LoginOutcome{}, e
+			return authflow.LoginOutcome{}, e
 		}
 		rec, ok, err = s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
 		if err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
-		if !ok || rec.CodeHash == "" || !SecretEqual(rec.CodeHash, sha256Hex(in.Code)) {
+		if !ok || rec.CodeHash == "" || !secret.Equal(rec.CodeHash, sha256Hex(in.Code)) {
 			s.RecordFailedPasswordlessCode(ctx, identifier)
-			return LoginOutcome{}, jwt.ErrTokenUnverifiable
+			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
 	} else {
-		return LoginOutcome{}, jwt.ErrTokenInvalidClaims
+		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
 	account, err := s.consumePasswordlessChallenge(ctx, rec)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	s.clearPasswordlessCodeAttempts(ctx, rec.Identifier)
 	method := "email"
@@ -210,7 +203,7 @@ func (s *engine) PasswordlessLogin(ctx context.Context, in PasswordlessLoginInpu
 // superseding any outstanding one. The code hash stays inside the record; only
 // the 256-bit link token gets a global pointer (#301).
 func (s *engine) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
-	rec.ID = RandB64(16)
+	rec.ID = secret.RandB64(16)
 	key := passwordlessKey(rec.Channel, rec.Identifier)
 	s.deletePasswordlessChallenge(ctx, key)
 	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {
@@ -334,7 +327,7 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	if err := tx.Commit(ctx); err != nil {
 		return registeredAccount{}, err
 	}
-	s.logRevokedSessions(ctx, u.ID, revoked, string(SessionRevokeReasonContactProven))
+	s.logRevokedSessions(ctx, u.ID, revoked, string(authflow.SessionRevokeReasonContactProven))
 	return registeredAccount{ID: u.ID, Version: current.CredentialVersion}, nil
 }
 
@@ -420,14 +413,14 @@ func normalizePasswordlessIdentifier(identifier string) (channel, normalized str
 		return "", "", jwt.ErrTokenInvalidClaims
 	}
 	if strings.Contains(identifier, "@") {
-		normalized = NormalizeEmail(identifier)
-		if err := ValidateEmail(normalized); err != nil {
+		normalized = contact.NormalizeEmail(identifier)
+		if err := contact.ValidateEmail(normalized); err != nil {
 			return "", "", err
 		}
 		return PasswordlessChannelEmail, normalized, nil
 	}
-	normalized = NormalizePhone(identifier)
-	if err := ValidatePhone(normalized); err != nil {
+	normalized = contact.NormalizePhone(identifier)
+	if err := contact.ValidatePhone(normalized); err != nil {
 		return "", "", err
 	}
 	return PasswordlessChannelSMS, normalized, nil

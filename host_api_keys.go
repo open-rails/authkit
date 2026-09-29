@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -44,7 +45,7 @@ func randBase62(n int) (string, error) {
 }
 
 func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
-	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, PermCredentialsManage(persona), role)
+	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, iam.PermCredentialsManage(persona), role)
 }
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission
@@ -235,7 +236,7 @@ func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claim
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, PermCredentialsManage(persona), role); err != nil {
+		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, iam.PermCredentialsManage(persona), role); err != nil {
 			return err
 		}
 		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, strings.TrimSpace(tokenID)); err != nil {
@@ -262,7 +263,7 @@ func (s *engine) ResolveAPIKey(ctx context.Context, keyID, secret string) (group
 // ResolveAPIKeyDetailed validates a presented API key and returns the full
 // resolution result (id, key_id, owning group, role, and role-resolved
 // permissions).
-func (s *engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (iam.ResolvedAPIKey, error) {
+func (s *engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, presented string) (iam.ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.ResolvedAPIKey{}, err
 	}
@@ -293,7 +294,7 @@ func (s *engine) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string
 		return iam.ResolvedAPIKey{}, err
 	}
 
-	if !SecretEqual(secretHash, sha256Raw(secret)) {
+	if !secret.Equal(secretHash, sha256Raw(presented)) {
 		return iam.ResolvedAPIKey{}, iam.ErrInvalidAccessToken
 	}
 	if revokedAt != nil {

@@ -216,13 +216,13 @@ func (s *engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 	}
 	now := time.Now().UTC()
 	amr := []string{"device_key"}
-	acr := AssuranceLevelPassword
+	acr := iam.AssuranceLevelPassword
 	if emailProof {
 		amr = append(amr, "email")
 	}
 	if mfaProof {
 		amr = append(amr, "otp", "mfa")
-		acr = AssuranceLevelMFA
+		acr = iam.AssuranceLevelMFA
 	}
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
 		AuthTime:    now.Unix(),

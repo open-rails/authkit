@@ -8,6 +8,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // Account contact-change flows (email + phone). Each is a request / confirm /
@@ -29,7 +31,7 @@ import (
 // record for the same user/kind.
 func (s *engine) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
 	code = randAlphanumeric(6)
-	linkToken = RandB64(32)
+	linkToken = secret.RandB64(32)
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:     kind,
 		Target:   target,
@@ -86,10 +88,10 @@ func (s *engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
-	if err := ValidatePhone(newPhone); err != nil {
+	if err := contact.ValidatePhone(newPhone); err != nil {
 		return err
 	}
-	trimmed := NormalizePhone(newPhone)
+	trimmed := contact.NormalizePhone(newPhone)
 
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -141,10 +143,10 @@ func (s *engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
-	if err := ValidateEmail(newEmail); err != nil {
+	if err := contact.ValidateEmail(newEmail); err != nil {
 		return err
 	}
-	trimmed := NormalizeEmail(newEmail)
+	trimmed := contact.NormalizeEmail(newEmail)
 
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {

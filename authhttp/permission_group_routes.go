@@ -2,7 +2,7 @@ package authhttp
 
 // Auto-generated per-persona group-management HTTP surface (#111, task #15).
 //
-// The route surface IS the capability spec: authkit.GroupSchema.GeneratedRoutes()
+// The route surface IS the capability spec: GeneratedRoutes
 // emits one GeneratedRoute per enabled management capability per persona,
 // addressed by the RESOURCE slug (:instance_slug) and gated by a concrete
 // <persona>:<area>:<action> perm. A disabled capability emits NO route here, so
@@ -18,9 +18,8 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit"
 )
 
 // groupScopeCodes: a group-scoped route answers an unknown group as forbidden,
@@ -85,7 +84,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 // TABLE is unit-testable against a schema profile with no middleware/DB.
 func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 	schema := s.svc.PermissionGroupSchema()
-	specs := generatedRouteSpecs(s, schema.GeneratedRoutes())
+	specs := generatedRouteSpecs(s, GeneratedRoutes(schema))
 	// #263: the generated CREATION route — POST /<persona> — for personas that
 	// opt in. Not instance-addressed (no instance exists yet), so it is gated
 	// by authentication + velocity limits + the reserved-slug/admission policy
@@ -123,7 +122,7 @@ func (s *Service) hasInviteLinkSupport() bool {
 // binding a handler per route that gates on route.Perm and dispatches by the
 // route's path SHAPE (members / members-role / roles / api-keys / ...). The
 // generator's `:param` paths are converted to net/http ServeMux `{param}` syntax.
-func generatedRouteSpecs(s *Service, routes []authkit.GeneratedRoute) []RouteSpec {
+func generatedRouteSpecs(s *Service, routes []GeneratedRoute) []RouteSpec {
 	out := make([]RouteSpec, 0, len(routes))
 	for _, gr := range routes {
 		gr := gr // capture per-iteration
@@ -167,7 +166,7 @@ func pathParam(r *http.Request, name string) string {
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
 //     define/delete routes depend on custom-role support being enabled.
-func (s *Service) generatedGroupHandler(gr authkit.GeneratedRoute) http.HandlerFunc {
+func (s *Service) generatedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := verify.ClaimsFromContext(r.Context())
@@ -189,7 +188,7 @@ func (s *Service) generatedGroupHandler(gr authkit.GeneratedRoute) http.HandlerF
 			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
-		r = r.WithContext(authkit.WithResolvedGroup(r.Context(), instance, instanceSlug))
+		r = r.WithContext(authflow.WithResolvedGroup(r.Context(), instance, instanceSlug))
 
 		// Native authority is live. Remote self credentials additionally remain
 		// bound to their controlling group and verified permission ceiling.

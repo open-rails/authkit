@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -39,18 +40,6 @@ const (
 // transport uses this to skip mounting the /passkeys/* routes entirely rather
 // than exposing endpoints that can only error.
 func (s *engine) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
-
-type Passkey struct {
-	ID                      string     `json:"id"`
-	UserID                  string     `json:"user_id,omitempty"`
-	Label                   *string    `json:"label,omitempty"`
-	Transports              []string   `json:"transports,omitempty"`
-	AuthenticatorAttachment string     `json:"authenticator_attachment,omitempty"`
-	BackupEligible          bool       `json:"backup_eligible"`
-	BackupState             bool       `json:"backup_state"`
-	CreatedAt               time.Time  `json:"created_at"`
-	LastUsedAt              *time.Time `json:"last_used_at,omitempty"`
-}
 
 // VerifiedPasskey is the identity proof a discoverable assertion yields: the
 // stable user and the credential that signed. It carries no session, token,
@@ -198,13 +187,13 @@ func (s *engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 	return creation, s.storePasskeySession(ctx, session, purpose, u.id)
 }
 
-func (s *engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error) {
+func (s *engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (authflow.Passkey, error) {
 	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	return s.insertPasskey(ctx, s.pg, strings.TrimSpace(userID), cred, nil)
 }
@@ -212,31 +201,31 @@ func (s *engine) FinishPasskeyRegistration(ctx context.Context, userID string, r
 // FinishPasskeyReplacement registers the new credential and tombstones every
 // other active passkey of the user in the same transaction, for hosts with a
 // single-passkey policy. Any failure leaves the prior passkeys active.
-func (s *engine) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (Passkey, error) {
+func (s *engine) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (authflow.Passkey, error) {
 	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	userID = strings.TrimSpace(userID)
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := tx
 	p, err := s.insertPasskey(ctx, q, userID, cred, nil)
 	if err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	if _, err := q.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW()
 WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL AND id<>$3`, userID, s.cfg.Passkeys.RPID, p.ID); err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Passkey{}, err
+		return authflow.Passkey{}, err
 	}
 	return p, nil
 }
@@ -286,10 +275,10 @@ func (s *engine) BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAss
 
 // FinishPasskeyLogin composes the verification primitive with the browser
 // session issuance; it is the only passkey path that mints a session.
-func (s *engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (LoginOutcome, error) {
+func (s *engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error) {
 	verified, err := s.finishDiscoverableAssertion(ctx, passkeyPurposeLogin, response)
 	if err != nil {
-		return LoginOutcome{}, err
+		return authflow.LoginOutcome{}, err
 	}
 	address := ""
 	if ip != nil {
@@ -394,52 +383,52 @@ func (s *engine) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount
 // then inserts the user (no email/username/password), its handle and the
 // passkey in one transaction. A replayed or concurrent finish cannot create a
 // second user because the ceremony consume is atomic.
-func (s *engine) FinishPasskeyAccount(ctx context.Context, response []byte) (*iam.User, Passkey, error) {
+func (s *engine) FinishPasskeyAccount(ctx context.Context, response []byte) (*iam.User, authflow.Passkey, error) {
 	if err := s.requirePG(); err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	id, err := uuid.Parse(data.UserID)
 	if data.Purpose != passkeyPurposeAccount || err != nil {
-		return nil, Passkey{}, jwt.ErrTokenUnverifiable
+		return nil, authflow.Passkey{}, jwt.ErrTokenUnverifiable
 	}
 	if !s.PublicNativeUserRegistrationEnabled() {
-		return nil, Passkey{}, iam.ErrRegistrationDisabled
+		return nil, authflow.Passkey{}, iam.ErrRegistrationDisabled
 	}
 	u := passkeyAccountUser(id)
 	cred, err := s.createCredential(u, session, parsed)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := tx
 	if _, err := q.Exec(ctx, `INSERT INTO users (id) VALUES ($1)`, u.id); err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	if _, err := q.Exec(ctx, `INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2)`, u.id, u.handle); err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	p, err := s.insertPasskey(ctx, q, u.id, cred, nil)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	user, err := s.getUserByID(ctx, u.id)
 	if err != nil {
-		return nil, Passkey{}, err
+		return nil, authflow.Passkey{}, err
 	}
 	return user, p, nil
 }
@@ -448,16 +437,16 @@ func passkeyAccountUser(id uuid.UUID) passkeyUser {
 	return passkeyUser{id: id.String(), handle: id[:], name: id.String(), displayName: id.String()}
 }
 
-func (s *engine) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
+func (s *engine) ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error) {
 	rows, err := s.pg.Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, flags, label, created_at, last_used_at
 FROM user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Passkey
+	var out []authflow.Passkey
 	for rows.Next() {
-		var p Passkey
+		var p authflow.Passkey
 		var flags []byte
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &flags, &p.Label, &p.CreatedAt, &p.LastUsedAt); err != nil {
 			return nil, err
@@ -633,8 +622,8 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 	}, nil
 }
 
-func (s *engine) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
-	var p Passkey
+func (s *engine) insertPasskey(ctx context.Context, q db.DBTX, userID string, cred *webauthn.Credential, label *string) (authflow.Passkey, error) {
+	var p authflow.Passkey
 	var flags []byte
 	err := q.QueryRow(ctx, `INSERT INTO user_passkeys
 (user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)

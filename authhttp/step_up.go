@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -77,7 +78,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(body.Method))
-	if method != "" && !authkit.ValidTwoFactorStepUpMethod(method) {
+	if method != "" && !authflow.ValidTwoFactorStepUpMethod(method) {
 		badRequest(w, iam.CodeInvalidTwoFAMethod)
 		return
 	}
@@ -94,7 +95,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		}
 		sendErrData(w, http.StatusForbidden, iam.CodeTwoFARequired, map[string]any{
 			"method":          method,
-			"verification_id": authkit.MaskDestination(destination),
+			"verification_id": contact.MaskDestination(destination),
 		})
 		return
 	}
@@ -262,7 +263,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims v
 	}
 	metadata := map[string]any{
 		"step_up_methods": methods,
-		"max_age_seconds": int64(authkit.SensitiveActionFreshAuthWindow.Seconds()),
+		"max_age_seconds": int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
 	}
 	if twoFA := s.stepUpTwoFactorOptions(r, claims.UserID); twoFA != nil {
 		metadata["step_up_2fa"] = twoFA
@@ -273,7 +274,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims v
 	sendErrData(w, http.StatusForbidden, iam.CodeStepUpRequired, metadata)
 }
 
-func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authkit.SessionFreshness) (map[string]any, error) {
+func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (map[string]any, error) {
 	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sessionID})
 	if err != nil {
 		return nil, err
@@ -291,7 +292,7 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 	}
 	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
 	providerSlugs, _ := s.svc.ProviderSlugs(r.Context(), userID)
-	return authkit.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
+	return authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
 }
 
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *iam.StepUpTwoFactorOptions {
@@ -310,10 +311,10 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *iam.St
 			break
 		}
 	}
-	return authkit.StepUpTwoFactorOptions(settings, email)
+	return authflow.StepUpTwoFactorOptions(settings, email)
 }
 
-func sessionFreshnessResponse(f authkit.SessionFreshness) map[string]any {
+func sessionFreshnessResponse(f authflow.SessionFreshness) map[string]any {
 	out := map[string]any{
 		"step_up_required_for_sensitive_actions": f.StepUpRequiredForSensitiveOps,
 		"time_until_step_up_required":            int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),

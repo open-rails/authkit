@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 // Permission-group model (#111): an N-level, resource-scoped RBAC tree. A
 // permission-group is a persona-scoped container that holds
@@ -15,22 +15,24 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/open-rails/authkit/iam"
 )
 
 // segmentRe matches ONE lowercase permission segment (persona, resource, or
 // action): a letter followed by letters/digits/hyphens.
 var segmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-func validateGroupInstanceSlug(g iam.GroupRef) error {
+// ValidPermissionSegment reports whether s is one permission segment (a
+// persona, resource, action or custom role name).
+func ValidPermissionSegment(s string) bool { return segmentRe.MatchString(s) }
+
+func ValidateGroupInstanceSlug(g GroupRef) error {
 	if g.IsRoot() {
 		if g.Instance != "" {
 			return fmt.Errorf("root group must not have a resource slug")
 		}
 		return nil
 	}
-	if !validSlug(g.Instance) {
+	if !ValidSlug(g.Instance) {
 		return fmt.Errorf("resource slug %q must be lowercase URL-safe", g.Instance)
 	}
 	return nil
@@ -75,7 +77,7 @@ func ValidateGrantPattern(g string) error {
 	}
 	switch len(segs) {
 	case 2:
-		if segs[1] != iam.PermWildcard {
+		if segs[1] != PermWildcard {
 			return fmt.Errorf("grant %q: a two-segment grant must be <persona>:*", g)
 		}
 		return nil
@@ -83,7 +85,7 @@ func ValidateGrantPattern(g string) error {
 		if !segmentRe.MatchString(segs[1]) {
 			return fmt.Errorf("grant %q: resource segment must match [a-z][a-z0-9-]*", g)
 		}
-		if segs[2] != iam.PermWildcard && !segmentRe.MatchString(segs[2]) {
+		if segs[2] != PermWildcard && !segmentRe.MatchString(segs[2]) {
 			return fmt.Errorf("grant %q: action segment must be a name or *", g)
 		}
 		return nil
@@ -95,7 +97,7 @@ func ValidateGrantPattern(g string) error {
 // RoleDef is a named permission bundle within a persona's catalog. Its
 // permissions are grant patterns, all in the owning persona namespace.
 type RoleDef struct {
-	Name        iam.Role
+	Name        Role
 	Permissions []string
 	RequiresMFA bool
 }
@@ -103,26 +105,26 @@ type RoleDef struct {
 // PersonaDef declares one permission-group persona, which is also the first
 // permission segment. `Name == RootPersona` is the parentless singleton.
 type PersonaDef struct {
-	Name         iam.Persona
-	Roles        []RoleDef   // app-declared; owner (=<persona>:*) is injected if absent
-	Parent       iam.Persona // declared persona; empty only for root. Non-root must name exactly one parent.
-	Capabilities iam.PersonaCapabilities
+	Name         Persona
+	Roles        []RoleDef // app-declared; owner (=<persona>:*) is injected if absent
+	Parent       Persona   // declared persona; empty only for root. Non-root must name exactly one parent.
+	Capabilities PersonaCapabilities
 	Catalog      []string
 	// Creation opts the persona into the generated instance-creation route
 	// (#263): POST /<persona>, owner seeded from the authenticated user. Only
 	// root-parented personas may enable it (validated at schema build).
-	Creation iam.InstanceCreationDef
+	Creation InstanceCreationDef
 }
 
 // GroupSchema is the validated, immutable set of declared group personas — the
 // containment schema + catalogs + management  Construct via
 // NewGroupSchema, which validates everything once.
 type GroupSchema struct {
-	types map[iam.Persona]PersonaDef // effective defs (owner injected, roles deduped)
-	order []iam.Persona              // persona names, sorted
+	types map[Persona]PersonaDef // effective defs (owner injected, roles deduped)
+	order []Persona              // persona names, sorted
 	// creationPatterns holds each creation-enabled persona's compiled, anchored
 	// SlugPattern (#263); personas with no extra pattern are absent.
-	creationPatterns map[iam.Persona]*regexp.Regexp
+	creationPatterns map[Persona]*regexp.Regexp
 }
 
 // NewGroupSchema validates an app's declared personas and returns the schema, or
@@ -132,7 +134,7 @@ type GroupSchema struct {
 // namespace; and parent edges reference declared personas and form an acyclic tree rooted
 // at root.
 func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
-	s := &GroupSchema{types: make(map[iam.Persona]PersonaDef, len(types))}
+	s := &GroupSchema{types: make(map[Persona]PersonaDef, len(types))}
 	for _, t := range types {
 		if !segmentRe.MatchString(string(t.Name)) {
 			return nil, fmt.Errorf("group persona %q: name must match [a-z][a-z0-9-]*", t.Name)
@@ -140,7 +142,7 @@ func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
 		if _, dup := s.types[t.Name]; dup {
 			return nil, fmt.Errorf("group persona %q declared twice", t.Name)
 		}
-		t.Parent = iam.Persona(strings.TrimSpace(string(t.Parent)))
+		t.Parent = Persona(strings.TrimSpace(string(t.Parent)))
 		eff, err := normalizePersona(t)
 		if err != nil {
 			return nil, err
@@ -176,11 +178,11 @@ func (s *GroupSchema) validateCreation() error {
 		if !c.Enabled {
 			continue
 		}
-		if name == iam.RootPersona {
+		if name == RootPersona {
 			return fmt.Errorf("group persona %q: the root singleton cannot enable instance creation", name)
 		}
-		if t.Parent != iam.RootPersona {
-			return fmt.Errorf("group persona %q: instance creation requires parent %q, got %q", name, iam.RootPersona, t.Parent)
+		if t.Parent != RootPersona {
+			return fmt.Errorf("group persona %q: instance creation requires parent %q, got %q", name, RootPersona, t.Parent)
 		}
 		if p := strings.TrimSpace(c.SlugPattern); p != "" {
 			re, err := regexp.Compile("^(?:" + p + ")$")
@@ -188,17 +190,17 @@ func (s *GroupSchema) validateCreation() error {
 				return fmt.Errorf("group persona %q: creation slug pattern %q: %w", name, p, err)
 			}
 			if s.creationPatterns == nil {
-				s.creationPatterns = map[iam.Persona]*regexp.Regexp{}
+				s.creationPatterns = map[Persona]*regexp.Regexp{}
 			}
 			s.creationPatterns[name] = re
 		}
 		for _, slug := range c.ReservedSlugs {
-			if err := validateGroupInstanceSlug(iam.GroupRef{Persona: name, Instance: strings.TrimSpace(slug)}); err != nil {
+			if err := ValidateGroupInstanceSlug(GroupRef{Persona: name, Instance: strings.TrimSpace(slug)}); err != nil {
 				return fmt.Errorf("group persona %q: reserved slug: %w", name, err)
 			}
 		}
-		if role := iam.Role(strings.TrimSpace(string(c.ReservedEscalationRole))); role != "" {
-			if _, ok := s.Role(iam.RootPersona, role); !ok {
+		if role := Role(strings.TrimSpace(string(c.ReservedEscalationRole))); role != "" {
+			if _, ok := s.Role(RootPersona, role); !ok {
 				return fmt.Errorf("group persona %q: reserved-slug escalation role %q is not a root catalog role", name, role)
 			}
 		}
@@ -215,15 +217,15 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 			if err := ValidateGrantPattern(g); err != nil {
 				return t, fmt.Errorf("group persona %q catalog: %w", t.Name, err)
 			}
-			if iam.Perm(g).Persona() != t.Name {
+			if Perm(g).Persona() != t.Name {
 				return t, fmt.Errorf("group persona %q catalog: grant %q is cross-persona", t.Name, g)
 			}
 			catalog[g] = struct{}{}
 		}
 	}
 
-	byName := make(map[iam.Role]RoleDef, len(t.Roles)+1)
-	order := make([]iam.Role, 0, len(t.Roles)+1)
+	byName := make(map[Role]RoleDef, len(t.Roles)+1)
+	order := make([]Role, 0, len(t.Roles)+1)
 	add := func(r RoleDef) {
 		if _, ok := byName[r.Name]; !ok {
 			order = append(order, r.Name)
@@ -242,7 +244,7 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 			if err := ValidateGrantPattern(g); err != nil {
 				return t, fmt.Errorf("group persona %q role %q: %w", t.Name, r.Name, err)
 			}
-			if iam.Perm(g).Persona() != t.Name {
+			if Perm(g).Persona() != t.Name {
 				return t, fmt.Errorf("group persona %q role %q: grant %q is cross-persona — a %q role may hold only %q: perms", t.Name, r.Name, g, t.Name, t.Name)
 			}
 			if len(catalog) > 0 {
@@ -256,9 +258,9 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 
 	// Seed owner = <persona>:* (required; namespace-pure). If declared, it must match.
 	want := string(t.Name.OwnerGrant())
-	if owner, ok := byName[iam.OwnerRole]; ok {
+	if owner, ok := byName[OwnerRole]; ok {
 		if len(owner.Permissions) != 1 || owner.Permissions[0] != want {
-			return t, fmt.Errorf("group persona %q: the %q role must hold exactly [%q]", t.Name, iam.OwnerRole, want)
+			return t, fmt.Errorf("group persona %q: the %q role must hold exactly [%q]", t.Name, OwnerRole, want)
 		}
 	} else {
 		// The ROOT persona's injected owner defaults to MFA-required: the apex
@@ -266,7 +268,7 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 		// explicitly declares the root owner role keeps whatever RequiresMFA it
 		// set. Inert when the deployment has 2FA disabled (see
 		// requireMFAForRoleAssignment).
-		add(RoleDef{Name: iam.OwnerRole, Permissions: []string{want}, RequiresMFA: t.Name == iam.RootPersona})
+		add(RoleDef{Name: OwnerRole, Permissions: []string{want}, RequiresMFA: t.Name == RootPersona})
 	}
 
 	eff := t
@@ -287,10 +289,10 @@ func (s *GroupSchema) validateRoot() error {
 	}
 	switch len(roots) {
 	case 0:
-		return fmt.Errorf("no root persona declared (exactly one parentless persona, named %q, is required)", iam.RootPersona)
+		return fmt.Errorf("no root persona declared (exactly one parentless persona, named %q, is required)", RootPersona)
 	case 1:
-		if roots[0] != string(iam.RootPersona) {
-			return fmt.Errorf("the parentless persona must be named %q, got %q", iam.RootPersona, roots[0])
+		if roots[0] != string(RootPersona) {
+			return fmt.Errorf("the parentless persona must be named %q, got %q", RootPersona, roots[0])
 		}
 		return nil
 	default:
@@ -303,7 +305,7 @@ func (s *GroupSchema) validateRoot() error {
 // persona and that the child→parent graph is acyclic (so every persona reaches root).
 func (s *GroupSchema) validateContainment() error {
 	for name, t := range s.types {
-		if name == iam.RootPersona {
+		if name == RootPersona {
 			continue
 		}
 		if t.Parent == "" {
@@ -322,9 +324,9 @@ func (s *GroupSchema) validateContainment() error {
 		grey  = 1
 		black = 2
 	)
-	color := make(map[iam.Persona]int, len(s.types))
-	var visit func(iam.Persona, []string) error
-	visit = func(n iam.Persona, stack []string) error {
+	color := make(map[Persona]int, len(s.types))
+	var visit func(Persona, []string) error
+	visit = func(n Persona, stack []string) error {
 		color[n] = grey
 		if p := s.types[n].Parent; p != "" {
 			switch color[p] {
@@ -350,27 +352,27 @@ func (s *GroupSchema) validateContainment() error {
 }
 
 // Persona returns a declared persona's effective definition.
-func (s *GroupSchema) Persona(name iam.Persona) (PersonaDef, bool) {
+func (s *GroupSchema) Persona(name Persona) (PersonaDef, bool) {
 	t, ok := s.types[name]
 	return t, ok
 }
 
 // CreationDef returns a persona's generated-creation config (#263); ok is false
 // for unknown personas.
-func (s *GroupSchema) CreationDef(persona iam.Persona) (iam.InstanceCreationDef, bool) {
+func (s *GroupSchema) CreationDef(persona Persona) (InstanceCreationDef, bool) {
 	t, ok := s.types[persona]
 	return t.Creation, ok
 }
 
 // CreationEnabled reports whether the persona has the generated creation route.
-func (s *GroupSchema) CreationEnabled(persona iam.Persona) bool {
+func (s *GroupSchema) CreationEnabled(persona Persona) bool {
 	t, ok := s.types[persona]
 	return ok && t.Creation.Enabled
 }
 
-// creationSlugAllowed applies the persona's extra SlugPattern (#263); the
+// CreationSlugAllowed applies the persona's extra SlugPattern (#263); the
 // built-in instance-slug rule is enforced separately by the create path.
-func (s *GroupSchema) creationSlugAllowed(persona iam.Persona, slug string) bool {
+func (s *GroupSchema) CreationSlugAllowed(persona Persona, slug string) bool {
 	re, ok := s.creationPatterns[persona]
 	if !ok {
 		return true
@@ -379,17 +381,17 @@ func (s *GroupSchema) creationSlugAllowed(persona iam.Persona, slug string) bool
 }
 
 // Personas returns the declared persona names, sorted.
-func (s *GroupSchema) Personas() []iam.Persona {
-	out := make([]iam.Persona, len(s.order))
+func (s *GroupSchema) Personas() []Persona {
+	out := make([]Persona, len(s.order))
 	copy(out, s.order)
 	return out
 }
 
 // IsRoot reports whether name is the root persona.
-func (s *GroupSchema) IsRoot(name iam.Persona) bool { return name == iam.RootPersona }
+func (s *GroupSchema) IsRoot(name Persona) bool { return name == RootPersona }
 
 // Roles returns a persona's effective roles (app-declared + seeded owner).
-func (s *GroupSchema) Roles(persona iam.Persona) ([]RoleDef, bool) {
+func (s *GroupSchema) Roles(persona Persona) ([]RoleDef, bool) {
 	t, ok := s.types[persona]
 	if !ok {
 		return nil, false
@@ -399,7 +401,7 @@ func (s *GroupSchema) Roles(persona iam.Persona) ([]RoleDef, bool) {
 	return out, true
 }
 
-func (s *GroupSchema) GrantableUniverse(persona iam.Persona) ([]string, bool) {
+func (s *GroupSchema) GrantableUniverse(persona Persona) ([]string, bool) {
 	t, ok := s.types[persona]
 	if !ok {
 		return nil, false
@@ -422,7 +424,7 @@ func (s *GroupSchema) GrantableUniverse(persona iam.Persona) ([]string, bool) {
 			}
 		}
 	}
-	if persona == iam.RootPersona {
+	if persona == RootPersona {
 		for _, g := range IntrinsicRootPermissions() {
 			add(g)
 		}
@@ -436,7 +438,7 @@ func (s *GroupSchema) GrantableUniverse(persona iam.Persona) ([]string, bool) {
 }
 
 // Role returns a single role from a persona's catalog.
-func (s *GroupSchema) Role(persona iam.Persona, role iam.Role) (RoleDef, bool) {
+func (s *GroupSchema) Role(persona Persona, role Role) (RoleDef, bool) {
 	t, ok := s.types[persona]
 	if !ok {
 		return RoleDef{}, false
@@ -453,12 +455,12 @@ func (s *GroupSchema) Role(persona iam.Persona, role iam.Role) (RoleDef, bool) {
 // proposed (childPersona, parentPersona) edge. root is parentless; every non-root
 // group needs the parent persona declared by the child persona's Parent — so
 // e.g. `root -> repo` is structurally impossible, not merely discouraged.
-func (s *GroupSchema) ValidateParent(childPersona, parentPersona iam.Persona) error {
+func (s *GroupSchema) ValidateParent(childPersona, parentPersona Persona) error {
 	ct, ok := s.types[childPersona]
 	if !ok {
 		return fmt.Errorf("unknown group persona %q", childPersona)
 	}
-	if childPersona == iam.RootPersona {
+	if childPersona == RootPersona {
 		if parentPersona != "" {
 			return fmt.Errorf("the root group is parentless; got parent persona %q", parentPersona)
 		}

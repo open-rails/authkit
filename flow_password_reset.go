@@ -8,6 +8,9 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
@@ -27,7 +30,7 @@ func (s *engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		ttl = time.Hour
 	}
 
-	token := RandB64(32)
+	token := secret.RandB64(32)
 	hash := sha256Hex(token)
 	if err := s.storePasswordReset(ctx, hash, u.ID, "email", email, ttl); err != nil {
 		// Internal error, but do not reveal anything about whether user exists.
@@ -70,7 +73,7 @@ func (s *engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	if err != nil {
 		return "", err
 	}
-	if err := s.changePassword(ctx, rt.UserID, newPassword, nil, nil, &rt, SessionRevokeReasonPasswordChange); err != nil {
+	if err := s.changePassword(ctx, rt.UserID, newPassword, nil, nil, &rt, authflow.SessionRevokeReasonPasswordChange); err != nil {
 		return "", err
 	}
 	return rt.UserID, nil
@@ -104,9 +107,9 @@ func (s *engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 		ttl = time.Hour
 	}
 
-	token := RandB64(32)
+	token := secret.RandB64(32)
 	hash := sha256Hex(token)
-	if err := s.storePasswordReset(ctx, hash, u.ID, "sms", NormalizePhone(phone), ttl); err != nil {
+	if err := s.storePasswordReset(ctx, hash, u.ID, "sms", contact.NormalizePhone(phone), ttl); err != nil {
 		return err
 	}
 

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // handlePasswordLoginPOST: decode, rate-limit, one engine call, one switch.
@@ -30,7 +30,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	out, err := s.svc.PasswordLogin(r.Context(), authkit.PasswordLoginInput{
+	out, err := s.svc.PasswordLogin(r.Context(), authflow.PasswordLoginInput{
 		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {

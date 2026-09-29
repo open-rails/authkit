@@ -15,19 +15,8 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
-
-// CreateInstanceResult reports a generated-creation outcome. Created is false
-// when the slug already existed and the caller is a member (idempotent return).
-type CreateInstanceResult struct {
-	// GroupID is the new (or idempotently returned) instance's uuid (#269). It
-	// is populated on BOTH outcomes: the idempotent re-run is the bootstrap
-	// path, so an id only on Created=true would leave the re-runner with
-	// nothing. Empty only on error.
-	GroupID      string
-	InstanceSlug string
-	Created      bool
-}
 
 // MayCreateInstance consults the host admission seam (#263). A nil predicate
 // allows; a predicate error is wrapped as ErrGroupCreationRefused. The seam
@@ -48,8 +37,8 @@ func (s *engine) MayCreateInstance(ctx context.Context, group iam.GroupRef, subj
 // role, consult the host admission seam, then create the group with ownerUserID
 // seeded as owner. If the slug is already held and the caller is a member of
 // that group, it returns Created=false instead of a conflict.
-func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error) {
-	var out CreateInstanceResult
+func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (authflow.CreateInstanceResult, error) {
+	var out authflow.CreateInstanceResult
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
@@ -115,12 +104,12 @@ func (s *engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 // SlugPattern, and reserved slugs, which only a holder of the configured
 // root-group escalation role may take; with no role configured they are never
 // claimable.
-func (s *engine) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, group iam.GroupRef, actorUserID string) error {
+func (s *engine) authorizeSlugClaim(ctx context.Context, sch *iam.GroupSchema, group iam.GroupRef, actorUserID string) error {
 	persona, slug := group.Persona, group.Instance
-	if err := validateGroupInstanceSlug(group); err != nil {
+	if err := iam.ValidateGroupInstanceSlug(group); err != nil {
 		return fmt.Errorf("%w: %w", iam.ErrGroupSlugInvalid, err)
 	}
-	if !sch.creationSlugAllowed(persona, slug) {
+	if !sch.CreationSlugAllowed(persona, slug) {
 		return fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, iam.ErrGroupSlugInvalid)
 	}
 	def, _ := sch.CreationDef(persona)
@@ -202,7 +191,7 @@ func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 		return iam.ErrRemoteApplicationNotFound
 	}
 	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
-		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), role); err != nil {
+		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermCredentialsManage(persona), role); err != nil {
 			return err
 		}
 		subject := iam.RemoteAppSubject(ra.ID)
@@ -211,7 +200,7 @@ func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 			return err
 		}
 		if old != "" && old != role {
-			if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermCredentialsManage(persona), old); err != nil {
+			if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermCredentialsManage(persona), old); err != nil {
 				return err
 			}
 			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {

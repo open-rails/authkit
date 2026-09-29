@@ -233,14 +233,14 @@ func isUniqueViolation(err error, constraint string) bool {
 
 // applicationsEnabled validates the self-registration configuration and
 // returns the org persona definition.
-func (s *engine) applicationsEnabled() (PersonaDef, error) {
+func (s *engine) applicationsEnabled() (iam.PersonaDef, error) {
 	if !s.cfg.Applications.SelfRegistration {
-		return PersonaDef{}, iam.ErrApplicationRegistrationDisabled
+		return iam.PersonaDef{}, iam.ErrApplicationRegistrationDisabled
 	}
 	persona := iam.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
 	if !ok || persona == iam.RootPersona || td.Parent != iam.RootPersona {
-		return PersonaDef{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared persona parented by root", iam.ErrApplicationRegistrationDisabled, persona)
+		return iam.PersonaDef{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared persona parented by root", iam.ErrApplicationRegistrationDisabled, persona)
 	}
 	return td, nil
 }

@@ -172,7 +172,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	enrolled := finishDeviceEnrollment(t, srv, sender, enrollment, privateKey)
 	claims := unverifiedAccessClaims(t, enrolled.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email"}, claims["amr"])
-	require.Equal(t, authkit.AssuranceLevelPassword, claims["acr"])
+	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"])
 	require.Equal(t, enrolled.DeviceKey.ID, claims["device_key_id"])
 	require.NotEmpty(t, claims["auth_time"])
 	require.NotEmpty(t, claims["sub"])

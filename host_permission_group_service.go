@@ -20,15 +20,15 @@ import (
 
 // PermissionGroupSchema returns the validated schema this Runtime was built with
 // (the intrinsic root-only schema if constructed without Config groups).
-func (s *engine) PermissionGroupSchema() *GroupSchema {
+func (s *engine) PermissionGroupSchema() *iam.GroupSchema {
 	return s.groupSchemaOrDefault()
 }
 
-func (s *engine) groupSchemaOrDefault() *GroupSchema {
+func (s *engine) groupSchemaOrDefault() *iam.GroupSchema {
 	if s.groupSchema != nil {
 		return s.groupSchema
 	}
-	gs, _ := BuildSchema() // root-only; cannot fail
+	gs, _ := iam.BuildSchema() // root-only; cannot fail
 	return gs
 }
 
@@ -124,7 +124,7 @@ func (s *engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermis
 	if !ok {
 		return "", fmt.Errorf("unknown group persona %q: %w", req.Persona, iam.ErrUnknownGroupPersona)
 	}
-	if err := validateGroupInstanceSlug(group); err != nil {
+	if err := iam.ValidateGroupInstanceSlug(group); err != nil {
 		return "", err
 	}
 	parentPersona := req.ParentPersona
@@ -151,7 +151,7 @@ func (s *engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermis
 			parentID, err = st.RootGroupID(ctx)
 		} else {
 			parent := iam.GroupRef{Persona: parentPersona, Instance: req.ParentInstanceSlug}
-			if err := validateGroupInstanceSlug(parent); err != nil {
+			if err := iam.ValidateGroupInstanceSlug(parent); err != nil {
 				return "", err
 			}
 			parentID, err = st.GroupByInstanceSlug(ctx, parent)
@@ -223,7 +223,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 		}
 		return out, err
 	}
-	allowed, err := st.CanOnGroup(ctx, s.groupSchemaOrDefault(), iam.UserSubject(actorUserID), groupID, PermSettingsManage(persona))
+	allowed, err := st.CanOnGroup(ctx, s.groupSchemaOrDefault(), iam.UserSubject(actorUserID), groupID, iam.PermSettingsManage(persona))
 	if err != nil {
 		return out, err
 	}
@@ -276,7 +276,7 @@ func (s *engine) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g
 	if g.IsRoot() {
 		return st.RootGroupID(ctx)
 	}
-	if err := validateGroupInstanceSlug(g); err != nil {
+	if err := iam.ValidateGroupInstanceSlug(g); err != nil {
 		return "", err
 	}
 	return st.GroupByInstanceSlug(ctx, g)
@@ -314,7 +314,7 @@ func (s *engine) GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (
 // validRoleForPersona reports whether role is assignable in a group of persona: a
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
-func (s *engine) validRoleForPersona(sch *GroupSchema, persona iam.Persona, role iam.Role) bool {
+func (s *engine) validRoleForPersona(sch *iam.GroupSchema, persona iam.Persona, role iam.Role) bool {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if role == "" {
 		return false
@@ -525,14 +525,14 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 	if !td.Capabilities.CustomRoles {
 		return fmt.Errorf("group persona %q does not allow custom roles: %w", persona, iam.ErrCustomRolesNotSupported)
 	}
-	if !segmentRe.MatchString(string(role)) {
+	if !iam.ValidPermissionSegment(string(role)) {
 		return fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*: %w", role, iam.ErrCustomRoleNameInvalid)
 	}
 	if _, isCatalog := sch.Role(persona, role); isCatalog {
 		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom: %w", role, iam.ErrCustomRoleIsCatalogRole)
 	}
 	for _, p := range permissions {
-		if err := ValidateGrantPattern(p); err != nil {
+		if err := iam.ValidateGrantPattern(p); err != nil {
 			return err
 		}
 		if iam.Perm(p).Persona() != persona {

@@ -47,7 +47,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []PersonaDef{
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []iam.PersonaDef{
 		{Name: "org", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true, APIKeys: true}, Catalog: []string{"org:billing:read", "org:billing:write"}},
 		{Name: "repo", Parent: "org"}, {Name: "leaf", Parent: "repo"},
 	}}, Keyset{}, Deps{Postgres: pool})

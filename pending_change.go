@@ -8,6 +8,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // PendingChangeKind identifies one of the four verification-gated "deferred
@@ -77,9 +79,9 @@ func (k PendingChangeKind) defaultTTL() time.Duration {
 // service does, so lookups by target are stable.
 func normalizePendingTarget(kind PendingChangeKind, target string) string {
 	if kind.isEmail() {
-		return NormalizeEmail(target)
+		return contact.NormalizeEmail(target)
 	}
-	return NormalizePhone(target)
+	return contact.NormalizePhone(target)
 }
 
 func pendingChangeKey(kind PendingChangeKind, id string) string {
@@ -119,7 +121,7 @@ func (s *engine) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	if rec.CodeHash == "" && rec.LinkHash == "" {
 		return fmt.Errorf("pending change without verification secret")
 	}
-	rec.ID = RandB64(16)
+	rec.ID = secret.RandB64(16)
 	if rec.Kind.isRegister() {
 		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
 	} else {
@@ -288,7 +290,7 @@ func (s *engine) finalizePendingChange(ctx context.Context, rec pendingChange, k
 // attempt caps bound guessing. keepSessionID is the confirming session a
 // contact change must not revoke (nil for registrations and link confirms).
 func (s *engine) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
-	if !SecretEqual(rec.CodeHash, sha256Hex(code)) {
+	if !secret.Equal(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimPendingChange(ctx, rec); err != nil {
@@ -309,7 +311,7 @@ func (s *engine) consumePendingChangeByLink(ctx context.Context, linkHash string
 	if err != nil {
 		return "", err
 	}
-	if !ok || rec.Kind != expectKind || !SecretEqual(rec.LinkHash, linkHash) {
+	if !ok || rec.Kind != expectKind || !secret.Equal(rec.LinkHash, linkHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimPendingChange(ctx, rec); err != nil {

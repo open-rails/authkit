@@ -12,8 +12,8 @@ import (
 
 func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []PersonaDef{
-		IntrinsicRootPersona(RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}),
+	cfg := Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{
+		iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}),
 	}}
 	first, err := NewWithKeys(cfg, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 
 func TestRuntimeConstructorWithoutRBACPreservesSharedTopology(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	owner, err := NewWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []PersonaDef{IntrinsicRootPersona(RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}), {Name: "merchant", Parent: iam.RootPersona}}}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	owner, err := NewWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}), {Name: "merchant", Parent: iam.RootPersona}}}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(owner.Close)
 	user, err := owner.Client().CreateUser(t.Context(), "shared-topology@example.test", "shared-topology")

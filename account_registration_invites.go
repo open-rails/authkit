@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
@@ -58,8 +60,8 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.Cr
 	if err := s.requirePG(); err != nil {
 		return iam.AccountRegistrationInviteCreated{}, err
 	}
-	email := NormalizeEmail(req.Email)
-	if err := ValidateEmail(email); err != nil {
+	email := contact.NormalizeEmail(req.Email)
+	if err := contact.ValidateEmail(email); err != nil {
 		return iam.AccountRegistrationInviteCreated{}, err
 	}
 	invitedBy := strings.TrimSpace(req.InvitedBy)
@@ -95,7 +97,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.Cr
 		}
 		groupID = &gid
 	} else if requireRootInvitePermission {
-		ok, err := s.Can(ctx, iam.UserSubject(invitedBy), iam.RootGroup(), PermRootUsersInvite)
+		ok, err := s.Can(ctx, iam.UserSubject(invitedBy), iam.RootGroup(), iam.PermRootUsersInvite)
 		if err != nil {
 			return iam.AccountRegistrationInviteCreated{}, err
 		}
@@ -109,7 +111,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req iam.Cr
 		ttl = defaultAccountRegistrationInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-	code := RandB64(32)
+	code := secret.RandB64(32)
 	codeHash := sha256Hex(code)
 	var roleParam *iam.Role
 	if carriesRole {

@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -97,7 +98,7 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupI
 		ttl = maxGroupInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-	code := RandB64(32)
+	code := secret.RandB64(32)
 	var id string
 	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, invitedBy, role); err != nil {
@@ -202,7 +203,7 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, PermMembersManage(persona), role); err != nil {
+		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, iam.PermMembersManage(persona), role); err != nil {
 			return err
 		}
 		_, err = st.q.Exec(ctx, `UPDATE group_invite_links SET revoked_at=now(), updated_at=now() WHERE id=$1::uuid`, linkID)

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -16,7 +15,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.RBAC = []authkit.PersonaDef{authkit.IntrinsicRootPersona(authkit.RoleDef{Name: "reader", Permissions: []string{"root:posts:read"}})}
+	cfg.RBAC = []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "reader", Permissions: []string{"root:posts:read"}})}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	setTestProviders(f.service, authprovider.Google("google-client", "secret"), authprovider.Discord("discord-client", "secret"))
 	f.mount()

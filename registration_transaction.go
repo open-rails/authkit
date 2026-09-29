@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -14,7 +15,7 @@ type accountRegistration struct {
 	User        iam.ImportUserInput
 	Language    string
 	InviteToken string
-	Provider    *ExternalIdentity
+	Provider    *authflow.ExternalIdentity
 }
 
 type registeredAccount struct {

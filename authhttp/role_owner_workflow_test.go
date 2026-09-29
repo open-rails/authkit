@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -14,7 +13,7 @@ import (
 func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := instanceCreateTestConfig()
-	cfg.RBAC[1].Roles = append(cfg.RBAC[1].Roles, authkit.RoleDef{Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
+	cfg.RBAC[1].Roles = append(cfg.RBAC[1].Roles, iam.RoleDef{Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
 	require.NoError(t, client.SeedPermissionGroupContainment(ctx))

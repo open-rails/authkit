@@ -8,8 +8,9 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -39,8 +40,8 @@ type contactChannel struct {
 
 func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
-		validate:        authkit.ValidateEmail,
-		normalize:       authkit.NormalizeEmail,
+		validate:        contact.ValidateEmail,
+		normalize:       contact.NormalizeEmail,
 		senderAvailable: s.svc.HasEmailSender,
 		requestVerification: func(ctx context.Context, id string) error {
 			return s.svc.RequestEmailVerification(ctx, id, 0)
@@ -64,8 +65,8 @@ func (s *Service) emailChannel() contactChannel {
 
 func (s *Service) phoneChannel() contactChannel {
 	return contactChannel{
-		validate:        authkit.ValidatePhone,
-		normalize:       authkit.NormalizePhone,
+		validate:        contact.ValidatePhone,
+		normalize:       contact.NormalizePhone,
 		senderAvailable: s.svc.SMSAvailable,
 		requestVerification: func(ctx context.Context, id string) error {
 			return s.svc.RequestPhoneVerification(ctx, id, 0)
@@ -177,7 +178,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	in := authkit.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
@@ -209,7 +210,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	if out.Kind == authkit.LoginContactChanged {
+	if out.Kind == authflow.LoginContactChanged {
 		noContent(w)
 		return
 	}
@@ -283,7 +284,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if _, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword); err != nil {
-		if authkit.ValidationErrorCode(err) != "" {
+		if authflow.ValidationErrorCode(err) != "" {
 			writeError(w, err)
 			return
 		}

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.service.svc.AdminSetPassword(ctx, user.ID, pass))
 	require.NoError(t, f.service.svc.MarkEmailVerified(ctx, user.ID))
-	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, authkit.AllowAdditionalFactors)
+	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	login := func() (map[string]any, string) {

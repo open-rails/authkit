@@ -3,35 +3,22 @@ package authkit
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 // Preferred-language: validation, get/set on the user profile, and the
 // context helpers that thread the active language through send flows.
 
-var preferredLanguageRe = regexp.MustCompile(`^[A-Za-z]{2}$`)
-
-func NormalizePreferredLanguage(language string) (string, error) {
-	language = strings.TrimSpace(strings.ToLower(language))
-	if language == "" {
-		return "", nil
-	}
-	if !preferredLanguageRe.MatchString(language) {
-		return "", iam.E(iam.CodeInvalidPreferredLanguage)
-	}
-	return language, nil
-}
-
 func (s *engine) SetPreferredLanguage(ctx context.Context, userID, language string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
 	userID = strings.TrimSpace(userID)
-	normalized, err := NormalizePreferredLanguage(language)
+	normalized, err := authflow.NormalizePreferredLanguage(language)
 	if err != nil {
 		return err
 	}

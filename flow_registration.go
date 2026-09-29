@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
@@ -18,7 +21,7 @@ func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	if !allowed {
 		return "", iam.ErrRegistrationDisabled
 	}
-	language, err := NormalizePreferredLanguage(preferredLanguage)
+	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {
 		return "", err
 	}
@@ -28,7 +31,7 @@ func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	}
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := RandB64(32)
+	linkToken := secret.RandB64(32)
 	linkHash := sha256Hex(linkToken)
 
 	if err := s.storePendingChange(ctx, pendingChange{
@@ -61,7 +64,7 @@ func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 // Returns (emailTaken, usernameTaken, error)
 func (s *engine) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
 	var emailTaken, usernameTaken bool
-	email = NormalizeEmail(email)
+	email = contact.NormalizeEmail(email)
 	username = strings.TrimSpace(username)
 	if s.pg != nil {
 		taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username, AtTime: s.namingNow()})
@@ -96,14 +99,14 @@ func (s *engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 	if !allowed {
 		return "", iam.ErrRegistrationDisabled
 	}
-	language, err := NormalizePreferredLanguage(preferredLanguage)
+	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {
 		return "", err
 	}
 	sendCtx := contextWithPreferredLanguage(ctx, language)
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := RandB64(32)
+	linkToken := secret.RandB64(32)
 	linkHash := sha256Hex(linkToken)
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:              KindRegisterPhone,
@@ -137,7 +140,7 @@ func (s *engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 // Returns (phoneTaken, usernameTaken, error)
 func (s *engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
 	var phoneTaken, usernameTaken bool
-	phone = NormalizePhone(phone)
+	phone = contact.NormalizePhone(phone)
 	username = strings.TrimSpace(username)
 
 	if s.pg != nil {

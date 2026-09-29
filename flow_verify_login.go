@@ -9,26 +9,17 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
-
-// VerificationInput completes a delivered code/link. UserID and SessionID are
-// supplied only from an authenticated host principal for contact changes.
-type VerificationInput struct {
-	Identifier string
-	Code       string
-	Token      string
-	UserID     string
-	SessionID  string
-	UserAgent  string
-	IP         string
-}
 
 // ConfirmVerification is the shared registration/contact-verification workflow.
 // Verification that authenticates a user returns the same MFA/session outcome
 // as password and provider login; a contact mutation returns contact_changed.
-func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) (LoginOutcome, error) {
+func (s *engine) ConfirmVerification(ctx context.Context, in authflow.VerificationInput) (authflow.LoginOutcome, error) {
 	if in.Token != "" && in.Code != "" || in.Token == "" && (in.Identifier == "" || in.Code == "") {
-		return LoginOutcome{}, jwt.ErrTokenInvalidClaims
+		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
 	kinds := []PendingChangeKind{KindRegisterEmail, KindRegisterPhone, KindVerifyEmail, KindVerifyPhone, KindChangeEmail, KindChangePhone}
 	for _, kind := range kinds {
@@ -37,20 +28,20 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 		}
 		rec, ok, err := s.verificationRecord(ctx, kind, in)
 		if err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 		if !ok {
 			continue
 		}
 		if in.Token != "" {
-			if !SecretEqual(rec.LinkHash, sha256Hex(in.Token)) {
+			if !secret.Equal(rec.LinkHash, sha256Hex(in.Token)) {
 				continue
 			}
-		} else if !SecretEqual(rec.CodeHash, sha256Hex(in.Code)) {
+		} else if !secret.Equal(rec.CodeHash, sha256Hex(in.Code)) {
 			continue
 		}
 		if err := s.claimPendingChange(ctx, rec); err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 		var account registeredAccount
 		if kind.isRegister() {
@@ -80,12 +71,12 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 			}
 			_, err = s.finalizePendingChange(ctx, rec, keep)
 			if err != nil {
-				return LoginOutcome{}, err
+				return authflow.LoginOutcome{}, err
 			}
-			return LoginOutcome{Kind: LoginContactChanged, UserID: rec.UserID}, nil
+			return authflow.LoginOutcome{Kind: authflow.LoginContactChanged, UserID: rec.UserID}, nil
 		}
 		if err != nil {
-			return LoginOutcome{}, err
+			return authflow.LoginOutcome{}, err
 		}
 		method, event := "email", "email_verification"
 		if !kind.isEmail() {
@@ -105,10 +96,10 @@ func (s *engine) ConfirmVerification(ctx context.Context, in VerificationInput) 
 			s.RecordFailedPhoneVerifyCode(ctx, in.Identifier)
 		}
 	}
-	return LoginOutcome{}, jwt.ErrTokenUnverifiable
+	return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 }
 
-func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
+func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
 	if kind == KindVerifyEmail || kind == KindVerifyPhone {
 		return s.existingVerificationRecord(ctx, kind, in)
 	}
@@ -135,7 +126,7 @@ func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind,
 	return rec, rec.Kind == kind && (in.Identifier == "" || rec.Target == normalizePendingTarget(kind, in.Identifier)), nil
 }
 
-func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingChangeKind, in VerificationInput) (pendingChange, bool, error) {
+func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
 	var key, linkKey string
 	if in.Token != "" {
 		prefix := keyEmailVerifyLink
@@ -150,7 +141,7 @@ func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingCha
 			return pendingChange{}, false, err
 		}
 	} else if kind == KindVerifyEmail {
-		user, err := s.getUserByEmail(ctx, NormalizeEmail(in.Identifier))
+		user, err := s.getUserByEmail(ctx, contact.NormalizeEmail(in.Identifier))
 		if errors.Is(err, pgx.ErrNoRows) || user == nil && err == nil {
 			return pendingChange{}, false, nil
 		}

@@ -20,7 +20,7 @@ import (
 )
 
 func validateRemoteAppSlug(slug string) error {
-	if !validSlug(slug) {
+	if !iam.ValidSlug(slug) {
 		return iam.ErrInvalidRemoteApplication
 	}
 	return nil

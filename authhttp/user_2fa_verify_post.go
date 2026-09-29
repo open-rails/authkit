@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +38,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	out, err := s.svc.CompleteLoginChallenge(r.Context(), authkit.LoginChallengeInput{UserID: userID, Challenge: challenge, FactorID: strings.TrimSpace(req.FactorID), Code: code, BackupCode: req.BackupCode, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
+	out, err := s.svc.CompleteLoginChallenge(r.Context(), authflow.LoginChallengeInput{UserID: userID, Challenge: challenge, FactorID: strings.TrimSpace(req.FactorID), Code: code, BackupCode: req.BackupCode, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
 		logLoginFailed(s, r, userID, "invalid_challenge_or_code")
 		unauthorized(w, codeRejection(err))

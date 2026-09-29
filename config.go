@@ -57,7 +57,7 @@ type Config struct {
 	DeviceKeys DeviceKeysConfig
 	// RBAC declares the app's permission-group personas (#111): containment
 	// schema plus per-persona role catalogs. Empty yields root-only.
-	RBAC []PersonaDef
+	RBAC []iam.PersonaDef
 
 	// Applications configures application self-registration (#264): domain-
 	// proven remote applications with service-owned orgs. Zero value = disabled

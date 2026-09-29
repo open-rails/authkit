@@ -39,6 +39,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -474,7 +475,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodPost, "/passkeys/register/finish", string(attest(t, authn, creation)), setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var created authkit.Passkey
+	var created authflow.Passkey
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
 	require.NotEmpty(t, created.ID)
 	require.True(t, created.BackupEligible)
@@ -506,7 +507,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.RefreshToken)
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
-	require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 	require.ElementsMatch(t, []any{"swk", "mfa"}, claims["amr"])
 	require.NotZero(t, claims["auth_time"])
 
@@ -534,7 +535,7 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
-		Data []authkit.Passkey `json:"data"`
+		Data []authflow.Passkey `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
 	require.Len(t, listed.Data, 1)
@@ -821,7 +822,7 @@ func passwordlessTestServer(t *testing.T, autoRegister bool) (*Service, *capture
 // drive runs one generated route handler at a concrete (no sub-resource) path,
 // with the caller's claims set, and returns the recorder. Sub-resource DELETEs
 // (:key / :app / :invite) are driven inline via driveSub.
-func (s *Service) drive(t *testing.T, gr authkit.GeneratedRoute, instanceSlug, caller, body string) *httptest.ResponseRecorder {
+func (s *Service) drive(t *testing.T, gr GeneratedRoute, instanceSlug, caller, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	path := strings.ReplaceAll(gr.Path, ":instance_slug", instanceSlug)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, strings.NewReader(body))
@@ -834,7 +835,7 @@ func (s *Service) drive(t *testing.T, gr authkit.GeneratedRoute, instanceSlug, c
 
 // driveSub runs a sub-resource handler (DELETE with :key/:app/:invite) at a
 // concrete path, with claims set.
-func (s *Service) driveSub(t *testing.T, gr authkit.GeneratedRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
+func (s *Service) driveSub(t *testing.T, gr GeneratedRoute, repl *strings.Replacer, caller string) *httptest.ResponseRecorder {
 	t.Helper()
 	path := repl.Replace(gr.Path)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, nil)
@@ -867,15 +868,15 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // applications on for the role-assignment route.
 func instanceCreateTestConfig() authkit.Config {
 	cfg := newServerTestConfig()
-	cfg.RBAC = []authkit.PersonaDef{
-		{Name: iam.RootPersona, Roles: []authkit.RoleDef{
+	cfg.RBAC = []iam.PersonaDef{
+		{Name: iam.RootPersona, Roles: []iam.RoleDef{
 			{Name: "site-admin", Permissions: []string{"root:resources:read"}},
 		}},
 		{
 			Name:         "org",
 			Parent:       iam.RootPersona,
 			Capabilities: iam.PersonaCapabilities{RemoteApplications: true},
-			Roles: []authkit.RoleDef{
+			Roles: []iam.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
 				{Name: "credential-manager", Permissions: []string{"org:credentials:manage", "org:credentials:read"}},
 			},

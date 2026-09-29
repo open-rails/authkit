@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // importUsersChunkSize bounds rows per multi-row INSERT. 13 cols/row keeps the
@@ -256,7 +257,7 @@ func (s *engine) bulkInsertPasswordHashes(ctx context.Context, rows []preparedIm
 // importRejectReason maps a validation error to a stable-ish reason string for
 // ImportUserResult. Falls back to the error text.
 func importRejectReason(err error) string {
-	if code := ValidationErrorCode(err); code != "" {
+	if code := authflow.ValidationErrorCode(err); code != "" {
 		return string(code)
 	}
 	return err.Error()

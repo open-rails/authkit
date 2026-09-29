@@ -3,7 +3,6 @@ package authhttp
 import (
 	"testing"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		require.Empty(t, enabled.Tokens.RefreshToken, "step-up style response never rotates the refresh token")
 		claims := unverifiedAccessClaims(t, enabled.Tokens.AccessToken)
 		require.ElementsMatch(t, []any{"pwd", method, "otp", "mfa"}, claims["amr"])
-		require.Equal(t, authkit.AssuranceLevelMFA, claims["acr"])
+		require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 		require.Equal(t, true, claims["mfa_enrolled"])
 		require.Contains(t, enabled.raw, `"fresh_auth"`)
 		refreshed := f.expect(200, refresh(enrolling.RefreshToken))

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +33,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	ip := parseIP(s.requestIP(r))
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), refreshToken, ua, ip)
 	if err != nil {
-		var continuation *authkit.MFAContinuationRequiredError
+		var continuation *authflow.MFAContinuationRequiredError
 		if errors.As(err, &continuation) {
 			out, continueErr := s.svc.ContinueRefreshMFA(r.Context(), continuation.UserID, continuation.SessionID)
 			if continueErr != nil {

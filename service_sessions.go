@@ -16,34 +16,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
-
-const SensitiveActionFreshAuthWindow = 15 * time.Minute
-
-const (
-	AssuranceLevelPassword = "urn:authkit:loa:1"
-	AssuranceLevelMFA      = "urn:authkit:loa:2"
-)
-
-type SessionFreshness struct {
-	LastAuthenticatedAt           time.Time
-	TimeUntilStepUpRequired       time.Duration
-	StepUpRequiredForSensitiveOps bool
-	AuthMethods                   []string
-}
-
-func (f SessionFreshness) AssuranceClaims() (authTime int64, amr []string, acr string) {
-	amr = normalizeAuthMethods(f.AuthMethods)
-	acr = AssuranceLevelPassword
-	for _, method := range amr {
-		if method == "otp" || method == "mfa" {
-			acr = AssuranceLevelMFA
-			break
-		}
-	}
-	return f.LastAuthenticatedAt.Unix(), amr, acr
-}
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
 func (s *engine) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
@@ -85,7 +61,7 @@ func (s *engine) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID,
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
 func (s *engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
-	rt := RandB64(32)
+	rt := secret.RandB64(32)
 	var exp *time.Time
 	if s.cfg.Token.RefreshTokenDuration > 0 {
 		deadline := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
@@ -109,12 +85,12 @@ func (s *engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 			return "", "", nil, nil, err
 		}
 	}
-	_, err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, FamilyID: family, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: normalizeAuthMethods(authMethods)})
+	_, err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, FamilyID: family, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods)})
 	return sid, rt, exp, evicted, err
 }
 
 func (s *engine) logSessionEvictions(ctx context.Context, userID string, evicted []string) {
-	reason := string(SessionRevokeReasonEvicted)
+	reason := string(authflow.SessionRevokeReasonEvicted)
 	for _, id := range evicted {
 		s.logSessionRevoked(ctx, userID, id, &reason)
 	}
@@ -167,7 +143,7 @@ func (s *engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	// The rotation also seals the successor under the token it replaces (ak#274), so
 	// that a racer who presents the same predecessor an instant from now is handed
 	// THIS successor rather than a second chain of its own.
-	newTok := RandB64(32)
+	newTok := secret.RandB64(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
 		NewTokenHash:             newHash,
@@ -275,7 +251,7 @@ func (s *engine) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	mfa, mfaErr := s.MFAStatus(ctx, userID)
 	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
 		if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) || errors.Is(err, ErrTwoFARequired) {
-			return "", time.Time{}, &MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
+			return "", time.Time{}, &authflow.MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
 		}
 		return "", time.Time{}, err
 	}
@@ -368,20 +344,20 @@ func (s *engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
 }
 
-func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa iam.MFAStatus, in LoginSessionInput) (IssuedSession, *time.Time, []string, error) {
+func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa iam.MFAStatus, in LoginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
-		return IssuedSession{}, nil, nil, err
+		return authflow.IssuedSession{}, nil, nil, err
 	}
 	sid, rt, exp, evicted, err := s.insertRefreshSessionTx(ctx, q, user.ID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods)
 	if err != nil {
-		return IssuedSession{}, nil, nil, err
+		return authflow.IssuedSession{}, nil, nil, err
 	}
 	fresh, err := q.SessionFreshSince(ctx, db.SessionFreshSinceParams{UserID: user.ID, SessionID: sid, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
-		return IssuedSession{}, nil, nil, err
+		return authflow.IssuedSession{}, nil, nil, err
 	}
-	authTime, amr, acr := (SessionFreshness{LastAuthenticatedAt: fresh.FreshSince, AuthMethods: fresh.AuthMethods}).AssuranceClaims()
+	authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: fresh.FreshSince, AuthMethods: fresh.AuthMethods}).AssuranceClaims()
 	extra := make(map[string]any, len(in.Extra)+1)
 	for k, v := range in.Extra {
 		extra[k] = v
@@ -391,7 +367,7 @@ func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *i
 		mfa.Satisfied = true
 	}
 	token, accessExp, err := s.mintAccessTokenForUserWithAssurance(ctx, user, &mfa, extra, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr})
-	return IssuedSession{SessionID: sid, RefreshToken: rt, AccessToken: token, AccessExpiresAt: accessExp}, exp, evicted, err
+	return authflow.IssuedSession{SessionID: sid, RefreshToken: rt, AccessToken: token, AccessExpiresAt: accessExp}, exp, evicted, err
 }
 
 // lockLoginAccount serializes proof completion with credential recovery. Zero
@@ -457,14 +433,14 @@ func (s *engine) ListUserSessions(ctx context.Context, userID string) ([]iam.Ses
 	return out, nil
 }
 
-func (s *engine) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
+func (s *engine) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error) {
 	if s.pg == nil {
-		return SessionFreshness{}, errors.New("postgres not configured")
+		return authflow.SessionFreshness{}, errors.New("postgres not configured")
 	}
 	userID = strings.TrimSpace(userID)
 	sessionID = strings.TrimSpace(sessionID)
 	if userID == "" || sessionID == "" {
-		return SessionFreshness{}, jwt.ErrTokenInvalidClaims
+		return authflow.SessionFreshness{}, jwt.ErrTokenInvalidClaims
 	}
 	if now.IsZero() {
 		now = time.Now()
@@ -472,18 +448,18 @@ func (s *engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 
 	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
-		return SessionFreshness{}, err
+		return authflow.SessionFreshness{}, err
 	}
 
-	remaining := SensitiveActionFreshAuthWindow - now.Sub(fresh.FreshSince)
+	remaining := authflow.SensitiveActionFreshAuthWindow - now.Sub(fresh.FreshSince)
 	if remaining < 0 {
 		remaining = 0
 	}
-	return SessionFreshness{
+	return authflow.SessionFreshness{
 		LastAuthenticatedAt:           fresh.FreshSince,
 		TimeUntilStepUpRequired:       remaining,
 		StepUpRequiredForSensitiveOps: remaining <= 0,
-		AuthMethods:                   normalizeAuthMethods(fresh.AuthMethods),
+		AuthMethods:                   authflow.NormalizeAuthMethods(fresh.AuthMethods),
 	}, nil
 }
 
@@ -506,7 +482,7 @@ func (s *engine) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID
 		SessionID:   sessionID,
 		UserID:      userID,
 		Issuer:      s.cfg.Token.Issuer,
-		AuthMethods: normalizeAuthMethods(authMethods),
+		AuthMethods: authflow.NormalizeAuthMethods(authMethods),
 	})
 	if err != nil {
 		return err
@@ -517,34 +493,14 @@ func (s *engine) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID
 	return nil
 }
 
-func normalizeAuthMethods(methods []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(methods))
-	for _, method := range methods {
-		method = strings.ToLower(strings.TrimSpace(method))
-		if method == "" {
-			continue
-		}
-		if _, ok := seen[method]; ok {
-			continue
-		}
-		seen[method] = struct{}{}
-		out = append(out, method)
-	}
-	if len(out) == 0 {
-		return []string{"pwd"}
-	}
-	return out
-}
-
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
 func (s *engine) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
 	if s.pg == nil {
 		return nil
 	}
-	reason := sessionRevokeReasonFromContext(ctx)
+	reason := authflow.SessionRevokeReasonFrom(ctx)
 	if reason == nil {
-		v := string(SessionRevokeReasonUserRevoke)
+		v := string(authflow.SessionRevokeReasonUserRevoke)
 		reason = &v
 	}
 	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
@@ -564,9 +520,9 @@ func (s *engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSe
 	if s.pg == nil {
 		return nil
 	}
-	reason := sessionRevokeReasonFromContext(ctx)
+	reason := authflow.SessionRevokeReasonFrom(ctx)
 	if reason == nil {
-		v := string(SessionRevokeReasonUserRevokeAll)
+		v := string(authflow.SessionRevokeReasonUserRevokeAll)
 		reason = &v
 	}
 	tx, err := s.beginAuthorityTransaction(ctx)
@@ -610,8 +566,8 @@ func (s *engine) revokeAccountSessions(ctx context.Context, actorUserID, userID 
 		return out, err
 	}
 	userID = strings.TrimSpace(userID)
-	reason := string(SessionRevokeReasonAdminRevokeAll)
-	if r := sessionRevokeReasonFromContext(ctx); r != nil {
+	reason := string(authflow.SessionRevokeReasonAdminRevokeAll)
+	if r := authflow.SessionRevokeReasonFrom(ctx); r != nil {
 		reason = *r
 	}
 	tx, err := s.beginAuthorityTransaction(ctx)
@@ -655,10 +611,10 @@ func (s *engine) revokeAccountSessions(ctx context.Context, actorUserID, userID 
 	out.RevokedDeviceKeys = int(keys)
 	out.UnlistedIssuerSessions = int(unlisted)
 	s.logRevokedSessions(ctx, userID, revoked, reason)
-	s.logSessionEvent(ctx, AuthSessionEvent{
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		Issuer: s.cfg.Token.Issuer,
 		UserID: userID,
-		Event:  SessionEventAccountSessionsRevoked,
+		Event:  authflow.SessionEventAccountSessionsRevoked,
 		Reason: &reason,
 	})
 	return out, nil
@@ -695,7 +651,7 @@ func revokeSessionsTx(ctx context.Context, q *db.Queries, userID string, issuers
 // logRevokedSessions records each revocation under the session's own issuer.
 func (s *engine) logRevokedSessions(ctx context.Context, userID string, revoked []revokedSession, reason string) {
 	for _, r := range revoked {
-		s.logSessionEvent(ctx, AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: SessionEventRevoked, Reason: &reason})
+		s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: authflow.SessionEventRevoked, Reason: &reason})
 	}
 }
 
@@ -736,7 +692,7 @@ func (s *engine) revokeFamily(ctx context.Context, familyID string) error {
 	if err != nil {
 		return err
 	}
-	reason := string(SessionRevokeReasonRefreshReuseDetected)
+	reason := string(authflow.SessionRevokeReasonRefreshReuseDetected)
 	for _, r := range rows {
 		s.logSessionRevoked(ctx, r.UserID, r.ID, &reason)
 	}

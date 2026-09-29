@@ -60,7 +60,7 @@ func NewPermissionGroupStore(q db.DBTX) *PermissionGroupStore {
 // SeedContainment reconciles the containment schema (group_persona_parents) from a
 // validated GroupSchema. Idempotent; call once at bootstrap so the DB trigger
 // can enforce the declared tree shape. root has no rows (parentless).
-func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *GroupSchema) error {
+func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *iam.GroupSchema) error {
 	live := make([]string, 0, len(schema.Personas()))
 	for _, persona := range schema.Personas() {
 		if schema.IsRoot(persona) {
@@ -267,7 +267,7 @@ func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // the subject's assignments at each ancestor where it holds at least one role —
 // exactly the []GroupAssignment that GroupSchema.ResolveGrants/Can consume. This
 // is the additive walk-up made concrete.
-func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]GroupAssignment, error) {
+func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]iam.GroupAssignment, error) {
 	assignments, _, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, false)
 	return assignments, err
 }
@@ -276,14 +276,14 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 // A delete/recreate cannot combine a retired membership with the replacement
 // role's permissions. Include all definitions on assigned groups, preserving
 // the existing authorization resolver's scope for target-role checks.
-func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject iam.Subject, definitions bool) ([]GroupAssignment, CustomRoleResolver, error) {
+func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject iam.Subject, definitions bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	return st.readAssignments(ctx, groupID, subject, definitions, false)
 }
 
 // Authorization excludes deleted/reserved native accounts in the same MVCC
 // query. Ban freshness is separate. Introspection and no-escalation comparisons
 // must retain latent assignments, including those of a deleted target.
-func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID string, subject iam.Subject, definitions, requirePresentUser bool) ([]GroupAssignment, CustomRoleResolver, error) {
+func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID string, subject iam.Subject, definitions, requirePresentUser bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, definitions, requirePresentUser)
 	if err != nil {
 		return nil, nil, err
@@ -293,7 +293,7 @@ func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID str
 
 // readAssignmentsForGroups walks every live target's parent chain in one
 // recursive query. Deleted, unknown and malformed targets have no assignments.
-func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, definitions, requirePresentUser bool) (map[string][]GroupAssignment, CustomRoleResolver, error) {
+func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, definitions, requirePresentUser bool) (map[string][]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return nil, nil, err
@@ -307,7 +307,7 @@ func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 		p, ok := custom[key{group, role}]
 		return p, ok
 	}
-	out := map[string][]GroupAssignment{}
+	out := map[string][]iam.GroupAssignment{}
 	ids := groupBatchIDs(groupIDs)
 	if len(ids) == 0 {
 		return out, resolver, nil
@@ -329,7 +329,7 @@ func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 	seen := map[[2]string]bool{}
 	for rows.Next() {
 		var target string
-		var assignment GroupAssignment
+		var assignment iam.GroupAssignment
 		var role *string
 		var permissions []string
 		if err := rows.Scan(&target, &assignment.PermissionGroupID, &assignment.Persona, &assignment.Role, &role, &permissions); err != nil {
@@ -499,7 +499,7 @@ func (st *PermissionGroupStore) CustomRole(ctx context.Context, groupID string, 
 // CustomRolesFor preloads the custom roles for a set of group ids and returns a
 // CustomRoleResolver backed by the result — so the pure decision core resolves
 // custom-role grants without per-call DB access.
-func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []string) (CustomRoleResolver, error) {
+func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []string) (iam.CustomRoleResolver, error) {
 	if len(groupIDs) == 0 {
 		return func(string, iam.Role) ([]string, bool) { return nil, false }, nil
 	}
@@ -539,7 +539,7 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 // schema. The caller constructs perm per the two-persona rule (e.g. for an
 // action on a persona-RT resource reached from an ancestor of persona LT, the perm is
 // `LT:RT:<action>`).
-func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSchema, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
+func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
 	assignments, resolver, err := st.readAssignments(ctx, groupID, subject, true, subject.Kind == iam.SubjectKindUser)
 	if err != nil {
 		return false, err
@@ -552,7 +552,7 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 // against the schema's catalog + per-group custom roles, in one query. Globs
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
 // are absent. Latent assignments of deleted/reserved accounts are included.
-func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *GroupSchema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
+func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
 	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, true, false)
 	if err != nil {
 		return nil, err
@@ -567,7 +567,7 @@ func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *Grou
 }
 
 // GrantsOnGroup is GrantsOnGroups for one group; no grants is an empty slice.
-func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subject iam.Subject, groupID string) ([]string, error) {
+func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string) ([]string, error) {
 	grants, err := st.GrantsOnGroups(ctx, schema, subject, []string{groupID})
 	if err != nil {
 		return nil, err

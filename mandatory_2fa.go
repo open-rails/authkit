@@ -10,29 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 var ErrTwoFARequired = iam.E(iam.CodeTwoFARequired)
-
-// MFAContinuationRequiredError identifies the already-validated refresh session
-// that needs a first-factor continuation. It never authorizes an arbitrary user.
-type MFAContinuationRequiredError struct {
-	UserID    string
-	SessionID string
-	Reason    error
-}
-
-func (e *MFAContinuationRequiredError) Error() string { return e.Reason.Error() }
-func (e *MFAContinuationRequiredError) Unwrap() error { return e.Reason }
-
-type RemovedMFARoleAssignment struct {
-	PermissionGroupID string
-	Persona           iam.Persona
-	InstanceSlug      string
-	Role              iam.Role
-	RemovedAt         time.Time
-}
 
 func (s *engine) MFAStatus(ctx context.Context, userID string) (iam.MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
@@ -45,7 +27,7 @@ func (s *engine) MFAStatus(ctx context.Context, userID string) (iam.MFAStatus, e
 // through MFAStatus, the step-up methods, and the step-up 2FA options — does not
 // recompute the read. Behaviour matches MFAStatus exactly: a "no 2FA row" lookup
 // (pgx.ErrNoRows) is the empty/disabled status, any other error propagates.
-func (s *engine) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (iam.MFAStatus, error) {
+func (s *engine) MFAStatusWith(settings *authflow.TwoFactorSettings, settingsErr error) (iam.MFAStatus, error) {
 	if errors.Is(settingsErr, pgx.ErrNoRows) {
 		return iam.MFAStatus{}, nil
 	}
@@ -234,7 +216,7 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 // without MFA enrolled is inconsistent independent of whether the app is
 // currently enforcing it, and application-mode toggles must never themselves
 // mutate role/2FA state (only gate checks).
-func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
+func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]authflow.RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
 		   FROM group_user_roles a
@@ -247,9 +229,9 @@ func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	// Drain + close the cursor BEFORE issuing any further query on q: q may be a
 	// single-connection pgx.Tx, which cannot interleave a new query with an
 	// still-open result set from a prior one.
-	var candidates []RemovedMFARoleAssignment
+	var candidates []authflow.RemovedMFARoleAssignment
 	for rows.Next() {
-		var r RemovedMFARoleAssignment
+		var r authflow.RemovedMFARoleAssignment
 		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
 			rows.Close()
 			return nil, err
@@ -262,7 +244,7 @@ func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 		return nil, rerr
 	}
 
-	var removals []RemovedMFARoleAssignment
+	var removals []authflow.RemovedMFARoleAssignment
 	for _, r := range candidates {
 		needsMFA, err := s.roleRequiresMFA(ctx, q, r.PermissionGroupID, r.Persona, r.Role)
 		if err != nil {

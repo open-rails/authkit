@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // getUserByPhone returns a user by phone number (if any)
@@ -24,8 +26,8 @@ func (s *engine) getUserByPhone(ctx context.Context, phone string) (*iam.User, e
 
 // RequestEmailVerification creates a verification code and dispatches an email.
 func (s *engine) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
-	email = NormalizeEmail(email)
-	if err := ValidateEmail(email); err != nil {
+	email = contact.NormalizeEmail(email)
+	if err := contact.ValidateEmail(email); err != nil {
 		return err
 	}
 	if s.pg != nil {
@@ -63,7 +65,7 @@ func (s *engine) sendEmailVerificationToUser(ctx context.Context, u *iam.User, t
 	}
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := RandB64(32)
+	linkToken := secret.RandB64(32)
 	linkTokenHash := sha256Hex(linkToken)
 	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
 		return err
@@ -108,8 +110,8 @@ func (s *engine) GetUserByPhone(ctx context.Context, phone string) (*iam.User, e
 // RequestPhoneVerification looks up the user by phone number and sends a verification code.
 // This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
 func (s *engine) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
-	phone = NormalizePhone(phone)
-	if err := ValidatePhone(phone); err != nil {
+	phone = contact.NormalizePhone(phone)
+	if err := contact.ValidatePhone(phone); err != nil {
 		return err
 	}
 	if s.pg != nil {
@@ -149,7 +151,7 @@ func (s *engine) SendPhoneVerificationToUser(ctx context.Context, phone, userID 
 	// Generate a numeric code for manual entry + a high-entropy link token.
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
-	linkToken := RandB64(32)
+	linkToken := secret.RandB64(32)
 	linkHash := sha256Hex(linkToken)
 	if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, ttl); err != nil {
 		return err

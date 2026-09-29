@@ -8,8 +8,9 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -47,8 +48,8 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	email := authkit.NormalizeEmail(req.Email)
-	if len(email) > 320 || authkit.ValidateEmail(email) != nil || len(strings.TrimSpace(req.PublicKey)) != 43 || len(strings.TrimSpace(req.Label)) > 128 {
+	email := contact.NormalizeEmail(req.Email)
+	if len(email) > 320 || contact.ValidateEmail(email) != nil || len(strings.TrimSpace(req.PublicKey)) != 43 || len(strings.TrimSpace(req.Label)) > 128 {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
@@ -92,7 +93,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 	}
 	result, err := s.svc.FinishDeviceKeyEnrollment(r.Context(), req.EnrollmentID, req.Code, req.Signature, req.SecondFactor)
 	if err != nil {
-		var secondFactor *authkit.DeviceKeySecondFactorRequired
+		var secondFactor *authflow.DeviceKeySecondFactorRequired
 		switch {
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a

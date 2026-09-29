@@ -25,17 +25,17 @@ import (
 const orgPersona iam.Persona = "org"
 
 func withRBAC(c *authkit.Config) {
-	c.RBAC = []authkit.PersonaDef{
-		authkit.IntrinsicRootPersona(
-			authkit.RoleDef{Name: "superadmin", Permissions: authkit.IntrinsicRootPermissions()},
-			authkit.RoleDef{Name: "moderator", Permissions: []string{authkit.PermRootUsersBan}},
-			authkit.RoleDef{Name: "admin", Permissions: []string{authkit.PermRootUsersBan, authkit.PermRootUsersRecover, authkit.PermRootResourcesRead}},
+	c.RBAC = []iam.PersonaDef{
+		iam.IntrinsicRootPersona(
+			iam.RoleDef{Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
+			iam.RoleDef{Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
+			iam.RoleDef{Name: "admin", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersRecover, iam.PermRootResourcesRead}},
 		),
 		{
 			Name:         orgPersona,
 			Parent:       iam.RootPersona,
 			Capabilities: iam.PersonaCapabilities{RemoteApplications: true, APIKeys: true, CustomRoles: true},
-			Roles: []authkit.RoleDef{
+			Roles: []iam.RoleDef{
 				{Name: "member", Permissions: []string{"org:catalog:read"}},
 				{Name: "manager", Permissions: []string{"org:members:manage", "org:members:read", "org:credentials:manage", "org:credentials:read", "org:roles:manage", "org:roles:read", "org:catalog:read"}},
 			},

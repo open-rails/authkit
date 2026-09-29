@@ -11,6 +11,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -23,7 +24,7 @@ func accountRecoveryToken(t *testing.T, raw string) string {
 		Error struct {
 			Code     string `json:"code"`
 			Metadata struct {
-				Recovery authkit.AccountRecoveryConfirmation `json:"recovery"`
+				Recovery authflow.AccountRecoveryConfirmation `json:"recovery"`
 			} `json:"metadata"`
 		} `json:"error"`
 	}
@@ -58,7 +59,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.service.svc.AdminSetPassword(t.Context(), user.ID, "Correct-recovery-password-1"))
 	require.NoError(t, f.service.svc.MarkEmailVerified(t.Context(), user.ID))
-	backups, err := fixtureBackend(f.service.svc).Enable2FA(t.Context(), user.ID, "email", nil, authkit.AllowAdditionalFactors)
+	backups, err := fixtureBackend(f.service.svc).Enable2FA(t.Context(), user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	beforeDelete := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
 	beforeCode := f.email.lastLoginCode()
@@ -122,7 +123,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 		f.expect(302, next)
 		require.Equal(t, string(iam.CodeAccountRecoveryRequired), fragment.Get("error"))
 		require.Empty(t, fragment.Get("access_token"))
-		var recovery authkit.AccountRecoveryConfirmation
+		var recovery authflow.AccountRecoveryConfirmation
 		require.NoError(t, json.Unmarshal([]byte(fragment.Get("recovery")), &recovery))
 		require.NotEmpty(t, recovery.Token)
 		f.expect(204, f.post("/account/recovery/confirm", map[string]any{"token": recovery.Token}))

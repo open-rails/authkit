@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 )
 
@@ -33,7 +34,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	}
 
 	owner1 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner1, "email", nil, AllowAdditionalFactors); err != nil {
+	if _, err := svc.Enable2FA(ctx, owner1, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner1: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(owner1), iam.OwnerRole); err != nil {
@@ -48,14 +49,14 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if err != nil || !status.Enabled {
 		t.Fatalf("sole owner's 2FA must remain enabled after a refused disable; status=%+v err=%v", status, err)
 	}
-	if ok, err := svc.Can(ctx, iam.UserSubject(owner1), iam.RootGroup(), PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, iam.UserSubject(owner1), iam.RootGroup(), iam.PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("sole owner must still hold root:* after a refused disable; got %v,%v", ok, err)
 	}
 
 	// Add a second owner; now owner1 can disable their own 2FA (only their
 	// owner role is stripped, owner2 is unaffected).
 	owner2 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner2, "email", nil, AllowAdditionalFactors); err != nil {
+	if _, err := svc.Enable2FA(ctx, owner2, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner2: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(owner2), iam.OwnerRole); err != nil {
@@ -69,10 +70,10 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if len(removed) != 1 || removed[0].Role != iam.OwnerRole {
 		t.Fatalf("removed = %+v, want only the owner role", removed)
 	}
-	if ok, _ := svc.Can(ctx, iam.UserSubject(owner1), iam.RootGroup(), PermRootResourcesRead); ok {
+	if ok, _ := svc.Can(ctx, iam.UserSubject(owner1), iam.RootGroup(), iam.PermRootResourcesRead); ok {
 		t.Fatalf("owner1 should have lost root:* after disabling 2FA")
 	}
-	if ok, err := svc.Can(ctx, iam.UserSubject(owner2), iam.RootGroup(), PermRootResourcesRead); err != nil || !ok {
+	if ok, err := svc.Can(ctx, iam.UserSubject(owner2), iam.RootGroup(), iam.PermRootResourcesRead); err != nil || !ok {
 		t.Fatalf("owner2 should be unaffected; got %v,%v", ok, err)
 	}
 }

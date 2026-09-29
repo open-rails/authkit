@@ -23,6 +23,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
@@ -342,7 +343,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	cfg.TwoFactor.Mode = iam.TwoFactorRequired
 	cfg.Registration.Verification = iam.RegistrationVerificationRequired
 	cfg.Passkeys = authkit.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
-	cfg.RBAC = []authkit.PersonaDef{{Name: iam.RootPersona, Roles: []authkit.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
+	cfg.RBAC = []iam.PersonaDef{{Name: iam.RootPersona, Roles: []iam.RoleDef{{Name: "admin", Permissions: []string{"root:*"}, RequiresMFA: true}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := context.Background()
 	// Registration proof reaches a restricted enrollment token. Complete an
@@ -442,7 +443,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	verify := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "verification_required", verify.Error.Code)
 	require.NoError(t, f.service.svc.MarkEmailVerified(ctx, user.ID))
-	backups, err := fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, authkit.AllowAdditionalFactors)
+	backups, err := fixtureBackend(f.service.svc).Enable2FA(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email}))
 	ch := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
@@ -496,7 +497,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.NoError(t, old.service.svc.AdminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
 	require.NoError(t, old.service.svc.MarkEmailVerified(ctx, refreshUser.ID))
 	initial := old.expect(200, old.post("/password/login", map[string]any{"identifier": *refreshUser.Email, "password": "Correct-horse-battery-1"}))
-	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, refreshUser.ID, "email", nil, authkit.AllowAdditionalFactors)
+	_, err = fixtureBackend(f.service.svc).Enable2FA(ctx, refreshUser.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 	require.Equal(t, "2fa_required", needed.Error.Code)

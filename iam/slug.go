@@ -1,4 +1,4 @@
-package authkit
+package iam
 
 import (
 	"regexp"
@@ -9,9 +9,9 @@ import (
 // slugs — an application registers slug = domain); max 253, no consecutive dots.
 var slugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
-// validSlug reports whether slug is a well-formed DNS-name-shaped identifier.
+// ValidSlug reports whether slug is a well-formed DNS-name-shaped identifier.
 // Remote-application and permission-group instance slugs share exactly this
 // shape; each caller owns the error it maps a rejection to.
-func validSlug(slug string) bool {
+func ValidSlug(slug string) bool {
 	return len(slug) <= 253 && slugRe.MatchString(slug) && !strings.Contains(slug, "..")
 }

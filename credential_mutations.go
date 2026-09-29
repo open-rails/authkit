@@ -9,13 +9,14 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/password"
 )
 
 // mutateCredentials owns the account lock and the transaction for credential
 // writes. No caller may authorize from a password/version read before this lock.
-func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason SessionRevokeReason, apply func(pgx.Tx, *db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
+func (s *engine) mutateCredentials(ctx context.Context, userID string, keepSessionID *string, reason authflow.SessionRevokeReason, apply func(pgx.Tx, *db.Queries, db.UserCredentialVersionForUpdateRow) error) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -55,7 +56,7 @@ func (s *engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID 
 	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
 }
 
-func (s *engine) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason SessionRevokeReason) error {
+func (s *engine) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason authflow.SessionRevokeReason) error {
 	if strings.TrimSpace(userID) == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -119,7 +120,7 @@ func (s *engine) changePassword(ctx context.Context, userID, new string, current
 	if err != nil {
 		return err
 	}
-	s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
+	s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 	sessionID := ""
 	if keepSessionID != nil {
 		sessionID = *keepSessionID

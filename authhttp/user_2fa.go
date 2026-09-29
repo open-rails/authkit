@@ -8,9 +8,10 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 )
 
@@ -109,7 +110,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	starting := strings.TrimSpace(req.Code) == ""
 	switch {
 	case method == "sms" && starting && phone != "" && strings.HasPrefix(phone, "+"):
-		if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, authkit.NormalizePhone(phone)) {
+		if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, contact.NormalizePhone(phone)) {
 			return
 		}
 	case method == "totp" && starting:
@@ -126,7 +127,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	if claims.TwoFAEnrollment {
 		challenge = claims.JTI
 	}
-	out, err := s.svc.EnrollTwoFactor(r.Context(), authkit.TwoFactorEnrollInput{
+	out, err := s.svc.EnrollTwoFactor(r.Context(), authflow.TwoFactorEnrollInput{
 		LoginChallenge: challenge, SessionID: claims.SessionID, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 		UserID: claims.UserID, Mode: scope.Mode, Method: method, Code: req.Code,
 		PhoneNumber: phone, MakeDefault: req.Default, FactorID: req.FactorID,
@@ -140,11 +141,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch out.Kind {
-	case authkit.TwoFactorEnrollDefaultSet:
+	case authflow.TwoFactorEnrollDefaultSet:
 		noContent(w)
-	case authkit.TwoFactorEnrollCodeSent:
+	case authflow.TwoFactorEnrollCodeSent:
 		accepted(w)
-	case authkit.TwoFactorEnrollTOTPStarted:
+	case authflow.TwoFactorEnrollTOTPStarted:
 		writeJSON(w, http.StatusOK, map[string]any{
 			"method":      "totp",
 			"secret":      out.Secret,
@@ -197,7 +198,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	if factorID == "" {
 		factorID = strings.TrimSpace(body.FactorID)
 	}
-	var removed []authkit.RemovedMFARoleAssignment
+	var removed []authflow.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {
 		removed, err = s.svc.Disable2FAWithRemovedRoles(r.Context(), claims.UserID)
@@ -212,7 +213,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"removed_roles": removedMFARolesResponse(removed)})
 }
 
-func removedMFARolesResponse(removed []authkit.RemovedMFARoleAssignment) []map[string]any {
+func removedMFARolesResponse(removed []authflow.RemovedMFARoleAssignment) []map[string]any {
 	out := make([]map[string]any, 0, len(removed))
 	for _, r := range removed {
 		out = append(out, map[string]any{
@@ -244,7 +245,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})
 }
 
-func twoFactorFactorResponses(factors []authkit.TwoFactorFactor) []twoFactorFactorResponse {
+func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []twoFactorFactorResponse {
 	out := make([]twoFactorFactorResponse, 0, len(factors))
 	for _, factor := range factors {
 		out = append(out, twoFactorFactorResponse{

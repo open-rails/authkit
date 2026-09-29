@@ -10,70 +10,10 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// validationCodes are the identity-policy codes ValidationErrorCode reports:
-// a 400 whose param names the offending field.
-var validationCodes = map[iam.Code]bool{
-	iam.CodeUsernameTooShort: true, iam.CodeUsernameTooLong: true, iam.CodeUsernameMustStartWithLetter: true,
-	iam.CodeUsernameCannotContainAt: true, iam.CodeUsernameCannotStartWithPlus: true, iam.CodeUsernameInvalidCharacters: true,
-	iam.CodeOwnerSlugTaken: true, iam.CodeUsernameNotAllowed: true, iam.CodeRenameRateLimited: true,
-	iam.CodeInvalidEmail: true, iam.CodeInvalidPhoneNumber: true, iam.CodePasswordTooShort: true, iam.CodePasswordTooLong: true,
-	iam.CodePasswordTooCommon: true, iam.CodePasswordContainsIdentifier: true, iam.CodePasswordRequirementsUnmet: true,
-	iam.CodeInvalidPreferredLanguage: true,
-}
-
-// ValidationErrorCode returns the identity-policy code err carries, or "" when
-// err is not a validation failure.
-func ValidationErrorCode(err error) iam.Code {
-	if e := iam.AsError(err); e != nil && validationCodes[e.Code] {
-		return e.Code
-	}
-	return ""
-}
-
 // ValidateUsername applies the configured username policy and fixed
 // iam.UsernamePattern.
 func (s *engine) ValidateUsername(username string) error {
 	return s.cfg.Username.Validate(username)
-}
-
-func NormalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
-}
-
-func ValidateEmail(email string) error {
-	email = NormalizeEmail(email)
-	if email == "" || strings.ContainsAny(email, " \t\r\n") {
-		return iam.E(iam.CodeInvalidEmail)
-	}
-	at := strings.IndexByte(email, '@')
-	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
-		return iam.E(iam.CodeInvalidEmail)
-	}
-	domain := email[at+1:]
-	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || !strings.Contains(domain, ".") {
-		return iam.E(iam.CodeInvalidEmail)
-	}
-	return nil
-}
-
-func NormalizePhone(phone string) string {
-	return strings.TrimSpace(phone)
-}
-
-func ValidatePhone(phone string) error {
-	phone = NormalizePhone(phone)
-	if len(phone) < 3 || len(phone) > 16 || phone[0] != '+' {
-		return iam.E(iam.CodeInvalidPhoneNumber)
-	}
-	if phone[1] < '1' || phone[1] > '9' {
-		return iam.E(iam.CodeInvalidPhoneNumber)
-	}
-	for i := 2; i < len(phone); i++ {
-		if phone[i] < '0' || phone[i] > '9' {
-			return iam.E(iam.CodeInvalidPhoneNumber)
-		}
-	}
-	return nil
 }
 
 // ValidatePassword applies the configured password policy. identifiers are

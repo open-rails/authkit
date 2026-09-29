@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -53,7 +54,7 @@ func (s *engine) JWKS() jwtkit.JWKS {
 // AdminSetPassword force-sets a user's password
 // (admin only, no current password required)
 func (s *engine) AdminSetPassword(ctx context.Context, userID, new string) error {
-	return s.changePassword(ctx, userID, new, nil, nil, nil, SessionRevokeReasonAdminSetPassword)
+	return s.changePassword(ctx, userID, new, nil, nil, nil, authflow.SessionRevokeReasonAdminSetPassword)
 }
 
 func (s *engine) EntitlementsProvider() EntitlementsProvider {

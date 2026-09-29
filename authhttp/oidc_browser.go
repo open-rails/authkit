@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -19,7 +20,7 @@ import (
 // flowStart is what a browser flow start records beyond the state machine's
 // own state/nonce/PKCE values.
 type flowStart struct {
-	link   *authkit.ExternalLinkAuthorization
+	link   *authflow.ExternalLinkAuthorization
 	stepUp *oidckit.StateData // StepUp* fields to carry
 	params map[string]string  // extra authorization parameters
 	login  *loginStart
@@ -89,7 +90,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
-	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authkit.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
+	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authflow.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
 }
 
 // startProviderFlow begins a login, link or step-up flow: it generates state,
@@ -123,8 +124,8 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		}
 	}
 
-	state := authkit.RandB64(32)
-	nonce := authkit.RandB64(16)
+	state := secret.RandB64(32)
+	nonce := secret.RandB64(16)
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error
@@ -242,12 +243,12 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var link *authkit.ExternalLinkAuthorization
+	var link *authflow.ExternalLinkAuthorization
 	if sd.LinkUserID != "" {
-		link = &authkit.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
+		link = &authflow.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
 	}
-	out, err := s.svc.CompleteExternalLogin(r.Context(), authkit.ExternalLoginInput{
-		Identity: authkit.ExternalIdentity{
+	out, err := s.svc.CompleteExternalLogin(r.Context(), authflow.ExternalLoginInput{
+		Identity: authflow.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
@@ -260,7 +261,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.failBrowserFlow(w, r, &sd, name, status, code)
 		return
 	}
-	if out.Kind == authkit.LoginProviderLinked {
+	if out.Kind == authflow.LoginProviderLinked {
 		if wantsJSONResponse(r) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -270,7 +271,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	if out.Kind != authkit.LoginSessionIssued {
+	if out.Kind != authflow.LoginSessionIssued {
 		s.browserLoginContinuation(w, r, out, name, sd)
 		return
 	}
@@ -279,7 +280,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 // emitBrowserLogin hands the browser its session as a popup postMessage, a
 // JSON body, or a fragment redirect — the transport half of the callback.
-func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authkit.IssuedSession, sd oidckit.StateData) {
+func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authflow.IssuedSession, sd oidckit.StateData) {
 	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
 	// ak#271: the popup document and the fragment redirect both hand the
 	// browser its tokens in script-readable form by design. The ACCESS token

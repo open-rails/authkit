@@ -6,8 +6,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit"
 )
 
 // RouteGroup identifies a prefix-neutral AuthKit route capability. Host
@@ -167,14 +165,14 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
 		// their verified permission ceiling.
-		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootResourcesRead, Bucket: RLAdminUserSessionsList, Handler: rootPermission(authkit.PermRootResourcesRead, s.handleAdminUsersListGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootResourcesRead, Handler: rootPermission(authkit.PermRootResourcesRead, s.handleAdminUserGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootResourcesRead, Handler: rootPermission(authkit.PermRootResourcesRead, s.handleAdminUserSigninsGET)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(authkit.PermRootUsersBan, s.handleAdminUsersBanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(authkit.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(authkit.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(authkit.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Auth: AuthPermission, Permission: authkit.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(authkit.PermRootUsersRecover, s.handleAdminUserRestorePOST)},
+		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootResourcesRead, Bucket: RLAdminUserSessionsList, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUsersListGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootResourcesRead, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUserGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootResourcesRead, Handler: rootPermission(iam.PermRootResourcesRead, s.handleAdminUserSigninsGET)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersBan, s.handleAdminUsersBanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootUsersBan, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
+		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Auth: AuthPermission, Permission: iam.PermRootUsersRecover, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersRecover, s.handleAdminUserRestorePOST)},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only

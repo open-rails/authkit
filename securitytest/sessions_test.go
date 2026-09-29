@@ -332,7 +332,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		perms []string
 	}{
 		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
-		{"root authority the user lacks", manager, []string{authkit.PermRootUsersBan}},
+		{"root authority the user lacks", manager, []string{iam.PermRootUsersBan}},
 		{"wildcard", moderator, []string{"*"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -344,11 +344,11 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
 		resp := mint(manager, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = mint(moderator, authkit.PermRootUsersBan, "resource:read")
+		resp = mint(moderator, iam.PermRootUsersBan, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
-		perm := iam.Perm(authkit.PermRootUsersBan)
+		perm := iam.Perm(iam.PermRootUsersBan)
 		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: verify.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
 		ok, err := verify.Allow(ctx, h.client, cl, perm, verify.PermissionScope{})
 		require.NoError(t, err)

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-
-	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 )
 
 type registrationNextAction string
@@ -81,7 +81,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out, err := s.svc.Register(r.Context(), authkit.RegisterInput{
+	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
 		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
 		UserAgent: r.UserAgent(), IP: s.requestIP(r),
@@ -93,12 +93,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	var tokens *iam.TokenSet
 	nextAction := registrationNextActionNone
 	switch out.Kind {
-	case authkit.RegisterLoginRequired:
+	case authflow.RegisterLoginRequired:
 		s.writeLoginContinuation(w, r, *out.Login, nil)
 		return
-	case authkit.RegisterVerifyEmail:
+	case authflow.RegisterVerifyEmail:
 		nextAction = registrationNextActionVerifyEmail
-	case authkit.RegisterVerifyPhone:
+	case authflow.RegisterVerifyPhone:
 		nextAction = registrationNextActionVerifyPhone
 	default:
 		delivered := s.deliverRefreshToken(w, r, out.Session.TokenSet())
@@ -144,7 +144,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	}
 
 	if strings.HasPrefix(identifier, "+") {
-		phone := authkit.NormalizePhone(identifier)
+		phone := contact.NormalizePhone(identifier)
 		// Only delete when the password matches; otherwise respond ok without
 		// revealing whether a pending registration exists (anti-enumeration).
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {

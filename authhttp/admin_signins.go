@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
@@ -14,7 +14,7 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	events, err := s.svc.ListSessionEvents(r.Context(), userID, authkit.SessionEventCreated, authkit.SessionEventFailed)
+	events, err := s.svc.ListSessionEvents(r.Context(), userID, authflow.SessionEventCreated, authflow.SessionEventFailed)
 	if err != nil {
 		serverErr(w, iam.CodeFailedToListSignins, err)
 		return

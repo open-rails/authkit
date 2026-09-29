@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -30,9 +31,9 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	var verified bool
 	require.NoError(t, s.pg.QueryRow(t.Context(), "SELECT email_verified FROM users WHERE id=$1::uuid", user.ID).Scan(&verified))
 	require.False(t, verified)
-	first, err := s.PasswordLogin(t.Context(), PasswordLoginInput{Identifier: *user.Email, Password: "Correct-race-password-1"})
+	first, err := s.PasswordLogin(t.Context(), authflow.PasswordLoginInput{Identifier: *user.Email, Password: "Correct-race-password-1"})
 	require.NoError(t, err)
-	require.Equal(t, LoginRecoveryRequired, first.Kind)
+	require.Equal(t, authflow.LoginRecoveryRequired, first.Kind)
 	token := first.Recovery.Token
 	var saved accountRecoveryProof
 	_, ok, err := s.ephemReadJSON(t.Context(), "account-recovery:"+sha256Hex(token), &saved)
@@ -49,7 +50,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	require.NoError(t, s.ephemSetJSON(t.Context(), key, saved, time.Minute))
 	require.Error(t, s.ConfirmAccountRecovery(t.Context(), token))
 
-	current, err := s.PasswordLogin(t.Context(), PasswordLoginInput{Identifier: *user.Email, Password: "Correct-race-password-1"})
+	current, err := s.PasswordLogin(t.Context(), authflow.PasswordLoginInput{Identifier: *user.Email, Password: "Correct-race-password-1"})
 	require.NoError(t, err)
 	token = current.Recovery.Token
 	key = "account-recovery:" + sha256Hex(token)

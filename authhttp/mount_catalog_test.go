@@ -45,7 +45,7 @@ func TestMountCatalog(t *testing.T) {
 		}, routes[RouteRef{http.MethodGet, "/api/v1/me"}])
 		require.Equal(t, MountedRoute{
 			Method: http.MethodGet, Path: "/api/v1/admin/users/{user_id}", Group: RouteAdmin,
-			Auth: AuthPermission, Permission: authkit.PermRootResourcesRead,
+			Auth: AuthPermission, Permission: iam.PermRootResourcesRead,
 		}, routes[RouteRef{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
 		require.Equal(t, AuthOptional, routes[RouteRef{http.MethodPost, "/api/v1/verify/request"}].Auth)
 		for _, route := range mount.Routes() {

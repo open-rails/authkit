@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -197,7 +197,7 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 }
 
 // Browser and JSON callbacks present the same engine-produced continuation.
-func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out authkit.LoginOutcome, provider string, sd oidckit.StateData) {
+func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, provider string, sd oidckit.StateData) {
 	out.ReturnTo = sd.ReturnTo
 	if wantsJSONResponse(r) {
 		s.writeLoginContinuation(w, r, out, nil)
@@ -205,10 +205,10 @@ func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Reques
 	}
 	var extra map[string]any
 	code := iam.CodeTwoFAEnrollmentRequired
-	if out.Kind == authkit.LoginRecoveryRequired {
+	if out.Kind == authflow.LoginRecoveryRequired {
 		s.failBrowserFlowExtra(w, r, &sd, provider, http.StatusConflict, iam.CodeAccountRecoveryRequired, map[string]any{"recovery": out.Recovery})
 		return
-	} else if out.Kind == authkit.LoginTwoFactorRequired {
+	} else if out.Kind == authflow.LoginTwoFactorRequired {
 		code = iam.CodeTwoFARequired
 		extra = loginChallengeMetadata(out.UserID, out.Challenge)
 	} else {

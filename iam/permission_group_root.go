@@ -1,23 +1,17 @@
-package authkit
+package iam
 
-import (
-	"fmt"
-
-	"github.com/open-rails/authkit/iam"
-)
+import "fmt"
 
 // The intrinsic `root` catalog (#111): the authkit-OWNED permissions present in
-// EVERY deployment — the former `platform:` namespace, renamed `root:` so the
-// node and its namespace match (a one-time greenfield rename). These gate
-// authkit's own identity/admin surface. Apps EXTEND the root catalog with their
-// own moderation perms (doujins `root:content:takedown`, openrails
-// `root:merchants:delete`) — declared as ordinary roles on the root persona.
+// EVERY deployment. These gate authkit's own identity/admin surface. Apps
+// EXTEND the root catalog with their own moderation perms (doujins
+// `root:content:takedown`, openrails `root:merchants:delete`) — declared as
+// ordinary roles on the root persona.
 //
 // reach != capability: the root `owner` holds `root:*` — the widest REACH
 // (ancestor of every group) but, being namespace-anchored, still
 // moderation-only over the rest of the tree (it can never name a
 // `merchant:`/`org:`/`repo:` perm).
-
 const (
 	// Operator dashboard visibility.
 	PermRootResourcesRead = "root:resources:read" // read root/admin resources
@@ -58,7 +52,7 @@ func IntrinsicRootPermissions() []string {
 // (operators are not end users).
 func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
 	return PersonaDef{
-		Name:  iam.RootPersona,
+		Name:  RootPersona,
 		Roles: extraRootRoles, // owner (root:*) is auto-injected by normalizePersona
 		// Parent empty ⇒ parentless singleton (the only such persona).
 	}
@@ -74,15 +68,15 @@ func BuildSchema(appTypes ...PersonaDef) (*GroupSchema, error) {
 	rootCapabilitySet := false
 	types := make([]PersonaDef, 0, len(appTypes)+1)
 	for _, t := range appTypes {
-		if t.Name == iam.RootPersona {
+		if t.Name == RootPersona {
 			if t.Parent != "" {
-				return nil, fmt.Errorf("group persona %q: root persona must not declare a parent", iam.RootPersona)
+				return nil, fmt.Errorf("group persona %q: root persona must not declare a parent", RootPersona)
 			}
 			root.Roles = append(root.Roles, t.Roles...)
 			root.Catalog = append(root.Catalog, t.Catalog...)
 			if !personaCapabilitiesZero(t.Capabilities) {
 				if rootCapabilitySet {
-					return nil, fmt.Errorf("group persona %q: capabilities may be set by only one root declaration", iam.RootPersona)
+					return nil, fmt.Errorf("group persona %q: capabilities may be set by only one root declaration", RootPersona)
 				}
 				root.Capabilities = t.Capabilities
 				rootCapabilitySet = true
@@ -95,6 +89,6 @@ func BuildSchema(appTypes ...PersonaDef) (*GroupSchema, error) {
 	return NewGroupSchema(types...)
 }
 
-func personaCapabilitiesZero(c iam.PersonaCapabilities) bool {
+func personaCapabilitiesZero(c PersonaCapabilities) bool {
 	return !c.APIKeys && !c.RemoteApplications && !c.CustomRoles
 }

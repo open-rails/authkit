@@ -7,31 +7,17 @@ package authkit
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
-
-// ProfileInput is what the transport knows that the engine does not: the
-// verified claims' username/auth-time/sensitivity and the deployment's
-// provider registry.
-type ProfileInput struct {
-	UserID          string
-	ClaimsUsername  string // fallback when the row carries no username
-	AuthTime        time.Time
-	StepUpSatisfied bool // the presented token is fresh enough for sensitive actions
-	// EnabledProviders lists the deployment's login providers;
-	// ProviderSupportsStepUp reports which linked providers can re-authenticate.
-	EnabledProviders       []string
-	ProviderSupportsStepUp func(provider string) bool
-}
 
 // UserProfile builds the caller's profile. Errors: the user row is missing
 // (stage "load_user"), or a store failure (stage "load_password" /
 // "load_2fa").
-func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (iam.UserProfile, error) {
+func (s *engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (iam.UserProfile, error) {
 	u, err := s.AdminGetUser(ctx, in.UserID)
 	if err != nil || u == nil {
 		return iam.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
@@ -95,7 +81,7 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (iam.UserProf
 	if !in.AuthTime.IsZero() {
 		formatted := in.AuthTime.UTC().Format(time.RFC3339)
 		lastAuthenticatedAt = &formatted
-		remaining := SensitiveActionFreshAuthWindow - time.Since(in.AuthTime)
+		remaining := authflow.SensitiveActionFreshAuthWindow - time.Since(in.AuthTime)
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -153,105 +139,11 @@ func (s *engine) UserProfile(ctx context.Context, in ProfileInput) (iam.UserProf
 			LastAuthenticatedAt:               lastAuthenticatedAt,
 			TimeUntilStepUpRequired:           timeUntilStepUpRequired,
 			StepUpRequiredForSensitiveActions: !in.StepUpSatisfied,
-			StepUpMethods:                     StepUpMethods(hasPassword, settings, providerSlugs, in.ProviderSupportsStepUp),
-			StepUp2FA:                         StepUpTwoFactorOptions(settings, email),
+			StepUpMethods:                     authflow.StepUpMethods(hasPassword, settings, providerSlugs, in.ProviderSupportsStepUp),
+			StepUp2FA:                         authflow.StepUpTwoFactorOptions(settings, email),
 			MFAEnabled:                        mfa.Enabled,
 			MFASatisfied:                      mfa.Satisfied,
 			MFAAllowedMethods:                 mfa.AllowedMethods,
 		},
 	}, nil
-}
-
-// StepUpMethods lists how the user can re-authenticate for a sensitive
-// action: password, an enabled second factor, and every linked provider that
-// supports step-up (de-duplicated, sorted). Pure over already-loaded inputs.
-func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs []string, supportsStepUp func(string) bool) []string {
-	methods := []string{}
-	if hasPassword {
-		methods = append(methods, "password")
-	}
-	if settings != nil && settings.Enabled {
-		methods = append(methods, "2fa")
-	}
-	seen := make(map[string]struct{}, len(providerSlugs))
-	distinct := make([]string, 0, len(providerSlugs))
-	for _, provider := range providerSlugs {
-		if _, dup := seen[provider]; dup {
-			continue
-		}
-		seen[provider] = struct{}{}
-		distinct = append(distinct, provider)
-	}
-	sort.Strings(distinct)
-	for _, provider := range distinct {
-		if supportsStepUp != nil && supportsStepUp(provider) {
-			methods = append(methods, provider)
-		}
-	}
-	return methods
-}
-
-// StepUpTwoFactorOptions lists the second factors a step-up can use, with the
-// code destination masked. Nil when 2FA is not enabled.
-func StepUpTwoFactorOptions(settings *TwoFactorSettings, emailDestination string) *iam.StepUpTwoFactorOptions {
-	if settings == nil || !settings.Enabled {
-		return nil
-	}
-	factors := settings.Factors
-	if len(factors) == 0 && strings.TrimSpace(settings.Method) != "" {
-		factors = []TwoFactorFactor{{Method: strings.TrimSpace(settings.Method), PhoneNumber: settings.PhoneNumber, IsDefault: true, Enabled: true}}
-	}
-	if len(factors) == 0 {
-		return nil
-	}
-	out := &iam.StepUpTwoFactorOptions{}
-	for _, factor := range factors {
-		method := strings.ToLower(strings.TrimSpace(factor.Method))
-		if !factor.Enabled || !ValidTwoFactorStepUpMethod(method) {
-			continue
-		}
-		option := iam.StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
-		switch method {
-		case "email":
-			if emailDestination != "" {
-				option.VerificationID = MaskDestination(emailDestination)
-			}
-		case "sms":
-			if factor.PhoneNumber != nil {
-				option.VerificationID = MaskDestination(*factor.PhoneNumber)
-			}
-		}
-		out.Methods = append(out.Methods, method)
-		out.Options = append(out.Options, option)
-		if factor.IsDefault {
-			out.DefaultMethod = method
-		}
-	}
-	if len(out.Methods) == 0 {
-		return nil
-	}
-	if out.DefaultMethod == "" {
-		out.DefaultMethod = out.Methods[0]
-		out.Options[0].IsDefault = true
-	}
-	return out
-}
-
-// ValidTwoFactorStepUpMethod reports whether method can satisfy a step-up.
-func ValidTwoFactorStepUpMethod(method string) bool {
-	switch strings.ToLower(strings.TrimSpace(method)) {
-	case "email", "sms", "totp":
-		return true
-	default:
-		return false
-	}
-}
-
-// MaskDestination hides all but the last five characters of a code
-// destination (email or phone) for display as a verification id.
-func MaskDestination(value string) string {
-	if len(value) <= 5 {
-		return value
-	}
-	return strings.Repeat("*", len(value)-5) + value[len(value)-5:]
 }

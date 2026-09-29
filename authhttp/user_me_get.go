@@ -3,8 +3,8 @@ package authhttp
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -17,7 +17,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, iam.CodeUnauthorized)
 		return
 	}
-	profile, err := s.svc.UserProfile(r.Context(), authkit.ProfileInput{
+	profile, err := s.svc.UserProfile(r.Context(), authflow.ProfileInput{
 		UserID:                 claims.UserID,
 		ClaimsUsername:         claims.Username,
 		AuthTime:               claims.AuthTime,

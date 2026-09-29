@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -99,7 +100,7 @@ func (s *engine) applyContactChange(ctx context.Context, rec pendingChange, keep
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.logRevokedSessions(ctx, userID, revoked, string(SessionRevokeReasonContactChange))
+	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonContactChange))
 	return nil
 }
 

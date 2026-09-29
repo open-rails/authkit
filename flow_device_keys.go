@@ -14,7 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 const (
@@ -31,42 +34,11 @@ const (
 
 var errDeviceKeyInvalid = jwt.ErrTokenUnverifiable
 
-// DeviceKeySecondFactorRequired is returned by FinishDeviceKeyEnrollment when
-// the email code and key proof are valid but the account has a usable second
-// factor that was not presented (#293). The ceremony stays live for a retry
-// carrying the code; for SMS/email factors the code has just been sent.
-type DeviceKeySecondFactorRequired struct{ Method string }
-
-func (e *DeviceKeySecondFactorRequired) Error() string {
-	return "device key enrollment requires a second factor"
-}
-
 func (s *engine) deviceKeysEnabled() error {
 	if s == nil || !s.cfg.DeviceKeys.Enabled {
 		return iam.ErrDeviceKeysDisabled
 	}
 	return nil
-}
-
-// DeviceKey is the public projection of one native-client credential.
-type DeviceKey struct {
-	ID         string     `json:"id"`
-	Label      string     `json:"label,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-}
-
-type DeviceKeyChallenge struct {
-	ID        string
-	Challenge string
-	ExpiresAt time.Time
-}
-
-type DeviceKeyAuthResult struct {
-	AccessToken string
-	ExpiresAt   time.Time
-	DeviceKey   DeviceKey
 }
 
 type deviceKeyEnrollment struct {
@@ -117,53 +89,53 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 }
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
-func (s *engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error) {
+func (s *engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (authflow.DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	if s.pg == nil {
-		return DeviceKeyChallenge{}, s.requirePG()
+		return authflow.DeviceKeyChallenge{}, s.requirePG()
 	}
 	if !s.useEphemeralStore() {
-		return DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
+		return authflow.DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
 	}
-	email = NormalizeEmail(email)
-	if err := ValidateEmail(email); err != nil {
-		return DeviceKeyChallenge{}, err
+	email = contact.NormalizeEmail(email)
+	if err := contact.ValidateEmail(email); err != nil {
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	decodedPublicKey, err := decodeDeviceKey(publicKey)
 	if err != nil {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	publicKey = base64.RawURLEncoding.EncodeToString(decodedPublicKey)
 	label = strings.TrimSpace(label)
 	if len(label) > deviceKeyLabelMaxLength {
-		return DeviceKeyChallenge{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyChallenge{}, errDeviceKeyInvalid
 	}
 	if s.email == nil {
-		return DeviceKeyChallenge{}, iam.ErrEmailSenderUnavailable
+		return authflow.DeviceKeyChallenge{}, iam.ErrEmailSenderUnavailable
 	}
 
 	now := time.Now().UTC()
-	result := DeviceKeyChallenge{ID: RandB64(32), Challenge: RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	result := authflow.DeviceKeyChallenge{ID: secret.RandB64(32), Challenge: secret.RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
 	code := randAlphanumeric(6)
 	record := deviceKeyEnrollment{
 		Email: email, PublicKey: publicKey, Label: label,
 		CodeHash: sha256Hex(code), Challenge: result.Challenge, ExpiresAt: result.ExpiresAt,
 	}
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyEnrollment+result.ID, record, deviceKeyChallengeTTL); err != nil {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	message := VerificationMessage{Code: code, Purpose: "device_key_enrollment"}
 	if err := message.Validate(); err != nil {
 		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+result.ID)
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	if err := s.withSendTimeout(ctx, func(sendCtx context.Context) error {
 		return s.email.SendVerification(sendCtx, email, "", message)
 	}); err != nil {
 		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+result.ID)
-		return DeviceKeyChallenge{}, emailDeliveryError(err)
+		return authflow.DeviceKeyChallenge{}, emailDeliveryError(err)
 	}
 	return result, nil
 }
@@ -172,54 +144,54 @@ func (s *engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 // refresh session. An existing account with a usable second factor must also
 // present it (secondFactor: a factor code or backup code) — email possession
 // alone never enrolls a standing credential on an MFA-protected account (#293).
-func (s *engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error) {
+func (s *engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
 	var record deviceKeyEnrollment
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &record)
 	if err != nil || !ok {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	if !SecretEqual(record.CodeHash, sha256Hex(strings.TrimSpace(code))) {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+	if !secret.Equal(record.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
 	if err != nil {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	sig, err := decodeDeviceSignature(signature)
 	if err != nil {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	message, err := deviceKeySigningMessage(deviceKeyEnrollmentDomain, record.Challenge)
 	if err != nil || !ed25519.Verify(publicKey, message, sig) {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
 	mfaProof := false
 	if user != nil {
 		if err := s.ensureUserAccess(ctx, user); err != nil {
-			return DeviceKeyAuthResult{}, err
+			return authflow.DeviceKeyAuthResult{}, err
 		}
 		status, err := s.MFAStatus(ctx, user.ID)
 		if err != nil {
-			return DeviceKeyAuthResult{}, err
+			return authflow.DeviceKeyAuthResult{}, err
 		}
 		if s.TwoFactorEnabled() && status.Satisfied {
 			if strings.TrimSpace(secondFactor) == "" {
 				_, method, _, err := s.Require2FAForLoginFactor(ctx, user.ID, "")
 				if err != nil {
-					return DeviceKeyAuthResult{}, err
+					return authflow.DeviceKeyAuthResult{}, err
 				}
-				return DeviceKeyAuthResult{}, &DeviceKeySecondFactorRequired{Method: method}
+				return authflow.DeviceKeyAuthResult{}, &authflow.DeviceKeySecondFactorRequired{Method: method}
 			}
 			if !s.verifyDeviceKeySecondFactor(ctx, user.ID, strings.TrimSpace(secondFactor)) {
-				return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+				return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 			}
 			mfaProof = true
 		}
@@ -228,22 +200,22 @@ func (s *engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	var consumed deviceKeyEnrollment
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &consumed)
 	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.CodeHash != record.CodeHash || consumed.PublicKey != record.PublicKey {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+strings.TrimSpace(enrollmentID))
 
 	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey)
 	if err != nil {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
 	if user != nil && created {
 		s.notifyDeviceKeyEnrolled(ctx, user, deviceKey)
 	}
 	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, true, mfaProof)
 	if err != nil {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
-	return DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+	return authflow.DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
 // verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
@@ -258,7 +230,7 @@ func (s *engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, code s
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
-func (s *engine) notifyDeviceKeyEnrolled(ctx context.Context, u *iam.User, key DeviceKey) {
+func (s *engine) notifyDeviceKeyEnrolled(ctx context.Context, u *iam.User, key authflow.DeviceKey) {
 	if s.email == nil || u.Email == nil {
 		return
 	}
@@ -276,56 +248,56 @@ func (s *engine) notifyDeviceKeyEnrolled(ctx context.Context, u *iam.User, key D
 
 // enrollDeviceKey inserts the key (created=true) or returns the identical key
 // already enrolled on the same account (created=false).
-func (s *engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (DeviceKey, string, bool, error) {
+func (s *engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (authflow.DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 	if user != nil {
 		if err := s.ensureUserAccess(ctx, user); err != nil {
-			return DeviceKey{}, "", false, err
+			return authflow.DeviceKey{}, "", false, err
 		}
 	} else {
 		allowed, err := s.registrationAllowedForEmail(ctx, record.Email)
 		if err != nil {
-			return DeviceKey{}, "", false, err
+			return authflow.DeviceKey{}, "", false, err
 		}
 		if !allowed {
-			return DeviceKey{}, "", false, iam.ErrRegistrationDisabled
+			return authflow.DeviceKey{}, "", false, iam.ErrRegistrationDisabled
 		}
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := tx
 	if user == nil {
 		userID, err := newUUIDV7String()
 		if err != nil {
-			return DeviceKey{}, "", false, err
+			return authflow.DeviceKey{}, "", false, err
 		}
 		_, err = q.Exec(ctx, `INSERT INTO users (id, email, email_verified)
 VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 		if err != nil {
-			return DeviceKey{}, "", false, err
+			return authflow.DeviceKey{}, "", false, err
 		}
 	}
 	var userID string
 	if err := q.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 	// The emailed enrollment code proves the address (ak#393).
 	proven, err := s.retirePreProofCredentials(ctx, tx, userID, nil)
 	if err != nil {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 	if _, err := q.Exec(ctx, `UPDATE users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 
-	var existing DeviceKey
+	var existing authflow.DeviceKey
 	var existingUserID string
 	var revokedAt *time.Time
 	err = q.QueryRow(ctx, `SELECT id, user_id, COALESCE(label, ''), created_at, last_used_at, revoked_at
@@ -333,16 +305,16 @@ FROM user_device_keys WHERE public_key=$1`, publicKey).
 		Scan(&existing.ID, &existingUserID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt, &revokedAt)
 	if err == nil {
 		if existingUserID != userID || revokedAt != nil {
-			return DeviceKey{}, "", false, errDeviceKeyInvalid
+			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return DeviceKey{}, "", false, err
+			return authflow.DeviceKey{}, "", false, err
 		}
-		s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
+		s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 		return existing, userID, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 
 	var label *string
@@ -354,14 +326,14 @@ VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`
 		Scan(&existing.ID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return DeviceKey{}, "", false, errDeviceKeyInvalid
+			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return DeviceKey{}, "", false, err
+		return authflow.DeviceKey{}, "", false, err
 	}
-	s.logRevokedSessions(ctx, userID, proven, string(SessionRevokeReasonContactProven))
+	s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 	return existing, userID, true, nil
 }
 
@@ -377,19 +349,19 @@ func (s *engine) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollment
 }
 
 // BeginDeviceKeyLogin returns an indistinguishable challenge for active, revoked, and unknown ids.
-func (s *engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error) {
+func (s *engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (authflow.DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	if s.pg == nil {
-		return DeviceKeyChallenge{}, s.requirePG()
+		return authflow.DeviceKeyChallenge{}, s.requirePG()
 	}
 	deviceKeyID = strings.TrimSpace(deviceKeyID)
 	if _, err := uuid.Parse(deviceKeyID); err != nil {
-		return DeviceKeyChallenge{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyChallenge{}, errDeviceKeyInvalid
 	}
 	if !s.useEphemeralStore() {
-		return DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
+		return authflow.DeviceKeyChallenge{}, jwt.ErrTokenUnverifiable
 	}
 	record := deviceKeyLogin{DeviceKeyID: deviceKeyID}
 	row := s.pg.QueryRow(ctx, `SELECT user_id, public_key
@@ -398,63 +370,63 @@ FROM user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
 	if err := row.Scan(&record.UserID, &publicKey); err == nil {
 		record.PublicKey = base64.RawURLEncoding.EncodeToString(publicKey)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	now := time.Now().UTC()
-	result := DeviceKeyChallenge{ID: RandB64(32), Challenge: RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	result := authflow.DeviceKeyChallenge{ID: secret.RandB64(32), Challenge: secret.RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
 	record.Challenge, record.ExpiresAt = result.Challenge, result.ExpiresAt
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyLogin+result.ID, record, deviceKeyChallengeTTL); err != nil {
-		return DeviceKeyChallenge{}, err
+		return authflow.DeviceKeyChallenge{}, err
 	}
 	return result, nil
 }
 
 // FinishDeviceKeyLogin atomically consumes a challenge and issues only a short access token.
-func (s *engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error) {
+func (s *engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
 	var record deviceKeyLogin
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &record)
 	if err != nil || !ok || record.UserID == "" || record.PublicKey == "" {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
 	if err != nil {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	sig, err := decodeDeviceSignature(signature)
 	if err != nil {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	message, err := deviceKeySigningMessage(deviceKeyLoginDomain, record.Challenge)
 	if err != nil || !ed25519.Verify(publicKey, message, sig) {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	var consumed deviceKeyLogin
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &consumed)
 	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.DeviceKeyID != record.DeviceKeyID {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 
-	var deviceKey DeviceKey
+	var deviceKey authflow.DeviceKey
 	err = s.pg.QueryRow(ctx, `UPDATE user_device_keys
 SET last_used_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
 RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID, record.UserID).
 		Scan(&deviceKey.ID, &deviceKey.Label, &deviceKey.CreatedAt, &deviceKey.LastUsedAt)
 	if err != nil {
-		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, false, false)
 	if err != nil {
-		return DeviceKeyAuthResult{}, err
+		return authflow.DeviceKeyAuthResult{}, err
 	}
-	return DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+	return authflow.DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
 // ListDeviceKeys returns the user's machine credentials after proving that the
 // device which minted the caller's token is still active.
-func (s *engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error) {
+func (s *engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error) {
 	q := s.pg
 	var active bool
 	if err := q.QueryRow(ctx, `SELECT EXISTS (
@@ -469,9 +441,9 @@ func (s *engine) ListDeviceKeys(ctx context.Context, userID, currentID string) (
 		return nil, err
 	}
 	defer rows.Close()
-	keys := make([]DeviceKey, 0)
+	keys := make([]authflow.DeviceKey, 0)
 	for rows.Next() {
-		var key DeviceKey
+		var key authflow.DeviceKey
 		if err := rows.Scan(&key.ID, &key.Label, &key.CreatedAt, &key.LastUsedAt, &key.RevokedAt); err != nil {
 			return nil, err
 		}

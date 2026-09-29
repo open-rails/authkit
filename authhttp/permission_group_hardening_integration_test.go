@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -28,11 +29,11 @@ func hardeningTestConfig() authkit.Config {
 	return authkit.Config{
 		Keys:  testKeys(),
 		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
-		RBAC: []authkit.PersonaDef{{
+		RBAC: []iam.PersonaDef{{
 			Name: "merchant", Parent: iam.RootPersona,
 			Capabilities: iam.PersonaCapabilities{CustomRoles: true},
 			Catalog:      []string{"merchant:billing:read", "merchant:billing:write", "merchant:catalog:read", "merchant:roles:manage"},
-			Roles: []authkit.RoleDef{
+			Roles: []iam.RoleDef{
 				{Name: "roles-admin", Permissions: []string{"merchant:roles:manage"}},
 			},
 		}},
@@ -58,16 +59,16 @@ func newHardeningTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	return &Service{svc: coreSvc}, pool, owner
 }
 
-func defineRoleGR(persona string) authkit.GeneratedRoute {
-	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
+func defineRoleGR(persona string) GeneratedRoute {
+	return GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPost, Path: "/" + persona + "/:instance_slug/roles", Perm: "merchant:roles:manage"}
 }
 
-func deleteRoleGR(persona string) authkit.GeneratedRoute {
-	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
+func deleteRoleGR(persona string) GeneratedRoute {
+	return GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodDelete, Path: "/" + persona + "/:instance_slug/roles/:role", Perm: "merchant:roles:manage"}
 }
 
-func memberRoleAssignGR(persona string) authkit.GeneratedRoute {
-	return authkit.GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
+func memberRoleAssignGR(persona string) GeneratedRoute {
+	return GeneratedRoute{Persona: iam.Persona(persona), Method: http.MethodPut, Path: "/" + persona + "/:instance_slug/members/:user/roles/:role", Perm: "merchant:members:manage"}
 }
 
 // TestCustomRoleRedefineRejectsEscalation_HTTP is the #247 SECURITY fix: a
@@ -166,7 +167,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = fixtureBackend(s.svc).Enable2FA(ctx, subject, "email", nil, authkit.AllowAdditionalFactors)
+	_, err = fixtureBackend(s.svc).Enable2FA(ctx, subject, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = s.driveSub(t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

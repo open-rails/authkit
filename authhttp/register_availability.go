@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/contact"
 )
 
 type registrationAvailabilityField struct {
@@ -58,7 +59,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 	if username != "" {
 		if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-			code := authkit.ValidationErrorCode(err)
+			code := authflow.ValidationErrorCode(err)
 			if code == "" {
 				// Not a validation error — an internal failure.
 				s.logInternalError(r, "register_availability", "username", "database_error", err)
@@ -72,10 +73,10 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		}
 	}
 	if email != "" {
-		if err := authkit.ValidateEmail(email); err != nil {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: authkit.ValidationErrorCode(err).String()}
+		if err := contact.ValidateEmail(email); err != nil {
+			resp.Email = &registrationAvailabilityField{Available: false, Error: authflow.ValidationErrorCode(err).String()}
 		} else {
-			checkEmail = authkit.NormalizeEmail(email)
+			checkEmail = contact.NormalizeEmail(email)
 			emailNeedsConflictCheck = true
 		}
 	}
@@ -117,10 +118,10 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
-	if err := authkit.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: authkit.ValidationErrorCode(err).String()}, nil
+	if err := contact.ValidatePhone(phone); err != nil {
+		return &registrationAvailabilityField{Available: false, Error: authflow.ValidationErrorCode(err).String()}, nil
 	}
-	phone = authkit.NormalizePhone(phone)
+	phone = contact.NormalizePhone(phone)
 
 	phoneTaken, _, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), phone, "")
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -27,8 +28,8 @@ type fixtureEngine interface {
 	EnsureRootGroup(ctx context.Context) (string, error)
 	AssignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error
 	AssignGroupRoleGenesis(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error
-	Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode authkit.FactorEnrollmentMode) ([]string, error)
-	List2FAFactors(ctx context.Context, userID string) ([]authkit.TwoFactorFactor, error)
+	Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode authflow.FactorEnrollmentMode) ([]string, error)
+	List2FAFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, error)
 }
 type testRuntime struct {
 	*authkit.Runtime

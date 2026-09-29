@@ -9,6 +9,7 @@ import (
 	protocol "github.com/go-webauthn/webauthn/protocol"
 	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	siws "github.com/open-rails/authkit/internal/siws"
 	jwtkit "github.com/open-rails/authkit/jwtkit"
 	oidckit "github.com/open-rails/authkit/oidckit"
@@ -30,25 +31,25 @@ type HTTPBackend interface {
 	UnbanUserAs(ctx context.Context, actorUserID, userID string) error
 	RequireProvenContact(ctx context.Context, userID string) error
 	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, appSlug string, role iam.Role) error
-	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error)
-	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error)
+	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (authflow.DeviceKeyChallenge, error)
+	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (authflow.DeviceKeyChallenge, error)
 	BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error)
 	BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error)
-	BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (TwoFactorEnrollmentScope, error)
+	BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (authflow.TwoFactorEnrollmentScope, error)
 	ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error
 	CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error)
 	CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error)
 	CheckSMSHealth(ctx context.Context) error
 	CheckUserPassword(ctx context.Context, userID, pass string) error
 	ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error)
-	CompleteExternalLogin(ctx context.Context, in ExternalLoginInput) (LoginOutcome, error)
-	CompleteLoginChallenge(ctx context.Context, in LoginChallengeInput) (LoginOutcome, error)
+	CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error)
+	CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error)
 	Config() Config
 	ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error)
-	ConfirmVerification(ctx context.Context, in VerificationInput) (LoginOutcome, error)
-	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (LoginOutcome, error)
+	ConfirmVerification(ctx context.Context, in authflow.VerificationInput) (authflow.LoginOutcome, error)
+	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (authflow.LoginOutcome, error)
 	CreateAccountRegistrationInvite(ctx context.Context, req iam.CreateAccountRegistrationInviteRequest) (iam.AccountRegistrationInviteCreated, error)
-	CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (CreateInstanceResult, error)
+	CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (authflow.CreateInstanceResult, error)
 	DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def iam.CustomRoleDef) error
 	DelegationAuthorizer() iam.DelegationAuthorizer
 	DeleteGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, role iam.Role) error
@@ -58,19 +59,19 @@ type HTTPBackend interface {
 	DeleteRemoteApplication(ctx context.Context, issuer string) error
 	DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, slug string) error
 	UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error)
-	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]RemovedMFARoleAssignment, error)
-	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]RemovedMFARoleAssignment, error)
-	EnrollTwoFactor(ctx context.Context, in TwoFactorEnrollInput) (TwoFactorEnrollOutcome, error)
+	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]authflow.RemovedMFARoleAssignment, error)
+	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]authflow.RemovedMFARoleAssignment, error)
+	EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrollInput) (authflow.TwoFactorEnrollOutcome, error)
 	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error)
-	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error)
-	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error)
-	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (LoginOutcome, error)
+	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error)
+	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error)
+	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error)
 	ConfirmAccountRecovery(ctx context.Context, token string) error
-	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (Passkey, error)
+	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (authflow.Passkey, error)
 	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
-	Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error)
-	GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error)
-	GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error)
+	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)
+	GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*authflow.PendingRegistration, error)
+	GetPendingRegistrationByEmail(ctx context.Context, email string) (*authflow.PendingRegistration, error)
 	GetPreferredLanguage(ctx context.Context, userID string) (iam.PreferredLanguage, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
 	GetRemoteApplicationBySlug(ctx context.Context, slug string) (*iam.RemoteApplication, error)
@@ -80,10 +81,10 @@ type HTTPBackend interface {
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
 	JWKS() jwtkit.JWKS
 	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
-	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error)
-	ListPasskeys(ctx context.Context, userID string) ([]Passkey, error)
+	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error)
+	ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error)
 	ListRemoteApplicationsForGroup(ctx context.Context, group iam.GroupRef) ([]iam.RemoteApplication, error)
-	ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error)
+	ListSessionEvents(ctx context.Context, userID string, eventTypes ...authflow.SessionEventType) ([]authflow.AuthSessionEvent, error)
 	ListUserSessions(ctx context.Context, userID string) ([]iam.Session, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
@@ -91,9 +92,9 @@ type HTTPBackend interface {
 	MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAccessParams) (string, error)
 	NamingPolicy() iam.NamingPolicy
 	PasskeysEnabled() bool
-	PasswordLogin(ctx context.Context, in PasswordLoginInput) (LoginOutcome, error)
-	PasswordlessLogin(ctx context.Context, in PasswordlessLoginInput) (LoginOutcome, error)
-	PermissionGroupSchema() *GroupSchema
+	PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error)
+	PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error)
+	PermissionGroupSchema() *iam.GroupSchema
 	Postgres() *pgxpool.Pool
 	ProviderSlugs(ctx context.Context, userID string) ([]string, error)
 	PublicKeysByKID() map[string]crypto.PublicKey
@@ -103,7 +104,7 @@ type HTTPBackend interface {
 	PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error
 	ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
-	Register(ctx context.Context, in RegisterInput) (RegisterOutcome, error)
+	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegisterApplicationFromDomain(ctx context.Context, domain string) (*iam.RegisteredApplication, error)
 	RegistrationVerificationEnabled() bool
 	RenamePasskey(ctx context.Context, userID, id, label string) error
@@ -113,8 +114,8 @@ type HTTPBackend interface {
 	RequestPhoneChange(ctx context.Context, userID, newPhone string) error
 	RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error
 	RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error
-	Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error)
-	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*TwoFactorChallenge, error)
+	Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor authflow.TwoFactorFactor, err error)
+	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
 	ResendRegistration(ctx context.Context, identifier string) (bool, error)
 	RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error
@@ -124,7 +125,7 @@ type HTTPBackend interface {
 	SMSHealthy() bool
 	Schema() string
 	SendWelcome(ctx context.Context, userID string)
-	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error)
+	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
 	SetPreferredLanguage(ctx context.Context, userID, language string) error
 	SoftDeleteUser(ctx context.Context, id string) error
@@ -136,7 +137,7 @@ type HTTPBackend interface {
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)
 	UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update iam.GroupInstanceUpdate) (iam.GroupInstance, error)
 	UserNamingState(ctx context.Context, id string) (iam.NamingState, error)
-	UserProfile(ctx context.Context, in ProfileInput) (iam.UserProfile, error)
+	UserProfile(ctx context.Context, in authflow.ProfileInput) (iam.UserProfile, error)
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)
@@ -145,5 +146,5 @@ type HTTPBackend interface {
 	VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error)
 	VerifyPendingPassword(ctx context.Context, email, pass string) bool
 	VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool
-	VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (LoginOutcome, error)
+	VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutput, extra map[string]any) (authflow.LoginOutcome, error)
 }

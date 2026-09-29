@@ -6,8 +6,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // confirmBackendError reports whether a verify/reset confirm failure is the
@@ -23,7 +23,7 @@ func confirmBackendError(err error) bool {
 			return false
 		}
 	}
-	return authkit.ValidationErrorCode(err) == ""
+	return authflow.ValidationErrorCode(err) == ""
 }
 
 // confirmBackendFailed writes the 500 for a backend failure and reports whether

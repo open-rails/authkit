@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -59,7 +59,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 			Error struct {
 				Code     string `json:"code"`
 				Metadata struct {
-					Recovery authkit.AccountRecoveryConfirmation `json:"recovery"`
+					Recovery authflow.AccountRecoveryConfirmation `json:"recovery"`
 				} `json:"metadata"`
 			} `json:"error"`
 		}

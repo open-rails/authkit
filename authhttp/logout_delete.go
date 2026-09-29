@@ -5,9 +5,8 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
-
-	"github.com/open-rails/authkit"
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +19,7 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, iam.CodeMissingSidClaim)
 		return
 	}
-	ctx := authkit.WithSessionRevokeReason(r.Context(), authkit.SessionRevokeReasonLogout)
+	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonLogout)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
 		serverErr(w, iam.CodeFailedToLogout, err)
 		return

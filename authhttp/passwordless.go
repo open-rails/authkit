@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 )
@@ -61,7 +61,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	result, err := s.svc.PasswordlessLogin(r.Context(), authkit.PasswordlessLoginInput{Identifier: identifier, Code: strings.TrimSpace(req.Code), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)})
+	result, err := s.svc.PasswordlessLogin(r.Context(), authflow.PasswordlessLoginInput{Identifier: identifier, Code: strings.TrimSpace(req.Code), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)})
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):

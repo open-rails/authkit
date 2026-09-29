@@ -103,9 +103,9 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 		if revoked[c.id] {
 			continue
 		}
-		capability := PermMembersManage(c.persona)
+		capability := iam.PermMembersManage(c.persona)
 		if c.table == "api_keys" {
-			capability = PermCredentialsManage(c.persona)
+			capability = iam.PermCredentialsManage(c.persona)
 		}
 		err := s.authorizeRoleGrant(ctx, st, sch, c.persona, c.groupID, c.creator, capability, c.role)
 		if err == nil {

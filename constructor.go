@@ -168,9 +168,9 @@ func newEngineWithKeys(cfg Config, keys Keyset, deps Deps) (*engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	var gs *GroupSchema
+	var gs *iam.GroupSchema
 	if len(norm.RBAC) > 0 {
-		if gs, err = BuildSchema(norm.RBAC...); err != nil {
+		if gs, err = iam.BuildSchema(norm.RBAC...); err != nil {
 			return nil, fmt.Errorf("permission-group schema: %w", err)
 		}
 	}
@@ -182,7 +182,7 @@ func newEngineWithKeys(cfg Config, keys Keyset, deps Deps) (*engine, error) {
 // read per-operation via the KeySource interface (never snapshotted) so a
 // live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
 // the Runtime exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *GroupSchema, deps Deps) (*engine, error) {
+func newClient(norm Config, keys jwtkit.KeySource, gs *iam.GroupSchema, deps Deps) (*engine, error) {
 	s := &engine{
 		cfg:               norm,
 		keys:              keys,
@@ -277,7 +277,7 @@ func newEngine(cfg Config, deps Deps) (_ *engine, err error) {
 
 	// #111: build + validate the permission-group schema (intrinsic root injected
 	// when the app declares none). A bad catalog/containment fails construction.
-	gs, gerr := BuildSchema(norm.RBAC...)
+	gs, gerr := iam.BuildSchema(norm.RBAC...)
 	if gerr != nil {
 		return nil, fmt.Errorf("permission-group schema: %w", gerr)
 	}

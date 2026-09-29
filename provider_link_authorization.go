@@ -7,12 +7,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 // The account lock serializes credential/liveness changes; the session lock
 // serializes every revocation path. Linking never mints a replacement session.
-func (s *engine) completeProviderLink(ctx context.Context, link ExternalLinkAuthorization, id ExternalIdentity, email *string) error {
+func (s *engine) completeProviderLink(ctx context.Context, link authflow.ExternalLinkAuthorization, id authflow.ExternalIdentity, email *string) error {
 	if s.pg == nil || link.UserID == "" || link.SessionID == "" || link.AuthenticatedAt.IsZero() {
 		return iam.E(iam.CodeAuthRequiredForLink)
 	}
@@ -47,7 +48,7 @@ func (s *engine) completeProviderLink(ctx context.Context, link ExternalLinkAuth
 		return err
 	}
 	now := time.Now()
-	if link.AuthenticatedAt.After(now) || now.Sub(link.AuthenticatedAt) >= SensitiveActionFreshAuthWindow || session.FreshSince.Before(link.AuthenticatedAt) {
+	if link.AuthenticatedAt.After(now) || now.Sub(link.AuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow || session.FreshSince.Before(link.AuthenticatedAt) {
 		return iam.ErrStepUpRequired
 	}
 	// MFA mutations take the same account lock, so a factor newly enabled while

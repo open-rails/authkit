@@ -46,15 +46,15 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	cfg := maintenanceConfig()
 	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
-	cfg.RBAC = []PersonaDef{
+	cfg.RBAC = []iam.PersonaDef{
 		{Name: iam.RootPersona},
 		{Name: "channel", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true},
 			Catalog: []string{"channel:posts:read", "channel:posts:write"},
-			Roles: []RoleDef{
+			Roles: []iam.RoleDef{
 				{Name: "reader", Permissions: []string{"channel:posts:read"}},
 				{Name: "moderator", Permissions: []string{"channel:posts:read", "channel:posts:write"}, RequiresMFA: true},
 			}},
-		{Name: "section", Parent: "channel", Roles: []RoleDef{{Name: "editor", Permissions: []string{"section:pages:write"}}}},
+		{Name: "section", Parent: "channel", Roles: []iam.RoleDef{{Name: "editor", Permissions: []string{"section:pages:write"}}}},
 	}
 	rt, err := New(cfg, Deps{Postgres: pool})
 	require.NoError(t, err)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
@@ -88,8 +89,8 @@ type engine struct {
 	sms          SMSSender
 	pg           *pgxpool.Pool
 	q            *db.Queries
-	schema       string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema  *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
+	schema       string           // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema  *iam.GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements EntitlementsProvider
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.
@@ -168,16 +169,8 @@ func (s *engine) ListEntitlements(ctx context.Context, userID string) []string {
 
 // --- Pending Registration Helpers ---
 
-// PendingRegistration represents an unverified registration
-type PendingRegistration struct {
-	Email             string
-	Username          string
-	PasswordHash      string
-	PreferredLanguage string
-}
-
 // GetPendingRegistrationByEmail looks up a pending registration by email.
-func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
+func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string) (*authflow.PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -185,7 +178,7 @@ func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string
 	if !ok {
 		return nil, nil
 	}
-	return &PendingRegistration{
+	return &authflow.PendingRegistration{
 		Email:             rec.Target,
 		Username:          rec.Username,
 		PasswordHash:      rec.PasswordHash,
@@ -195,7 +188,7 @@ func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
 // (PendingRegistration.Email carries the phone for phone registrations, preserving prior behavior.)
-func (s *engine) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
+func (s *engine) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*authflow.PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
@@ -203,7 +196,7 @@ func (s *engine) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone s
 	if !ok {
 		return nil, nil
 	}
-	return &PendingRegistration{
+	return &authflow.PendingRegistration{
 		Email:             rec.Target,
 		Username:          rec.Username,
 		PasswordHash:      rec.PasswordHash,
