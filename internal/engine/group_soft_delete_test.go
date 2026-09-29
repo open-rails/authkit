@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
@@ -46,12 +47,12 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.NoError(t, err)
 	peer, err := client.createUser(ctx, "active-owner@example.test", "active-owner")
 	require.NoError(t, err)
-	id, err := seedGroup(ctx, client, "channel", owner.ID)
+	id, err := seedGroup(ctx, client, ident.Persona("channel"), owner.ID)
 	require.NoError(t, err)
 	group := iam.GroupByID(id)
-	active, err := seedGroup(ctx, client, "channel", peer.ID)
+	active, err := seedGroup(ctx, client, ident.Persona("channel"), peer.ID)
 	require.NoError(t, err)
-	key, token, err := client.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "retained-key", Role: "reader"})
+	key, token, err := client.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "retained-key", Role: mustRole("channel:reader")})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://maintenance.test/channel", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -74,7 +75,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	descriptor, err := client.Group(ctx, iam.GroupByID(id))
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, descriptor.DeletedAt)
-	allowed, err = client.Can(ctx, iam.UserActor(owner.ID), iam.GroupByID(id), "channel:posts:read")
+	allowed, err = client.Can(ctx, iam.UserActor(owner.ID), iam.GroupByID(id), ident.Perm("channel:posts:read"))
 	require.NoError(t, err)
 	require.False(t, allowed)
 	allowed, err = checker.Can(ctx, scope, "channel:posts:read")
@@ -83,7 +84,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	_, err = verifier.AuthenticateRequest(ctx, request)
 	require.Error(t, err, "retired group's API key is unusable on subsequent requests")
 	require.ErrorIs(t, assignRole(ctx, client, iam.SystemActor(), group, iam.UserSubject(peer.ID), "reader"), iam.ErrGroupNotFound)
-	_, _, err = client.MintAPIKey(ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: "reader"})
+	_, _, err = client.MintAPIKey(ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: mustRole("channel:reader")})
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	var roles, keys int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=$1::uuid", id).Scan(&roles))
@@ -114,7 +115,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 	for n := range 8 {
 		owner, err := client.createUser(ctx, fmt.Sprintf("race-%d@example.test", n), fmt.Sprintf("retirerace%d", n))
 		require.NoError(t, err)
-		id, err := seedGroup(ctx, client, "channel", owner.ID)
+		id, err := seedGroup(ctx, client, ident.Persona("channel"), owner.ID)
 		require.NoError(t, err)
 		start := make(chan struct{})
 		var wg sync.WaitGroup
@@ -149,9 +150,9 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	ctx := t.Context()
 	owner, err := client.createUser(ctx, "external-owner@example.test", "external-owner")
 	require.NoError(t, err)
-	controller, err := seedGroup(ctx, client, "channel", owner.ID)
+	controller, err := seedGroup(ctx, client, ident.Persona("channel"), owner.ID)
 	require.NoError(t, err)
-	survivorID, err := seedGroup(ctx, client, "channel", "")
+	survivorID, err := seedGroup(ctx, client, ident.Persona("channel"), "")
 	require.NoError(t, err)
 	survivor := iam.GroupByID(survivorID)
 	application, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
@@ -170,7 +171,7 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	require.Error(t, err)
 	_, err = client.ResolveRemoteApplicationAuthority(ctx, application.ID)
 	require.Error(t, err)
-	allowed, err := client.Can(ctx, iam.RemoteApplicationActor(application.ID), iam.GroupByID(survivorID), "channel:posts:read")
+	allowed, err := client.Can(ctx, iam.RemoteApplicationActor(application.ID), iam.GroupByID(survivorID), ident.Perm("channel:posts:read"))
 	require.NoError(t, err)
 	require.False(t, allowed)
 	application.Enabled = false

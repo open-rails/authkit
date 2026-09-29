@@ -13,6 +13,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/helpers/auth"
@@ -34,7 +35,7 @@ type principalAuthority struct {
 func (s *principalAuthority) Can(_ context.Context, a iam.Actor, ref iam.GroupRef, permission iam.Perm) (bool, error) {
 	s.calls++
 	s.actor = a
-	return s.allowed && a.Kind() == iam.ActorUser && a.ID() == "native-user" && ref == iam.GroupByID("group-1") && permission == "repo:read", s.err
+	return s.allowed && a.Kind() == iam.ActorUser && a.ID() == "native-user" && ref == iam.GroupByID("group-1") && permission == ident.Perm("repo:read"), s.err
 }
 
 func (s *principalAuthority) KnownPermission(iam.Perm) bool { return true }
@@ -122,7 +123,7 @@ func (s *principalAPIKeySource) ResolveAPIKey(_ context.Context, token string) (
 }
 
 func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
-	source := &principalAPIKeySource{resolved: iam.APIKeyPrincipal{ID: "immutable-key-id", Group: iam.Group{ID: "group-1", Persona: "repo"}, Issuer: confirmationIssuer, Permissions: []string{"repo:read"}}}
+	source := &principalAPIKeySource{resolved: iam.APIKeyPrincipal{ID: "immutable-key-id", Group: iam.Group{ID: "group-1", Persona: ident.Persona("repo")}, Issuer: confirmationIssuer, Permissions: []iam.Perm{ident.Perm("repo:read")}}}
 	v := NewVerifier().WithService(source).WithPermissionChecker(source, confirmationIssuer)
 	r := principalRequest(presentedAPIKey)
 	p, err := v.AuthenticateRequest(r.Context(), r)
@@ -266,15 +267,15 @@ func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 
 func TestAllowForwardsTheVerifiedActor(t *testing.T) {
 	cl := Claims{PermissionGroupID: "group", PermissionGroupAuthorityIssuer: "https://issuer.test", PermissionGroupPersona: "repo", Permissions: []string{"repo:read"}, APIKeyID: "key", TokenType: APIKeyPrincipalType}
-	allowed, err := Allow(t.Context(), nil, cl, "repo:read", iam.GroupByID("group"))
+	allowed, err := Allow(t.Context(), nil, cl, ident.Perm("repo:read"), iam.GroupByID("group"))
 	require.NoError(t, err)
 	require.False(t, allowed, "no checker, no authority")
 	authority := &principalAuthority{allowed: true}
-	allowed, err = Allow(t.Context(), authority, cl, "repo:read", iam.GroupRef{})
+	allowed, err = Allow(t.Context(), authority, cl, ident.Perm("repo:read"), iam.GroupRef{})
 	require.NoError(t, err)
 	require.False(t, allowed, "no group, no authority")
 	require.Zero(t, authority.calls)
-	_, err = Allow(t.Context(), authority, cl, "repo:read", iam.GroupByID("group"))
+	_, err = Allow(t.Context(), authority, cl, ident.Perm("repo:read"), iam.GroupByID("group"))
 	require.NoError(t, err)
 	require.Equal(t, iam.ActorAPIKey, authority.actor.Kind())
 	require.Equal(t, "key", authority.actor.ID())

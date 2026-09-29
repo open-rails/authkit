@@ -10,6 +10,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -153,7 +154,7 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	require.True(t, cl.TwoFAEnrollment)
 	_, ok := verify.ActorFromClaims(cl)
 	require.False(t, ok, "an enrollment token became an actor")
-	allowed, err := verify.Allow(ctx, h.auth, cl, "root:audit:read", iam.RootGroup())
+	allowed, err := verify.Allow(ctx, h.auth, cl, ident.Perm("root:audit:read"), iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "an enrollment token used the MFA-required role")
 

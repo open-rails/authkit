@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
@@ -29,15 +30,15 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	require.Equal(t, userID, principal.Identity().Subject)
 	checker := principal.(auth.PermissionChecker)
 	scope := auth.Scope{Authority: cfg.Token.Issuer, ID: group}
-	allowed, err := checker.Can(ctx, scope, iam.PermRootUsersRead)
+	allowed, err := checker.Can(ctx, scope, iam.PermRootUsersRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed)
 	grantRole(t, client, iam.RootGroup(), iam.UserSubject(userID), "site-admin")
-	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead)
+	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
 	require.NoError(t, err)
 	require.True(t, allowed, "runtime must wire live authority without host glue")
 	revokeRole(t, client, iam.RootGroup(), iam.UserSubject(userID), "site-admin")
-	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead)
+	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
 }
@@ -52,7 +53,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	ctx := t.Context()
 	client := runtime
 	owner, token := newInstanceTestUser(t, service, "retirednative")
-	id, err := seedGroup(ctx, client, "org", owner)
+	id, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://example.com/org/"+id, nil)
 	request.Header.Set("Authorization", "Bearer "+token)

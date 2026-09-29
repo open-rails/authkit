@@ -38,6 +38,8 @@ func TestAuthPublicSurface(t *testing.T) {
 		"ActiveDeviceKeys", "Sessions", "SessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "OwnerlessGroups", "GroupRoles", "KnownPermission",
 		"APIKeys", "ResolveAPIKey", "InviteLinks",
+		// Names read at run time, resolved through Config.Roles.
+		"Persona", "Permission", "Role", "ParseBootstrapManifestYAML", "LoadBootstrapManifestFile",
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",
 		// Lifecycle: host wiring at boot and health probes.
 		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth", "PublishDocument",

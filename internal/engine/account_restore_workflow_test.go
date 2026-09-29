@@ -13,7 +13,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "staff", Permissions: []string{iam.PermRootUsersDelete}}}}
+	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "staff", Permissions: []string{iam.PermRootUsersDelete.String()}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()

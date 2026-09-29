@@ -36,18 +36,17 @@ func TestSecurityPurgedUsernameStaysReserved(t *testing.T) {
 // withAccountRoles declares root roles of graded account authority and an
 // org persona whose owners hold no root role.
 func withAccountRoles(c *authkit.Config) {
-	c.Roles = authkit.RoleConfig{
-		Personas: map[string]authkit.Persona{
-			string(orgPersona):      {Permissions: []string{"org:catalog:read"}},
-			string(iam.RootPersona): {Permissions: []string{"root:audit:read"}, RequireMFA: []string{"root:audit:read"}},
-		},
-		Roles: []authkit.Role{
-			{Persona: iam.RootPersona, Name: "staff", Permissions: []string{iam.PermRootUsersManage}},
-			{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan, iam.PermRootUsersDelete, iam.PermRootUsersManage}},
-			{Persona: iam.RootPersona, Name: "siteadmin", Permissions: []string{"root:users:*", "org:*"}},
-			{Persona: iam.RootPersona, Name: "security", Permissions: []string{"root:audit:read"}},
-		},
-	}
+	r := authkit.NewRoles()
+	org := r.Persona("org")
+	org.Permission("catalog", "read")
+	auditRead := r.Root.Permission("audit", "read")
+	r.Root.RequireMFA(auditRead)
+	users := r.Root.Users
+	r.Root.Role("staff", users.Manage)
+	r.Root.Role("moderator", users.Ban, users.Delete, users.Manage)
+	r.Root.Role("siteadmin", users.All(), org.All())
+	r.Root.Role("security", auditRead)
+	c.Roles = r
 }
 
 func opErr(res []iam.OpResult, err error) error {
@@ -182,7 +181,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 		require.True(t, enabled)
 		roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(holder.id)})
 		require.NoError(t, err)
-		require.Equal(t, iam.Role("security"), roles[iam.UserSubject(holder.id)])
+		require.Equal(t, h.role(iam.RootPersona, "security"), roles[iam.UserSubject(holder.id)])
 	})
 }
 
@@ -424,11 +423,11 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 	group, base := h.newOrg(founder)
 	token := h.login(founder).AccessToken
 	for _, req := range []request{
-		{method: http.MethodPost, path: "/" + string(orgPersona), body: map[string]string{"slug": unique("org")}, token: token},
+		{method: http.MethodPost, path: "/" + orgPersona.String(), body: map[string]string{"slug": unique("org")}, token: token},
 		{method: http.MethodGet, path: base, token: token},
 		{method: http.MethodPatch, path: base, body: map[string]string{"slug": unique("renamed")}, token: token},
 		{method: http.MethodDelete, path: base, token: token},
-		{method: http.MethodGet, path: "/" + string(orgPersona) + "/" + group.ID() + "/members", token: token},
+		{method: http.MethodGet, path: "/" + orgPersona.String() + "/" + group.ID() + "/members", token: token},
 	} {
 		resp := h.do(req)
 		require.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.status, "%s %s: %s", req.method, req.path, resp)
@@ -445,7 +444,7 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 	require.NoError(t, err)
 	groups := func() int {
 		var n int
-		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE persona=$1`, string(orgPersona)).Scan(&n))
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE persona=$1`, orgPersona.String()).Scan(&n))
 		return n
 	}
 	before := groups()
@@ -473,7 +472,7 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 		owner := iam.UserSubject(h.newAccount("lifeowner").id)
 		g, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &owner})
 		require.NoError(t, err)
-		require.Equal(t, iam.OwnerRole, h.roleOf(iam.GroupByID(g.ID), owner))
+		require.Equal(t, orgPersona.OwnerRole(), h.roleOf(iam.GroupByID(g.ID), owner))
 		require.NoError(t, h.auth.DeleteGroup(ctx, iam.GroupByID(g.ID)))
 		first, err := h.auth.Group(ctx, iam.GroupByID(g.ID))
 		require.NoError(t, err)
@@ -560,7 +559,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
-	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, "staff")
+	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, h.role(iam.RootPersona, "staff"))
 	require.NoError(t, err)
 	require.ErrorIs(t, res[0].Err, iam.ErrTwoFAEnrollmentRequired, "a root:users:manage role went to an account without MFA")
 	// A role granted while 2FA was off: signing in yields only an enrollment token.

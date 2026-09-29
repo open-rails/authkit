@@ -15,32 +15,43 @@ on a group applies there, and a role held on root applies in every group.
 
 ## Config
 
+The app declares its model once with `authkit.NewRoles`, typically in a
+package-level `var` block, and passes it as `Config.Roles`. Every declaration
+returns a typed value (`iam.Persona`, `iam.Perm`, `iam.Role`) that the app then
+hands to AuthKit; a string never converts to one, so a misspelled name is a
+compile error.
+
 ```go
-Roles: authkit.RoleConfig{
-	Personas: map[string]authkit.Persona{
-		"channel": {
-			Permissions: []string{"channel:posts:edit", "channel:posts:delete"},
-		},
-	},
-	Roles: []authkit.Role{
-		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
-		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*", "root:users:*"}},
-	},
-}
+var (
+	rbac = authkit.NewRoles()
+
+	Channel     = rbac.Persona("channel")
+	PostsEdit   = Channel.Permission("posts", "edit")
+	PostsDelete = Channel.Permission("posts", "delete")
+
+	Moderator = Channel.Role("moderator", Channel.Resource("posts").All())
+	Admin     = rbac.Root.Role("admin", Channel.All(), rbac.Root.Users.All())
+)
+
+cfg := authkit.Config{Roles: rbac /* ... */}
 ```
 
-- `Persona.Permissions` is the persona's complete app catalog. A `"root"` entry
-  is optional and only adds app root permissions.
-- `Persona.CustomRoles` lets group owners define roles at run time from the
-  catalog. `APIKeys` and `RemoteApplications` mount those group routes.
-- `Role.Includes` names roles of the same persona whose permissions the role
-  also holds.
-- Every persona gets an `owner` role holding `<persona>:*`.
-- `Persona.RequireMFA` lists permissions that need a second factor. A role
-  whose grants reach one (directly, through `Includes`, or as a root role)
-  can be held only by a user with MFA enrolled; applications and API keys never
-  hold it. `root:members:manage` and `root:users:manage` always need MFA, so
-  root's owner, and any role editing other people's accounts, does. With 2FA
+- `Persona(name, opts...)` declares a persona; `Permission(resource, action)`
+  adds to its catalog. `rbac.Root` is root, which always exists;
+  `rbac.Root.Permission` adds app root permissions.
+- Options `authkit.CustomRoles` (group owners define roles at run time from
+  the catalog), `authkit.APIKeys` and `authkit.RemoteApplications` (mount those
+  group routes). Root's options go to `NewRoles`.
+- Patterns: `Channel.All()` is `channel:*`, `Channel.Resource("posts").All()`
+  is `channel:posts:*`.
+- `Role(name, grants...)` takes permissions, patterns, and roles of the same
+  persona whose permissions it includes.
+- Every persona has `Owner`, the role holding `<persona>:*`.
+- `RequireMFA(perms...)` marks permissions that need a second factor. A role
+  whose grants reach one (directly, through an included role, or as a root
+  role) can be held only by a user with MFA enrolled; applications and API keys
+  never hold it. `root:members:manage` and `root:users:manage` always need MFA,
+  so root's owner, and any role editing other people's accounts, does. With 2FA
   disabled deployment-wide the rule is inert.
 - An account that needs MFA and has a passkey but no factor signs in only with
   the passkey (`passkey_required`). When the passkey is lost, verify the person
@@ -48,23 +59,32 @@ Roles: authkit.RoleConfig{
   removes the account's passkeys, factors, backup codes, device keys and
   sessions, keeps its roles, and the next sign-in enrolls a factor.
 
+Names read at run time (a request parameter, a config file) resolve through
+the schema: `Auth.Persona(name)`, `Auth.Permission(text)` and
+`Auth.Role(persona, name)` return the typed value or an error
+(`iam.ErrUnknownGroupPersona`, `iam.ErrUnknownPermission`,
+`iam.ErrRoleNotAssignable`). A role is `<persona>:<name>` in its text form
+(`MarshalText`); rows and AuthKit's routes use the bare name.
+
 ## Built-in permissions
 
-AuthKit adds these to each persona's catalog:
+AuthKit adds these to each persona's catalog, as fields of its definition:
 
-| Permission | Registered | Gates |
-|---|---|---|
-| `<p>:members:read`, `<p>:members:manage` | always | member lists and the role catalog; role assignment, invite links |
-| `<p>:roles:manage` | `CustomRoles` | defining and deleting custom roles (also reads the role catalog) |
-| `<p>:credentials:read`, `<p>:credentials:manage` | `APIKeys` or `RemoteApplications` | API keys, remote applications |
+| Permission | Field | Registered | Gates |
+|---|---|---|---|
+| `<p>:members:read`, `<p>:members:manage` | `Members.Read`, `Members.Manage` | always | member lists and the role catalog; role assignment, invite links |
+| `<p>:roles:manage` | `Roles.Manage` | `CustomRoles` | defining and deleting custom roles (also reads the role catalog) |
+| `<p>:credentials:read`, `<p>:credentials:manage` | `Credentials.Read`, `Credentials.Manage` | `APIKeys` or `RemoteApplications` | API keys, remote applications |
 
-Root also has `root:users:read` (accounts and sign-ins), `root:users:ban`,
-`root:users:delete` (delete and restore), `root:users:manage` (edit an account,
-revoke its sessions) and `root:users:invite`.
+Root also has `rbac.Root.Users`: `Read` (`root:users:read`, accounts and
+sign-ins), `Ban`, `Delete` (delete and restore), `Manage` (edit an account,
+revoke its sessions) and `Invite`. A built-in that is not registered fails
+`New` wherever a role holds it.
 
 ## Validation at New
 
-- Catalog entries are three-part and start with their persona.
+- Names are `[a-z][a-z0-9-]*`; a permission declared twice, or one AuthKit
+  already registers, fails.
 - A role's permissions must match its persona's catalog; a wildcard must cover
   at least one registered permission. Persona roles hold only their own
   persona's permissions; root roles may hold any persona's.
@@ -85,7 +105,7 @@ are allowed, so they take no actor.
 tx, err := db.Begin(ctx)
 // ...
 owner := iam.UserSubject(userID)
-g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: Channel.Persona, Owner: &owner}, authkit.InTx(tx))
 // ...
 _, err = tx.Exec(ctx, `INSERT INTO channels (name, group_id) VALUES ($1, $2)`, name, g.ID)
 // ...
@@ -93,8 +113,7 @@ err = tx.Commit(ctx)
 ```
 
 - `CreateGroup`, `DeleteGroup` (soft) and `PurgeGroup` check no permission.
-  Before deleting, the app checks its own, for example
-  `RequirePermission(iam.RootGroup(), "root:channels:delete")`.
+  Before deleting, the app checks its own; see [who deletes a channel](#who-deletes-a-channel).
 - `NewGroup.Owner`, when set, must be a live account; it gets the `owner` role.
 - `authkit.InTx(tx)` runs the operation in a savepoint of your transaction, so
   the group and your row commit or roll back together. `tx` must be READ
@@ -103,6 +122,19 @@ err = tx.Commit(ctx)
   and event records join your transaction, and the lock is held until it ends.
 - Routes address a group by ID: `/api/v1/groups/{group_id}/members` and so on
   ([routes](api-endpoints.md)). `GET /me/groups` lists the caller's groups.
+
+## Who deletes a channel
+
+Two models, both app permissions:
+
+- Per channel: `SelfDelete = Channel.Permission("self", "delete")`, checked in
+  the channel's own group (`RequirePermission(auth, SelfDelete, …)` with the
+  channel's group). Its owner holds it through `Owner`, and a root role holding
+  `Channel.All()` holds it in every channel. Owners can delete their own
+  channel.
+- Global: `ChannelsDelete = rbac.Root.Permission("channels", "delete")`,
+  checked on `iam.RootGroup()`. Only root roles hold it; a channel owner never
+  does, since `root:` permissions count only on root. Only site admins delete.
 
 ## Actors
 

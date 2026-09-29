@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -83,7 +84,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	s, pool, owner := newHardeningTestService(t)
 	ctx := context.Background()
 
-	gid, err := seedGroup(ctx, fixtureBackend(s.Backend()), "merchant", owner)
+	gid, err := seedGroup(ctx, fixtureBackend(s.Backend()), ident.Persona("merchant"), owner)
 	require.NoError(t, err)
 	group := iam.GroupByID(gid)
 	t.Cleanup(func() {
@@ -117,14 +118,14 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	grantRole(t, fixtureBackend(s.Backend()), group, iam.UserSubject(subject), "auditor")
 	perms, err := effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), group)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read"}, perms, "escalation attempt must not have widened the stored role")
+	require.ElementsMatch(t, []iam.Perm{ident.Perm("merchant:billing:read")}, perms, "escalation attempt must not have widened the stored role")
 
 	// Owner (covers everything) CAN widen it.
 	w = drive(s, t, defineGR, gid, owner, `{"role":"auditor","permissions":["merchant:billing:read","merchant:billing:write"]}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	perms, err = effectivePermissions(ctx, fixtureBackend(s.Backend()), iam.UserActor(subject), group)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []iam.Perm{"merchant:billing:read", "merchant:billing:write"}, perms)
+	require.ElementsMatch(t, []iam.Perm{ident.Perm("merchant:billing:read"), ident.Perm("merchant:billing:write")}, perms)
 
 	// Delete is gated symmetrically: the bounded admin still can't cover the
 	// role's (now wider) grants, so it cannot delete it either.
@@ -155,11 +156,11 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	backend := fixtureBackend(s.Backend())
 
 	// The owner holds merchant:*, which reaches the MFA permission.
-	_, err := seedGroup(ctx, backend, "merchant", owner)
+	_, err := seedGroup(ctx, backend, ident.Persona("merchant"), owner)
 	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
 	_, err = backend.enableFactor(ctx, owner, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
-	gid, err := seedGroup(ctx, backend, "merchant", owner)
+	gid, err := seedGroup(ctx, backend, ident.Persona("merchant"), owner)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE id=$1::uuid`, gid)

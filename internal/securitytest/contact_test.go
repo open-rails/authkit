@@ -356,7 +356,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	require.Empty(t, roleOf(stranger.id))
 	resp = h.post("/invites/redeem", map[string]string{"code": code}, h.login(verified).AccessToken)
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	require.Equal(t, iam.Role("member"), roleOf(verified.id), "control: the invited account accepts")
+	require.Equal(t, h.role(orgPersona, "member"), roleOf(verified.id), "control: the invited account accepts")
 
 	t.Run("a failed verification link is one answer", func(t *testing.T) {
 		var answers []string

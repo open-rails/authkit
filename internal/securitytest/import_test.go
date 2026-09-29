@@ -81,7 +81,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		name, email := unique("ops"), unique("ops")+"@security.test"
 		h.registerAs(email, name)
 		squatter := h.userID(email)
-		_, err := apply(iam.BootstrapManifestUser{Username: name, Email: email, EmailVerified: true, RootRole: "admin"})
+		_, err := apply(iam.BootstrapManifestUser{Username: name, Email: email, EmailVerified: true, RootRole: h.role(iam.RootPersona, "admin")})
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		requireUntouched(t, squatter)
 	})
@@ -91,7 +91,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		h.registerAs(unique("other")+"@security.test", name)
 		squatter := h.userIDByName(name)
 		fresh := unique("fresh") + "@security.test"
-		_, err := apply(iam.BootstrapManifestUser{Username: name, Email: fresh, EmailVerified: true, RootRole: "admin"})
+		_, err := apply(iam.BootstrapManifestUser{Username: name, Email: fresh, EmailVerified: true, RootRole: h.role(iam.RootPersona, "admin")})
 		require.ErrorIs(t, err, iam.ErrUsernameInUse)
 		requireUntouched(t, squatter)
 		require.False(t, h.emailTaken(fresh), "the refused apply left an account behind")
@@ -101,7 +101,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		name := unique("opsbare")
 		h.registerAs(unique("bare")+"@security.test", name)
 		squatter := h.userIDByName(name)
-		_, err := apply(iam.BootstrapManifestUser{Username: name, RootRole: "admin"})
+		_, err := apply(iam.BootstrapManifestUser{Username: name, RootRole: h.role(iam.RootPersona, "admin")})
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		requireUntouched(t, squatter)
 		// Nothing to change is not an adoption: the apply stays idempotent.
@@ -122,10 +122,10 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 	}
 	t.Run("live alias", func(t *testing.T) {
 		alias, squatter := aliasOf(t)
-		_, err := apply(iam.BootstrapManifestUser{Username: alias, Email: unique("aliasfresh") + "@security.test", EmailVerified: true, RootRole: "admin"})
+		_, err := apply(iam.BootstrapManifestUser{Username: alias, Email: unique("aliasfresh") + "@security.test", EmailVerified: true, RootRole: h.role(iam.RootPersona, "admin")})
 		require.ErrorIs(t, err, iam.ErrUsernameInUse)
 		requireUntouched(t, squatter)
-		_, err = apply(iam.BootstrapManifestUser{Username: alias, RootRole: "admin"})
+		_, err = apply(iam.BootstrapManifestUser{Username: alias, RootRole: h.role(iam.RootPersona, "admin")})
 		require.ErrorIs(t, err, iam.ErrUsernameInUse)
 		requireUntouched(t, squatter)
 	})
@@ -134,24 +134,24 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		_, err := h.pool.Exec(ctx, `UPDATE name_claims SET expires_at=now()-interval '1 minute' WHERE owner_kind='user' AND name=lower($1) AND NOT canonical`, alias)
 		require.NoError(t, err)
 		email := unique("expired") + "@security.test"
-		res, err := apply(iam.BootstrapManifestUser{Username: alias, Email: email, EmailVerified: true, RootRole: "admin"})
+		res, err := apply(iam.BootstrapManifestUser{Username: alias, Email: email, EmailVerified: true, RootRole: h.role(iam.RootPersona, "admin")})
 		require.NoError(t, err)
 		require.Equal(t, 1, res.UsersCreated)
 		requireUntouched(t, squatter)
 		fresh := h.userID(email)
 		require.NotEqual(t, squatter, fresh)
-		require.Equal(t, iam.Role("admin"), h.rootRole(fresh))
+		require.Equal(t, h.role(iam.RootPersona, "admin"), h.rootRole(fresh))
 	})
 
 	t.Run("control: a verified address binds, and the account keeps its identity", func(t *testing.T) {
 		owner := h.newAccount("bound")
 		h.enrollEmail2FA(owner) // admin edits accounts, which needs MFA
 		phone := "+1555" + uniqueDigits(7)
-		res, err := apply(iam.BootstrapManifestUser{Username: unique("manifestname"), Email: owner.email, Phone: phone, PhoneVerified: true, RootRole: "admin",
+		res, err := apply(iam.BootstrapManifestUser{Username: unique("manifestname"), Email: owner.email, Phone: phone, PhoneVerified: true, RootRole: h.role(iam.RootPersona, "admin"),
 			Password: &iam.BootstrapUserPassword{Plaintext: "Manifest-seeded-passphrase-1"}})
 		require.NoError(t, err)
 		require.Equal(t, iam.BootstrapResult{UsersMatched: 1, PasswordsKept: 1, RootRoleAssignments: 1}, res)
-		require.Equal(t, iam.Role("admin"), h.rootRole(owner.id))
+		require.Equal(t, h.role(iam.RootPersona, "admin"), h.rootRole(owner.id))
 		_, phoneVerified, _, username, storedPhone := h.contactState(owner.id)
 		require.Equal(t, owner.username, username)
 		require.Nil(t, storedPhone, "bootstrap wrote a contact onto an existing account")
@@ -170,21 +170,21 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 
 	t.Run("creates a credential-less account, then re-runs as a no-op", func(t *testing.T) {
 		email := unique("firstadmin") + "@security.test"
-		first, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
+		first, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "moderator"))
 		require.NoError(t, err)
 		require.False(t, first.EmailVerified)
 		emailVerified, _, hasPassword, _, _ := h.contactState(first.ID)
 		require.False(t, emailVerified)
 		require.False(t, hasPassword)
-		require.Equal(t, iam.Role("moderator"), h.rootRole(first.ID))
-		again, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
+		require.Equal(t, h.role(iam.RootPersona, "moderator"), h.rootRole(first.ID))
+		again, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "moderator"))
 		require.NoError(t, err)
 		require.Equal(t, first.ID, again.ID)
 
 		// Unproven, the account gets nothing more.
-		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "admin"))
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
-		require.Equal(t, iam.Role("moderator"), h.rootRole(first.ID))
+		require.Equal(t, h.role(iam.RootPersona, "moderator"), h.rootRole(first.ID))
 		login := h.post("/password/login", map[string]string{"identifier": email, "password": password}, "")
 		require.Equal(t, http.StatusUnauthorized, login.status, login.String())
 
@@ -193,24 +193,24 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		emailVerified, _, _, _, _ = h.contactState(first.ID)
 		require.True(t, emailVerified)
 		// admin edits accounts, which needs MFA.
-		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "admin"))
 		require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
 		h.enrollEmail2FA(account{id: first.ID, email: email})
-		promoted, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
+		promoted, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "admin"))
 		require.NoError(t, err)
 		require.Equal(t, first.ID, promoted.ID)
-		require.Equal(t, iam.Role("admin"), h.rootRole(first.ID))
+		require.Equal(t, h.role(iam.RootPersona, "admin"), h.rootRole(first.ID))
 		// A held role covering the requested one is kept, never downgraded.
-		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "moderator"))
 		require.NoError(t, err)
-		require.Equal(t, iam.Role("admin"), h.rootRole(first.ID))
+		require.Equal(t, h.role(iam.RootPersona, "admin"), h.rootRole(first.ID))
 	})
 
 	t.Run("refuses a pre-registered account", func(t *testing.T) {
 		email := unique("squatadmin") + "@security.test"
 		h.register(email)
 		squatter := h.userID(email)
-		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, h.role(iam.RootPersona, "admin"))
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		require.Empty(t, h.rootRole(squatter))
 		emailVerified, _, hasPassword, _, _ := h.contactState(squatter)
@@ -221,7 +221,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 	t.Run("a username never finds an account", func(t *testing.T) {
 		name := unique("namedadmin")
 		h.registerAs(unique("named")+"@security.test", name)
-		_, err := h.auth.EnsureUserRole(ctx, iam.UserByUsername(name), root, "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByUsername(name), root, h.role(iam.RootPersona, "admin"))
 		require.Error(t, err)
 		require.Empty(t, h.rootRole(h.userIDByName(name)))
 	})
@@ -229,29 +229,29 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 	t.Run("a verified account or an explicit id binds", func(t *testing.T) {
 		verified := h.newAccount("verifiedadmin")
 		h.enrollEmail2FA(verified)
-		u, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(verified.email), root, "admin")
+		u, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(verified.email), root, h.role(iam.RootPersona, "admin"))
 		require.NoError(t, err)
 		require.Equal(t, verified.id, u.ID)
-		require.Equal(t, iam.Role("admin"), h.rootRole(verified.id))
+		require.Equal(t, h.role(iam.RootPersona, "admin"), h.rootRole(verified.id))
 
 		email := unique("byid") + "@security.test"
 		h.register(email)
 		named := h.userID(email)
-		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(named), root, "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(named), root, h.role(iam.RootPersona, "moderator"))
 		require.NoError(t, err)
-		require.Equal(t, iam.Role("moderator"), h.rootRole(named))
+		require.Equal(t, h.role(iam.RootPersona, "moderator"), h.rootRole(named))
 		emailVerified, _, _, _, _ := h.contactState(named)
 		require.False(t, emailVerified, "EnsureUserRole marked an address verified")
-		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(uuid.NewString()), root, "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(uuid.NewString()), root, h.role(iam.RootPersona, "moderator"))
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 
 	t.Run("a covering role is kept", func(t *testing.T) {
 		owner := h.newAccount("keptowner")
 		h.grant(root, owner, "superadmin")
-		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(owner.email), root, "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(owner.email), root, h.role(iam.RootPersona, "admin"))
 		require.NoError(t, err)
-		require.Equal(t, iam.Role("superadmin"), h.rootRole(owner.id))
+		require.Equal(t, h.role(iam.RootPersona, "superadmin"), h.rootRole(owner.id))
 	})
 }
 

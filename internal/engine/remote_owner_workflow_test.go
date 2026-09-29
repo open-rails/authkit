@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -26,9 +27,9 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	owner, ownerToken := newInstanceTestUser(t, srv, "remoteowner")
 	peer, _ := newInstanceTestUser(t, srv, "remotepeer")
-	gid, err := seedGroup(ctx, client, "org", owner)
+	gid, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
-	otherID, err := seedGroup(ctx, client, "org", owner)
+	otherID, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	group := iam.GroupByID(gid)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
@@ -60,12 +61,12 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	// Application authority is bound to its controlling group and its ceiling.
 	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupByID(otherID), iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, assignRole(ctx, client, actor.Within("org:catalog:read"), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor.Within(ident.Perm("org:catalog:read")), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	forged := verified
 	forged.TokenType = verify.APIKeyPrincipalType
 	_, ok = verify.ActorFromClaims(forged)
 	require.False(t, ok)
-	_, err = client.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer)}, "member")
+	_, err = client.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer)}, mustRole("org:member"))
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	call := func(method, path, body, bearer string, status int) {
 		t.Helper()
@@ -111,9 +112,9 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
 	owner, token := newInstanceTestUser(t, srv, "phantomowner")
-	gid, err := seedGroup(ctx, client, "org", owner)
+	gid, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
-	other, err := seedGroup(ctx, client, "org", owner)
+	other, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	second := iam.GroupByID(other)
 	app, err := client.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "wrong-control", Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})

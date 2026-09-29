@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	second, err := newWithKeys(cfg, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(second.Close)
-	allowed, err := second.Can(t.Context(), iam.UserActor(user.ID), iam.RootGroup(), "root:posts:edit")
+	allowed, err := second.Can(t.Context(), iam.UserActor(user.ID), iam.RootGroup(), ident.Perm("root:posts:edit"))
 	require.NoError(t, err)
 	require.False(t, allowed, "restart must never restore the system-revoked role")
 }
@@ -34,7 +35,7 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 func editorRoles() RoleConfig {
 	return RoleConfig{
 		Personas: map[string]Persona{"root": {Permissions: []string{"root:posts:edit"}}},
-		Roles:    []Role{{Persona: iam.RootPersona, Name: "editor", Permissions: []string{"root:posts:edit"}}},
+		Roles:    []Role{{Persona: "root", Name: "editor", Permissions: []string{"root:posts:edit"}}},
 	}
 }
 
@@ -49,7 +50,7 @@ func TestRuntimeConstructorWithoutRolesPreservesRoleAuthority(t *testing.T) {
 	issuer, err := newWithKeys(Config{}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(issuer.Close)
-	allowed, err := owner.Can(t.Context(), iam.UserActor(user.ID), iam.RootGroup(), "root:posts:edit")
+	allowed, err := owner.Can(t.Context(), iam.UserActor(user.ID), iam.RootGroup(), ident.Perm("root:posts:edit"))
 	require.NoError(t, err)
 	require.True(t, allowed, "secondary issuer construction must preserve existing role authority")
 }

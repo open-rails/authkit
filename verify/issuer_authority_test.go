@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/helpers/auth"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -57,7 +58,7 @@ func storedVerifier(t *testing.T) (*Verifier, *authoritySource, *jwtkit.RSASigne
 	app, signer := staticApp(t, "app", "https://application.example")
 	app.ID = "application-id"
 	src := &authoritySource{app: &app, authority: iam.RemoteApplicationAuthority{
-		Permissions: []string{"repo:read"}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo",
+		Permissions: []iam.Perm{ident.Perm("repo:read")}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: ident.Persona("repo"),
 	}}
 	v := NewVerifier().WithService(src).WithPermissionChecker(src, "https://local.example")
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"resource"}))
@@ -143,20 +144,20 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 	cl, principal, err := v.VerifyDelegatedAccess(ctx, token)
 	require.NoError(t, err)
 	require.NotNil(t, principal.PermissionGroup)
-	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: iam.Persona(cl.PermissionGroupPersona)}, principal.PermissionGroup)
+	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: ident.Persona(cl.PermissionGroupPersona)}, principal.PermissionGroup)
 	for name, scope := range map[string]PermissionScope{
-		"own":              {GroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo"},
-		"different UUID":   {GroupID: "group-beta", AuthorityIssuer: "https://local.example", Persona: "repo"},
-		"different issuer": {GroupID: "group-alpha", AuthorityIssuer: "https://other.example", Persona: "repo"},
+		"own":              {GroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: ident.Persona("repo")},
+		"different UUID":   {GroupID: "group-beta", AuthorityIssuer: "https://local.example", Persona: ident.Persona("repo")},
+		"different issuer": {GroupID: "group-alpha", AuthorityIssuer: "https://other.example", Persona: ident.Persona("repo")},
 		"absent":           {},
 	} {
 		require.Equal(t, name == "own", cl.PermissionGroupAllows(scope), name)
 	}
-	src.authority = iam.RemoteApplicationAuthority{Permissions: []string{"repo:read"}}
+	src.authority = iam.RemoteApplicationAuthority{Permissions: []iam.Perm{ident.Perm("repo:read")}}
 	cl, err = v.Verify(ctx, token)
 	require.NoError(t, err)
 	require.True(t, cl.BoundToPermissionGroup(), "missing binding must not become platform-wide delegation")
-	allowed, err := Allow(ctx, nil, cl, "repo:read", iam.GroupByID("group-alpha"))
+	allowed, err := Allow(ctx, nil, cl, ident.Perm("repo:read"), iam.GroupByID("group-alpha"))
 	require.NoError(t, err)
 	require.False(t, allowed)
 	src.authorityErr = errors.New("authority unavailable")
@@ -178,7 +179,7 @@ func TestExternalIdentityNeverBecomesLocalUser(t *testing.T) {
 		identity, ok := cl.Identity()
 		require.True(t, ok)
 		require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: issuer, Subject: "same-user-id"}, identity)
-		allowed, err := Allow(ctx, nil, cl, "repo:read", iam.GroupByID("local-group"))
+		allowed, err := Allow(ctx, nil, cl, ident.Perm("repo:read"), iam.GroupByID("local-group"))
 		require.NoError(t, err)
 		require.False(t, allowed)
 	}

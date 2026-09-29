@@ -343,7 +343,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	cfg.TwoFactor.Mode = iam.TwoFactorRequired
 	cfg.Registration.Verification = iam.RegistrationVerificationRequired
 	cfg.Passkeys = PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
-	cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"root:*"}}}}
+	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "admin", Permissions: []string{"root:*"}}}}
 	f := newAccountFlow(t, pg.Pool, cfg)
 	ctx := context.Background()
 	// Registration proof reaches a restricted enrollment token. Complete an

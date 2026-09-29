@@ -108,10 +108,9 @@ func (r *Roles) errorf(format string, args ...any) {
 }
 
 // PersonaDef is one declared persona: the permissions and roles of its
-// groups. The built-in permission fields are registered by AuthKit: Members
-// always, Roles with CustomRoles, Credentials with APIKeys or
-// RemoteApplications; one that is not registered fails New wherever it is
-// used.
+// groups. AuthKit registers the built-in permission fields: Members always,
+// Roles with CustomRoles, Credentials with APIKeys or RemoteApplications. A
+// role holding one that is not registered fails New.
 type PersonaDef struct {
 	Persona iam.Persona
 	// Owner is the role every persona has: it holds All(). A group's creator

@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = accountIssuers
 		cfg.Token.AccessTokenDuration = ttl
-		cfg.Roles = RoleConfig{Roles: []Role{{Persona: iam.RootPersona, Name: "staff", Permissions: iam.IntrinsicRootPermissions()}}}
+		cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "staff", Permissions: ident.Strings(iam.IntrinsicRootPermissions())}}}
 		// root:users:manage needs MFA while 2FA is on; this test is about issuers.
 		cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())

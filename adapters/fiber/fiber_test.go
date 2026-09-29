@@ -28,6 +28,7 @@ import (
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
@@ -457,7 +458,7 @@ func (a authority) Verifier() *verify.Verifier { return a.v }
 func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.f(ctx, actor, ref, perm)
 }
-func (authority) KnownPermission(perm iam.Perm) bool { return perm == "blog:posts:write" }
+func (authority) KnownPermission(perm iam.Perm) bool { return perm.String() == "blog:posts:write" }
 
 func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	issuer := newIssuer(t)
@@ -466,13 +467,13 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		calls := 0
 		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 			calls++
-			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm != "blog:posts:write" {
+			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm.String() != "blog:posts:write" {
 				t.Errorf("permission input = %v %v %q", actor, ref, perm)
 			}
 			return allow, nil
 		}}
 		app := fiber.New()
-		app.Get("/blogs/:blog", authkitfiber.RequirePermission(auth, "blog:posts:write", func(c fiber.Ctx) iam.GroupRef {
+		app.Get("/blogs/:blog", authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:write"), func(c fiber.Ctx) iam.GroupRef {
 			return iam.GroupByID(c.Params("blog"))
 		}), func(c fiber.Ctx) error {
 			if !allow {
@@ -502,7 +503,7 @@ func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
 			t.Fatal("an unregistered permission must panic when the route is built")
 		}
 	}()
-	authkitfiber.RequirePermission(auth, "blog:posts:delete", nil)
+	authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:delete"), nil)
 }
 
 type livenessSource func(context.Context, []string) (map[string]iam.User, error)

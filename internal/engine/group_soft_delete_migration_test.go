@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/migratekit"
@@ -32,7 +32,7 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
 	descriptor, err := newPermissionGroupStore(pg.Pool).groupByID(ctx, group)
 	require.NoError(t, err)
-	require.Equal(t, iam.Persona("channel"), descriptor.Persona)
+	require.Equal(t, ident.Persona("channel"), descriptor.Persona)
 	require.Nil(t, descriptor.DeletedAt)
 	var claims int
 	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT count(*) FROM profiles.name_claims WHERE owner_id=$1::uuid", group).Scan(&claims))

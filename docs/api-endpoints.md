@@ -76,8 +76,9 @@ response is:
 
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
-`authkit.LoadBootstrapManifestFile`, `authkit.ParseBootstrapManifestYAML`, and
-`(*authkit.Auth).ApplyBootstrapManifest(ctx, manifest, opts)`, or
+`(*authkit.Auth).LoadBootstrapManifestFile`, `ParseBootstrapManifestYAML` (each
+`root_role` resolves to a root role of `Config.Roles`), and
+`ApplyBootstrapManifest(ctx, manifest, opts)`, or
 `EnsureUserRole` for a single first admin. Bootstrap uses an existing account only through a
 verified email or phone the manifest names; it never adopts one by username, alias or unverified
 contact. Host applications layer their own domain bootstrap after AuthKit has applied users,
@@ -163,22 +164,22 @@ root role assignments and remote applications.
 | PUT | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | DELETE | `{api}/admin/users/{user_id}/roles/{role}` | admin | required (engine: `root:members:manage` + role coverage) | `auth_admin_user_sessions_revoke_all` |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | required (engine: `root:users:ban` + account coverage) | `auth_admin_user_sessions_revoke_all` |  |
-| POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
+| POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Persona |
 | GET | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:read` |  | APIKeys |
 | POST | `{api}/groups/{group_id}/api-keys` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
 | DELETE | `{api}/groups/{group_id}/api-keys/{key}` | permission_groups | `<persona>:credentials:manage` |  | APIKeys |
-| GET | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
-| POST | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/groups/{group_id}/invites/links/{link}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
-| GET | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:read` |  | Roles.Personas |
-| POST | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
-| DELETE | `{api}/groups/{group_id}/members/{user}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
-| PUT | `{api}/groups/{group_id}/members/{user}/roles/{role}` | permission_groups | `<persona>:members:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:read` |  | Roles.Persona |
+| POST | `{api}/groups/{group_id}/invites/links` | permission_groups | `<persona>:members:manage` |  | Roles.Persona |
+| DELETE | `{api}/groups/{group_id}/invites/links/{link}` | permission_groups | `<persona>:members:manage` |  | Roles.Persona |
+| GET | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:read` |  | Roles.Persona |
+| POST | `{api}/groups/{group_id}/members` | permission_groups | `<persona>:members:manage` |  | Roles.Persona |
+| DELETE | `{api}/groups/{group_id}/members/{user}` | permission_groups | `<persona>:members:manage` |  | Roles.Persona |
+| PUT | `{api}/groups/{group_id}/members/{user}/roles/{role}` | permission_groups | `<persona>:members:manage` |  | Roles.Persona |
 | GET | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:read` |  | RemoteApplications |
 | POST | `{api}/groups/{group_id}/remote-applications` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
 | DELETE | `{api}/groups/{group_id}/remote-applications/{app}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
 | PUT | `{api}/groups/{group_id}/remote-applications/{app}/roles/{role}` | permission_groups | `<persona>:credentials:manage` |  | RemoteApplications |
-| GET | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:members:read` or `<persona>:roles:manage` |  | Roles.Personas |
+| GET | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:members:read` or `<persona>:roles:manage` |  | Roles.Persona |
 | POST | `{api}/groups/{group_id}/roles` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
 | DELETE | `{api}/groups/{group_id}/roles/{role}` | permission_groups | `<persona>:roles:manage` |  | CustomRoles |
 <!-- routes:end -->

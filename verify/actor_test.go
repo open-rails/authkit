@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -45,12 +46,12 @@ func TestActorFromClaims(t *testing.T) {
 	}
 
 	a, _ := ActorFromClaims(remote)
-	if !a.Bounded() || !a.CeilingCovers("org:members:manage") || a.CeilingCovers("org:settings:manage") {
+	if !a.Bounded() || !a.CeilingCovers(ident.Perm("org:members:manage")) || a.CeilingCovers(ident.Perm("org:settings:manage")) {
 		t.Fatal("remote application token permissions must be the actor's ceiling")
 	}
 	d, _ := ActorFromClaims(delegated)
 	g, ok := d.Delegation()
-	if !ok || g.Issuer != "https://auth.test" || g.RemoteApplicationID != "app-2" || g.GroupID != "g-2" || !d.CeilingCovers("org:posts:read") || d.CeilingCovers("org:posts:delete") {
+	if !ok || g.Issuer != "https://auth.test" || g.RemoteApplicationID != "app-2" || g.GroupID != "g-2" || !d.CeilingCovers(ident.Perm("org:posts:read")) || d.CeilingCovers(ident.Perm("org:posts:delete")) {
 		t.Fatalf("delegated grant = %+v", g)
 	}
 }

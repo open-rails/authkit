@@ -7,6 +7,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
@@ -19,5 +20,5 @@ func TestNativeUserTokenCannotSupplyRoleOrPermissionAuthority(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "native-user", claims.UserID)
 	require.Empty(t, claims.Permissions)
-	require.False(t, claims.HasPermission("root:users:ban"))
+	require.False(t, claims.HasPermission(ident.Perm("root:users:ban")))
 }

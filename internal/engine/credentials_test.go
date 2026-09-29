@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -38,9 +39,9 @@ func credentialRoles() RoleConfig {
 		Roles: []Role{
 			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}},
-			{Persona: iam.RootPersona, Name: "org-admin", Permissions: []string{"org:*"}},
-			{Persona: iam.RootPersona, Name: "inviter", Permissions: []string{iam.PermRootUsersInvite}},
-			{Persona: iam.RootPersona, Name: "moderator", Permissions: []string{iam.PermRootUsersBan}},
+			{Persona: "root", Name: "org-admin", Permissions: []string{"org:*"}},
+			{Persona: "root", Name: "inviter", Permissions: []string{iam.PermRootUsersInvite.String()}},
+			{Persona: "root", Name: "moderator", Permissions: []string{iam.PermRootUsersBan.String()}},
 		},
 	}
 }
@@ -53,11 +54,14 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	t.Cleanup(e.Close)
 	f := &credentialFixture{t: t, e: e, pool: pg.Pool}
 	f.founder = f.user("founder")
-	f.acmeID, err = seedGroup(t.Context(), e, "org", f.founder.ID)
+	f.acmeID, err = seedGroup(t.Context(), e, ident.Persona("org"), f.founder.ID)
 	require.NoError(t, err)
 	f.acme = iam.GroupByID(f.acmeID)
 	return f
 }
+
+// role is the org role name.
+func (f *credentialFixture) role(name string) iam.Role { return ident.Role(ident.Persona("org"), name) }
 
 func (f *credentialFixture) user(prefix string) iam.Subject {
 	f.n++
@@ -76,19 +80,19 @@ type issued struct {
 	inviteEmail, plainEmail string
 }
 
-func (f *credentialFixture) issue(t *testing.T, creator iam.Subject, keyRole iam.Role, plain bool) issued {
+func (f *credentialFixture) issue(t *testing.T, creator iam.Subject, keyRole string, plain bool) issued {
 	t.Helper()
 	ctx := t.Context()
 	a := iam.UserActor(creator.ID)
 	var out issued
 	var err error
-	out.key, out.token, err = f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: "key", Role: keyRole})
+	out.key, out.token, err = f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: "key", Role: f.role(keyRole)})
 	require.NoError(t, err)
-	out.link, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: "member"})
+	out.link, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: f.role("member")})
 	require.NoError(t, err)
 	f.n++
 	out.inviteEmail = fmt.Sprintf("invitee%d@credentials.test", f.n)
-	out.invite, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: out.inviteEmail, Group: f.acme, Role: "member"})
+	out.invite, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: out.inviteEmail, Group: f.acme, Role: f.role("member")})
 	require.NoError(t, err)
 	if plain {
 		out.plainEmail = fmt.Sprintf("plain%d@credentials.test", f.n)
@@ -138,7 +142,9 @@ SELECT 'account_registration_invites', a.id::text, g.id::text, g.persona, COALES
 	var creds []credential
 	for rows.Next() {
 		var c credential
-		require.NoError(t, rows.Scan(&c.table, &c.id, &c.g.ID, &c.g.Persona, &c.role, &c.creator))
+		var role string
+		require.NoError(t, rows.Scan(&c.table, &c.id, &c.g.ID, scanPersona(&c.g.Persona), &role, &c.creator))
+		c.role = ident.Role(c.g.Persona, role)
 		creds = append(creds, c)
 	}
 	require.NoError(t, rows.Err())
@@ -147,7 +153,7 @@ SELECT 'account_registration_invites', a.id::text, g.id::text, g.persona, COALES
 		switch {
 		case c.table == "api_keys":
 			capability = iam.PermCredentialsManage(c.g.Persona)
-		case c.role == "":
+		case c.role.IsZero():
 			capability = iam.PermRootUsersInvite
 		}
 		require.NoError(t, e.creatorCovers(ctx, st, c.creator, c.g, capability, c.role), "%s %s outlived its issuer %s", c.table, c.id, c.creator)
@@ -164,47 +170,47 @@ func TestCredentialIssuance(t *testing.T) {
 	mgr := iam.UserActor(manager.ID)
 
 	// A user issues what it covers and is recorded as the creator.
-	key, token, err := f.e.MintAPIKey(ctx, mgr, f.acme, iam.NewAPIKey{Name: " ci ", Role: "Member"})
+	key, token, err := f.e.MintAPIKey(ctx, mgr, f.acme, iam.NewAPIKey{Name: " ci ", Role: f.role("member")})
 	require.NoError(t, err)
-	require.Equal(t, iam.APIKey{ID: key.ID, LookupID: key.LookupID, Name: "ci", Role: "member", Permissions: []string{"org:catalog:read"}, CreatedBy: manager.ID, CreatedAt: key.CreatedAt}, key)
+	require.Equal(t, iam.APIKey{ID: key.ID, LookupID: key.LookupID, Name: "ci", Role: f.role("member"), Permissions: []iam.Perm{ident.Perm("org:catalog:read")}, CreatedBy: manager.ID, CreatedAt: key.CreatedAt}, key)
 	principal, err := f.e.ResolveAPIKey(ctx, token)
 	require.NoError(t, err)
 	require.Equal(t, key.ID, principal.ID)
 	require.Equal(t, key.LookupID, principal.LookupID)
-	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", CreatedAt: principal.Group.CreatedAt}, principal.Group)
+	require.Equal(t, iam.Group{ID: f.acmeID, Persona: ident.Persona("org"), CreatedAt: principal.Group.CreatedAt}, principal.Group)
 	require.False(t, principal.Group.CreatedAt.IsZero())
 	require.Equal(t, "https://maintenance.test", principal.Issuer)
-	require.Equal(t, iam.Role("member"), principal.Role)
-	require.Equal(t, []string{"org:catalog:read"}, principal.Permissions)
+	require.Equal(t, f.role("member"), principal.Role)
+	require.Equal(t, []iam.Perm{ident.Perm("org:catalog:read")}, principal.Permissions)
 	require.Nil(t, principal.ExpiresAt)
-	link, err := f.e.CreateInviteLink(ctx, mgr, f.acme, iam.NewInviteLink{Role: "member"})
+	link, err := f.e.CreateInviteLink(ctx, mgr, f.acme, iam.NewInviteLink{Role: f.role("member")})
 	require.NoError(t, err)
 	require.NotEmpty(t, link.Code)
 
 	// No escalation, and no capability means no issuance.
-	_, _, err = f.e.MintAPIKey(ctx, mgr, f.acme, iam.NewAPIKey{Name: "owner", Role: iam.OwnerRole})
+	_, _, err = f.e.MintAPIKey(ctx, mgr, f.acme, iam.NewAPIKey{Name: "owner", Role: f.role("owner")})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
-	_, err = f.e.CreateInviteLink(ctx, mgr, f.acme, iam.NewInviteLink{Role: iam.OwnerRole})
+	_, err = f.e.CreateInviteLink(ctx, mgr, f.acme, iam.NewInviteLink{Role: f.role("owner")})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
-	_, _, err = f.e.MintAPIKey(ctx, iam.UserActor(member.ID), f.acme, iam.NewAPIKey{Name: "member", Role: "member"})
+	_, _, err = f.e.MintAPIKey(ctx, iam.UserActor(member.ID), f.acme, iam.NewAPIKey{Name: "member", Role: f.role("member")})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	_, _, err = f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: "nobody"})
+	_, _, err = f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: f.role("nobody")})
 	require.ErrorIs(t, err, errmodel.ErrUnknownRole, "the system skips authority, never role validity")
 
 	// Machine actors never issue credentials, whatever authority they hold.
-	managerKey, _, err := f.e.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: "manager"})
+	managerKey, _, err := f.e.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: f.role("manager")})
 	require.NoError(t, err)
 	for name, a := range map[string]iam.Actor{
 		"zero":               {},
 		"api_key":            iam.APIKeyActor(managerKey.ID),
 		"remote_application": iam.RemoteApplicationActor(uuid.NewString()),
-		"delegated":          iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://maintenance.test", Subject: manager.ID, Permissions: []iam.Perm{"org:*"}}),
+		"delegated":          iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://maintenance.test", Subject: manager.ID, Permissions: []iam.Perm{ident.Perm("org:*")}}),
 	} {
-		_, _, err := f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: name, Role: "member"})
+		_, _, err := f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: name, Role: f.role("member")})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
-		_, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: "member"})
+		_, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: f.role("member")})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
-		_, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: name + "@machine.test", Group: f.acme, Role: "member"})
+		_, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: name + "@machine.test", Group: f.acme, Role: f.role("member")})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
 	}
 
@@ -230,18 +236,18 @@ func TestCredentialIssuance(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, err = f.e.CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: "plain@credentials.test"})
 	require.NoError(t, err)
-	_, err = f.e.CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: "member"})
+	_, err = f.e.CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: f.role("member")})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: iam.OwnerRole})
+	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: f.role("owner")})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
-	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Role: "member"})
+	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Role: f.role("member")})
 	require.ErrorIs(t, err, errmodel.ErrInvalidInvite, "a role needs a group")
 
 	// The system issues with no creator, and nothing sweeps its credentials.
-	opKey, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: iam.OwnerRole})
+	opKey, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("owner")})
 	require.NoError(t, err)
 	require.Empty(t, opKey.CreatedBy)
-	opLink, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: iam.OwnerRole})
+	opLink, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: f.role("owner")})
 	require.NoError(t, err)
 	opInvite, err := f.e.CreateAccountInvite(ctx, iam.SystemActor(), iam.NewAccountInvite{Email: "system@credentials.test"})
 	require.NoError(t, err)
@@ -282,17 +288,17 @@ func TestCredentialListsPage(t *testing.T) {
 	ctx := t.Context()
 	var keys, links []string
 	for i := range 3 {
-		k, _, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: "member"})
+		k, _, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: f.role("member")})
 		require.NoError(t, err)
 		keys = append([]string{k.ID}, keys...)
-		l, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: "member"})
+		l, err := f.e.CreateInviteLink(ctx, iam.SystemActor(), f.acme, iam.NewInviteLink{Role: f.role("member")})
 		require.NoError(t, err)
 		links = append([]string{l.ID}, links...)
 	}
 	first, err := f.e.APIKeys(ctx, f.acme, iam.PageRequest{Limit: 2})
 	require.NoError(t, err)
 	require.Equal(t, keys[:2], []string{first.Items[0].ID, first.Items[1].ID}, "newest first")
-	require.Equal(t, []string{"org:catalog:read"}, first.Items[0].Permissions)
+	require.Equal(t, []iam.Perm{ident.Perm("org:catalog:read")}, first.Items[0].Permissions)
 	require.NotEmpty(t, first.Next)
 	rest, err := f.e.APIKeys(ctx, f.acme, iam.PageRequest{Limit: 2, Cursor: first.Next})
 	require.NoError(t, err)
@@ -345,7 +351,7 @@ func TestPurgeDeletesTheCreatorsCredentials(t *testing.T) {
 	creator := f.user("purged")
 	grantRole(t, f.e, f.acme, creator, "manager")
 	c := f.issue(t, creator, "member", false)
-	_, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: "member"})
+	_, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("member")})
 	require.NoError(t, err)
 	generation := prepareExpiredDeletion(t, f.e, creator.ID)
 	f.requireDead(t, c)
@@ -414,10 +420,10 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 	})
 }
 
-func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms ...string) {
+func (f *credentialFixture) defineCustomRole(t *testing.T, name string, perms ...string) {
 	t.Helper()
 	require.NoError(t, f.e.withGroupMutation(t.Context(), iam.SystemActor(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
-		return st.UpsertCustomRole(t.Context(), g.ID, role, perms)
+		return st.UpsertCustomRole(t.Context(), g.ID, f.role(name), perms)
 	}))
 }
 
@@ -425,9 +431,9 @@ func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms 
 func TestBootstrapDemotionRevokesCredentials(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
-	apply := func(role iam.Role) {
+	apply := func(role string) {
 		_, err := f.e.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
-			{Email: "ops@credentials.test", Username: "siteops", EmailVerified: true, RootRole: role},
+			{Email: "ops@credentials.test", Username: "siteops", EmailVerified: true, RootRole: mustRole("root:" + role)},
 		}}, iam.BootstrapOptions{})
 		require.NoError(t, err)
 	}

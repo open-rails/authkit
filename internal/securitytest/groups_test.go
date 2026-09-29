@@ -78,7 +78,7 @@ func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 		g, err := h.auth.Group(ctx, iam.GroupByID(kept.ID))
 		require.NoError(t, err)
 		require.Equal(t, orgPersona, g.Persona)
-		require.Equal(t, iam.OwnerRole, h.roleOf(iam.GroupByID(kept.ID), subject))
+		require.Equal(t, orgPersona.OwnerRole(), h.roleOf(iam.GroupByID(kept.ID), subject))
 		require.Equal(t, 1, count(`SELECT count(*) FROM public.channels WHERE group_id=$1::uuid`, kept.ID))
 		require.True(t, delivered(iam.EventGroupCreated, kept.ID))
 		require.True(t, delivered(iam.EventRoleGranted, kept.ID))

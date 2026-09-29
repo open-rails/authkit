@@ -36,7 +36,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if _, err := svc.enableFactor(ctx, owner1, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner1: %v", err)
 	}
-	if err := assignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner1), iam.OwnerRole); err != nil {
+	if err := assignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner1), "owner"); err != nil {
 		t.Fatalf("assign owner1: %v", err)
 	}
 
@@ -58,7 +58,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if _, err := svc.enableFactor(ctx, owner2, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner2: %v", err)
 	}
-	if err := assignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner2), iam.OwnerRole); err != nil {
+	if err := assignRole(ctx, svc, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner2), "owner"); err != nil {
 		t.Fatalf("assign owner2: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Disable2FAWithRemovedRoles owner1 (non-sole): %v", err)
 	}
-	if len(removed) != 1 || removed[0].Role != iam.OwnerRole {
+	if len(removed) != 1 || !removed[0].Role.IsOwner() {
 		t.Fatalf("removed = %+v, want only the owner role", removed)
 	}
 	if ok, _ := svc.Can(ctx, iam.UserActor(owner1), iam.RootGroup(), iam.PermRootUsersRead); ok {

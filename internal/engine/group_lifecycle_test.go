@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +59,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	member, err := svc.createUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
 	create := func() string {
-		id, err := seedGroup(ctx, svc, "org", owner.ID)
+		id, err := seedGroup(ctx, svc, ident.Persona("org"), owner.ID)
 		require.NoError(t, err)
 		return id
 	}
@@ -99,7 +100,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 		granted := make(chan error, 1)
 		go func() {
-			granted <- assignRole(ctx, svc, iam.UserActor(owner.ID), iam.GroupByID(group), iam.UserSubject(member.ID), iam.OwnerRole)
+			granted <- assignRole(ctx, svc, iam.UserActor(owner.ID), iam.GroupByID(group), iam.UserSubject(member.ID), "owner")
 		}()
 		require.Eventually(t, func() bool {
 			var n int
@@ -114,15 +115,16 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 
 	gid := create()
 	group := iam.GroupByID(gid)
-	role := iam.Role("auditor")
+	const name = "auditor"
+	role := mustRole("org:" + name)
 	define := func(permission string) {
-		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(owner.ID), group, iam.CustomRole{Name: role, Permissions: []string{permission}}))
+		require.NoError(t, defineRole(svc, ctx, iam.UserActor(owner.ID), group, name, []string{permission}))
 	}
 	define("org:billing:read")
 	app, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", Enabled: true})
 	require.NoError(t, err)
-	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
-	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
+	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), name))
+	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), name))
 	mint := func() string {
 		_, token, err := svc.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "lifecycle-key", Role: role})
 		require.NoError(t, err)
@@ -134,12 +136,12 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	invite, err := svc.CreateAccountInvite(ctx, iam.UserActor(owner.ID), iam.NewAccountInvite{Email: "invitee@lifecycle.test", Group: group, Role: role})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
-	allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
+	allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, ident.Perm("org:billing:write"))
 	require.NoError(t, err)
 	require.True(t, allowed)
 	resolved, err := svc.ResolveAPIKey(ctx, token)
 	require.NoError(t, err)
-	require.Contains(t, resolved.Permissions, "org:billing:write")
+	require.Contains(t, resolved.Permissions, ident.Perm("org:billing:write"))
 	_, err = pool.Exec(ctx, `CREATE FUNCTION lifecycle_role_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected role failure'; END $$;
  CREATE TRIGGER lifecycle_role_failure BEFORE DELETE ON group_custom_roles FOR EACH ROW EXECUTE FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
@@ -150,7 +152,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(owner.ID), group, role))
 	define("org:billing:write")
-	allowed, err = svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
+	allowed, err = svc.Can(ctx, iam.UserActor(member.ID), group, ident.Perm("org:billing:write"))
 	require.NoError(t, err)
 	require.False(t, allowed)
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, app.ID)
@@ -167,8 +169,8 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	for _, reader := range []string{"member", "application", "key"} {
 		t.Run("snapshot_"+reader, func(t *testing.T) {
 			define("org:billing:read")
-			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
-			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
+			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), name))
+			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), name))
 			token := mint()
 			swap := func() {
 				require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(owner.ID), group, role))
@@ -177,17 +179,17 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			trace.swap.Store(&swap)
 			switch reader {
 			case "member":
-				allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
+				allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, ident.Perm("org:billing:write"))
 				require.NoError(t, err)
 				require.False(t, allowed)
 			case "application":
 				authority, err := svc.ResolveRemoteApplicationAuthority(ctx, app.ID)
 				require.NoError(t, err)
-				require.NotContains(t, authority.Permissions, "org:billing:write")
+				require.NotContains(t, authority.Permissions, ident.Perm("org:billing:write"))
 			case "key":
 				resolved, err := svc.ResolveAPIKey(ctx, token)
 				if err == nil {
-					require.NotContains(t, resolved.Permissions, "org:billing:write")
+					require.NotContains(t, resolved.Permissions, ident.Perm("org:billing:write"))
 				}
 			}
 			require.Nil(t, trace.swap.Load(), "the query boundary must actually fire")
@@ -204,10 +206,10 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, lockPermissionGroup(ctx, q, gid))
 		writers := []func() error{
 			func() error {
-				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role)
+				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), name)
 			},
 			func() error {
-				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role)
+				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), name)
 			},
 			func() error {
 				_, _, err := svc.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "waiting", Role: role})
@@ -237,7 +239,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.Error(t, <-results)
 		}
 		define("org:billing:write")
-		allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
+		allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, ident.Perm("org:billing:write"))
 		require.NoError(t, err)
 		require.False(t, allowed)
 	})

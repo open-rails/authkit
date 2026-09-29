@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 			"org":     {Permissions: []string{"org:records:read"}},
 		},
 		Roles: []Role{
-			{Persona: iam.RootPersona, Name: "admin", Permissions: []string{"channel:*"}},
+			{Persona: "root", Name: "admin", Permissions: []string{"channel:*"}},
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:edit", "channel:members:read"}},
 			{Persona: "channel", Name: "editor", Permissions: []string{"channel:metadata:edit"}},
 		},
@@ -54,27 +55,27 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	}
 
 	// The host creates a group of a declared persona, with an owner or none.
-	golang, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(bob)}, nil)
+	golang, err := e.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(bob)}, nil)
 	require.NoError(t, err)
-	require.Equal(t, iam.Persona("channel"), golang.Persona)
+	require.Equal(t, ident.Persona("channel"), golang.Persona)
 	require.False(t, golang.CreatedAt.IsZero())
 	require.Nil(t, golang.DeletedAt)
-	announcements, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner(admin)}, nil)
+	announcements, err := e.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(admin)}, nil)
 	require.NoError(t, err)
-	acme, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "org"}, nil)
+	acme, err := e.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("org")}, nil)
 	require.NoError(t, err)
-	for _, persona := range []iam.Persona{iam.RootPersona, "nope", ""} {
+	for _, persona := range []iam.Persona{iam.RootPersona, ident.Persona("nope"), iam.Persona{}} {
 		_, err := e.CreateGroup(ctx, iam.NewGroup{Persona: persona}, nil)
 		require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, persona)
 	}
-	_, err = e.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: owner("not-a-uuid")}, nil)
+	_, err = e.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner("not-a-uuid")}, nil)
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
-	rust, err := seedGroup(ctx, e, "channel", "")
+	rust, err := seedGroup(ctx, e, ident.Persona("channel"), "")
 	require.NoError(t, err)
-	python, err := seedGroup(ctx, e, "channel", "")
+	python, err := seedGroup(ctx, e, ident.Persona("channel"), "")
 	require.NoError(t, err)
 	golangRef := iam.GroupByID(golang.ID)
-	key, _, err := e.MintAPIKey(ctx, iam.UserActor(bob), golangRef, iam.NewAPIKey{Name: "bot", Role: "moderator"})
+	key, _, err := e.MintAPIKey(ctx, iam.UserActor(bob), golangRef, iam.NewAPIKey{Name: "bot", Role: mustRole("channel:moderator")})
 	require.NoError(t, err)
 
 	// Reads.
@@ -109,11 +110,11 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 			q.Page.Cursor = page.Next
 		}
 	}
-	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel", Page: iam.PageRequest{Limit: 3}}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: ident.Persona("channel"), Page: iam.PageRequest{Limit: 3}}))
 	require.ElementsMatch(t, []string{golang.ID, announcements.ID, acme.ID, rust, python}, ids(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
 	_, err = e.ListGroups(ctx, iam.GroupQuery{Page: iam.PageRequest{Cursor: "garbage"}})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeInvalidRequest))
-	_, err = e.ListGroups(ctx, iam.GroupQuery{Persona: "nope"})
+	_, err = e.ListGroups(ctx, iam.GroupQuery{Persona: ident.Persona("nope")})
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
 	// Members and memberships.
@@ -137,15 +138,15 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 			q.Page.Cursor = page.Next
 		}
 	}
-	require.Equal(t, map[string]iam.Role{bob: iam.OwnerRole, carol: "moderator", dave: "moderator", erin: "editor"}, members(iam.MemberQuery{Page: iam.PageRequest{Limit: 3}}))
-	require.Equal(t, map[string]iam.Role{carol: "moderator", dave: "moderator"}, members(iam.MemberQuery{Roles: []iam.Role{"moderator"}, Page: iam.PageRequest{Limit: 1}}))
+	require.Equal(t, map[string]iam.Role{bob: mustRole("channel:owner"), carol: mustRole("channel:moderator"), dave: mustRole("channel:moderator"), erin: mustRole("channel:editor")}, members(iam.MemberQuery{Page: iam.PageRequest{Limit: 3}}))
+	require.Equal(t, map[string]iam.Role{carol: mustRole("channel:moderator"), dave: mustRole("channel:moderator")}, members(iam.MemberQuery{Roles: []iam.Role{mustRole("channel:moderator")}, Page: iam.PageRequest{Limit: 1}}))
 	require.Empty(t, members(iam.MemberQuery{Kinds: []iam.SubjectKind{iam.SubjectKindRemoteApplication}}))
 	first, err := e.ListSubjectGroups(ctx, iam.UserSubject(admin), iam.PageRequest{Limit: 1})
 	require.NoError(t, err)
-	require.Equal(t, []iam.Membership{{Group: announcements, Role: iam.OwnerRole}}, first.Items)
+	require.Equal(t, []iam.Membership{{Group: announcements, Role: mustRole("channel:owner")}}, first.Items)
 	second, err := e.ListSubjectGroups(ctx, iam.UserSubject(admin), iam.PageRequest{Cursor: first.Next, Limit: 1})
 	require.NoError(t, err)
-	require.Equal(t, []iam.Membership{{Group: root, Role: "admin"}}, second.Items)
+	require.Equal(t, []iam.Membership{{Group: root, Role: mustRole("root:admin")}}, second.Items)
 	require.Empty(t, second.Next)
 
 	// Can is live for every actor kind.
@@ -156,37 +157,37 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 		return ok
 	}
 	annRef := iam.GroupByID(announcements.ID)
-	require.True(t, can(iam.UserActor(carol), golangRef, "channel:posts:edit"))
-	require.False(t, can(iam.UserActor(carol), annRef, "channel:posts:edit"), "a group role applies only in its group")
-	require.True(t, can(iam.UserActor(admin), golangRef, "channel:posts:edit"), "a root role applies in every group")
-	require.False(t, can(iam.UserActor(carol).Within("channel:members:read"), golangRef, "channel:posts:edit"), "a ceiling narrows")
-	require.True(t, can(iam.APIKeyActor(key.ID), golangRef, "channel:posts:edit"))
-	require.False(t, can(iam.APIKeyActor(key.ID), annRef, "channel:posts:edit"), "a key is bound to its group")
-	local := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://groups.test", Subject: carol, Permissions: []iam.Perm{"channel:members:read"}})
-	require.True(t, can(local, golangRef, "channel:members:read"))
-	require.False(t, can(local, golangRef, "channel:posts:edit"), "a delegation is capped by its permissions")
-	foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://elsewhere.test", Subject: carol, Permissions: []iam.Perm{"channel:members:read"}})
-	require.False(t, can(foreign, golangRef, "channel:members:read"), "a foreign delegation carries no authority here")
-	require.True(t, can(iam.SystemActor(), golangRef, "channel:posts:edit"))
-	require.False(t, can(iam.Actor{}, golangRef, "channel:posts:edit"))
-	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:posts:pin")
+	require.True(t, can(iam.UserActor(carol), golangRef, ident.Perm("channel:posts:edit")))
+	require.False(t, can(iam.UserActor(carol), annRef, ident.Perm("channel:posts:edit")), "a group role applies only in its group")
+	require.True(t, can(iam.UserActor(admin), golangRef, ident.Perm("channel:posts:edit")), "a root role applies in every group")
+	require.False(t, can(iam.UserActor(carol).Within(ident.Perm("channel:members:read")), golangRef, ident.Perm("channel:posts:edit")), "a ceiling narrows")
+	require.True(t, can(iam.APIKeyActor(key.ID), golangRef, ident.Perm("channel:posts:edit")))
+	require.False(t, can(iam.APIKeyActor(key.ID), annRef, ident.Perm("channel:posts:edit")), "a key is bound to its group")
+	local := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://groups.test", Subject: carol, Permissions: []iam.Perm{ident.Perm("channel:members:read")}})
+	require.True(t, can(local, golangRef, ident.Perm("channel:members:read")))
+	require.False(t, can(local, golangRef, ident.Perm("channel:posts:edit")), "a delegation is capped by its permissions")
+	foreign := iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://elsewhere.test", Subject: carol, Permissions: []iam.Perm{ident.Perm("channel:members:read")}})
+	require.False(t, can(foreign, golangRef, ident.Perm("channel:members:read")), "a foreign delegation carries no authority here")
+	require.True(t, can(iam.SystemActor(), golangRef, ident.Perm("channel:posts:edit")))
+	require.False(t, can(iam.Actor{}, golangRef, ident.Perm("channel:posts:edit")))
+	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, ident.Perm("channel:posts:pin"))
 	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, "channel:self:delete")
+	_, err = e.Can(ctx, iam.UserActor(carol), golangRef, ident.Perm("channel:self:delete"))
 	require.ErrorIs(t, err, iam.ErrUnknownPermission, "AuthKit registers no self permissions")
-	require.True(t, can(iam.UserActor(erin), golangRef, "channel:metadata:edit"), "an app catalog may name any resource")
+	require.True(t, can(iam.UserActor(erin), golangRef, ident.Perm("channel:metadata:edit")), "an app catalog may name any resource")
 	require.NoError(t, e.Ban(ctx, iam.SystemActor(), dave, iam.Ban{}))
-	require.False(t, can(iam.UserActor(dave), golangRef, "channel:posts:edit"), "a banned user holds nothing")
+	require.False(t, can(iam.UserActor(dave), golangRef, ident.Perm("channel:posts:edit")), "a banned user holds nothing")
 
 	perms, err := e.EffectivePermissions(ctx, iam.UserActor(carol), []iam.GroupRef{golangRef, annRef, iam.GroupByID(uuid.NewString())})
 	require.NoError(t, err)
 	require.Len(t, perms, 1)
-	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:members:read"}, perms[golang.ID])
-	perms, err = e.EffectivePermissions(ctx, iam.UserActor(admin).Within("channel:posts:edit", "channel:metadata:edit"), []iam.GroupRef{golangRef})
+	require.ElementsMatch(t, []iam.Perm{ident.Perm("channel:posts:edit"), ident.Perm("channel:members:read")}, perms[golang.ID])
+	perms, err = e.EffectivePermissions(ctx, iam.UserActor(admin).Within(ident.Perm("channel:posts:edit"), ident.Perm("channel:metadata:edit")), []iam.GroupRef{golangRef})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:metadata:edit"}, perms[golang.ID], "a ceiling narrows channel:* to what it permits")
+	require.ElementsMatch(t, []iam.Perm{ident.Perm("channel:posts:edit"), ident.Perm("channel:metadata:edit")}, perms[golang.ID], "a ceiling narrows channel:* to what it permits")
 	perms, err = e.EffectivePermissions(ctx, iam.APIKeyActor(key.ID), []iam.GroupRef{golangRef, annRef})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []iam.Perm{"channel:posts:edit", "channel:members:read"}, perms[golang.ID])
+	require.ElementsMatch(t, []iam.Perm{ident.Perm("channel:posts:edit"), ident.Perm("channel:members:read")}, perms[golang.ID])
 	require.NotContains(t, perms, announcements.ID)
 
 	// Delete is the host's soft delete.
@@ -194,9 +195,9 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	deleted, err := e.Group(ctx, golangRef)
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
-	require.False(t, can(iam.UserActor(bob), golangRef, "channel:posts:edit"), "a deleted group grants nothing")
-	require.ElementsMatch(t, []string{announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel"}))
-	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: "channel", IncludeDeleted: true}))
+	require.False(t, can(iam.UserActor(bob), golangRef, ident.Perm("channel:posts:edit")), "a deleted group grants nothing")
+	require.ElementsMatch(t, []string{announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: ident.Persona("channel")}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: ident.Persona("channel"), IncludeDeleted: true}))
 	require.NoError(t, e.DeleteGroup(ctx, golangRef, nil))
 	replay, err := e.Group(ctx, golangRef)
 	require.NoError(t, err)
@@ -222,7 +223,7 @@ func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	t.Cleanup(srv.Close)
 	ctx := t.Context()
 	owner, token := newInstanceTestUser(t, srv, "h2owner")
-	gid, err := seedGroup(ctx, client, "org", owner)
+	gid, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	add := func(email string) *httptest.ResponseRecorder {
 		return serveAuthJSON(srv, http.MethodPost, "/groups/"+gid+"/members", `{"email":"`+email+`","role":"member"}`, token)
@@ -267,7 +268,7 @@ func TestAddMemberByEmailNeverBindsAnUnprovenAccount(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, redeem(strangerToken).Code, "only the invited address accepts")
 	accepted := redeem(provenToken)
 	require.Equal(t, http.StatusOK, accepted.Code, accepted.Body.String())
-	require.Equal(t, iam.Role("member"), roleOf(proven))
+	require.Equal(t, mustRole("org:member"), roleOf(proven))
 }
 
 // M2: redefining or deleting a held custom role changes what its holders
@@ -283,13 +284,13 @@ func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
 	})
 	ctx := t.Context()
 	owner, designer, keeper, holder := newGroupsUser(t, e, "m2owner"), newGroupsUser(t, e, "m2designer"), newGroupsUser(t, e, "m2keeper"), newGroupsUser(t, e, "m2holder")
-	gid, err := seedGroup(ctx, e, "channel", owner)
+	gid, err := seedGroup(ctx, e, ident.Persona("channel"), owner)
 	require.NoError(t, err)
 	ref := iam.GroupByID(gid)
 	grantRole(t, e, ref, iam.UserSubject(designer), "designer")
 	grantRole(t, e, ref, iam.UserSubject(keeper), "keeper")
 	define := func(actor string, perms ...string) error {
-		return e.DefineGroupRole(ctx, iam.UserActor(actor), ref, iam.CustomRole{Name: "commenter", Permissions: perms})
+		return defineRole(e, ctx, iam.UserActor(actor), ref, "commenter", perms)
 	}
 	holds := func(p iam.Perm) bool {
 		ok, err := e.Can(ctx, iam.UserActor(holder), ref, p)
@@ -303,16 +304,16 @@ func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
 	grantRole(t, e, ref, iam.UserSubject(holder), "commenter")
 	require.ErrorIs(t, define(designer, "channel:posts:*"), iam.ErrInsufficientAuthority, "widening a held role needs members:manage")
 	require.ErrorIs(t, define(designer), iam.ErrInsufficientAuthority, "narrowing a held role needs members:manage")
-	require.ErrorIs(t, e.DeleteGroupRole(ctx, iam.UserActor(designer), ref, "commenter"), iam.ErrInsufficientAuthority)
-	require.False(t, holds("channel:posts:write"))
+	require.ErrorIs(t, e.DeleteGroupRole(ctx, iam.UserActor(designer), ref, mustRole("channel:commenter")), iam.ErrInsufficientAuthority)
+	require.False(t, holds(ident.Perm("channel:posts:write")))
 	require.NoError(t, define(keeper, "channel:posts:read", "channel:posts:write"))
-	require.True(t, holds("channel:posts:write"))
+	require.True(t, holds(ident.Perm("channel:posts:write")))
 
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(owner), ref, iam.NewAPIKey{Name: "commenter-key", Role: "commenter"})
+	_, _, err = e.MintAPIKey(ctx, iam.UserActor(owner), ref, iam.NewAPIKey{Name: "commenter-key", Role: mustRole("channel:commenter")})
 	require.NoError(t, err)
 	require.ErrorIs(t, define(keeper, "channel:posts:read"), iam.ErrInsufficientAuthority, "a role an API key holds needs credentials:manage")
 	require.NoError(t, define(owner, "channel:posts:read"))
-	require.False(t, holds("channel:posts:write"))
+	require.False(t, holds(ident.Perm("channel:posts:write")))
 
 	// A catalog role removed from config leaves rows naming it; defining a
 	// custom role of that name would hand them its permissions.
@@ -320,9 +321,9 @@ func TestCustomRoleChangesNeedHolderAuthority(t *testing.T) {
 	require.Error(t, err, "one role per subject per group")
 	_, err = e.pg.Exec(ctx, `UPDATE group_user_roles SET role='retired' WHERE permission_group_id=$1::uuid AND user_id=$2::uuid`, gid, keeper)
 	require.NoError(t, err)
-	err = e.DefineGroupRole(ctx, iam.UserActor(owner), ref, iam.CustomRole{Name: "retired", Permissions: []string{"channel:posts:write"}})
+	err = defineRole(e, ctx, iam.UserActor(owner), ref, "retired", []string{"channel:posts:write"})
 	require.ErrorIs(t, err, iam.ErrCustomRoleIsCatalogRole)
-	ok, err := e.Can(ctx, iam.UserActor(keeper), ref, "channel:posts:write")
+	ok, err := e.Can(ctx, iam.UserActor(keeper), ref, ident.Perm("channel:posts:write"))
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -341,18 +342,18 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		Roles: []Role{
 			{Persona: "channel", Name: "editor", Permissions: []string{"channel:posts:edit"}},
 			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
-			{Persona: "channel", Name: "senior", Includes: []iam.Role{"moderator"}},
-			{Persona: iam.RootPersona, Name: "staff", Permissions: []string{"channel:*"}},
+			{Persona: "channel", Name: "senior", Includes: []string{"moderator"}},
+			{Persona: "root", Name: "staff", Permissions: []string{"channel:*"}},
 		},
 	})
 	ctx := t.Context()
 	sch := e.groupSchemaOrDefault()
-	for role, want := range map[iam.Role]bool{"editor": false, "moderator": true, "senior": true, iam.OwnerRole: true} {
-		r, ok := sch.Role("channel", role)
+	for role, want := range map[string]bool{"editor": false, "moderator": true, "senior": true, "owner": true} {
+		r, ok := sch.RoleNamed(ident.Persona("channel"), role)
 		require.True(t, ok)
 		require.Equal(t, want, r.RequiresMFA, role)
 	}
-	rootOwner, _ := sch.Role(iam.RootPersona, iam.OwnerRole)
+	rootOwner, _ := sch.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
 	require.True(t, rootOwner.RequiresMFA, "root:members:manage always needs MFA")
 
 	plain, secure, keeper := newGroupsUser(t, e, "m3plain"), newGroupsUser(t, e, "m3secure"), newGroupsUser(t, e, "m3keeper")
@@ -360,10 +361,10 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		_, err := e.enableFactor(ctx, id, "email", nil, authflow.AllowAdditionalFactors)
 		require.NoError(t, err)
 	}
-	gid, err := seedGroup(ctx, e, "channel", keeper)
+	gid, err := seedGroup(ctx, e, ident.Persona("channel"), keeper)
 	require.NoError(t, err)
 	ref := iam.GroupByID(gid)
-	_, err = seedGroup(ctx, e, "channel", plain)
+	_, err = seedGroup(ctx, e, ident.Persona("channel"), plain)
 	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired, "the owner role reaches the MFA permission")
 
 	op := iam.SystemActor()
@@ -373,29 +374,29 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	require.NoError(t, assignRole(ctx, e, op, ref, iam.UserSubject(plain), "editor"))
 
 	keeperActor := iam.UserActor(keeper)
-	require.NoError(t, e.DefineGroupRole(ctx, keeperActor, ref, iam.CustomRole{Name: "clone", Permissions: []string{"channel:posts:delete"}}))
+	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "clone", []string{"channel:posts:delete"}))
 	require.ErrorIs(t, assignRole(ctx, e, keeperActor, ref, iam.UserSubject(plain), "clone"), iam.ErrTwoFAEnrollmentRequired, "a custom clone needs MFA")
-	require.NoError(t, e.DefineGroupRole(ctx, keeperActor, ref, iam.CustomRole{Name: "helper", Permissions: []string{"channel:posts:edit"}}))
+	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "helper", []string{"channel:posts:edit"}))
 	require.NoError(t, assignRole(ctx, e, keeperActor, ref, iam.UserSubject(plain), "helper"))
-	require.ErrorIs(t, e.DefineGroupRole(ctx, keeperActor, ref, iam.CustomRole{Name: "helper", Permissions: []string{"channel:posts:*"}}), iam.ErrTwoFAEnrollmentRequired, "a redefinition cannot hand MFA permissions to a holder without MFA")
+	require.ErrorIs(t, defineRole(e, ctx, keeperActor, ref, "helper", []string{"channel:posts:*"}), iam.ErrTwoFAEnrollmentRequired, "a redefinition cannot hand MFA permissions to a holder without MFA")
 
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "mod-key", Role: "moderator"})
+	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "mod-key", Role: mustRole("channel:moderator")})
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "an API key cannot present MFA")
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "editor-key", Role: "editor"})
+	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "editor-key", Role: mustRole("channel:editor")})
 	require.NoError(t, err)
-	require.NoError(t, e.DefineGroupRole(ctx, keeperActor, ref, iam.CustomRole{Name: "bot", Permissions: []string{"channel:posts:edit"}}))
-	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "bot-key", Role: "bot"})
+	require.NoError(t, defineRole(e, ctx, keeperActor, ref, "bot", []string{"channel:posts:edit"}))
+	_, _, err = e.MintAPIKey(ctx, iam.UserActor(keeper), ref, iam.NewAPIKey{Name: "bot-key", Role: mustRole("channel:bot")})
 	require.NoError(t, err)
-	require.ErrorIs(t, e.DefineGroupRole(ctx, keeperActor, ref, iam.CustomRole{Name: "bot", Permissions: []string{"channel:posts:delete"}}), iam.ErrRoleNotAssignable)
+	require.ErrorIs(t, defineRole(e, ctx, keeperActor, ref, "bot", []string{"channel:posts:delete"}), iam.ErrRoleNotAssignable)
 
 	// With MFA the same roles are held; dropping MFA drops them.
 	require.NoError(t, assignRole(ctx, e, op, iam.RootGroup(), iam.UserSubject(secure), "staff"))
-	ok, err := e.Can(ctx, iam.UserActor(secure), ref, "channel:posts:delete")
+	ok, err := e.Can(ctx, iam.UserActor(secure), ref, ident.Perm("channel:posts:delete"))
 	require.NoError(t, err)
 	require.True(t, ok)
 	_, err = e.Disable2FAWithRemovedRoles(ctx, secure)
 	require.NoError(t, err)
-	ok, err = e.Can(ctx, iam.UserActor(secure), ref, "channel:posts:delete")
+	ok, err = e.Can(ctx, iam.UserActor(secure), ref, ident.Perm("channel:posts:delete"))
 	require.NoError(t, err)
 	require.False(t, ok, "no subject without MFA keeps an MFA permission")
 }
@@ -412,15 +413,15 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	ctx := t.Context()
 	owner, _ := newInstanceTestUser(t, srv, "gateowner")
 	member, token := newInstanceTestUser(t, srv, "gatemember")
-	acmeID, err := seedGroup(ctx, client, "org", owner)
+	acmeID, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
-	otherID, err := seedGroup(ctx, client, "org", owner)
+	otherID, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
 	acme := iam.GroupByID(acmeID)
 	grantRole(t, client, acme, iam.UserSubject(member), "member")
 
 	r := gin.New()
-	r.GET("/orgs/:org", authkitgin.RequirePermission(client, "org:catalog:read", func(c *gin.Context) iam.GroupRef {
+	r.GET("/orgs/:org", authkitgin.RequirePermission(client, ident.Perm("org:catalog:read"), func(c *gin.Context) iam.GroupRef {
 		return iam.GroupByID(c.Param("org"))
 	}), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	r.GET("/admin", authkitgin.RequirePermission(client, iam.PermRootUsersRead, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
@@ -440,7 +441,7 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, get("/admin", token))
 	revokeRole(t, client, acme, iam.UserSubject(member), "member")
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+acmeID, token), "a removed role stops working at once")
-	require.Panics(t, func() { authkitgin.RequirePermission(client, "org:catalog:write", nil) })
+	require.Panics(t, func() { authkitgin.RequirePermission(client, ident.Perm("org:catalog:write"), nil) })
 }
 
 // Groups have no route of their own: no request creates, reads, renames or
@@ -457,9 +458,9 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	ctx := t.Context()
 	owner, ownerToken := newInstanceTestUser(t, srv, "idowner")
 	member, memberToken := newInstanceTestUser(t, srv, "idmember")
-	gid, err := seedGroup(ctx, client, "org", owner)
+	gid, err := seedGroup(ctx, client, ident.Persona("org"), owner)
 	require.NoError(t, err)
-	team, err := seedGroup(ctx, client, "team", owner)
+	team, err := seedGroup(ctx, client, ident.Persona("team"), owner)
 	require.NoError(t, err)
 	grantRole(t, client, iam.GroupByID(gid), iam.UserSubject(member), "member")
 
