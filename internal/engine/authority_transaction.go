@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
@@ -69,27 +70,27 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text, false
   FROM group_invite_links l JOIN scope t ON t.id=l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
-   AND l.invited_by IS NOT NULL AND ($2='' OR l.invited_by::text=$2)
+   AND l.invited_by IS NOT NULL AND ($2::text='' OR l.invited_by=NULLIF($2::text,'')::uuid)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.id=a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
-   AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
+   AND a.invited_by IS NOT NULL AND ($2::text='' OR a.invited_by=NULLIF($2::text,'')::uuid)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.persona='root'
  WHERE a.permission_group_id IS NULL AND a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
-   AND a.invited_by IS NOT NULL AND ($2='' OR a.invited_by::text=$2)
+   AND a.invited_by IS NOT NULL AND ($2::text='' OR a.invited_by=NULLIF($2::text,'')::uuid)
 UNION ALL
 SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, COALESCE(k.created_by::text,''), false
   FROM api_keys k JOIN scope t ON t.id=k.permission_group_id
  WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
-   AND ($2='' OR k.created_by::text=$2)
+   AND ($2::text='' OR k.created_by=NULLIF($2::text,'')::uuid)
 UNION ALL
 SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text, t.persona, r.role, COALESCE(a.registered_by::text,''), a.trust_root='user'
   FROM group_remote_application_roles r JOIN scope t ON t.id=r.permission_group_id
   JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE ($2='' OR a.registered_by::text=$2)`, t.groupID, t.userID)
+ WHERE ($2::text='' OR a.registered_by=NULLIF($2::text,'')::uuid)`, t.groupID, t.userID)
 		if err != nil {
 			return err
 		}
@@ -163,17 +164,35 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 	return err == nil, err
 }
 
-// retireCredential revokes c, or deletes an application's role. Removing the
-// last usable owner of a group this way is refused like any other removal.
+// retireCredential revokes c, or deletes an application's role. A change
+// that strips the owner role of an application still counting as an owner
+// (its live registrar lost cover) is refused like any other last-owner
+// removal; a role that already conferred nothing (it needs MFA, or its
+// registrar is gone) is no loss. The boot sweep never refuses: it retires and
+// logs a group it leaves without a usable owner.
 func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore, c sweptCredential) error {
+	if st.reconcile {
+		slog.InfoContext(ctx, "authkit: role catalog changed; credential retired", "kind", c.table, "id", c.id, "group_id", c.group.ID, "role", c.role)
+	}
 	if c.table == "group_remote_application_roles" {
-		if c.role == iam.OwnerRole {
-			if err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.RemoteApplicationSubject(c.id)); err != nil {
+		app := iam.RemoteApplicationSubject(c.id)
+		if c.role == iam.OwnerRole && !st.reconcile {
+			if err := s.refuseOwnerLoss(ctx, st, c.group.ID, app); err != nil {
 				return err
 			}
 		}
-		_, err := st.q.Exec(ctx, `DELETE FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND remote_application_id=$2::uuid`, c.group.ID, c.id)
-		return err
+		if _, err := st.q.Exec(ctx, `DELETE FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND remote_application_id=$2::uuid`, c.group.ID, c.id); err != nil {
+			return err
+		}
+		if c.role == iam.OwnerRole && st.reconcile {
+			err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.Subject{})
+			if errors.Is(err, iam.ErrLastOwner) {
+				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one", "group_id", c.group.ID, "remote_application_id", c.id)
+				return nil
+			}
+			return err
+		}
+		return nil
 	}
 	stamp := "revoked_at=now()"
 	if c.table != "api_keys" {
@@ -239,8 +258,9 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 }
 
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
-// from the remaining live owners. Removing an already unusable principal does
-// not create an ownership loss; empty bootstrap groups also remain possible.
+// from the remaining live owners. Removing a principal that does not count as
+// an owner (unusable, or an application where owners need MFA) creates no
+// ownership loss; empty bootstrap groups also remain possible.
 func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, gid string, subject iam.Subject) error {
 	role, err := st.directRole(ctx, gid, subject)
 	if err != nil || role != iam.OwnerRole {
@@ -248,12 +268,21 @@ func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, 
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
 	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApplication {
-		err = st.q.QueryRow(ctx, `SELECT permission_group_id=$2::uuid FROM remote_applications WHERE id=$1::uuid`, subject.ID, gid).Scan(&live)
+		var persona iam.Persona
+		err = st.q.QueryRow(ctx, `SELECT a.permission_group_id=$2::uuid, g.persona FROM remote_applications a JOIN permission_groups g ON g.id=$2::uuid WHERE a.id=$1::uuid`, subject.ID, gid).Scan(&live, &persona)
+		live = live && !s.ownersNeedMFA(persona)
 	}
 	if err != nil || !live {
 		return err
 	}
 	return s.requireRemainingOwner(ctx, st, gid, subject)
+}
+
+// ownersNeedMFA reports whether only MFA-enrolled users count as owners of a
+// persona's groups; applications then never do.
+func (s *Engine) ownersNeedMFA(persona iam.Persona) bool {
+	owner, _ := s.groupSchemaOrDefault().Role(persona, iam.OwnerRole)
+	return s.TwoFactorEnabled() && (s.requireMFAEnrollment() || owner.RequiresMFA)
 }
 
 func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupStore, gid string, excluding iam.Subject) error {
@@ -265,8 +294,7 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 	if inactive {
 		return nil
 	}
-	owner, _ := s.groupSchemaOrDefault().Role(persona, iam.OwnerRole)
-	needsMFA := s.TwoFactorEnabled() && (s.requireMFAEnrollment() || owner.RequiresMFA)
+	needsMFA := s.ownersNeedMFA(persona)
 	var remains bool
 	err := st.q.QueryRow(ctx, `SELECT EXISTS(
  SELECT 1 FROM group_user_roles r JOIN users u ON u.id=r.user_id

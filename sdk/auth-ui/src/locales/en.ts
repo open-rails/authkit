@@ -556,6 +556,8 @@ export const en = {
     oidc_begin_failed: "The provider sign-in could not be started.",
     oidc_exchange_failed: "The provider sign-in could not be completed.",
     passkey_not_found: "The passkey was not found.",
+    passkey_required:
+      "This account signs in with a passkey. Use your passkey to continue.",
     password_change_failed: "The password could not be changed.",
     password_contains_identifier:
       "Password can't contain your username or email.",

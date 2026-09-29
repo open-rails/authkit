@@ -18,6 +18,12 @@ type SensitiveOptions struct {
 	StepUpMethods []string
 }
 
+// Sensitive gates a host route on a fresh authentication: auth_time within
+// MaxAge, plus AMR/ACR when set, plus a second factor for a user whose token
+// says mfa_enrolled. It reads only the token: mfa_enrolled reflects the
+// account when the token was minted, so it can be up to one access-token
+// lifetime stale after the user enrolls a factor. AuthKit's own sensitive
+// routes check the account's live MFA state instead.
 func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
 	opts := normalizeSensitiveOptions(options...)
 	return func(next http.Handler) http.Handler {

@@ -554,6 +554,8 @@ export const ja: AuthUiMessageBundle = {
     oidc_begin_failed: "プロバイダーでのログインを開始できませんでした。",
     oidc_exchange_failed: "プロバイダーでのログインを完了できませんでした。",
     passkey_not_found: "パスキーが見つかりません。",
+    passkey_required:
+      "このアカウントはパスキーでサインインします。続行するにはパスキーを使用してください。",
     password_change_failed: "パスワードを変更できませんでした。",
     password_contains_identifier:
       "パスワードにユーザー名やメールアドレスを含めることはできません。",

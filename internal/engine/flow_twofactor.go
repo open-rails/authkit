@@ -19,12 +19,14 @@ import (
 // TOTP crypto and phone-2FA-setup codes live in flow_totp.go; this file is the
 // account-level 2FA machine on top of the mfa_factors/mfa_settings tables.
 
-// factorEnable is one factor insert. ProvenSessionID names the session whose
-// holder just proved possession of the new factor with a code (#389).
+// factorEnable is one factor insert. Phone and Email are the destination the
+// setup code proved; the factor stays bound to it. ProvenSessionID names the
+// session whose holder just proved possession of the new factor (#389).
 type factorEnable struct {
 	UserID          string
 	Method          string
 	Phone           *string
+	Email           *string
 	TOTPSecret      []byte
 	LastTOTPStep    *int64
 	MakeDefault     bool
@@ -106,6 +108,10 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 			return nil, false, err
 		}
 	}
+	var email *string
+	if method == "email" {
+		email = in.Email
+	}
 	_, err = qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
 		UserID:       userID,
 		Method:       method,
@@ -113,6 +119,7 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 		TotpSecret:   totpSecret,
 		LastTotpStep: lastTOTPStep,
 		IsDefault:    makeDefault,
+		Email:        email,
 	})
 	if err != nil {
 		return nil, false, err
@@ -344,18 +351,9 @@ func (s *Engine) list2FAFactors(ctx context.Context, q *db.Queries, userID strin
 	}
 	out := make([]authflow.TwoFactorFactor, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, twoFactorFactorFromFields(row.ID, row.UserID, row.Method, row.PhoneNumber, row.TotpSecret, row.LastTotpStep, row.IsDefault, row.CreatedAt, row.UpdatedAt))
+		out = append(out, twoFactorFactorFromFields(row))
 	}
 	return out, nil
-}
-
-func (s *Engine) require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor authflow.TwoFactorFactor, err error) {
-	factor, err = s.twoFactorFactor(ctx, userID, factorID)
-	if err != nil {
-		return "", "", authflow.TwoFactorFactor{}, err
-	}
-	destination, err = s.send2FACodeForFactor(ctx, userID, "", factor)
-	return destination, factor.Method, factor, err
 }
 
 func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor authflow.TwoFactorFactor) (string, error) {
@@ -373,7 +371,10 @@ func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 	return s.send2FACodeForUser(ctx, user, sessionID, factor)
 }
 
-func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, sessionID string, factor authflow.TwoFactorFactor) (string, error) {
+// send2FACodeForUser sends a code for factor to the destination pinned at its
+// enrollment (never the account's current address), stored under scope: the
+// login proof, step-up session or device-key ceremony it answers.
+func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, scope string, factor authflow.TwoFactorFactor) (string, error) {
 	userID := user.ID
 	language := ""
 	if user.PreferredLanguage != nil {
@@ -382,15 +383,18 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, sessi
 	if factor.Method == "totp" {
 		return "authenticator app", nil
 	}
+	if strings.TrimSpace(scope) == "" {
+		return "", fmt.Errorf("2FA code scope required")
+	}
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
 
 	var destination string
 	if factor.Method == "email" {
-		if user.Email == nil {
-			return "", fmt.Errorf("no email address configured")
+		if factor.Email == nil {
+			return "", fmt.Errorf("no email address pinned to the email factor")
 		}
-		destination = *user.Email
+		destination = *factor.Email
 	} else { // sms
 		if factor.PhoneNumber == nil {
 			return "", fmt.Errorf("no phone number configured for SMS 2FA")
@@ -401,11 +405,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, sessi
 	if !s.useEphemeralStore() {
 		return "", fmt.Errorf("ephemeral store not configured")
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		if err := s.storeMFACode(ctx, userID, hash, factor.Method, destination); err != nil {
-			return "", err
-		}
-	} else if err := s.storeMFAStepUpCode(ctx, userID, sessionID, hash, factor.Method, destination); err != nil {
+	if err := s.storeMFAStepUpCode(ctx, userID, scope, hash, factor.Method, destination); err != nil {
 		return "", err
 	}
 
@@ -478,29 +478,6 @@ func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, c
 		return false, fmt.Errorf("ephemeral store not configured")
 	}
 	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
-}
-
-// verify2FACode verifies a 2FA code entered by the user during login.
-// Returns true if code is valid, false otherwise.
-func (s *Engine) verify2FACode(ctx context.Context, userID, code string) (bool, error) {
-	return s.verify2FAFactorCode(ctx, userID, "", code)
-}
-
-func (s *Engine) verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
-	factor, err := s.twoFactorFactor(ctx, userID, factorID)
-	if err != nil {
-		return false, err
-	}
-	if factor.Method == "totp" {
-		return s.verifyTOTPFactorCode(ctx, factor, code)
-	}
-
-	hash := sha256Hex(code)
-
-	if s.useEphemeralStore() {
-		return s.consumeMFACode(ctx, userID, hash)
-	}
-	return false, fmt.Errorf("ephemeral store not configured")
 }
 
 func (s *Engine) verifyTOTPFactorCode(ctx context.Context, factor authflow.TwoFactorFactor, code string) (bool, error) {
@@ -627,18 +604,19 @@ func (s *Engine) twoFactorFactorByMethod(ctx context.Context, userID, method str
 	return authflow.TwoFactorFactor{}, pgx.ErrNoRows
 }
 
-func twoFactorFactorFromFields(id, userID, method string, phone *string, secret []byte, step *int64, isDefault bool, createdAt, updatedAt time.Time) authflow.TwoFactorFactor {
+func twoFactorFactorFromFields(row db.MfaFactor) authflow.TwoFactorFactor {
 	return authflow.TwoFactorFactor{
-		ID:           id,
-		UserID:       userID,
-		Method:       method,
-		PhoneNumber:  phone,
-		TOTPSecret:   secret,
-		LastTOTPStep: step,
-		IsDefault:    isDefault,
+		ID:           row.ID,
+		UserID:       row.UserID,
+		Method:       row.Method,
+		PhoneNumber:  row.PhoneNumber,
+		Email:        row.Email,
+		TOTPSecret:   row.TotpSecret,
+		LastTOTPStep: row.LastTotpStep,
+		IsDefault:    row.IsDefault,
 		Enabled:      true, // #125: a factor row existing IS the enabled state
-		CreatedAt:    createdAt,
-		UpdatedAt:    updatedAt,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
 }
 

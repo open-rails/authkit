@@ -111,6 +111,16 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		if proof.DeletionID != "" && !needsChallenge {
 			return authflow.LoginOutcome{}, gateErr
 		}
+		// An account holding a passkey proves MFA with it; a weaker first
+		// factor never enrolls a new second factor over it (P7).
+		if !needsChallenge {
+			if held, err := s.holdsPasskey(ctx, tx, user.ID); err != nil || held {
+				if err == nil {
+					err = errmodel.ErrPasskeyRequired
+				}
+				return authflow.LoginOutcome{}, err
+			}
+		}
 		nonce := secret.RandB64(32)
 		proof.NonceHash = sha256Hex(nonce)
 		proof.Issuer = s.cfg.Token.Issuer
@@ -165,6 +175,18 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	out.Kind = authflow.LoginSessionIssued
 	out.Session = &session
 	return out, nil
+}
+
+// holdsPasskey reports whether the account has a live passkey for this
+// relying party. Registration demands user verification, so each one signs in
+// with MFA.
+func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	if !s.PasskeysEnabled() {
+		return false, nil
+	}
+	var held bool
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id=$1::uuid AND rpid=$2 AND deleted_at IS NULL)`, userID, s.cfg.Passkeys.RPID).Scan(&held)
+	return held, err
 }
 
 func (s *Engine) sendLoginFactor(ctx context.Context, user *userRecord, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {

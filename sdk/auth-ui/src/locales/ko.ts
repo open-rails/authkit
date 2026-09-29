@@ -541,6 +541,8 @@ export const ko: AuthUiMessageBundle = {
     oidc_begin_failed: "제공자 로그인을 시작하지 못했습니다.",
     oidc_exchange_failed: "제공자 로그인을 완료하지 못했습니다.",
     passkey_not_found: "패스키를 찾을 수 없습니다.",
+    passkey_required:
+      "이 계정은 패스키로 로그인합니다. 계속하려면 패스키를 사용하세요.",
     password_change_failed: "비밀번호를 변경하지 못했습니다.",
     password_contains_identifier:
       "비밀번호에 사용자 이름이나 이메일을 포함할 수 없습니다.",

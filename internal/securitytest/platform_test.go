@@ -366,3 +366,28 @@ func orEmpty(b []byte) []byte {
 	}
 	return b
 }
+
+// TestSecurityVerifyRequestRevealsNothing (owner decision a): an anonymous
+// verification request answers a verified, an unverified and an unknown
+// address alike, like a password reset request, and sends a code only to the
+// unverified one.
+func TestSecurityVerifyRequestRevealsNothing(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits))
+	verified := h.newAccount("averified").email
+	unverified := unique("aunverified") + "@security.test"
+	h.register(unverified)
+	unknown := unique("aunknown") + "@security.test"
+	sent := func(email string) int { return h.mail.count(`^verification to=` + email + ` `) }
+	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
+	var bodies []string
+	for _, email := range []string{verified, unverified, unknown} {
+		resp := h.post("/verify/request", map[string]string{"identifier": email}, "")
+		require.Equal(t, http.StatusAccepted, resp.status, "%s: %s", email, resp)
+		bodies = append(bodies, string(orEmpty(resp.body)))
+	}
+	require.Equal(t, bodies[0], bodies[1])
+	require.Equal(t, bodies[0], bodies[2])
+	require.Equal(t, before[verified], sent(verified), "a verified address was mailed a code")
+	require.Equal(t, before[unknown], sent(unknown))
+	require.Equal(t, before[unverified]+1, sent(unverified), "control: the unverified address gets its code")
+}

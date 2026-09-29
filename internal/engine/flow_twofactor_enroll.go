@@ -70,7 +70,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 	if in.Mode == authflow.AllowAdditionalFactors {
 		sessionID = strings.TrimSpace(in.SessionID)
 	}
-	var phone *string
+	var phone, email *string
 	switch method {
 	case "email":
 		if code == "" {
@@ -82,13 +82,14 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 			}
 			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: method}, nil
 		}
-		valid, err := s.verifyEmail2FASetupCode(ctx, in.UserID, code)
+		proven, err := s.verifyEmail2FASetupCode(ctx, in.UserID, code)
 		if err != nil {
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("verify_email_setup", err)
 		}
-		if !valid {
+		if proven == "" {
 			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrInvalidCode
 		}
+		email = &proven
 	case "sms":
 		p := strings.TrimSpace(in.PhoneNumber)
 		if p == "" {
@@ -123,7 +124,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		return s.completeFactorEnrollment(ctx, in, authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
 	}
 	backupCodes, verified, err := s.enable2FA(ctx, factorEnable{
-		UserID: in.UserID, Method: method, Phone: phone, MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: sessionID,
+		UserID: in.UserID, Method: method, Phone: phone, Email: email, MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: sessionID,
 	})
 	if err != nil {
 		if errors.Is(err, errmodel.ErrTwoFAFactorExists) {

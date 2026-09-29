@@ -30,8 +30,16 @@ credentials such as device-key tokens need not carry a `SessionID`.
 `AMR` describes authentication methods used, `ACR` the issuer's assurance class,
 and `AuthTime` when authentication occurred rather than when a token was
 refreshed. For an account with a second factor, AuthKit's `AuthTime` is when the
-session last proved that factor, so a password re-auth never makes it fresh. `MFAEnrolled` is enrollment information at token issuance, not proof
-that this authentication performed MFA; use the assurance/step-up checks.
+session last proved that factor, so a password re-auth never makes it fresh. A
+token claims `otp`/`mfa` (and the MFA `acr`) only as of the session's last MFA
+proof: a later password re-auth on a passkey session is fresh, but password-level. `MFAEnrolled` is
+enrollment information at token issuance, not proof that this authentication
+performed MFA; use the assurance/step-up checks.
+
+`verify.Sensitive` on a host route reads `mfa_enrolled` from the token, so it
+can be up to one access-token lifetime stale: a token minted before the user
+enrolled a factor clears the gate with a fresh password until it expires.
+AuthKit's own sensitive routes check the account's live MFA state.
 
 A snapshot can become stale: revoking an entitlement after a token was issued
 does not edit that signed token. Signature verification establishes who issued

@@ -33,7 +33,6 @@ const (
 	keyEmailVerify        = "email_verify:user:" // +<userID>
 	keyEmailVerifyLink    = "email_verify:link:" // +<linkHash> -> record key
 	keyPasswordReset      = "password_reset:token:"
-	keyTwoFactor          = "2fa:code:"
 	keyTwoFactorStepUp    = "2fa:step-up:"
 	keyTwoFactorChallenge = "2fa:challenge:"
 	keyPasskeyCeremony    = "passkey:"
@@ -326,14 +325,6 @@ func (s *Engine) consumePasswordReset(ctx context.Context, tokenHash string) (pa
 		return data, jwt.ErrTokenUnverifiable
 	}
 	return data, nil
-}
-
-func (s *Engine) storeMFACode(ctx context.Context, userID, codeHash, method, destination string) error {
-	return s.storeTwoFactorCode(ctx, keyTwoFactor+userID, twoFactorData{CodeHash: codeHash, Method: method, Destination: destination})
-}
-
-func (s *Engine) consumeMFACode(ctx context.Context, userID, codeHash string) (bool, error) {
-	return s.consumeTwoFactorCode(ctx, keyTwoFactor+userID, codeHash, "")
 }
 
 func (s *Engine) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string) error {

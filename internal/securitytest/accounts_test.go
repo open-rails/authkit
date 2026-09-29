@@ -145,7 +145,8 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	})
 	t.Run("control: an actor covering the target", func(t *testing.T) {
 		admin := iam.UserActor(siteadmin.id)
-		require.NoError(t, ops["UpdateUser"](admin, target.id))
+		// The target's role needs MFA, so its email stays put (N10).
+		require.NoError(t, ops["PatchUserMetadata"](admin, target.id))
 		require.NoError(t, ops["Ban"](admin, coOwner.id))
 		require.NoError(t, ops["Unban"](admin, coOwner.id))
 		require.NoError(t, ops["UpdateUser"](iam.UserActor(staff.id), plain.id))
@@ -434,5 +435,103 @@ func TestSecurityBannedTokenCreatesNoGroup(t *testing.T) {
 		live := h.newAccount("livecreator")
 		resp := h.post("/"+string(orgPersona), map[string]string{"slug": unique("liveorg")}, h.login(live).AccessToken)
 		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+	})
+}
+
+// TestSecurityEmailFactorIsPinned (P3, N10): an email factor is bound to the
+// address it was proven for. Staff moving the email of an account a verified
+// phone keeps proven, then a reset to the new address, never sends the
+// account's second-factor codes there.
+func TestSecurityEmailFactorIsPinned(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	support, target := h.newAccount("p3support"), h.newAccount("p3target")
+	h.grant(iam.RootGroup(), support, "staff")
+	h.enrollEmail2FA(target)
+	phone, verified := "+1555"+uniqueDigits(7), true
+	_, err := h.auth.UpdateUser(ctx, iam.OperatorActor(), target.id, iam.UserUpdate{Phone: &phone, PhoneVerified: &verified})
+	require.NoError(t, err)
+
+	evil := unique("p3evil") + "@security.test"
+	_, err = h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &evil})
+	require.NoError(t, err, "control: the verified phone keeps the account proven")
+	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": evil}, "").status, 300)
+	token := h.mail.last(t, `^reset to=`+evil+` .* token=(\S+)`)
+	const chosen = "Attacker-chosen-passphrase-3"
+	resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": chosen}, "")
+	require.Less(t, resp.status, 300, resp.String())
+
+	resp = h.post("/password/login", map[string]string{"identifier": evil, "password": chosen}, "")
+	require.Equal(t, http.StatusForbidden, resp.status, "the reset alone signed in an account with a second factor: %s", resp)
+	require.Equal(t, "2fa_required", resp.errorCode())
+	require.Zero(t, h.mail.count(`^login to=`+evil+` `), "a second-factor code went to the address staff set")
+	var pinned *string
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, target.id).Scan(&pinned))
+	require.NotNil(t, pinned)
+	require.Equal(t, target.email, *pinned)
+
+	t.Run("control: the code at the proven address completes the sign-in", func(t *testing.T) {
+		var ch challenge
+		resp.json(t, &ch)
+		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Error.Metadata.Challenge,
+			"code": h.mail.last(t, `^login to=`+target.email+` code=(\S+)`)}, "")
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+	})
+}
+
+// TestSecurityStaffDeleteOverridesSelfDelete (P6): a moderator deleting an
+// account that already deleted itself records a staff deletion; signing in no
+// longer undoes it.
+func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	moderator, target := h.newAccount("p6moderator"), h.newAccount("p6target")
+	h.grant(iam.RootGroup(), moderator, "moderator")
+	// The target deletes itself ahead of moderation.
+	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(target).AccessToken})
+	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+	resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id, token: h.login(moderator).AccessToken})
+	require.Less(t, resp.status, 300, resp.String())
+	login := h.post("/password/login", map[string]string{"identifier": target.email, "password": password}, "")
+	require.Equal(t, http.StatusUnauthorized, login.status, "signing in undid the moderator's deletion: %s", login)
+	require.Equal(t, "account_disabled", login.errorCode())
+	require.NotContains(t, login.String(), "recovery")
+
+	t.Run("control: a self-deletion alone stays recoverable", func(t *testing.T) {
+		self := h.newAccount("p6self")
+		require.NoError(t, opErr(h.auth.DeleteUsers(context.Background(), iam.UserActor(self.id), []string{self.id})))
+		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
+		require.Equal(t, http.StatusConflict, login.status, login.String())
+		require.Equal(t, "account_recovery_required", login.errorCode())
+	})
+}
+
+// TestSecurityUserManagementNeedsMFA (owner decision c): root:users:manage
+// edits other people's accounts, so it needs MFA like root:members:manage.
+// Only the operator sets another account's password; staff send a reset.
+func TestSecurityUserManagementNeedsMFA(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	ctx := context.Background()
+	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
+	res, err := h.auth.AssignGroupRoles(ctx, iam.OperatorActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, "staff")
+	require.NoError(t, err)
+	require.ErrorIs(t, res[0].Err, iam.ErrTwoFAEnrollmentRequired, "a root:users:manage role went to an account without MFA")
+	// A role granted while 2FA was off: signing in yields only an enrollment token.
+	_, err = h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'staff')`, h.rootGroupID(), staff.id)
+	require.NoError(t, err)
+	resp := h.post("/password/login", map[string]string{"identifier": staff.email, "password": password}, "")
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+
+	admin := h.newAccount("cadmin")
+	h.grant(iam.RootGroup(), admin, "siteadmin")
+	chosen := "Staff-chosen-passphrase-9"
+	_, err = h.auth.UpdateUser(ctx, iam.UserActor(admin.id), target.id, iam.UserUpdate{Password: &chosen})
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
+	h.login(target)
+
+	t.Run("control: the operator sets it", func(t *testing.T) {
+		require.NoError(t, h.setPassword(target.id, chosen))
+		resp := h.post("/password/login", map[string]string{"identifier": target.email, "password": chosen}, "")
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }

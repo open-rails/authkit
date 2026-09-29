@@ -143,14 +143,16 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 
 // FinishDeviceKeyEnrollment consumes both proofs, enrolls the key, and mints no
 // refresh session. An existing account with a usable second factor must also
-// present it (secondFactor: a factor code or backup code) — email possession
-// alone never enrolls a standing credential on an MFA-protected account (#293).
+// present one independent of the emailed code (secondFactor: a TOTP or SMS
+// code, or a backup code) — email possession alone never enrolls a standing
+// credential on an MFA-protected account (#293, P1).
 func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
+	enrollmentID = strings.TrimSpace(enrollmentID)
 	var record deviceKeyEnrollment
-	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &record)
+	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyEnrollment+enrollmentID, &record)
 	if err != nil || !ok {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
@@ -184,14 +186,18 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 			return authflow.DeviceKeyAuthResult{}, err
 		}
 		if s.TwoFactorEnabled() && status.Satisfied {
+			factors, backupCodes, err := s.deviceKeySecondFactors(ctx, user.ID)
+			if err != nil {
+				return authflow.DeviceKeyAuthResult{}, err
+			}
 			if strings.TrimSpace(secondFactor) == "" {
-				_, method, _, err := s.require2FAForLoginFactor(ctx, user.ID, "")
+				method, err := s.challengeDeviceKeySecondFactor(ctx, user, enrollmentID, factors, backupCodes)
 				if err != nil {
 					return authflow.DeviceKeyAuthResult{}, err
 				}
 				return authflow.DeviceKeyAuthResult{}, &authflow.DeviceKeySecondFactorRequired{Method: method}
 			}
-			if !s.verifyDeviceKeySecondFactor(ctx, user.ID, strings.TrimSpace(secondFactor)) {
+			if !s.verifyDeviceKeySecondFactor(ctx, user.ID, enrollmentID, factors, strings.TrimSpace(secondFactor)) {
 				return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 			}
 			mfaProof = true
@@ -207,11 +213,11 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	}
 
 	var consumed deviceKeyEnrollment
-	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &consumed)
+	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+enrollmentID, &consumed)
 	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.CodeHash != record.CodeHash || consumed.PublicKey != record.PublicKey {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+strings.TrimSpace(enrollmentID))
+	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+enrollmentID)
 
 	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey, mfaProof)
 	if err != nil {
@@ -236,15 +242,61 @@ func deviceKeyEnrollmentMethods(mfaProof bool) []string {
 	return []string{"device_key", "email"}
 }
 
-// verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
-// SMS/email code sent on the first finish attempt) or a backup code.
-func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, code string) bool {
-	if ok, err := s.verify2FACode(ctx, userID, code); err == nil && ok {
-		return true
+// deviceKeyEnrollmentProof is the first factor an enrollment presents: the
+// emailed code. The email factor reads the same mailbox, so it never counts
+// as a second factor here, as at login (independentFactor).
+var deviceKeyEnrollmentProof = loginProof{Input: loginSessionInput{AuthMethods: []string{"email"}}}
+
+// deviceKeySecondFactors are the account's usable factors independent of the
+// emailed enrollment code, default first, and whether backup codes remain.
+func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, bool, error) {
+	settings, err := s.Get2FASettings(ctx, userID)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.loginFactors(deviceKeyEnrollmentProof, settings), len(settings.BackupCodes) > 0, nil
+}
+
+// challengeDeviceKeySecondFactor names the proof the retry carries in
+// code_2fa, sending the SMS code first. An account whose only factor is email
+// proves with a backup code, or enrolls an independent factor.
+func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *userRecord, enrollmentID string, factors []authflow.TwoFactorFactor, backupCodes bool) (string, error) {
+	if len(factors) == 0 {
+		if backupCodes {
+			return "backup_code", nil
+		}
+		return "", iam.ErrTwoFAEnrollmentRequired
+	}
+	if factors[0].Method == "sms" {
+		if _, err := s.send2FACodeForUser(ctx, user, deviceKeyCodeScope(enrollmentID), factors[0]); err != nil {
+			return "", err
+		}
+	}
+	return factors[0].Method, nil
+}
+
+// verifyDeviceKeySecondFactor accepts a TOTP code, the SMS code sent for this
+// enrollment, or a backup code; never the email factor's.
+func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enrollmentID string, factors []authflow.TwoFactorFactor, code string) bool {
+	for _, f := range factors {
+		var ok bool
+		var err error
+		switch f.Method {
+		case "totp":
+			ok, err = s.verifyTOTPFactorCode(ctx, f, code)
+		case "sms":
+			ok, err = s.consumeMFAStepUpCode(ctx, userID, deviceKeyCodeScope(enrollmentID), sha256Hex(code), "sms")
+		}
+		if err == nil && ok {
+			return true
+		}
 	}
 	ok, err := s.VerifyBackupCode(ctx, userID, code)
 	return err == nil && ok
 }
+
+// deviceKeyCodeScope binds an SMS code to one enrollment ceremony.
+func deviceKeyCodeScope(enrollmentID string) string { return "device-key:" + sha256Hex(enrollmentID) }
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -42,9 +43,18 @@ func withRBAC(c *authkit.Config) {
 	}
 }
 
+// grant assigns role with operator authority. The holder of an MFA-required
+// role enrolls the email second factor first.
 func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
 	h.t.Helper()
-	grantRole(h.t, h.auth, group, iam.UserSubject(a.id), role)
+	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.OperatorActor(), group, []iam.Subject{iam.UserSubject(a.id)}, role)
+	require.NoError(h.t, err)
+	if errors.Is(res[0].Err, iam.ErrTwoFAEnrollmentRequired) {
+		h.enrollEmail2FA(a)
+		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), role)
+		return
+	}
+	require.NoError(h.t, res[0].Err)
 }
 
 func publicKeyPEM(t *testing.T) string {
@@ -487,5 +497,32 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		require.NoError(t, err)
 		_, err = ver.Verify(ctx, delegated)
 		require.Error(t, err)
+	})
+}
+
+// TestSecurityGroupRoleIDsAreCanonical (P4): an upper-case subject id names
+// the same account in group role operations. A manager who leaves a group
+// under an upper-case id takes the API keys, invite links and application
+// roles they issued there with them.
+func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	founder, manager := h.newAccount("p4founder"), h.newAccount("p4manager")
+	group, base := h.newOrg("p4", founder)
+	h.grant(group, manager, "manager")
+	token := h.login(manager).AccessToken
+	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
+	link := h.issue(base+"/invites/links", token, map[string]any{"role": "member"})
+	app := h.registerApp(base, token, "p4-app", "member")
+	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "member"})
+
+	resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + strings.ToUpper(manager.id), token: token})
+	require.Less(t, resp.status, 300, resp.String())
+	require.Empty(t, h.roleOf(group, iam.UserSubject(manager.id)), "control: the membership is gone")
+	require.False(t, liveKey(t, h, group, key.ID), "the API key outlived its issuer's membership")
+	require.False(t, liveLink(t, h, group, link.ID), "the invite link outlived its issuer's membership")
+	require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)), "the application kept its role")
+
+	t.Run("control: other issuers' credentials survive", func(t *testing.T) {
+		require.True(t, liveKey(t, h, group, founderKey.ID))
 	})
 }

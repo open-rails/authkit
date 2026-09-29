@@ -114,9 +114,9 @@ func (q *Queries) MFADisable(ctx context.Context, userID string) error {
 }
 
 const mFAInsertFactor = `-- name: MFAInsertFactor :one
-INSERT INTO mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+INSERT INTO mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, email, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at, email
 `
 
 type MFAInsertFactorParams struct {
@@ -126,6 +126,7 @@ type MFAInsertFactorParams struct {
 	TotpSecret   []byte
 	LastTotpStep *int64
 	IsDefault    bool
+	Email        *string
 }
 
 func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams) (MfaFactor, error) {
@@ -136,6 +137,7 @@ func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams
 		arg.TotpSecret,
 		arg.LastTotpStep,
 		arg.IsDefault,
+		arg.Email,
 	)
 	var i MfaFactor
 	err := row.Scan(
@@ -148,12 +150,13 @@ func (q *Queries) MFAInsertFactor(ctx context.Context, arg MFAInsertFactorParams
 		&i.IsDefault,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
 	)
 	return i, err
 }
 
 const mFAListFactorsByUser = `-- name: MFAListFactorsByUser :many
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at, email
 FROM mfa_factors
 WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC
@@ -178,6 +181,7 @@ func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]Mf
 			&i.IsDefault,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Email,
 		); err != nil {
 			return nil, err
 		}

@@ -348,7 +348,7 @@ conflict, and hosts refuse names with `Deps.NameAdmission`.
 
 Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, passwordless start, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
-Registration resend and email/phone verification request endpoints are honest about malformed input and target state. They return validation errors for malformed identifiers, `pending_registration_not_found` for missing pending registration resend targets, `user_not_found` for missing public verification targets, and `email_already_verified` / `phone_already_verified` for already-verified accounts.
+`POST /verify/request` without a session answers `202` for every well-formed identifier, like `POST /password/reset/request`, and sends a code only to an account or pending registration whose address is unproven; it never reveals whether an account exists or is verified. Registration resend returns `pending_registration_not_found` for a missing pending registration. Both return validation errors for malformed identifiers.
 
 ---
 
@@ -462,7 +462,8 @@ returns `{secret, otpauth_uri}`; email and SMS (`phone_number` required) send a
 setup code and return `202`. `{method, code}` confirms it; for an email setup
 code a miss is `401 invalid_code` and, on the fifth miss or with no live code,
 `401 code_expired`. Every factor is
-proven before it is stored. A full session must be fresh
+proven before it is stored, and an email or SMS factor stays bound to the
+address or number it was proven for. A full session must be fresh
 (`step_up_required` otherwise; MFA-fresh once any factor exists).
 
 For an account with a second factor, fresh means that factor within the
@@ -470,8 +471,12 @@ window: `POST /step-up/password`, a provider step-up and an inline password all
 answer `step_up_required` with `mfa_required`, and the token's `auth_time` is
 when the session last proved the factor. Device keys pass the same session MFA
 gate as every login: a key counts as a second factor only when its enrollment
-proved one (`code_2fa`), so a key enrolled before the account had a factor is
-refused (`2fa_required`) until re-enrolled with it. A password change or reset
+proved one independent of the emailed enrollment code (`code_2fa`: a TOTP or
+SMS code or a backup code, never the email factor), so a key enrolled before
+the account had a factor is refused (`2fa_required`) until re-enrolled with it.
+An account that needs MFA (an MFA-required role, or Required 2FA) and has a
+passkey but no factor signs in with the passkey; any other first factor answers
+`403 passkey_required`, never an enrollment token. A password change or reset
 revokes every device key but the one making the change.
 
 The confirming session becomes 2FA-verified: its refresh session gains

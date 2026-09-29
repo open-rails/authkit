@@ -93,9 +93,10 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 	return ch, id, true
 }
 
-// POST /verify/request — {identifier, password?}. Anonymous: send a
-// verification code/link. Authenticated: start a fresh-auth-gated contact
-// change to identifier.
+// POST /verify/request — {identifier, password?}. Anonymous: 202 for every
+// well-formed identifier; a code/link goes only to an unproven account or
+// pending registration, so the answer never reveals either. Authenticated:
+// start a fresh-auth-gated contact change to identifier.
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Identifier string `json:"identifier"`

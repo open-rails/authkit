@@ -20,6 +20,7 @@ type MfaFactor struct {
 	IsDefault bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Email     *string
 }
 
 // Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.
