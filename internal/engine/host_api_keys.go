@@ -164,7 +164,7 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
 			return err
 		}
-		if err := q.APIKeyRevoke(ctx, id); err != nil {
+		if err := q.APIKeyRetire(ctx, id); err != nil {
 			return err
 		}
 		revoked = true

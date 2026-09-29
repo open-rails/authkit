@@ -408,17 +408,6 @@ func (q *Queries) AccountDeliveryFleetsUnbound(ctx context.Context, issuers []st
 	return unbound, err
 }
 
-const accountDeliveryLock = `-- name: AccountDeliveryLock :exec
-SELECT pg_advisory_lock(hashtext(current_database()), hashtext($1::text))
-`
-
-// Session advisory lock serializing one user's callbacks; run it on a
-// dedicated connection, whose close releases it.
-func (q *Queries) AccountDeliveryLock(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, accountDeliveryLock, key)
-	return err
-}
-
 const groupsOwnedByUser = `-- name: GroupsOwnedByUser :many
 SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role = 'owner' ORDER BY permission_group_id
 `

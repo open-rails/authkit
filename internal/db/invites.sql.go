@@ -273,15 +273,6 @@ func (q *Queries) InviteLinkRedeem(ctx context.Context, id string) error {
 	return err
 }
 
-const inviteLinkRevoke = `-- name: InviteLinkRevoke :exec
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE id = $1
-`
-
-func (q *Queries) InviteLinkRevoke(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, inviteLinkRevoke, id)
-	return err
-}
-
 const inviteLinkRoleForUpdate = `-- name: InviteLinkRoleForUpdate :one
 SELECT role FROM group_invite_links WHERE id = $1 AND permission_group_id = $2 AND revoked_at IS NULL FOR UPDATE
 `

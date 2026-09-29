@@ -12,18 +12,12 @@ SELECT * FROM permission_groups WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 -- name: PermissionGroupRootID :one
 SELECT id FROM permission_groups WHERE persona = 'root';
 
--- PermissionGroupLockLive is the shared lifecycle lock of a live group.
--- name: PermissionGroupLockLive :one
-SELECT id FROM permission_groups WHERE id = sqlc.arg(id) AND deleted_at IS NULL FOR UPDATE;
+-- PermissionGroupLiveForUpdate is the shared lifecycle lock of a live group.
+-- name: PermissionGroupLiveForUpdate :one
+SELECT * FROM permission_groups WHERE id = sqlc.arg(id) AND deleted_at IS NULL FOR UPDATE;
 
--- name: PermissionGroupLivePersonaForUpdate :one
-SELECT persona FROM permission_groups WHERE id = sqlc.arg(id) AND deleted_at IS NULL FOR UPDATE;
-
--- name: PermissionGroupPersonaForUpdate :one
-SELECT persona FROM permission_groups WHERE id = sqlc.arg(id) FOR UPDATE;
-
--- name: PermissionGroupStateForUpdate :one
-SELECT persona, (deleted_at IS NOT NULL)::boolean AS deleted FROM permission_groups WHERE id = sqlc.arg(id) FOR UPDATE;
+-- name: PermissionGroupForUpdate :one
+SELECT * FROM permission_groups WHERE id = sqlc.arg(id) FOR UPDATE;
 
 -- name: PermissionGroupSoftDelete :exec
 UPDATE permission_groups SET deleted_at = sqlc.arg(deleted_at)::timestamptz WHERE id = sqlc.arg(id);
@@ -167,13 +161,6 @@ GROUP BY pg.persona, r.role;
 
 -- name: UserExists :one
 SELECT EXISTS(SELECT 1 FROM users WHERE id = sqlc.arg(id)::uuid)::boolean;
-
--- name: RemoteApplicationGroup :one
-SELECT permission_group_id FROM remote_applications WHERE id = sqlc.arg(id);
-
--- name: RemoteApplicationRegistrar :one
-SELECT (trust_root = 'user')::boolean AS user_rooted, COALESCE(registered_by::text, '')::text AS registrar
-FROM remote_applications WHERE id = sqlc.arg(id);
 
 -- name: RemoteApplicationEnabledInGroup :one
 SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id = sqlc.arg(id)::uuid AND enabled AND permission_group_id = sqlc.arg(group_id)::uuid)::boolean;

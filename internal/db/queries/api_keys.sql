@@ -20,9 +20,6 @@ LIMIT sqlc.arg(page_limit)::bigint;
 -- name: APIKeyRoleForUpdate :one
 SELECT role FROM api_keys WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) AND revoked_at IS NULL FOR UPDATE;
 
--- name: APIKeyRevoke :exec
-UPDATE api_keys SET revoked_at = now() WHERE id = sqlc.arg(id);
-
 -- APIKeyByLookupID reads a key of a live group. creator_live: the key's
 -- creator is the system (NULL) or a usable account.
 -- name: APIKeyByLookupID :one

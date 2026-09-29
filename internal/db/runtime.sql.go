@@ -9,6 +9,17 @@ import (
 	"context"
 )
 
+const advisoryLock = `-- name: AdvisoryLock :exec
+SELECT pg_advisory_lock(hashtext(current_database()), hashtext($1::text))
+`
+
+// Session-scoped advisory lock on key in this database: hold it on one
+// dedicated connection, whose close releases it.
+func (q *Queries) AdvisoryLock(ctx context.Context, key string) error {
+	_, err := q.db.Exec(ctx, advisoryLock, key)
+	return err
+}
+
 const advisoryXactLock = `-- name: AdvisoryXactLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 `
@@ -28,16 +39,6 @@ func (q *Queries) CurrentDatabase(ctx context.Context) (string, error) {
 	var column_1 string
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const migrationLock = `-- name: MigrationLock :exec
-SELECT pg_advisory_lock(hashtext(current_database()), hashtext($1::text))
-`
-
-// Session lock: hold it on one dedicated connection; closing it releases.
-func (q *Queries) MigrationLock(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, migrationLock, key)
-	return err
 }
 
 const migrationSchemaHasUsers = `-- name: MigrationSchemaHasUsers :one

@@ -86,15 +86,6 @@ func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (API
 	return i, err
 }
 
-const aPIKeyRevoke = `-- name: APIKeyRevoke :exec
-UPDATE api_keys SET revoked_at = now() WHERE id = $1
-`
-
-func (q *Queries) APIKeyRevoke(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, aPIKeyRevoke, id)
-	return err
-}
-
 const aPIKeyRoleCounts = `-- name: APIKeyRoleCounts :many
 SELECT pg.persona, r.role, count(*)::bigint AS n
 FROM api_keys r JOIN permission_groups pg ON pg.id = r.permission_group_id

@@ -224,7 +224,7 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		_ = lock.Close(cleanup)
 	}()
 	key := "authkit-account-callback:" + s.dbSchema() + ":" + s.cfg.Token.Issuer + ":" + userID
-	if err := db.New(lock).AccountDeliveryLock(ctx, key); err != nil {
+	if err := db.New(lock).AdvisoryLock(ctx, key); err != nil {
 		return err
 	}
 	delivery, err := s.q.AccountDeletionDelivery(ctx, id)

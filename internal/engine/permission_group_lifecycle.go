@@ -16,7 +16,7 @@ import (
 // transaction and takes this lock before role definitions, grants or invite
 // rows; subsequent statements then observe the state after any waited writer.
 func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
-	_, err := db.New(q).PermissionGroupLockLive(ctx, groupID)
+	_, err := db.New(q).PermissionGroupLiveForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrGroupNotFound
 	}
@@ -107,14 +107,14 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 			return iam.ErrGroupNotFound
 		}
 		q := db.New(st.q)
-		state, err := q.PermissionGroupStateForUpdate(ctx, ref.ID())
+		group, err := q.PermissionGroupForUpdate(ctx, ref.ID())
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrGroupNotFound
 		}
-		if err != nil || state.Deleted {
+		if err != nil || group.DeletedAt != nil {
 			return err
 		}
-		persona := ident.Persona(state.Persona)
+		persona := ident.Persona(group.Persona)
 		if persona == iam.RootPersona {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}

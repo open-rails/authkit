@@ -89,11 +89,6 @@ SELECT EXISTS (
     SELECT 1 FROM account_deletion_deliveries WHERE deletion_id = $1 AND stage = 'hard' AND completed_at IS NULL
 );
 
--- name: AccountDeliveryLock :exec
--- Session advisory lock serializing one user's callbacks; run it on a
--- dedicated connection, whose close releases it.
-SELECT pg_advisory_lock(hashtext(current_database()), hashtext(sqlc.arg(key)::text));
-
 -- name: AccountDeliveryFleetInsert :exec
 INSERT INTO account_delivery_fleets (issuer, river_schema) VALUES ($1, $2) ON CONFLICT (issuer) DO NOTHING;
 

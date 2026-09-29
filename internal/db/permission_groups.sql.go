@@ -498,6 +498,22 @@ func (q *Queries) PermissionGroupDelete(ctx context.Context, id string) error {
 	return err
 }
 
+const permissionGroupForUpdate = `-- name: PermissionGroupForUpdate :one
+SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) PermissionGroupForUpdate(ctx context.Context, id string) (PermissionGroup, error) {
+	row := q.db.QueryRow(ctx, permissionGroupForUpdate, id)
+	var i PermissionGroup
+	err := row.Scan(
+		&i.ID,
+		&i.Persona,
+		&i.CreatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const permissionGroupInsert = `-- name: PermissionGroupInsert :one
 
 INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id
@@ -514,27 +530,21 @@ func (q *Queries) PermissionGroupInsert(ctx context.Context, persona string) (st
 	return id, err
 }
 
-const permissionGroupLivePersonaForUpdate = `-- name: PermissionGroupLivePersonaForUpdate :one
-SELECT persona FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+const permissionGroupLiveForUpdate = `-- name: PermissionGroupLiveForUpdate :one
+SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
 `
 
-func (q *Queries) PermissionGroupLivePersonaForUpdate(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, permissionGroupLivePersonaForUpdate, id)
-	var persona string
-	err := row.Scan(&persona)
-	return persona, err
-}
-
-const permissionGroupLockLive = `-- name: PermissionGroupLockLive :one
-SELECT id FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
-`
-
-// PermissionGroupLockLive is the shared lifecycle lock of a live group.
-func (q *Queries) PermissionGroupLockLive(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, permissionGroupLockLive, id)
-	var id_2 string
-	err := row.Scan(&id_2)
-	return id_2, err
+// PermissionGroupLiveForUpdate is the shared lifecycle lock of a live group.
+func (q *Queries) PermissionGroupLiveForUpdate(ctx context.Context, id string) (PermissionGroup, error) {
+	row := q.db.QueryRow(ctx, permissionGroupLiveForUpdate, id)
+	var i PermissionGroup
+	err := row.Scan(
+		&i.ID,
+		&i.Persona,
+		&i.CreatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }
 
 const permissionGroupOwnerCount = `-- name: PermissionGroupOwnerCount :one
@@ -551,17 +561,6 @@ func (q *Queries) PermissionGroupOwnerCount(ctx context.Context, groupID string)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const permissionGroupPersonaForUpdate = `-- name: PermissionGroupPersonaForUpdate :one
-SELECT persona FROM permission_groups WHERE id = $1 FOR UPDATE
-`
-
-func (q *Queries) PermissionGroupPersonaForUpdate(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, permissionGroupPersonaForUpdate, id)
-	var persona string
-	err := row.Scan(&persona)
-	return persona, err
 }
 
 const permissionGroupRootID = `-- name: PermissionGroupRootID :one
@@ -587,22 +586,6 @@ type PermissionGroupSoftDeleteParams struct {
 func (q *Queries) PermissionGroupSoftDelete(ctx context.Context, arg PermissionGroupSoftDeleteParams) error {
 	_, err := q.db.Exec(ctx, permissionGroupSoftDelete, arg.DeletedAt, arg.ID)
 	return err
-}
-
-const permissionGroupStateForUpdate = `-- name: PermissionGroupStateForUpdate :one
-SELECT persona, (deleted_at IS NOT NULL)::boolean AS deleted FROM permission_groups WHERE id = $1 FOR UPDATE
-`
-
-type PermissionGroupStateForUpdateRow struct {
-	Persona string
-	Deleted bool
-}
-
-func (q *Queries) PermissionGroupStateForUpdate(ctx context.Context, id string) (PermissionGroupStateForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, permissionGroupStateForUpdate, id)
-	var i PermissionGroupStateForUpdateRow
-	err := row.Scan(&i.Persona, &i.Deleted)
-	return i, err
 }
 
 const permissionGroupsByIDs = `-- name: PermissionGroupsByIDs :many
@@ -713,34 +696,6 @@ func (q *Queries) RemoteApplicationEnabledInGroup(ctx context.Context, arg Remot
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const remoteApplicationGroup = `-- name: RemoteApplicationGroup :one
-SELECT permission_group_id FROM remote_applications WHERE id = $1
-`
-
-func (q *Queries) RemoteApplicationGroup(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationGroup, id)
-	var permission_group_id string
-	err := row.Scan(&permission_group_id)
-	return permission_group_id, err
-}
-
-const remoteApplicationRegistrar = `-- name: RemoteApplicationRegistrar :one
-SELECT (trust_root = 'user')::boolean AS user_rooted, COALESCE(registered_by::text, '')::text AS registrar
-FROM remote_applications WHERE id = $1
-`
-
-type RemoteApplicationRegistrarRow struct {
-	UserRooted bool
-	Registrar  string
-}
-
-func (q *Queries) RemoteApplicationRegistrar(ctx context.Context, id string) (RemoteApplicationRegistrarRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationRegistrar, id)
-	var i RemoteApplicationRegistrarRow
-	err := row.Scan(&i.UserRooted, &i.Registrar)
-	return i, err
 }
 
 const userExists = `-- name: UserExists :one

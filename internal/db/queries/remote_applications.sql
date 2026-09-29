@@ -18,6 +18,9 @@ ON CONFLICT (issuer) DO UPDATE
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
 RETURNING *;
 
+-- name: RemoteApplicationByID :one
+SELECT * FROM remote_applications WHERE id = $1;
+
 -- name: RemoteApplicationByIssuer :one
 SELECT * FROM remote_applications WHERE issuer = $1;
 

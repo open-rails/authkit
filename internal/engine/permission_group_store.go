@@ -21,17 +21,6 @@ import (
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
-func groupRoleTable(kind iam.SubjectKind) (table, subjectColumn string, err error) {
-	switch kind {
-	case iam.SubjectKindUser:
-		return "group_user_roles", "user_id", nil
-	case iam.SubjectKindRemoteApplication:
-		return "group_remote_application_roles", "remote_application_id", nil
-	default:
-		return "", "", invalidSubjectKind(kind)
-	}
-}
-
 // requireGroupSubjectKind: role assignments exist for users and applications.
 func requireGroupSubjectKind(kind iam.SubjectKind) error {
 	if kind == iam.SubjectKindUser || kind == iam.SubjectKindRemoteApplication {
@@ -104,14 +93,14 @@ func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Per
 // lockGroup locks a group row for its permanent delete and returns its
 // persona. The root group cannot be deleted.
 func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (iam.Persona, error) {
-	name, err := db.New(st.q).PermissionGroupPersonaForUpdate(ctx, groupID)
+	group, err := db.New(st.q).PermissionGroupForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.Persona{}, iam.ErrGroupNotFound
 	}
 	if err != nil {
 		return iam.Persona{}, err
 	}
-	persona := ident.Persona(name)
+	persona := ident.Persona(group.Persona)
 	if persona == iam.RootPersona {
 		return iam.Persona{}, fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 	}
@@ -235,14 +224,14 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 	if err := requireGroupSubjectKind(subject.Kind); err != nil {
 		return err
 	}
-	name, err := q.PermissionGroupLivePersonaForUpdate(ctx, groupID)
+	group, err := q.PermissionGroupLiveForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrGroupNotFound
 	}
 	if err != nil {
 		return err
 	}
-	persona := ident.Persona(name)
+	persona := ident.Persona(group.Persona)
 	if role.Persona() != persona {
 		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}

@@ -26,9 +26,6 @@ LIMIT sqlc.arg(page_limit)::bigint;
 -- name: InviteLinkRoleForUpdate :one
 SELECT role FROM group_invite_links WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) AND revoked_at IS NULL FOR UPDATE;
 
--- name: InviteLinkRevoke :exec
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE id = sqlc.arg(id);
-
 -- name: InviteLinkGroupByCode :one
 SELECT permission_group_id FROM group_invite_links WHERE code_hash = sqlc.arg(code_hash);
 

@@ -152,7 +152,7 @@ func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermMembersManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
 			return err
 		}
-		return q.InviteLinkRevoke(ctx, linkID)
+		return q.InviteLinkRetire(ctx, linkID)
 	})
 }
 

@@ -81,11 +81,11 @@ func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupS
 	if subject.Kind != iam.SubjectKindRemoteApplication {
 		return nil
 	}
-	app, err := db.New(st.q).RemoteApplicationRegistrar(ctx, subject.ID)
+	app, err := db.New(st.q).RemoteApplicationByID(ctx, subject.ID)
 	if err != nil {
 		return err
 	}
-	stands, err := s.credentialStands(ctx, st, sweptCredential{table: "group_remote_application_roles", id: subject.ID, creator: app.Registrar, group: g, role: role, needsCreator: app.UserRooted})
+	stands, err := s.credentialStands(ctx, st, sweptCredential{table: "group_remote_application_roles", id: subject.ID, creator: deref(app.RegisteredBy), group: g, role: role, needsCreator: app.TrustRoot == "user"})
 	if err != nil || stands {
 		return err
 	}
@@ -213,7 +213,7 @@ func validSubject(subject iam.Subject) error {
 			return iam.ErrRemoteApplicationNotFound
 		}
 	default:
-		return fmt.Errorf("invalid group subject kind %q", subject.Kind)
+		return invalidSubjectKind(subject.Kind)
 	}
 	return nil
 }
@@ -232,8 +232,8 @@ func (s *Engine) requireAssignableSubject(ctx context.Context, st *permissionGro
 		}
 		return nil
 	}
-	control, err := q.RemoteApplicationGroup(ctx, subject.ID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && control != g.ID {
+	app, err := q.RemoteApplicationByID(ctx, subject.ID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {
 		return iam.ErrRemoteApplicationNotFound
 	}
 	return err
