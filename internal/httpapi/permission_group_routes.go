@@ -14,6 +14,7 @@ package httpapi
 // instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -353,4 +354,41 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 	default:
 		return opStub
 	}
+}
+
+// writeGroupOpError answers a group-operation failure: the 2FA-enrollment
+// refusal carries the enrollment metadata, everything else is the catalog's
+// status and code through notFoundCodes/groupOpCodes.
+func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
+	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+		s.send2FAEnrollmentRequiredError(w)
+		return
+	}
+	writeError(w, remap(err, notFoundCodes, groupOpCodes))
+}
+
+// groupOpCodes: where a group operation's wire code differs from the catalog
+// — one forbidden and one invalid_request per family, and the last-owner
+// refusal (#193: unsafe, not unauthorised, so 409).
+var groupOpCodes = map[error]iam.Code{
+	iam.ErrCannotRemoveLastAdminRole:     iam.CodeCannotRemoveLastOwner,
+	iam.ErrExternalInvitesDisabled:       iam.CodeForbidden,
+	iam.ErrInsufficientRoleAuthority:     iam.CodeForbidden,
+	iam.ErrRoleAssignmentEscalation:      iam.CodeForbidden,
+	iam.ErrInvalidRemoteApplication:      iam.CodeInvalidRequest,
+	iam.ErrReservedIssuer:                iam.CodeInvalidRequest,
+	iam.ErrInviteLinkExpired:             iam.CodeInvalidRequest,
+	iam.ErrInviteLinkRevoked:             iam.CodeInvalidRequest,
+	iam.ErrRoleNotAssignable:             iam.CodeInvalidRequest,
+	iam.ErrInvalidRole:                   iam.CodeInvalidRequest,
+	iam.ErrUnknownRole:                   iam.CodeInvalidRequest,
+	iam.ErrMissingName:                   iam.CodeInvalidRequest,
+	iam.ErrInvalidInvite:                 iam.CodeInvalidRequest,
+	iam.ErrInvalidExpiry:                 iam.CodeInvalidRequest,
+	iam.ErrUnknownGroupPersona:           iam.CodeInvalidRequest,
+	iam.ErrCustomRolesNotSupported:       iam.CodeInvalidRequest,
+	iam.ErrCustomRoleNameInvalid:         iam.CodeInvalidRequest,
+	iam.ErrCustomRoleIsCatalogRole:       iam.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantCrossPersona:   iam.CodeInvalidRequest,
+	iam.ErrCustomRoleGrantOutsideCatalog: iam.CodeInvalidRequest,
 }
