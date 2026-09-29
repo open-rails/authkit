@@ -31,6 +31,7 @@ import (
 	twilioemail "github.com/open-rails/authkit/adapters/twilio/email"
 	twiliosms "github.com/open-rails/authkit/adapters/twilio/sms"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/verify"
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
@@ -80,7 +81,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 				DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
 				// Rate limits live in memory; set Redis when you run more than one copy of your server.
 			},
-			Roles: roles, // See below for our RBAC system
+			Roles: rbac, // See below for our RBAC system
 		},
 		authkit.Deps{
 			Postgres: db,     // required: users, sessions and short-lived auth state
@@ -96,29 +97,28 @@ Now let's make a shitty Reddit-clone. Oh wait; Reddit is already shit, I forgot 
 First we need moderators; these are the unpaid neckbeards who enforce their arbitrary policies on users (plebians). Let's build that feature first:
 
 ```go
-var roles = authkit.RoleConfig{
+var (
+	rbac = authkit.NewRoles()
+
 	// Persona's are types of permission groups. root (the whole site) exists by default.
-	Personas: map[string]authkit.Persona{
-		// we'll have permission group per reddit-channel, like /c/golang
-		"channel": {
-			// Our own custom permissions, in addition to the ones that authkit includes automatically.
-			Permissions: []string{
-				"channel:posts:edit", "channel:posts:delete", "channel:posts:approve",
-				"channel:self:edit",   // change the channel's own data: its name, description and rules
-				"channel:self:delete", // delete the channel ("self" is just our name for the channel itself)
-			},
-		},
-	},
+	// we'll have permission group per reddit-channel, like /c/golang
+	Channel = rbac.Persona("channel")
+
+	// Our own custom permissions, in addition to the ones that authkit includes automatically.
+	PostsEdit     = Channel.Permission("posts", "edit")
+	PostsDelete   = Channel.Permission("posts", "delete")
+	PostsApprove  = Channel.Permission("posts", "approve")
+	ChannelEdit   = Channel.Permission("self", "edit")   // change the channel's own data: its name, description and rules
+	ChannelDelete = Channel.Permission("self", "delete") // delete the channel ("self" is just our name for the channel itself)
+
 	// Roles are bundles of permissions, scoped to a specific persona.
 	// There is always a singleton persona; root
-	Roles: []authkit.Role{
-		{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}}, // edit, delete and approve posts
-		{Persona: iam.RootPersona, Name: "admin", Permissions: []string{
-			"channel:*",    // everything in every channel, deleting it included
-			"root:users:*", // read, ban, delete and manage user accounts
-		}},
-	},
-}
+	Moderator = Channel.Role("moderator", Channel.Resource("posts").All()) // edit, delete and approve posts
+	Admin     = rbac.Root.Role("admin",
+		Channel.All(),         // everything in every channel, deleting it included
+		rbac.Root.Users.All(), // read, ban, delete and manage user accounts
+	)
+)
 ```
 
 Permissions have 3 parts: `<persona>:<resource>:<action>` and they support wildcards like `channel:*` too.
@@ -156,7 +156,7 @@ func seed(ctx context.Context, auth *authkit.Client) (iam.User, error) {
 		return iam.User{}, errors.New("set ADMIN_EMAIL to the first admin's address")
 	}
 	// Creates the user if they don't exist, and grants them the admin role defined above
-	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), "admin")
+	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), Admin)
 }
 
 // Our application-specific table
@@ -173,7 +173,7 @@ var errChannelTaken = errors.New("that channel already exists")
 func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Client, name, ownerID string) error {
 	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		owner := iam.UserSubject(ownerID)
-		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: "channel", Owner: &owner}, authkit.InTx(tx))
+		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: Channel.Persona, Owner: &owner}, authkit.InTx(tx))
 		if err != nil {
 			return err
 		}
@@ -322,14 +322,7 @@ Now for our application-specific routes, we can check user permissions using mid
 ```go
 func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 	f := &forum{auth: auth, db: db, posts: map[int]*Post{}}
-	signedIn := authkitgin.Required(auth.Verifier())
-
-	// may signs the person in, then asks AuthKit: do they hold perm in the channel from the URL?
-	may := func(perm iam.Perm) gin.HandlerFunc {
-		return authkitgin.RequirePermission(auth, perm, func(c *gin.Context) iam.GroupRef {
-			return iam.GroupByID(c.GetString("channel"))
-		})
-	}
+	signedIn := authkitgin.Required(auth)
 
 	r.GET("/c", f.listChannels)             // anyone can browse the channels
 	r.POST("/c", signedIn, f.createChannel) // anyone signed in can start a channel
@@ -340,16 +333,16 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 	ch.POST("/posts", signedIn, f.createPost) // anyone signed in can post
 
 	// moderator-specific routes:
-	ch.GET("/queue", may("channel:posts:approve"), f.listPosts(false))         // see pending posts
-	ch.PATCH("/posts/:id", may("channel:posts:edit"), f.editPost)              // edit a post
-	ch.DELETE("/posts/:id", may("channel:posts:delete"), f.deletePost)         // delete a post
-	ch.POST("/posts/:id/approve", may("channel:posts:approve"), f.approvePost) // approve / disapprove posts
+	ch.GET("/queue", authkitgin.RequirePermission(auth, PostsApprove), f.listPosts(false))         // see pending posts
+	ch.PATCH("/posts/:id", authkitgin.RequirePermission(auth, PostsEdit), f.editPost)              // edit a post
+	ch.DELETE("/posts/:id", authkitgin.RequirePermission(auth, PostsDelete), f.deletePost)         // delete a post
+	ch.POST("/posts/:id/approve", authkitgin.RequirePermission(auth, PostsApprove), f.approvePost) // approve / disapprove posts
 
 	// admin-specific routes:
-	ch.PUT("/moderators/:user_id", signedIn, f.appoint)        // appoint a moderator
-	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)     // remove a moderator
-	ch.PATCH("", may("channel:self:edit"), f.editChannel)      // edit channel settings
-	ch.DELETE("", may("channel:self:delete"), f.deleteChannel) // delete channel
+	ch.PUT("/moderators/:user_id", signedIn, f.appoint)                               // appoint a moderator
+	ch.DELETE("/moderators/:user_id", signedIn, f.appoint)                            // remove a moderator
+	ch.PATCH("", authkitgin.RequirePermission(auth, ChannelEdit), f.editChannel)      // edit channel settings
+	ch.DELETE("", authkitgin.RequirePermission(auth, ChannelDelete), f.deleteChannel) // delete channel
 }
 ```
 
