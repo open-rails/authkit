@@ -14,8 +14,15 @@ import (
 )
 
 // Auth builds an Auth serving httpCfg (zero: headless) on a scratch database,
-// with one Google provider so provider routes exist.
+// with Google and GitHub providers so provider routes exist.
 func Auth(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
+	t.Helper()
+	return AuthAt(t, "https://example.com", httpCfg)
+}
+
+// AuthAt is Auth with its issuer, whose path is the surface's base path.
+// GitHub's static endpoints let a login start without network access.
+func AuthAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.Auth {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	signer, err := jwtkit.NewRSASigner(2048, "runtime-http-test")
@@ -23,11 +30,11 @@ func Auth(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Auth {
 		t.Fatal(err)
 	}
 	runtime, err := authkit.New(context.Background(), authkit.Config{
-		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test"}},
+		Token:        authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test"}},
 		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
 		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
 		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationNone},
-		Identity:     authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.Google("google-client", "google-secret")}},
+		Identity:     authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.Google("google-client", "google-secret"), authprovider.GitHub("github-client", "github-secret")}},
 		HTTP:         httpCfg,
 	}, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 	if err != nil {
