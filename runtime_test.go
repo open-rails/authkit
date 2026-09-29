@@ -1,8 +1,9 @@
-package authkit
+package authkit_test
 
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,22 +15,24 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
-func testHTTPConfig() *HTTPConfig {
-	limits := DefaultRateLimits()
+func testHTTPConfig() *authkit.HTTPConfig {
+	limits := authkit.DefaultRateLimits()
 	for bucket := range limits {
-		limits[bucket] = RateLimit{Limit: 10000, Window: time.Minute}
+		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
-	return &HTTPConfig{DirectPeerIP: true, RateLimits: limits}
+	return &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: limits}
 }
 
 func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
+	cfg := testConfig(t)
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	cfg.HTTP = testHTTPConfig()
 	cfg.HTTP.APIPrefix = "/auth"
@@ -84,16 +87,16 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 
 func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
-	cfg.HTTP = &HTTPConfig{DirectPeerIP: true, APIPrefix: "bad prefix"}
-	_, err := New(cfg, Deps{Postgres: pg.Pool})
+	cfg := testConfig(t)
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, APIPrefix: "bad prefix"}
+	_, err := authkit.New(cfg, authkit.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "APIPrefix")
-	cfg.HTTP = &HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /nowhere"}}
-	_, err = New(cfg, Deps{Postgres: pg.Pool})
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /nowhere"}}
+	_, err = authkit.New(cfg, authkit.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "matches no mounted route")
 	require.NoError(t, pg.Pool.Ping(t.Context()), "a failed construction closed the host-owned pool")
 
-	headless := newPublicRuntime(t, newServerTestConfig(), pg.Pool)
+	headless := newPublicRuntime(t, testConfig(t), pg.Pool)
 	t.Cleanup(headless.Close)
 	require.Nil(t, headless.Handler())
 	require.Error(t, headless.Mount(http.NewServeMux()))
@@ -110,15 +113,15 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
 				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
 			}
-			cfg := newServerTestConfig()
-			cfg.HTTP = &HTTPConfig{DirectPeerIP: true}
+			cfg := testConfig(t)
+			cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 			if fail {
 				cfg.HTTP.APIPrefix = "invalid prefix"
 			}
-			var runtime *Auth
+			var runtime *authkit.Auth
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) {
-				runtime, err = New(cfg, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+				runtime, err = authkit.New(cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
 			})
 			if fail {
 				require.Error(t, err)
@@ -133,9 +136,31 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	}
 }
 
-func newPublicRuntime(t *testing.T, cfg Config, pool *pgxpool.Pool) *Auth {
+func newPublicRuntime(t *testing.T, cfg authkit.Config, pool *pgxpool.Pool) *authkit.Auth {
 	t.Helper()
-	r, err := New(cfg, Deps{Postgres: pool})
+	r, err := authkit.New(cfg, authkit.Deps{Postgres: pool})
 	require.NoError(t, err)
 	return r
+}
+
+func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	// No client-IP posture: the HTTP layer refuses after the engine is built.
+	cfg := testConfig(t)
+	cfg.HTTP = &authkit.HTTPConfig{}
+	runtime, err := authkit.New(cfg, authkit.Deps{Postgres: pg.Pool, River: authkit.RiverFromHost()})
+	require.ErrorContains(t, err, "client-IP posture")
+	require.Nil(t, runtime)
+	require.NoError(t, pg.Pool.Ping(t.Context()), "constructor cleanup must preserve the borrowed host pool")
+}
+
+func testConfig(t *testing.T) authkit.Config {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, "runtime-test")
+	require.NoError(t, err)
+	return authkit.Config{
+		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
+		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
+		Registration: authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
+	}
 }
