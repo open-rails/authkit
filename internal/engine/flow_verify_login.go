@@ -8,7 +8,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/secret"
@@ -45,7 +44,7 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 		}
 		var account registeredAccount
 		if kind.isRegister() {
-			input := iam.ImportUserInput{Username: rec.Username, PasswordHash: rec.PasswordHash, HashAlgo: "argon2id"}
+			input := newAccount{Username: rec.Username, PasswordHash: rec.PasswordHash, HashAlgo: "argon2id"}
 			if kind.isEmail() {
 				input.Email = rec.Target
 				input.EmailVerified = true // the delivered code/link is the proof

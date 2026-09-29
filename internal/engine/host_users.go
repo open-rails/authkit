@@ -180,7 +180,7 @@ func (s *Engine) CreateUser(ctx context.Context, email, username string) (*iam.U
 	return s.createUser(ctx, email, username)
 }
 
-func (s *Engine) normalizeImportUserInput(input iam.ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
 		if err := contact.ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
@@ -223,7 +223,7 @@ func (s *Engine) normalizeImportUserInput(input iam.ImportUserInput) (email *str
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
 }
 
-func (s *Engine) importUser(ctx context.Context, q *db.Queries, input iam.ImportUserInput) (*iam.User, error) {
+func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*iam.User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
@@ -258,7 +258,7 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input iam.Import
 	return userFromByIDRow(row), nil
 }
 
-func (s *Engine) UpdateImportedUser(ctx context.Context, userID string, input iam.ImportUserInput) (*iam.User, error) {
+func (s *Engine) UpdateImportedUser(ctx context.Context, userID string, input newAccount) (*iam.User, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func (s *Engine) UpdateImportedUser(ctx context.Context, userID string, input ia
 	return user, nil
 }
 
-func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input iam.ImportUserInput) (*iam.User, error) {
+func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*iam.User, error) {
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err

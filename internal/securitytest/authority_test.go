@@ -431,17 +431,17 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
-			_, err := h.auth.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
-			}}, iam.BootstrapReconcileOptions{})
+			}}, iam.BootstrapOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
 	})
 
 	enabled := true
-	_, err = h.auth.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.OperatorActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
-	}}, iam.BootstrapReconcileOptions{})
+	}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
 
 	user := h.newAccount("peeruser")

@@ -337,7 +337,7 @@ func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 	if username == "" || s.ValidateUsername(username) != nil {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
 	}
-	in := iam.ImportUserInput{Username: username}
+	in := newAccount{Username: username}
 	switch rec.Channel {
 	case passwordlessChannelEmail:
 		in.Email = rec.Identifier

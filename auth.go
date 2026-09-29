@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
-	"strings"
 	"sync/atomic"
 
 	"github.com/open-rails/authkit/iam"
@@ -115,37 +113,6 @@ func (a *Auth) Close() {
 // and records the verdict that gates phone flows. Register it as a recurring
 // dependency probe; every call re-records.
 func (a *Auth) CheckSMSHealth(ctx context.Context) error { return a.engine.CheckSMSHealth(ctx) }
-
-// OperatorApplyBootstrapManifest reconciles users, roles and remote
-// applications under explicit trusted operator authority. Nothing runs it
-// implicitly and it has no HTTP exposure.
-func (a *Auth) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
-	return a.engine.OperatorApplyBootstrapManifest(ctx, manifest, opts)
-}
-
-// DefaultBootstrapManifestPath is where LoadBootstrapManifestFile reads when
-// given no path.
-const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
-
-// ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
-// fields, empty manifests and structurally invalid entries.
-func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	return engine.ParseBootstrapManifestYAML(raw)
-}
-
-// LoadBootstrapManifestFile reads and parses a bootstrap manifest; an empty
-// path reads DefaultBootstrapManifestPath.
-func LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		path = DefaultBootstrapManifestPath
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return iam.BootstrapManifest{}, err
-	}
-	return ParseBootstrapManifestYAML(raw)
-}
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is nil.
 // Mount it at the host root: it owns its anchored paths.

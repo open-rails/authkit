@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -117,18 +119,41 @@ func (s *Engine) GetProviderLinkByIssuer(ctx context.Context, issuer, subject st
 	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
 }
 
-// LinkProviderByIssuer is a trusted host/import operation. Browser flows use
-// ExternalLoginInput.Link, whose initiating session is checked at commit.
-func (s *Engine) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
-	if s.pg == nil {
-		return nil
+// LinkProvider links an external identity to a live account as a login
+// method, under the operator. Browser flows use ExternalLoginInput.Link, whose
+// initiating session is checked at commit.
+func (s *Engine) LinkProvider(ctx context.Context, a iam.Actor, userID string, l iam.ProviderLink) error {
+	if err := requireOperator(a); err != nil {
+		return err
 	}
-	verified, err := linkProviderByIssuer(ctx, s.q, userID, issuer, providerSlug, subject, email)
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	userID = strings.TrimSpace(userID)
+	l.Issuer, l.Subject, l.Provider = strings.TrimSpace(l.Issuer), strings.TrimSpace(l.Subject), strings.TrimSpace(l.Provider)
+	if l.Issuer == "" || l.Subject == "" {
+		return fmt.Errorf("authkit: a provider link needs an issuer and a subject")
+	}
+	var live bool
+	if isUUID(userID) {
+		if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL)`, userID).Scan(&live); err != nil {
+			return err
+		}
+	}
+	if !live {
+		return iam.ErrUserNotFound
+	}
+	return s.linkProvider(ctx, userID, l)
+}
+
+// linkProvider links l to userID, for a caller that proved it.
+func (s *Engine) linkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
+	verified, err := linkProviderByIssuer(ctx, s.q, userID, l.Issuer, l.Provider, l.Subject, nullable(strings.TrimSpace(l.Email)))
 	if err != nil {
 		return err
 	}
-	if providerSlug == solanaProviderSlug && issuer == s.solanaIssuer() && verified {
-		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
+	if l.Provider == solanaProviderSlug && l.Issuer == s.solanaIssuer() && verified {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, l.Subject)
 	}
 	return nil
 }

@@ -4,87 +4,6 @@ import "time"
 
 // Shared operation inputs and results, importable without the engine.
 
-type BootstrapManifest struct {
-	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
-	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
-	// Dev carries dev-only runtime fixtures (#266). NOT part of the apply-once
-	// reconcile: hosts read it at every boot and honor it only in a dev
-	// environment (fail-closed).
-	Dev BootstrapManifestDev `json:"dev,omitempty" yaml:"dev,omitempty"`
-}
-
-// BootstrapManifestDev is the dev-only fixture section of a bootstrap manifest.
-type BootstrapManifestDev struct {
-	// StaticEntitlements are entitlement names seeded into every access token
-	// via a static EntitlementsProvider — billing/entitlement E2E fixtures as
-	// reviewable YAML (formerly the AUTHKIT_STATIC_ENTITLEMENTS env CSV, #266).
-	StaticEntitlements []string `json:"static_entitlements,omitempty" yaml:"static_entitlements,omitempty"`
-}
-
-type BootstrapManifestUser struct {
-	Email         string                 `json:"email" yaml:"email"`
-	PhoneNumber   string                 `json:"phone_number" yaml:"phone_number"`
-	Username      string                 `json:"username" yaml:"username"`
-	EmailVerified bool                   `json:"email_verified" yaml:"email_verified"`
-	PhoneVerified bool                   `json:"phone_verified" yaml:"phone_verified"`
-	Banned        bool                   `json:"banned" yaml:"banned"`
-	BannedAt      *time.Time             `json:"banned_at" yaml:"banned_at"`
-	BannedUntil   *time.Time             `json:"banned_until" yaml:"banned_until"`
-	BanReason     *string                `json:"ban_reason" yaml:"ban_reason"`
-	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
-	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
-	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// RootRole assigns one root permission-group role to this user by name.
-	// "owner" (the built-in apex, root:*) is seeded SEED-IF-ABSENT; any other
-	// name is assigned as a same-named catalog role of the root persona.
-	RootRole string `json:"root_role" yaml:"root_role"`
-}
-
-type BootstrapManifestRemoteApplication struct {
-	Slug       string                 `json:"slug" yaml:"slug"`
-	Issuer     string                 `json:"issuer" yaml:"issuer"`
-	JWKSURI    string                 `json:"jwks_uri" yaml:"jwks_uri"`
-	PublicKeys []RemoteApplicationKey `json:"public_keys" yaml:"public_keys"`
-	Enabled    *bool                  `json:"enabled" yaml:"enabled"`
-	RootRole   string                 `json:"root_role" yaml:"root_role"`
-}
-
-type BootstrapUserPassword struct {
-	Plaintext     string `json:"plaintext" yaml:"plaintext"`
-	Hash          string `json:"hash" yaml:"hash"`
-	HashAlgo      string `json:"hash_algo" yaml:"hash_algo"`
-	ResetRequired bool   `json:"reset_required" yaml:"reset_required"`
-	// Enforce makes the password DESIRED-STATE (#89): re-asserted on every
-	// reconcile. Default false = SEED-ONCE — the password is applied only when
-	// the user is first created, so a password rotated out of band (via the
-	// admin API) is never reverted to the manifest value on a later reconcile.
-	// Must not be combined with ResetRequired (forcing a reset every run is
-	// nonsensical).
-	Enforce bool `json:"enforce" yaml:"enforce"`
-}
-
-type BootstrapReconcileOptions struct {
-	DryRun bool
-	// StartupOnly applies initial seed data at most once per database schema.
-	// Leave false for ordinary operator/CLI applies.
-	StartupOnly bool
-	// Name labels its completion receipt; another name does not rerun genesis.
-	// Empty means "default".
-	Name string
-}
-
-type BootstrapManifestResult struct {
-	DryRun              bool `json:"dry_run"`
-	AlreadyApplied      bool `json:"already_applied"`
-	UsersCreated        int  `json:"users_created"`
-	UsersUpdated        int  `json:"users_updated"`
-	PasswordsSet        int  `json:"passwords_set"`
-	PasswordsKept       int  `json:"passwords_kept"`
-	RootRoleAssignments int  `json:"root_role_assignments"`
-	RemoteApplications  int  `json:"remote_applications"`
-	RemoteAppRootRoles  int  `json:"remote_application_root_roles"`
-}
-
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
 	// Must match a remote_application registered with the validating resource server.
@@ -135,54 +54,6 @@ type DelegatedAccessParams struct {
 	ConfirmationJWKThumbprintSHA256 *[32]byte
 }
 
-type ImportUserStatus string
-
-type ImportUserResult struct {
-	Index  int
-	UserID string // set when Status == inserted
-	Status ImportUserStatus
-	Reason string // set for skipped/rejected (machine-ish: "duplicate_in_batch", "already_exists", or a validation code)
-}
-
-type ImportUsersResult struct {
-	Results  []ImportUserResult
-	Inserted int
-	Skipped  int
-	Rejected int
-}
-
-// ImportUnverifiedSolanaLinkStatus is the per-row outcome of a legacy Solana
-// identity import.
-type ImportUnverifiedSolanaLinkStatus string
-
-// ImportUnverifiedSolanaLinkInput is a migration-only Solana identity claim.
-// Importing reserves the address but does not make it a login method; the user
-// must prove ownership through the normal SIWS flow before AuthKit trusts it.
-type ImportUnverifiedSolanaLinkInput struct {
-	UserID          string
-	Address         string
-	Source          string
-	SourceID        string
-	SourceCreatedAt *time.Time
-}
-
-// ImportUnverifiedSolanaLinkResult is the outcome for one input row.
-type ImportUnverifiedSolanaLinkResult struct {
-	Index   int
-	UserID  string
-	Address string
-	Status  ImportUnverifiedSolanaLinkStatus
-	Reason  string
-}
-
-// ImportUnverifiedSolanaLinksResult aggregates per-row wallet import outcomes.
-type ImportUnverifiedSolanaLinksResult struct {
-	Results  []ImportUnverifiedSolanaLinkResult
-	Inserted int
-	Skipped  int
-	Rejected int
-}
-
 // MaxBatch bounds the ids (users, groups, subjects) accepted by one batch call.
 const MaxBatch = 500
 
@@ -207,35 +78,6 @@ type RemoteApplicationAccessParams struct {
 	// remote application access token can never widen). nil/absent => no claim
 	// => full stored ceiling (backward-compatible with v0.28.0 tokens).
 	Permissions []string
-}
-
-// HashAlgoLegacyResetRequired marks user_passwords rows migrated from
-// legacy systems whose stored hashes can never verify (DES crypt, md5-crypt,
-// corrupted values). The raw legacy hash is preserved in password_hash for
-// forensics only; the sole way forward for these accounts is a password reset.
-const HashAlgoLegacyResetRequired = "legacy-reset-required"
-
-type ImportUserInput struct {
-	Email         string
-	PhoneNumber   string
-	Username      string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	Metadata      map[string]any
-	CreatedAt     *time.Time
-	UpdatedAt     *time.Time
-
-	// Optional pre-hashed credential to import alongside the user (bulk legacy
-	// migration). When PasswordHash is non-empty and the user row is inserted,
-	// ImportUsers stores it verbatim. The verify-time whitelist (argon2id/bcrypt,
-	// else legacy-reset-required) still governs login; bulk import does not
-	// re-validate the hash, matching single-row UpsertPasswordHash.
-	PasswordHash string
-	HashAlgo     string
 }
 
 type AdminUser struct {
@@ -298,21 +140,12 @@ type ServiceJWTMintOptions struct {
 }
 
 const (
-	ImportUnverifiedSolanaLinkInserted ImportUnverifiedSolanaLinkStatus = "inserted"
-	ImportUnverifiedSolanaLinkSkipped  ImportUnverifiedSolanaLinkStatus = "skipped"
-	ImportUnverifiedSolanaLinkRejected ImportUnverifiedSolanaLinkStatus = "rejected"
-)
-
-const (
-	ImportStatusInserted   ImportUserStatus = "inserted"
-	ImportStatusSkipped    ImportUserStatus = "skipped"
-	ImportStatusRejected   ImportUserStatus = "rejected"
-	AdminUserStatusActive  AdminUserStatus  = "active"     // not deleted, not banned
-	AdminUserStatusBanned  AdminUserStatus  = "banned"     // not deleted, currently banned
-	AdminUserStatusDeleted AdminUserStatus  = "deleted"    // soft-deleted
-	AdminUserStatusAny     AdminUserStatus  = "any"        // no deleted/banned predicate
-	AdminUserSortCreatedAt AdminUserSort    = "created_at" // default
-	AdminUserSortLastLogin AdminUserSort    = "last_login"
-	AdminUserSortUsername  AdminUserSort    = "username"
-	AdminUserSortEmail     AdminUserSort    = "email"
+	AdminUserStatusActive  AdminUserStatus = "active"     // not deleted, not banned
+	AdminUserStatusBanned  AdminUserStatus = "banned"     // not deleted, currently banned
+	AdminUserStatusDeleted AdminUserStatus = "deleted"    // soft-deleted
+	AdminUserStatusAny     AdminUserStatus = "any"        // no deleted/banned predicate
+	AdminUserSortCreatedAt AdminUserSort   = "created_at" // default
+	AdminUserSortLastLogin AdminUserSort   = "last_login"
+	AdminUserSortUsername  AdminUserSort   = "username"
+	AdminUserSortEmail     AdminUserSort   = "email"
 )

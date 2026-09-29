@@ -1,6 +1,9 @@
 package iam
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // User is the public user view returned by AuthKit lookups. Plain data: see
 // #138 (contract inversion) — definitions live here in the lean, pgx-free
@@ -31,16 +34,8 @@ type User struct {
 	AvatarURL *string
 }
 
-// UserRef is a slim user projection (id + display fields) returned by batch
-// lookups like Client.UsersByIDs — resolving many user IDs to display data in one
-// query, without N+1 single fetches. Part of the wire contract.
-//
-// It carries Email, so it is the PRIVILEGED batch projection: use it only where
-// the caller is entitled to see addresses (admin surfaces, the account's own
-// views). For anything rendered to other users — comment authors, gallery
-// owners, public profiles — use PublicUserRef / Client.PublicUsersByIDs (#268),
-// which has no email field at all.
-type UserRef struct {
+// UserSummary is the privileged batch projection UsersByIDs returns.
+type UserSummary struct {
 	ID       string
 	Username string // "" if unset
 	Email    string // "" if unset
@@ -134,3 +129,33 @@ type AccountSessionRevocation struct {
 	// Issuers; nonzero means the account issuer configuration is incomplete.
 	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
 }
+
+// UserKey names how a UserRef addresses an account.
+type UserKey string
+
+const (
+	UserKeyID       UserKey = "id"
+	UserKeyEmail    UserKey = "email"
+	UserKeyPhone    UserKey = "phone"
+	UserKeyUsername UserKey = "username"
+)
+
+// UserRef addresses one account by exactly one key. Build it with UserByID,
+// UserByEmail, UserByPhone or UserByUsername; the zero UserRef finds nobody.
+type UserRef struct {
+	key   UserKey
+	value string
+}
+
+func UserByID(id string) UserRef       { return UserRef{UserKeyID, strings.TrimSpace(id)} }
+func UserByEmail(email string) UserRef { return UserRef{UserKeyEmail, strings.TrimSpace(email)} }
+func UserByPhone(phone string) UserRef { return UserRef{UserKeyPhone, strings.TrimSpace(phone)} }
+func UserByUsername(username string) UserRef {
+	return UserRef{UserKeyUsername, strings.TrimSpace(username)}
+}
+
+// Key and Value are the addressing mode and its value.
+func (r UserRef) Key() UserKey   { return r.key }
+func (r UserRef) Value() string  { return r.value }
+func (r UserRef) IsZero() bool   { return r.key == "" || r.value == "" }
+func (r UserRef) String() string { return string(r.key) + ":" + r.value }

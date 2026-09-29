@@ -620,12 +620,12 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			f.session(completed.TokenSet, "oauth", "sms", "otp", "mfa")
 			// Deleting and recreating the same issuer/subject cannot revive a grant
 			// that belonged to the previous immutable provider-link row.
-			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProviderByIssuer(t.Context(), uid, provider.Issuer(), provider.Name(), identity.Subject, nil))
+			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), iam.OperatorActor(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
 			stale, _ := f.providerLogin(provider, identity, "", false)
 			f.expect(403, stale)
 			code := f.sms.lastLoginCode()
 			require.NoError(t, unlink(t.Context()))
-			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProviderByIssuer(t.Context(), uid, provider.Issuer(), provider.Name(), identity.Subject, nil))
+			require.NoError(t, fixtureBackend(f.service.Backend()).LinkProvider(t.Context(), iam.OperatorActor(), uid, iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: identity.Subject}))
 			f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": uid, "challenge": stale.Error.Metadata.Challenge, "code": code}))
 
 		})

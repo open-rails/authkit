@@ -85,7 +85,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		// Never verified without proof (ak#393): "none" only means proof is not
 		// required to use the account.
-		account, err := s.registerAccount(ctx, accountRegistration{User: iam.ImportUserInput{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+		account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
@@ -119,7 +119,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		out.Kind = authflow.RegisterVerifyEmail
 		return out, nil
 	}
-	account, err := s.registerAccount(ctx, accountRegistration{User: iam.ImportUserInput{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+	account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}

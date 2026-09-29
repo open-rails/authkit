@@ -57,18 +57,10 @@ func (a *Auth) UpdateUsername(ctx context.Context, id string, username string) e
 	return a.engine.UpdateUsername(ctx, id, username)
 }
 
-func (a *Auth) UpdateImportedUser(ctx context.Context, userID string, input iam.ImportUserInput) (*iam.User, error) {
-	return a.engine.UpdateImportedUser(ctx, userID, input)
-}
-
-func (a *Auth) ImportUsers(ctx context.Context, inputs []iam.ImportUserInput) (iam.ImportUsersResult, error) {
-	return a.engine.ImportUsers(ctx, inputs)
-}
-
 // UsersByIDs resolves many user IDs to slim display projections in ONE
 // query; missing IDs are absent. PRIVILEGED — the projection carries Email;
 // render other users with PublicUsersByIDs.
-func (a *Auth) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserRef, error) {
+func (a *Auth) UsersByIDs(ctx context.Context, ids []string) (map[string]iam.UserSummary, error) {
 	return a.engine.UsersByIDs(ctx, ids)
 }
 
@@ -121,14 +113,4 @@ func (a *Auth) UnbanUser(ctx context.Context, userID string) error {
 // recovery deadline under explicit trusted host authority.
 func (a *Auth) OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]iam.OpResult, error) {
 	return a.engine.OperatorRestoreUsers(ctx, userIDs)
-}
-
-// ImportUnverifiedSolanaLinks preserves host migration associations without
-// turning them into credentials; only a subsequent SIWS proof verifies a link.
-func (a *Auth) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []iam.ImportUnverifiedSolanaLinkInput) (iam.ImportUnverifiedSolanaLinksResult, error) {
-	return a.engine.ImportUnverifiedSolanaLinks(ctx, inputs)
-}
-
-func (a *Auth) LinkProviderByIssuer(ctx context.Context, userID string, issuer string, providerSlug string, subject string, email *string) error {
-	return a.engine.LinkProviderByIssuer(ctx, userID, issuer, providerSlug, subject, email)
 }

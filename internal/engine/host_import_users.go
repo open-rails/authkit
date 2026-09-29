@@ -2,242 +2,466 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// importUsersChunkSize bounds rows per multi-row INSERT. 13 cols/row keeps the
-// bound query well under PostgreSQL's 65535-parameter ceiling.
+// newAccount is one account row to create: a registration, an import row or a
+// bootstrap user. normalizeImportUserInput validates it.
+type newAccount struct {
+	Email         string
+	PhoneNumber   string
+	Username      string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	Metadata      map[string]any
+	CreatedAt     *time.Time
+	UpdatedAt     *time.Time
+	PasswordHash  string
+	HashAlgo      string
+}
+
+// importUsersChunkSize bounds rows per transaction and multi-row INSERT
+// (12 parameters a row, far under PostgreSQL's 65535).
 const importUsersChunkSize = 1000
 
-type preparedImportRow struct {
+var (
+	errImportInvalidID           = errors.New("invalid_id")
+	errImportInvalidPasswordHash = errors.New("invalid_password_hash")
+)
+
+// importRow is one validated ImportUsers row and, once its chunk commits, its
+// outcome.
+type importRow struct {
 	idx       int
-	id        string
+	id        string // declared, or generated for an insert
+	declared  bool
+	in        newAccount
 	email     *string
 	phone     *string
 	username  string
-	in        iam.ImportUserInput
+	name      string // the username's claim key
 	metadata  string
-	bannedBy  *string
 	createdAt time.Time
 	updatedAt time.Time
+	out       iam.ImportRow
 }
 
-// ImportUsers bulk-imports users for fast legacy migration (target: 500k+). It is
-// the sole import API: validate/normalize happens in Go (identical to the legacy
-// single-row path) so accuracy is preserved, then clean rows load via chunked
-// multi-row INSERTs — no per-row round-trips.
-//
-// Semantics are INSERT-OR-SKIP (not upsert): a row whose username/email/phone
-// already exists, or which duplicates an earlier row in the same batch, is
-// skipped and reported, never overwritten. This makes a re-run idempotent (resume
-// a partial import) without clobbering changes a user made after they were
-// imported. Invalid rows are rejected individually and never abort the batch.
-//
-// Each input may carry an optional pre-hashed PasswordHash; for inserted rows it
-// is validated before insertion; unsupported work factors require an explicit
-// iam.HashAlgoLegacyResetRequired marker.
-func (s *Engine) ImportUsers(ctx context.Context, inputs []iam.ImportUserInput) (iam.ImportUsersResult, error) {
-	res := iam.ImportUsersResult{Results: make([]iam.ImportUserResult, len(inputs))}
-	if len(inputs) == 0 {
+type importKey struct {
+	match iam.ImportMatch
+	value string
+}
+
+// keys lists the row's identifiers in match priority order.
+func (p *importRow) keys() []importKey {
+	var out []importKey
+	if p.declared {
+		out = append(out, importKey{iam.ImportMatchID, p.id})
+	}
+	if p.email != nil {
+		out = append(out, importKey{iam.ImportMatchEmail, strings.ToLower(*p.email)})
+	}
+	if p.phone != nil {
+		out = append(out, importKey{iam.ImportMatchPhone, *p.phone})
+	}
+	return append(out, importKey{iam.ImportMatchUsername, p.name})
+}
+
+func importRejected(idx int, reason string) iam.ImportRow {
+	return iam.ImportRow{Index: idx, Status: iam.ImportRejected, Reason: reason}
+}
+
+// ImportUsers bulk-imports accounts (target: 500k+ rows) under the operator.
+// Rows are validated in Go, then each chunk runs in one transaction: find the
+// accounts its rows name, insert the rest with one multi-row INSERT, store
+// their password hashes, and merge where asked. A row sharing an identifier
+// with an earlier row of the batch is that row's account. A row whose
+// identifiers name two accounts is rejected. Matching is never proof: only an
+// id, or a contact verified on the account, binds a row for a merge.
+func (s *Engine) ImportUsers(ctx context.Context, a iam.Actor, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
+	if err := requireOperator(a); err != nil {
+		return iam.ImportResult{}, err
+	}
+	merge := false
+	switch opts.OnConflict {
+	case "", iam.ImportSkip:
+	case iam.ImportMerge:
+		merge = true
+	default:
+		return iam.ImportResult{}, fmt.Errorf("authkit: unknown import conflict mode %q", opts.OnConflict)
+	}
+	res := iam.ImportResult{Rows: make([]iam.ImportRow, len(rows))}
+	if len(rows) == 0 {
 		return res, nil
 	}
 	if err := s.requirePG(); err != nil {
-		return res, err
+		return iam.ImportResult{}, err
 	}
-
-	// 1. Validate/normalize + in-batch dedup.
-	prepared := make([]preparedImportRow, 0, len(inputs))
-	seenUser := make(map[string]struct{}, len(inputs))
-	seenEmail := make(map[string]struct{}, len(inputs))
-	seenPhone := make(map[string]struct{}, len(inputs))
-	for i, in := range inputs {
-		if in.PasswordHash != "" {
-			if err := validatePasswordHashForStorage(in.PasswordHash, in.HashAlgo); err != nil {
-				res.Results[i] = iam.ImportUserResult{Index: i, Status: iam.ImportStatusRejected, Reason: importRejectReason(err)}
-				res.Rejected++
-				continue
-			}
-		}
-		email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(in)
+	type duplicate struct {
+		idx int
+		of  *importRow
+		by  iam.ImportMatch
+	}
+	var prepared []*importRow
+	var dups []duplicate
+	first := map[importKey]*importRow{}
+	for i, in := range rows {
+		res.Rows[i].Index = i
+		p, err := s.prepareImportRow(i, in)
 		if err != nil {
-			res.Results[i] = iam.ImportUserResult{Index: i, Status: iam.ImportStatusRejected, Reason: importRejectReason(err)}
-			res.Rejected++
+			res.Rows[i] = importRejected(i, importRejectReason(err))
 			continue
 		}
-		if _, dup := seenUser[username]; dup {
-			res.Results[i] = iam.ImportUserResult{Index: i, Status: iam.ImportStatusSkipped, Reason: "duplicate_in_batch"}
-			res.Skipped++
-			continue
-		}
-		if email != nil {
-			if _, dup := seenEmail[*email]; dup {
-				res.Results[i] = iam.ImportUserResult{Index: i, Status: iam.ImportStatusSkipped, Reason: "duplicate_in_batch"}
-				res.Skipped++
-				continue
-			}
-		}
-		if phone != nil {
-			if _, dup := seenPhone[*phone]; dup {
-				res.Results[i] = iam.ImportUserResult{Index: i, Status: iam.ImportStatusSkipped, Reason: "duplicate_in_batch"}
-				res.Skipped++
-				continue
-			}
-		}
-		seenUser[username] = struct{}{}
-		if email != nil {
-			seenEmail[*email] = struct{}{}
-		}
-		if phone != nil {
-			seenPhone[*phone] = struct{}{}
-		}
-		id, err := newUUIDV7String()
-		if err != nil {
-			return res, err
-		}
-		prepared = append(prepared, preparedImportRow{
-			idx: i, id: id, email: email, phone: phone, username: username,
-			in: in, metadata: metadata, bannedBy: bannedBy, createdAt: createdAt, updatedAt: updatedAt,
-		})
-	}
-	if len(prepared) == 0 {
-		return res, nil
-	}
-
-	// 2. Bulk INSERT in chunks. ON CONFLICT DO NOTHING makes a row that already
-	//    exists (ANY unique constraint: username/email/phone) a silent skip rather
-	//    than an error, so a re-run is idempotent and one collision never aborts a
-	//    chunk. RETURNING id reconciles which rows actually landed; the rest were
-	//    already in the DB. No separate existence pre-check — at 500k that would
-	//    mean a giant ANY($1) array for no extra correctness.
-	for start := 0; start < len(prepared); start += importUsersChunkSize {
-		end := start + importUsersChunkSize
-		if end > len(prepared) {
-			end = len(prepared)
-		}
-		chunk := prepared[start:end]
-		insertedIDs, err := s.bulkInsertUsers(ctx, chunk)
-		if err != nil {
-			return res, err
-		}
-		var pwRows []preparedImportRow
-		for _, p := range chunk {
-			if _, ok := insertedIDs[p.id]; ok {
-				res.Results[p.idx] = iam.ImportUserResult{Index: p.idx, UserID: p.id, Status: iam.ImportStatusInserted}
-				res.Inserted++
-				if strings.TrimSpace(p.in.PasswordHash) != "" {
-					pwRows = append(pwRows, p)
+		var of *importRow
+		var by iam.ImportMatch
+		conflict := false
+		for _, k := range p.keys() {
+			if f, ok := first[k]; ok {
+				if of == nil {
+					of, by = f, k.match
+				} else if f != of {
+					conflict = true
 				}
-			} else {
-				res.Results[p.idx] = iam.ImportUserResult{Index: p.idx, Status: iam.ImportStatusSkipped, Reason: "already_exists"}
-				res.Skipped++
 			}
 		}
-		if len(pwRows) > 0 {
-			if err := s.bulkInsertPasswordHashes(ctx, pwRows); err != nil {
-				return res, err
+		switch {
+		case conflict:
+			res.Rows[i] = importRejected(i, "identifier_conflict")
+		case of != nil:
+			dups = append(dups, duplicate{i, of, by})
+		default:
+			for _, k := range p.keys() {
+				first[k] = p
 			}
+			prepared = append(prepared, p)
 		}
 	}
-	return res, nil
+	var err error
+	for start := 0; start < len(prepared) && err == nil; start += importUsersChunkSize {
+		err = s.importChunk(ctx, prepared[start:min(start+importUsersChunkSize, len(prepared))], merge)
+	}
+	for _, p := range prepared {
+		res.Rows[p.idx] = p.out
+	}
+	for _, d := range dups {
+		switch {
+		case d.of.out.Status == "":
+		case d.of.out.UserID == "":
+			res.Rows[d.idx] = importRejected(d.idx, "duplicate_in_batch")
+		default:
+			res.Rows[d.idx] = iam.ImportRow{Index: d.idx, UserID: d.of.out.UserID, MatchedBy: d.by, Status: iam.ImportSkipped, Reason: "duplicate_in_batch"}
+		}
+	}
+	for _, r := range res.Rows {
+		switch r.Status {
+		case iam.ImportInserted:
+			res.Inserted++
+		case iam.ImportSkipped:
+			res.Skipped++
+		case iam.ImportMerged:
+			res.Merged++
+		case iam.ImportRejected:
+			res.Rejected++
+		}
+	}
+	return res, err
 }
 
-// bulkInsertUsers inserts a chunk via one multi-row INSERT and returns the set of
-// ids that actually landed (ON CONFLICT DO NOTHING drops racing duplicates).
-func (s *Engine) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow) (map[string]struct{}, error) {
-	tx, err := s.pg.Begin(ctx)
+func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error) {
+	acct := newAccount{
+		Email: in.Email, PhoneNumber: in.Phone, Username: in.Username,
+		EmailVerified: in.EmailVerified, PhoneVerified: in.PhoneVerified,
+		BannedAt: in.BannedAt, BannedUntil: in.BannedUntil, BanReason: nullable(strings.TrimSpace(in.BanReason)),
+		Metadata: in.Metadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
+		PasswordHash: strings.TrimSpace(in.PasswordHash), HashAlgo: strings.TrimSpace(in.HashAlgo),
+	}
+	if acct.PasswordHash != "" || acct.HashAlgo != "" {
+		if acct.HashAlgo == "" || acct.PasswordHash == "" && acct.HashAlgo != iam.HashAlgoLegacyResetRequired ||
+			validatePasswordHashForStorage(acct.PasswordHash, acct.HashAlgo) != nil {
+			return nil, errImportInvalidPasswordHash
+		}
+	}
+	email, phone, username, _, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(acct)
 	if err != nil {
 		return nil, err
+	}
+	p := &importRow{idx: idx, in: acct, email: email, phone: phone, username: username, name: strings.ToLower(username),
+		metadata: metadata, createdAt: createdAt, updatedAt: updatedAt}
+	if id := strings.TrimSpace(in.ID); id != "" {
+		if !isUUID(id) {
+			return nil, errImportInvalidID
+		}
+		p.id, p.declared = strings.ToLower(id), true
+	} else if p.id, err = newUUIDV7String(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// importChunk imports one chunk in one transaction. Outcomes stand only once
+// it commits; on error every row of the chunk is left unreported.
+func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool) (err error) {
+	defer func() {
+		if err != nil {
+			for _, p := range chunk {
+				p.out = iam.ImportRow{Index: p.idx}
+			}
+		}
+	}()
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
+	if merge {
+		// A merged `reserved` flag is an owner-loss decision.
+		if err = s.lockAuthority(ctx, tx); err != nil {
+			return err
+		}
+	}
+	st := s.groupStoreFor(tx)
 	names := make([]string, len(chunk))
-	for i, row := range chunk {
-		names[i] = strings.ToLower(row.username)
+	for i, p := range chunk {
+		names[i] = p.name
 	}
-	if err := lockNameClaims(ctx, q, "user", "", names...); err != nil {
-		return nil, err
+	// Hold the names' claim locks so a matched-free name stays free until the
+	// insert, and drop expired aliases so they neither match nor block.
+	if err = lockNameClaims(ctx, tx, "user", "", names...); err != nil {
+		return err
 	}
-	now := s.namingNow()
-	if _, err := q.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, now); err != nil {
-		return nil, err
+	if _, err = tx.Exec(ctx, `DELETE FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[]) AND NOT canonical AND expires_at<=$2`, names, s.namingNow()); err != nil {
+		return err
 	}
-	// Bulk import remains insert-or-skip, including live alias reservations.
-	rowsTaken, err := q.Query(ctx, `SELECT name FROM name_claims WHERE owner_kind='user' AND persona='' AND name=ANY($1::text[])`, names)
+	fresh, err := s.resolveImportRows(ctx, st, chunk, merge)
+	if err != nil {
+		return err
+	}
+	inserted, err := insertImportRows(ctx, tx, fresh)
+	if err != nil {
+		return err
+	}
+	var raced, passwords []*importRow
+	for _, p := range fresh {
+		if !inserted[p.id] {
+			raced = append(raced, p)
+			continue
+		}
+		p.out = iam.ImportRow{Index: p.idx, UserID: p.id, Status: iam.ImportInserted}
+		if p.in.HashAlgo != "" {
+			passwords = append(passwords, p)
+		}
+	}
+	if len(raced) > 0 {
+		// A concurrent writer took an identifier after the match: match again.
+		left, err := s.resolveImportRows(ctx, st, raced, merge)
+		if err != nil {
+			return err
+		}
+		for _, p := range left {
+			p.out = importRejected(p.idx, "identifier_conflict")
+		}
+	}
+	if err = insertImportPasswords(ctx, tx, passwords); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+type importHit struct {
+	match    iam.ImportMatch
+	userID   string
+	deleted  bool
+	verified bool // a contact hit verified on the account
+	missing  bool // a username reserved for a purged account
+}
+
+// resolveImportRows finds the accounts rows name, records the outcome of every
+// matched or conflicting row (merging where bound), and returns the rows that
+// name no account.
+func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore, rows []*importRow, merge bool) ([]*importRow, error) {
+	hits, err := s.importHits(ctx, st.q, rows)
 	if err != nil {
 		return nil, err
 	}
-	taken := map[string]bool{}
-	for rowsTaken.Next() {
-		var name string
-		if err := rowsTaken.Scan(&name); err != nil {
-			rowsTaken.Close()
+	var fresh []*importRow
+	for _, p := range rows {
+		var found []importHit
+		for _, k := range p.keys() {
+			if h, ok := hits[k]; ok {
+				found = append(found, h)
+			}
+		}
+		if len(found) == 0 {
+			fresh = append(fresh, p)
+			continue
+		}
+		top := found[0]
+		conflict := p.declared && top.match != iam.ImportMatchID
+		bound, passwordBound := false, false
+		for _, h := range found {
+			conflict = conflict || h.userID != top.userID
+			switch {
+			case h.match == iam.ImportMatchID:
+				bound, passwordBound = true, true
+			case h.verified:
+				bound = true
+				passwordBound = passwordBound || h.match == iam.ImportMatchEmail && p.in.EmailVerified || h.match == iam.ImportMatchPhone && p.in.PhoneVerified
+			}
+		}
+		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: "already_exists"}
+		switch {
+		case top.missing:
+			p.out = importRejected(p.idx, "username_unavailable")
+		case conflict:
+			p.out = importRejected(p.idx, "identifier_conflict")
+		case top.deleted:
+			skipped.Reason = "deleted"
+			p.out = skipped
+		case !merge:
+			p.out = skipped
+		case !bound:
+			skipped.Reason = "unbound_match"
+			p.out = skipped
+		default:
+			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID, passwordBound) })
+			if err != nil {
+				if code := errmodel.CodeOf(err); code == "" || code == errmodel.CodeInternalError {
+					return nil, err
+				}
+				p.out = importRejected(p.idx, importRejectReason(err))
+				continue
+			}
+			p.out = iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportMerged}
+		}
+	}
+	return fresh, nil
+}
+
+// importHits reads, in four queries, every account the rows' identifiers
+// name: by id, email, phone, and canonical name or live alias.
+func (s *Engine) importHits(ctx context.Context, q db.DBTX, rows []*importRow) (map[importKey]importHit, error) {
+	var ids, emails, phones, names []string
+	for _, p := range rows {
+		if p.declared {
+			ids = append(ids, p.id)
+		}
+		if p.email != nil {
+			emails = append(emails, strings.ToLower(*p.email))
+		}
+		if p.phone != nil {
+			phones = append(phones, *p.phone)
+		}
+		names = append(names, p.name)
+	}
+	out := map[importKey]importHit{}
+	read := func(match iam.ImportMatch, sql string, args ...any) error {
+		r, err := q.Query(ctx, sql, args...)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var key string
+			h := importHit{match: match}
+			if err := r.Scan(&key, &h.userID, &h.deleted, &h.verified, &h.missing); err != nil {
+				return err
+			}
+			out[importKey{match, key}] = h
+		}
+		return r.Err()
+	}
+	if len(ids) > 0 {
+		if err := read(iam.ImportMatchID, `SELECT id::text, id::text, deleted_at IS NOT NULL, true, false FROM users WHERE id=ANY($1::uuid[])`, ids); err != nil {
 			return nil, err
 		}
-		taken[name] = true
 	}
-	err = rowsTaken.Err()
-	rowsTaken.Close()
-	if err != nil {
-		return nil, err
-	}
-	eligible := make([]preparedImportRow, 0, len(chunk))
-	for _, row := range chunk {
-		if !taken[strings.ToLower(row.username)] {
-			eligible = append(eligible, row)
+	if len(emails) > 0 {
+		if err := read(iam.ImportMatchEmail, `SELECT lower(email::text), id::text, deleted_at IS NOT NULL, email_verified, false FROM users WHERE email=ANY($1::text[]::public.citext[])`, emails); err != nil {
+			return nil, err
 		}
 	}
-	chunk = eligible
-	if len(chunk) == 0 {
-		return map[string]struct{}{}, nil
+	if len(phones) > 0 {
+		if err := read(iam.ImportMatchPhone, `SELECT phone_number, id::text, deleted_at IS NOT NULL, phone_verified, false FROM users WHERE phone_number=ANY($1::text[])`, phones); err != nil {
+			return nil, err
+		}
+	}
+	err := read(iam.ImportMatchUsername, `SELECT c.name, c.owner_id::text, COALESCE(u.deleted_at IS NOT NULL, false), false, u.id IS NULL
+ FROM name_claims c LEFT JOIN users u ON u.id=c.owner_id
+ WHERE c.owner_kind='user' AND c.persona='' AND c.name=ANY($1::text[]) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$2)`, names, s.namingNow())
+	return out, err
+}
+
+// mergeImportRow merges a bound row into its account: metadata, the earlier
+// creation time and, when withPassword, a password the account lacks.
+// Identity, contacts, verification and bans stay as they are.
+func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withPassword bool) error {
+	if metadataMarksReserved([]byte(p.metadata)) {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
+			return err
+		}
+	}
+	if _, err := st.q.Exec(ctx, `UPDATE users SET metadata=COALESCE(metadata,'{}'::jsonb) || $2::jsonb, created_at=LEAST(created_at,$3), updated_at=now() WHERE id=$1::uuid`, userID, p.metadata, p.createdAt); err != nil {
+		return err
+	}
+	if !withPassword || p.in.HashAlgo == "" {
+		return nil
+	}
+	_, err := st.q.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ($1::uuid,$2,$3) ON CONFLICT (user_id) DO NOTHING`, userID, p.in.PasswordHash, p.in.HashAlgo)
+	return err
+}
+
+// insertImportRows inserts rows with one multi-row INSERT and returns the ids
+// that landed; a row losing a uniqueness race to another writer does not.
+func insertImportRows(ctx context.Context, q pgx.Tx, rows []*importRow) (map[string]bool, error) {
+	inserted := map[string]bool{}
+	if len(rows) == 0 {
+		return inserted, nil
 	}
 	var b strings.Builder
-	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at) VALUES ")
-	args := make([]any, 0, len(chunk)*13)
-	for i, r := range chunk {
+	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, metadata, created_at, updated_at) VALUES ")
+	args := make([]any, 0, len(rows)*12)
+	for i, r := range rows {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		n := i * 13
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::uuid,$%d::jsonb,$%d,$%d)",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12, n+13)
-		args = append(args,
-			r.id, r.email, r.phone, r.username, r.in.EmailVerified, r.in.PhoneVerified,
-			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.bannedBy, r.metadata, r.createdAt, r.updatedAt)
+		n := i * 12
+		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb,$%d,$%d)",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12)
+		args = append(args, r.id, r.email, r.phone, r.username, r.in.EmailVerified, r.in.PhoneVerified,
+			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.metadata, r.createdAt, r.updatedAt)
 	}
-	b.WriteString(" ON CONFLICT DO NOTHING RETURNING id")
-	rows, err := q.Query(ctx, b.String(), args...)
+	b.WriteString(" ON CONFLICT DO NOTHING RETURNING id::text")
+	res, err := q.Query(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	inserted := make(map[string]struct{}, len(chunk))
-	for rows.Next() {
+	defer res.Close()
+	for res.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		if err := res.Scan(&id); err != nil {
 			return nil, err
 		}
-		inserted[id] = struct{}{}
+		inserted[id] = true
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return inserted, nil
+	return inserted, res.Err()
 }
 
-// bulkInsertPasswordHashes stores pre-hashed credentials for freshly-inserted
-// users in one multi-row INSERT. ON CONFLICT (user_id) DO NOTHING since the user
-// was just created.
-func (s *Engine) bulkInsertPasswordHashes(ctx context.Context, rows []preparedImportRow) error {
+// insertImportPasswords stores the validated hashes of freshly inserted rows.
+func insertImportPasswords(ctx context.Context, q pgx.Tx, rows []*importRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
 	var b strings.Builder
 	b.WriteString("INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ")
 	args := make([]any, 0, len(rows)*3)
@@ -245,19 +469,18 @@ func (s *Engine) bulkInsertPasswordHashes(ctx context.Context, rows []preparedIm
 		if i > 0 {
 			b.WriteString(",")
 		}
-		n := i * 3
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d)", n+1, n+2, n+3)
+		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d)", i*3+1, i*3+2, i*3+3)
 		args = append(args, r.id, r.in.PasswordHash, r.in.HashAlgo)
 	}
 	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
-	_, err := s.pg.Exec(ctx, (b.String()), args...)
+	_, err := q.Exec(ctx, b.String(), args...)
 	return err
 }
 
-// importRejectReason maps a validation error to a stable-ish reason string for
-// ImportUserResult. Falls back to the error text.
+// importRejectReason is a row's reject reason: its validation code, or the
+// error text.
 func importRejectReason(err error) string {
-	if code := authflow.ValidationErrorCode(err); code != "" {
+	if code := errmodel.CodeOf(err); code != "" {
 		return string(code)
 	}
 	return err.Error()

@@ -23,29 +23,27 @@ type importedSolanaLinkProfile struct {
 	VerificationRequired bool       `json:"verification_required"`
 }
 
-// ImportUnverifiedSolanaLinks imports legacy wallet claims with one outcome per
-// input row. It never verifies a wallet: only a successful SIWS proof may
-// promote an imported claim. Migration tooling only; runtime request handlers
-// must use the normal proof-aware Solana link flow.
-func (s *Engine) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []iam.ImportUnverifiedSolanaLinkInput) (iam.ImportUnverifiedSolanaLinksResult, error) {
-	out := iam.ImportUnverifiedSolanaLinksResult{
-		Results: make([]iam.ImportUnverifiedSolanaLinkResult, len(inputs)),
+// ImportSolanaLinks imports legacy wallet claims under the operator, one
+// outcome per row. It never verifies a wallet: only a successful SIWS proof
+// promotes an imported claim.
+func (s *Engine) ImportSolanaLinks(ctx context.Context, a iam.Actor, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
+	if err := requireOperator(a); err != nil {
+		return iam.ImportSolanaLinksResult{}, err
 	}
-	for i, in := range inputs {
-		result, err := s.importUnverifiedSolanaLink(ctx, in)
+	out := iam.ImportSolanaLinksResult{Rows: make([]iam.ImportSolanaLinkRow, len(rows))}
+	for i, in := range rows {
+		row, err := s.importUnverifiedSolanaLink(ctx, in)
 		if err != nil {
-			return out, fmt.Errorf("import unverified Solana link at index %d: %w", i, err)
+			return out, fmt.Errorf("import Solana link at index %d: %w", i, err)
 		}
-		result.Index = i
-		result.UserID = in.UserID
-		result.Address = in.Address
-		out.Results[i] = result
-		switch result.Status {
-		case iam.ImportUnverifiedSolanaLinkInserted:
+		row.Index, row.UserID, row.Address = i, in.UserID, in.Address
+		out.Rows[i] = row
+		switch row.Status {
+		case iam.ImportInserted:
 			out.Inserted++
-		case iam.ImportUnverifiedSolanaLinkSkipped:
+		case iam.ImportSkipped:
 			out.Skipped++
-		case iam.ImportUnverifiedSolanaLinkRejected:
+		case iam.ImportRejected:
 			out.Rejected++
 		}
 	}
@@ -55,8 +53,8 @@ func (s *Engine) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []iam.I
 // importUnverifiedSolanaLink reserves a legacy Solana address for its mapped
 // AuthKit user without making it a login method. Only a later successful SIWS
 // proof promotes the row to verified state.
-func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUnverifiedSolanaLinkInput) (iam.ImportUnverifiedSolanaLinkResult, error) {
-	var out iam.ImportUnverifiedSolanaLinkResult
+func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSolanaLink) (iam.ImportSolanaLinkRow, error) {
+	var out iam.ImportSolanaLinkRow
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
@@ -66,20 +64,20 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUn
 	source := strings.TrimSpace(in.Source)
 	sourceID := strings.TrimSpace(in.SourceID)
 	if _, err := uuid.Parse(userID); err != nil {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "invalid_user_id"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "invalid_user_id"}, nil
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "invalid_address"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "invalid_address"}, nil
 	}
 	if source == "" {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "missing_source"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_source"}, nil
 	}
 	if sourceID == "" {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "missing_source_id"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_source_id"}, nil
 	}
 	if _, err := s.q.UserByID(ctx, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "missing_user"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_user"}, nil
 		}
 		return out, err
 	}
@@ -117,7 +115,7 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUn
 		CreatedAt:    createdAt,
 	})
 	if err == nil {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkInserted}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportInserted}, nil
 	}
 	if err != pgx.ErrNoRows {
 		return out, fmt.Errorf("import unverified Solana link: %w", err)
@@ -129,12 +127,12 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUn
 	})
 	if addressErr == nil {
 		if byAddress.UserID != userID {
-			return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "address_owned_by_other_user"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "address_owned_by_other_user"}, nil
 		}
 		if byAddress.VerifiedAt != nil {
-			return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkSkipped, Reason: "already_verified"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: "already_verified"}, nil
 		}
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkSkipped, Reason: "already_imported"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: "already_imported"}, nil
 	}
 	if addressErr != pgx.ErrNoRows {
 		return out, addressErr
@@ -145,12 +143,12 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUn
 		Issuer: s.solanaIssuer(),
 	})
 	if userErr == nil && byUser.Subject != address {
-		return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "user_has_different_address"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "user_has_different_address"}, nil
 	}
 	if userErr != nil && userErr != pgx.ErrNoRows {
 		return out, userErr
 	}
-	return iam.ImportUnverifiedSolanaLinkResult{Status: iam.ImportUnverifiedSolanaLinkRejected, Reason: "provider_link_conflict"}, nil
+	return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "provider_link_conflict"}, nil
 }
 
 // verifyImportedSolanaLink promotes only the exact mapped user/address pair.

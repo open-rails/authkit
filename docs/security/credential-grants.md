@@ -38,5 +38,5 @@ token. Cozy-art `frontend/src/services/auth.ts` (`consumeAuthCallback`) and
 `frontend/src/store/authStore.ts` (`completeAuthCallback`) likewise retain the
 existing session and reload the user. Custom clients consuming JSON link callbacks
 must accept 204 rather than requiring a login token set. Direct host/import code
-can still use `LinkProviderByIssuer`; it is trusted administrative authority and
-must never be exposed as a user-supplied UUID command.
+can still use `LinkProvider` with `iam.OperatorActor()`; it is trusted
+administrative authority and must never be exposed as a user-supplied UUID command.
