@@ -25,7 +25,7 @@ type loginProof struct {
 	PasskeyID       string `json:"passkey_id,omitempty"`
 	nonce           string
 	ReturnTo        string            `json:"return_to,omitempty"`
-	Input           LoginSessionInput `json:"input"`
+	Input           loginSessionInput `json:"input"`
 	Version         int64             `json:"version"`
 	Issuer          string            `json:"issuer"`
 	AuthenticatedAt time.Time         `json:"authenticated_at"`
@@ -100,7 +100,7 @@ func (s *engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa")
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
 	gateErr := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.Input.AuthMethods, status, nil)
-	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, ErrTwoFARequired) {
+	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, errTwoFARequired) {
 		return authflow.LoginOutcome{}, gateErr
 	}
 	out := authflow.LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
@@ -415,7 +415,7 @@ func (s *engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID strin
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	return s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: fresh.LastAuthenticatedAt, SessionID: sessionID, Input: LoginSessionInput{UserID: userID, AuthMethods: fresh.AuthMethods, Event: "refresh_mfa"}})
+	return s.finishFirstFactor(ctx, loginProof{Version: version.CredentialVersion, AuthenticatedAt: fresh.LastAuthenticatedAt, SessionID: sessionID, Input: loginSessionInput{UserID: userID, AuthMethods: fresh.AuthMethods, Event: "refresh_mfa"}})
 }
 
 const (

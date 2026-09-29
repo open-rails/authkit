@@ -101,7 +101,7 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupI
 	expiresAt := time.Now().UTC().Add(ttl)
 	code := secret.RandB64(32)
 	var id string
-	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, invitedBy, role); err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 		return err
 	}
 	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		var role iam.Role
 		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, gid).Scan(&role)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -282,7 +282,7 @@ func (s *engine) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID
 		if redeemedAt != nil {
 			return zero, iam.ErrInviteLinkNotFound
 		}
-		if err := s.assignInvitedRole(ctx, NewPermissionGroupStore(q), groupID, persona, redeemerUserID, role); err != nil {
+		if err := s.assignInvitedRole(ctx, newPermissionGroupStore(q), groupID, persona, redeemerUserID, role); err != nil {
 			return zero, err
 		}
 		if _, err := q.Exec(ctx,

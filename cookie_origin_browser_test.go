@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
 

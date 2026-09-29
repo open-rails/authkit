@@ -11,7 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 // mutateCredentials owns the account lock and the transaction for credential

@@ -35,7 +35,7 @@ func (s *engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	linkHash := sha256Hex(linkToken)
 
 	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:              KindRegisterEmail,
+		Kind:              kindRegisterEmail,
 		Target:            email,
 		Username:          username,
 		PasswordHash:      passwordHash,
@@ -79,7 +79,7 @@ func (s *engine) CheckPendingRegistrationConflict(ctx context.Context, email, us
 	}
 
 	if s.useEphemeralStore() {
-		if s.pendingChangeTargetTaken(ctx, KindRegisterEmail, email) {
+		if s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email) {
 			emailTaken = true
 		}
 		if s.pendingChangeUsernameTaken(ctx, username) {
@@ -109,7 +109,7 @@ func (s *engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 	linkToken := secret.RandB64(32)
 	linkHash := sha256Hex(linkToken)
 	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:              KindRegisterPhone,
+		Kind:              kindRegisterPhone,
 		Target:            phone,
 		Username:          username,
 		PasswordHash:      passwordHash,
@@ -156,7 +156,7 @@ func (s *engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 	}
 
 	if s.useEphemeralStore() {
-		if s.pendingChangeTargetTaken(ctx, KindRegisterPhone, phone) {
+		if s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone) {
 			phoneTaken = true
 		}
 		if s.pendingChangeUsernameTaken(ctx, username) {
@@ -170,16 +170,16 @@ func (s *engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 // ResendRegistration reissues the pending signup while retaining its invitation,
 // username, password and language. A resend never creates an account.
 func (s *engine) ResendRegistration(ctx context.Context, identifier string) (bool, error) {
-	kind := KindRegisterEmail
+	kind := kindRegisterEmail
 	if !strings.Contains(identifier, "@") {
-		kind = KindRegisterPhone
+		kind = kindRegisterPhone
 	}
 	rec, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
 	if err != nil || !ok {
 		return false, err
 	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken)
-	if kind == KindRegisterEmail {
+	if kind == kindRegisterEmail {
 		_, err = s.issuePendingEmailRegistration(ctx, rec.Target, rec.Username, rec.PasswordHash, 0, rec.PreferredLanguage)
 	} else {
 		_, err = s.issuePendingPhoneRegistration(ctx, rec.Target, rec.Username, rec.PasswordHash, rec.PreferredLanguage)

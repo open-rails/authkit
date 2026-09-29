@@ -3,7 +3,7 @@ package httpapi
 import (
 	"time"
 
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits.

@@ -9,9 +9,9 @@ import (
 // Delegated mint defaults (#261). Applied to unset DelegatedConfig fields
 // before the floor <= default <= ceiling boot check.
 const (
-	DefaultDelegatedTTLFloor   = time.Minute
-	DefaultDelegatedTTLDefault = 15 * time.Minute
-	DefaultDelegatedTTLCeiling = time.Hour
+	defaultDelegatedTTLFloor   = time.Minute
+	defaultDelegatedTTLDefault = 15 * time.Minute
+	defaultDelegatedTTLCeiling = time.Hour
 )
 
 // normalizeDelegatedConfig applies defaults and refuses an impossible TTL
@@ -30,13 +30,13 @@ func normalizeDelegatedConfig(cfg DelegatedConfig) (DelegatedConfig, error) {
 		return DelegatedConfig{}, fmt.Errorf("authkit: Delegated TTLs must not be negative (floor=%v default=%v ceiling=%v)", cfg.TTLFloor, cfg.TTLDefault, cfg.TTLCeiling)
 	}
 	if cfg.TTLFloor == 0 {
-		cfg.TTLFloor = DefaultDelegatedTTLFloor
+		cfg.TTLFloor = defaultDelegatedTTLFloor
 	}
 	if cfg.TTLDefault == 0 {
-		cfg.TTLDefault = DefaultDelegatedTTLDefault
+		cfg.TTLDefault = defaultDelegatedTTLDefault
 	}
 	if cfg.TTLCeiling == 0 {
-		cfg.TTLCeiling = DefaultDelegatedTTLCeiling
+		cfg.TTLCeiling = defaultDelegatedTTLCeiling
 	}
 	if cfg.TTLFloor > cfg.TTLCeiling || cfg.TTLDefault < cfg.TTLFloor || cfg.TTLDefault > cfg.TTLCeiling {
 		return DelegatedConfig{}, fmt.Errorf("authkit: Delegated TTLs must satisfy floor <= default <= ceiling (floor=%v default=%v ceiling=%v)", cfg.TTLFloor, cfg.TTLDefault, cfg.TTLCeiling)

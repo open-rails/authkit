@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 type bucketState struct {

@@ -1,7 +1,7 @@
 # Security tests
 
-`securitytest/` attacks AuthKit as a host embeds it: `embedded.New` with the
-`authhttp` surface under `/auth/v1`, a scratch PostgreSQL database and a real
+`internal/securitytest/` attacks AuthKit as a host embeds it: `authkit.New`
+with its HTTP surface under `/auth/v1`, a scratch PostgreSQL database and a real
 Redis for shared rate limits. Every test runs in the `workflows` CI job;
 `scripts/check.sh` fails the job if any listed test is skipped or missing.
 Add a row and a test for every new attack class.

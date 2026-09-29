@@ -8,7 +8,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +15,7 @@ func TestConfiguredPasswordPolicyIsEnforcedAndPublished(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.Password = password.Policy{MinLength: 12, MaxLength: 20}
+	cfg.Password = PasswordPolicy{MinLength: 12, MaxLength: 20}
 	f := newAccountFlow(t, pg.Pool, cfg)
 
 	caps := f.expect(http.StatusOK, f.request(http.MethodGet, "/capabilities", "", nil))
@@ -117,7 +116,7 @@ func TestHostPasswordCompositionAndUsernameBounds(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.Password = password.Policy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
+	cfg.Password = PasswordPolicy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
 	cfg.Username = iam.UsernamePolicy{MinLength: 6, MaxLength: 12}
 	f := newAccountFlow(t, pg.Pool, cfg)
 

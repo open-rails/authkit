@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Required is the gin-native form of verify.Required (#209): validates the
@@ -68,16 +69,17 @@ func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	}
 }
 
-func Principal(c *gin.Context) (iam.Principal, bool) {
+// Identity returns the verified caller's provider-neutral identity (user,
+// device key, API key, remote application or delegated principal).
+func Identity(c *gin.Context) (auth.Identity, bool) {
 	if c == nil || c.Request == nil {
-		return iam.Principal{}, false
+		return auth.Identity{}, false
 	}
 	cl, ok := verify.ClaimsFromContext(c.Request.Context())
 	if !ok {
-		return iam.Principal{}, false
+		return auth.Identity{}, false
 	}
-	p := cl.Principal()
-	return p, p.Kind != ""
+	return cl.Identity()
 }
 
 // UserClaims reads a verified local user without performing a database lookup.

@@ -29,7 +29,7 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(ctx, "INSERT INTO profiles.permission_groups(persona,parent_id,instance_slug,display_name) VALUES('channel',$1::uuid,'existing','Existing group') RETURNING id::text", root).Scan(&group))
 	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
 	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
-	descriptor, err := NewPermissionGroupStore(pg.Pool).GroupInstanceByID(ctx, group)
+	descriptor, err := newPermissionGroupStore(pg.Pool).GroupInstanceByID(ctx, group)
 	require.NoError(t, err)
 	require.Equal(t, "Existing group", descriptor.DisplayName)
 	require.Nil(t, descriptor.DeletedAt)

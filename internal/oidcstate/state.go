@@ -1,6 +1,6 @@
-// Package oidckit holds the browser-flow state shared by authhttp and the
+// Package oidcstate holds the browser-flow state shared by the HTTP layer and the
 // engine: the pending-login record and PKCE generation. Providers themselves live in authprovider.
-package oidckit
+package oidcstate
 
 import (
 	"crypto/rand"

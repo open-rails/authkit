@@ -197,7 +197,7 @@ func (s *engine) validateApplicationDocument(doc *iam.ApplicationDocument, host 
 		return nil, iam.ErrReservedIssuer
 	}
 
-	mode, err := NormalizeRemoteAppTrustSource(strings.TrimSpace(doc.JWKSURI), "", doc.PublicKeys, TrustSourcePolicy{AllowPrivateNetworkJWKS: isDev})
+	mode, err := normalizeRemoteAppTrustSource(strings.TrimSpace(doc.JWKSURI), "", doc.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: isDev})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", iam.ErrApplicationDocumentInvalid, err)
 	}

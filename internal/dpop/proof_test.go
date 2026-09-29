@@ -12,7 +12,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/dpop"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/stretchr/testify/require"
 )

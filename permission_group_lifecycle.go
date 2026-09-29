@@ -23,8 +23,8 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 
 // withLockedGroup gives role definitions and grants one lifecycle boundary.
 // Authorization stays in the existing caller checks, using this bound store.
-func (s *engine) withLockedGroup(ctx context.Context, groupID string, apply func(*PermissionGroupStore) error) error {
-	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+func (s *engine) withLockedGroup(ctx context.Context, groupID string, apply func(*permissionGroupStore) error) error {
+	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 			return err
 		}
@@ -34,7 +34,7 @@ func (s *engine) withLockedGroup(ctx context.Context, groupID string, apply func
 
 // A role must exist when a durable reference is created. Catalog definitions
 // are immutable configuration; custom definitions are read under the group lock.
-func (s *engine) requireDefinedGroupRole(ctx context.Context, st *PermissionGroupStore, groupID string, persona iam.Persona, role iam.Role) error {
+func (s *engine) requireDefinedGroupRole(ctx context.Context, st *permissionGroupStore, groupID string, persona iam.Persona, role iam.Role) error {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return nil
 	}

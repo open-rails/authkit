@@ -22,11 +22,11 @@ const (
 	defaultSolanaSNSLookupTimeout = 3 * time.Second
 	defaultSolanaSNSCacheTTL      = 24 * time.Hour
 
-	SolanaSNSStatusPending  = "pending"
-	SolanaSNSStatusResolved = "resolved"
-	SolanaSNSStatusNotFound = "not_found"
-	SolanaSNSStatusError    = "error"
-	SolanaSNSStatusStale    = "stale"
+	solanaSNSStatusPending  = "pending"
+	solanaSNSStatusResolved = "resolved"
+	solanaSNSStatusNotFound = "not_found"
+	solanaSNSStatusError    = "error"
+	solanaSNSStatusStale    = "stale"
 
 	solanaSNSProviderError     = "resolver_error"
 	solanaSNSInvalidNameError  = "invalid_sns_name"
@@ -177,11 +177,11 @@ func (s *engine) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, add
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
 func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (authflow.SolanaLinkedAccount, error) {
 	account := authflow.SolanaLinkedAccount{
-		Provider:            SolanaProviderSlug,
+		Provider:            solanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
 		Address:             address,
 		Verified:            true,
-		SNSResolutionStatus: SolanaSNSStatusPending,
+		SNSResolutionStatus: solanaSNSStatusPending,
 	}
 	if s.pg == nil {
 		return account, nil
@@ -190,22 +190,22 @@ func (s *engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address s
 	resolveCtx, cancel := context.WithTimeout(ctx, defaultSolanaSNSLookupTimeout)
 	defer cancel()
 
-	status := SolanaSNSStatusResolved
+	status := solanaSNSStatusResolved
 	var primaryName *string
 	var errorCode *string
 	name, err := s.solanaSNSResolver.ResolvePrimaryName(resolveCtx, address)
 	if err != nil {
-		status = SolanaSNSStatusError
+		status = solanaSNSStatusError
 		code := solanaSNSProviderError
 		errorCode = &code
 	} else {
 		normalized, normalizeErr := normalizeSolanaSNSName(name)
 		if normalizeErr != nil {
-			status = SolanaSNSStatusError
+			status = solanaSNSStatusError
 			code := solanaSNSInvalidNameError
 			errorCode = &code
 		} else if normalized == "" {
-			status = SolanaSNSStatusNotFound
+			status = solanaSNSStatusNotFound
 		} else {
 			primaryName = &normalized
 		}
@@ -253,19 +253,19 @@ func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*au
 
 	if row.VerifiedAt == nil {
 		return &authflow.SolanaLinkedAccount{
-			Provider:            SolanaProviderSlug,
+			Provider:            solanaProviderSlug,
 			Issuer:              s.solanaIssuer(),
 			Address:             address,
 			Verified:            false,
 			VerifiedAt:          nil,
-			SNSResolutionStatus: SolanaSNSStatusPending,
+			SNSResolutionStatus: solanaSNSStatusPending,
 		}, nil
 	}
 
 	verifiedAt := row.VerifiedAt.UTC()
 	status := strings.TrimSpace(profile.ResolutionStatus)
 	if status == "" {
-		status = SolanaSNSStatusPending
+		status = solanaSNSStatusPending
 	}
 
 	stale := false
@@ -275,12 +275,12 @@ func (s *engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*au
 		stale = true
 	}
 	if stale {
-		status = SolanaSNSStatusStale
+		status = solanaSNSStatusStale
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, address)
 	}
 
 	return &authflow.SolanaLinkedAccount{
-		Provider:            SolanaProviderSlug,
+		Provider:            solanaProviderSlug,
 		Issuer:              s.solanaIssuer(),
 		Address:             address,
 		Verified:            true,

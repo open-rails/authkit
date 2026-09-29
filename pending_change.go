@@ -17,15 +17,15 @@ import (
 // emailed/texted code is verified, then finalize it" — so they share one record
 // type, one ephemeral storage namespace, and one set of generic operations,
 // differing only in their per-kind finalizer.
-type PendingChangeKind string
+type pendingChangeKind string
 
 const (
-	KindVerifyEmail   PendingChangeKind = "verify_email"
-	KindVerifyPhone   PendingChangeKind = "verify_phone"
-	KindRegisterEmail PendingChangeKind = "register_email"
-	KindRegisterPhone PendingChangeKind = "register_phone"
-	KindChangeEmail   PendingChangeKind = "change_email"
-	KindChangePhone   PendingChangeKind = "change_phone"
+	kindVerifyEmail   pendingChangeKind = "verify_email"
+	kindVerifyPhone   pendingChangeKind = "verify_phone"
+	kindRegisterEmail pendingChangeKind = "register_email"
+	kindRegisterPhone pendingChangeKind = "register_phone"
+	kindChangeEmail   pendingChangeKind = "change_email"
+	kindChangePhone   pendingChangeKind = "change_phone"
 )
 
 // One record per identity (#301): register kinds are keyed by the target (the
@@ -50,7 +50,7 @@ type pendingChange struct {
 	ID                 string `json:"id"`
 	AccountInviteToken string `json:"account_invite_token,omitempty"`
 	expected           []byte
-	Kind               PendingChangeKind `json:"kind"`
+	Kind               pendingChangeKind `json:"kind"`
 	Target             string            `json:"target"`
 	UserID             string            `json:"user_id,omitempty"`
 	Username           string            `json:"username,omitempty"`
@@ -60,15 +60,15 @@ type pendingChange struct {
 	LinkHash           string            `json:"link_hash,omitempty"`
 }
 
-func (k PendingChangeKind) isRegister() bool {
-	return k == KindRegisterEmail || k == KindRegisterPhone
+func (k pendingChangeKind) isRegister() bool {
+	return k == kindRegisterEmail || k == kindRegisterPhone
 }
 
-func (k PendingChangeKind) isEmail() bool {
-	return k == KindRegisterEmail || k == KindChangeEmail || k == KindVerifyEmail
+func (k pendingChangeKind) isEmail() bool {
+	return k == kindRegisterEmail || k == kindChangeEmail || k == kindVerifyEmail
 }
 
-func (k PendingChangeKind) defaultTTL() time.Duration {
+func (k pendingChangeKind) defaultTTL() time.Duration {
 	if k.isEmail() {
 		return defaultEmailVerificationTTL
 	}
@@ -77,27 +77,27 @@ func (k PendingChangeKind) defaultTTL() time.Duration {
 
 // normalizePendingTarget canonicalizes the target the same way the rest of the
 // service does, so lookups by target are stable.
-func normalizePendingTarget(kind PendingChangeKind, target string) string {
+func normalizePendingTarget(kind pendingChangeKind, target string) string {
 	if kind.isEmail() {
 		return contact.NormalizeEmail(target)
 	}
 	return contact.NormalizePhone(target)
 }
 
-func pendingChangeKey(kind PendingChangeKind, id string) string {
+func pendingChangeKey(kind pendingChangeKind, id string) string {
 	return keyPendingChange + string(kind) + ":" + id
 }
 
 // Usernames are case-insensitive identities, so one pending hold covers every
 // spelling of a name.
-func pendingChangeUserKey(kind PendingChangeKind, username string) string {
+func pendingChangeUserKey(kind pendingChangeKind, username string) string {
 	return keyPendingChangeUser + string(kind) + ":" + strings.ToLower(strings.TrimSpace(username))
 }
 
 // Link pointers are namespaced per kind: the HTTP confirm handlers try each
 // kind in turn with the same token, and a miss for one kind must never consume
 // another kind's single-use pointer.
-func pendingChangeLinkKey(kind PendingChangeKind, linkHash string) string {
+func pendingChangeLinkKey(kind pendingChangeKind, linkHash string) string {
 	return keyPendingChangeLink + string(kind) + ":" + linkHash
 }
 
@@ -174,12 +174,12 @@ func (s *engine) loadPendingChange(ctx context.Context, key string) (pendingChan
 // findPendingChangeByTarget is the lookup-only form: a store failure reads as
 // "not found". Confirm paths use pendingChangeByTarget so a backend failure is
 // never counted as a bad guess (ak#324).
-func (s *engine) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
+func (s *engine) findPendingChangeByTarget(ctx context.Context, kind pendingChangeKind, target string) (pendingChange, bool) {
 	rec, ok, _ := s.pendingChangeByTarget(ctx, kind, target)
 	return rec, ok
 }
 
-func (s *engine) pendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool, error) {
+func (s *engine) pendingChangeByTarget(ctx context.Context, kind pendingChangeKind, target string) (pendingChange, bool, error) {
 	target = normalizePendingTarget(kind, target)
 	if !kind.isRegister() || target == "" {
 		return pendingChange{}, false, nil
@@ -194,7 +194,7 @@ func (s *engine) pendingChangeByTarget(ctx context.Context, kind PendingChangeKi
 	return rec, true, nil
 }
 
-func (s *engine) pendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool, error) {
+func (s *engine) pendingChangeByUser(ctx context.Context, kind pendingChangeKind, userID string) (pendingChange, bool, error) {
 	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false, nil
 	}
@@ -219,7 +219,7 @@ func (s *engine) pendingChangeUsernameTaken(ctx context.Context, username string
 	if !s.useEphemeralStore() {
 		return false
 	}
-	for _, kind := range []PendingChangeKind{KindRegisterEmail, KindRegisterPhone} {
+	for _, kind := range []pendingChangeKind{kindRegisterEmail, kindRegisterPhone} {
 		var index pendingChangeIndex
 		if ok, _ := s.ephemGetJSON(ctx, pendingChangeUserKey(kind, username), &index); !ok {
 			continue
@@ -234,7 +234,7 @@ func (s *engine) pendingChangeUsernameTaken(ctx context.Context, username string
 
 // pendingChangeTargetTaken reports whether a register-kind pending change is
 // holding the given email/phone target.
-func (s *engine) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
+func (s *engine) pendingChangeTargetTaken(ctx context.Context, kind pendingChangeKind, target string) bool {
 	_, ok := s.findPendingChangeByTarget(ctx, kind, target)
 	return ok
 }
@@ -265,7 +265,7 @@ func (s *engine) deletePendingChange(ctx context.Context, key string) {
 	}
 }
 
-func (s *engine) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
+func (s *engine) deletePendingChangeByTarget(ctx context.Context, kind pendingChangeKind, target string) {
 	if !s.useEphemeralStore() || !kind.isRegister() {
 		return
 	}
@@ -276,9 +276,9 @@ func (s *engine) deletePendingChangeByTarget(ctx context.Context, kind PendingCh
 // deferred change and returns the affected user's ID.
 func (s *engine) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
-	case KindChangeEmail:
+	case kindChangeEmail:
 		return s.finalizeChangeEmail(ctx, rec, keepSessionID)
-	case KindChangePhone:
+	case kindChangePhone:
 		return s.finalizeChangePhone(ctx, rec, keepSessionID)
 	default:
 		return "", fmt.Errorf("unknown pending change kind: %s", rec.Kind)
@@ -302,7 +302,7 @@ func (s *engine) consumePendingChangeCode(ctx context.Context, rec pendingChange
 // consumePendingChangeByLink redeems the 256-bit link token: the pointer is
 // consumed atomically (single-use), then the record it names must be of the
 // expected kind and still carry that link hash.
-func (s *engine) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
+func (s *engine) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind pendingChangeKind) (string, error) {
 	key, ok := s.consumeLink(ctx, pendingChangeLinkKey(expectKind, linkHash))
 	if !ok {
 		return "", jwt.ErrTokenUnverifiable

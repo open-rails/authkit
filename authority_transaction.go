@@ -24,7 +24,7 @@ func (s *engine) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) 
 	return s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 }
 
-func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*PermissionGroupStore) error) error {
+func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*permissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (s *engine) withAuthorityMutation(ctx context.Context, apply func(*Permissi
 // touched groups (and so their subtrees) changed. A credential never outlives
 // the authority that issued it; otherwise a demoted creator could redeem their
 // own link, or keep using their own key, to regain the role.
-func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *PermissionGroupStore, touched ...authorityTouch) error {
+func (s *engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
 	type credential struct {
 		table, id, groupID, creator string
 		persona                     iam.Persona
@@ -126,7 +126,7 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 	return nil
 }
 
-func (st *PermissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
+func (st *permissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return "", err
@@ -167,7 +167,7 @@ func authorizationActorPresent(ctx context.Context, q db.DBTX, userID string) (b
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
 // from the remaining live owners. Removing an already unusable principal does
 // not create an ownership loss; empty bootstrap groups also remain possible.
-func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, gid string, subject iam.Subject) error {
+func (s *engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, gid string, subject iam.Subject) error {
 	role, err := st.directRole(ctx, gid, subject)
 	if err != nil || role != iam.OwnerRole {
 		return err
@@ -182,7 +182,7 @@ func (s *engine) refuseOwnerLoss(ctx context.Context, st *PermissionGroupStore, 
 	return s.requireRemainingOwner(ctx, st, gid, subject)
 }
 
-func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupStore, gid string, excluding iam.Subject) error {
+func (s *engine) requireRemainingOwner(ctx context.Context, st *permissionGroupStore, gid string, excluding iam.Subject) error {
 	var persona iam.Persona
 	var inactive bool
 	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(&persona, &inactive); err != nil {
@@ -212,7 +212,7 @@ func (s *engine) requireRemainingOwner(ctx context.Context, st *PermissionGroupS
 	return nil
 }
 
-func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroupStore, subject iam.Subject) error {
+func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroupStore, subject iam.Subject) error {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -245,7 +245,7 @@ func (s *engine) refuseSubjectOwnerLoss(ctx context.Context, st *PermissionGroup
 
 // An invitation is a bounded bearer grant, not the inviter's current authority.
 // Redemption can retain or increase its recipient's role, never strip grants.
-func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
+func (s *engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
 	subject := iam.UserSubject(userID)
 	old, err := st.directRole(ctx, gid, subject)
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *engine) assignInvitedRole(ctx context.Context, st *PermissionGroupStore
 // A subtree deletion can also delete applications owning other groups. Check
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.
-func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *PermissionGroupStore, gid string) ([]string, error) {
+func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore, gid string) ([]string, error) {
 	rows, err := st.q.Query(ctx, `WITH RECURSIVE subtree AS (
       SELECT id FROM permission_groups WHERE id=$1::uuid
       UNION ALL SELECT g.id FROM permission_groups g JOIN subtree p ON g.parent_id=p.id)
@@ -312,7 +312,7 @@ func outsideSubtreeApplicationOwnerGroups(ctx context.Context, st *PermissionGro
 	return surviving, nil
 }
 
-func (s *engine) deleteGroupTx(ctx context.Context, st *PermissionGroupStore, gid string, opts iam.DeletePermissionGroupOptions) error {
+func (s *engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string, opts iam.DeletePermissionGroupOptions) error {
 	surviving, err := outsideSubtreeApplicationOwnerGroups(ctx, st, gid)
 	if err != nil {
 		return err

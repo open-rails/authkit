@@ -161,7 +161,7 @@ func (s *engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 	if err != nil {
 		return false, err
 	}
-	if !independentFactor(loginProof{Input: LoginSessionInput{AuthMethods: fresh.AuthMethods}}, authflow.TwoFactorFactor{Method: method}) {
+	if !independentFactor(loginProof{Input: loginSessionInput{AuthMethods: fresh.AuthMethods}}, authflow.TwoFactorFactor{Method: method}) {
 		return false, nil
 	}
 	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{

@@ -38,7 +38,7 @@ hold database locks or deny a backend command to make the race deterministic.
 Fake identity providers are configured before mounting, as a host configures
 its providers; there is no test-only per-request route reconstruction.
 
-The `securitytest` package attacks the embedded HTTP surface directly; [security tests](security-tests.md) maps each threat to its test.
+The `internal/securitytest` package attacks the HTTP surface as a host mounts it; [security tests](security-tests.md) maps each threat to its test.
 
 Small focused tests remain for password-hash input bounds, JWT key/algorithm
 policy, DPoP and SIWS signatures, SSRF/network restrictions, document

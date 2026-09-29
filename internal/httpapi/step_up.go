@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/oidckit"
+	"github.com/open-rails/authkit/internal/oidcstate"
 )
 
 const oidcStepUpClockSkew = 2 * time.Minute
@@ -156,7 +156,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	}
 	s.startProviderFlow(w, r, p.Name(), flowStart{
 		params: map[string]string{"max_age": "0"},
-		stepUp: &oidckit.StateData{
+		stepUp: &oidcstate.StateData{
 			StepUpUserID:    claims.UserID,
 			StepUpSessionID: claims.SessionID,
 			StepUpReturnTo:  SanitizeReturnTo(body.ReturnTo),
@@ -170,7 +170,7 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	return err == nil && exists
 }
 
-func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, provider, issuer, subject string, authTime time.Time) bool {
+func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, provider, issuer, subject string, authTime time.Time) bool {
 	if strings.TrimSpace(sd.StepUpUserID) == "" {
 		return false
 	}
@@ -193,7 +193,7 @@ func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd 
 // emitStepUpResult writes the success result shared by the OIDC and OAuth2 step-up
 // completers: a fresh-token JSON body (tagged with the provider name) when JSON is
 // requested, else a success redirect. Always returns true (request handled).
-func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, providerName string) bool {
+func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, providerName string) bool {
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
 		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
 		body, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)

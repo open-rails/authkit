@@ -134,7 +134,7 @@ func (s *engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 
 // A deleted subject is already unusable. Recheck the remaining owners directly
 // rather than treating that fact as permission to orphan a group during purge.
-func (s *engine) requireOwnersAfterAccountPurge(ctx context.Context, store *PermissionGroupStore, userID string) error {
+func (s *engine) requireOwnersAfterAccountPurge(ctx context.Context, store *permissionGroupStore, userID string) error {
 	rows, err := store.q.Query(ctx, "SELECT permission_group_id::text FROM group_user_roles WHERE user_id=$1::uuid AND role='owner' ORDER BY permission_group_id", userID)
 	if err != nil {
 		return err

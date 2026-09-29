@@ -44,7 +44,7 @@ func (s *engine) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkey
 // VerifiedPasskey is the identity proof a discoverable assertion yields: the
 // stable user and the credential that signed. It carries no session, token,
 // cookie or claim; the host binds it to its own pending operation.
-type VerifiedPasskey struct {
+type verifiedPasskey struct {
 	credentialVersion int64
 	UserID            string
 	PasskeyID         string
@@ -56,7 +56,7 @@ type VerifiedPasskey struct {
 // PendingPasskeyAccount is a passkey-only account ceremony. UserID is the
 // server-minted uuidv7 that becomes the user id and WebAuthn user handle once
 // FinishPasskeyAccount succeeds; no user row exists before that.
-type PendingPasskeyAccount struct {
+type pendingPasskeyAccount struct {
 	UserID   string
 	Creation *protocol.CredentialCreation
 }
@@ -284,7 +284,7 @@ func (s *engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAg
 	if ip != nil {
 		address = ip.String()
 	}
-	return s.finishFirstFactor(ctx, loginProof{Version: verified.credentialVersion, PasskeyID: verified.PasskeyID, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: verified.UserID, UserAgent: userAgent, IP: address, Event: "passkey_login", AuthMethods: []string{"swk", "mfa"}}})
+	return s.finishFirstFactor(ctx, loginProof{Version: verified.credentialVersion, PasskeyID: verified.PasskeyID, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: verified.UserID, UserAgent: userAgent, IP: address, Event: "passkey_login", AuthMethods: []string{"swk", "mfa"}}})
 }
 
 // BeginDiscoverablePasskeyVerification starts an identity-proof ceremony: the
@@ -296,7 +296,7 @@ func (s *engine) BeginDiscoverablePasskeyVerification(ctx context.Context) (*pro
 
 // FinishDiscoverablePasskeyVerification validates the assertion and returns the
 // verified user/credential without minting any session or token.
-func (s *engine) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (VerifiedPasskey, error) {
+func (s *engine) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (verifiedPasskey, error) {
 	return s.finishDiscoverableAssertion(ctx, passkeyPurposeVerify, response)
 }
 
@@ -312,42 +312,42 @@ func (s *engine) beginDiscoverableAssertion(ctx context.Context, purpose string,
 	return assertion, s.storePasskeySession(ctx, session, purpose, "")
 }
 
-func (s *engine) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (VerifiedPasskey, error) {
+func (s *engine) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (verifiedPasskey, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
-		return VerifiedPasskey{}, err
+		return verifiedPasskey{}, err
 	}
 	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
 	if err != nil {
-		return VerifiedPasskey{}, err
+		return verifiedPasskey{}, err
 	}
 	if data.Purpose != purpose {
-		return VerifiedPasskey{}, jwt.ErrTokenUnverifiable
+		return verifiedPasskey{}, jwt.ErrTokenUnverifiable
 	}
 	wa, err := s.webAuthn()
 	if err != nil {
-		return VerifiedPasskey{}, err
+		return verifiedPasskey{}, err
 	}
 	webUser, cred, err := wa.ValidatePasskeyLogin(func(_, userHandle []byte) (webauthn.User, error) {
 		return s.passkeyUserByHandle(ctx, userHandle, purpose == passkeyPurposeLogin)
 	}, session, parsed)
 	if err != nil {
-		return VerifiedPasskey{}, err
+		return verifiedPasskey{}, err
 	}
 	user := webUser.(passkeyUser)
 	// cred.Flags.UserVerified is the latched uvInitialized record, not this
 	// assertion's flag; the requirement is per ceremony.
 	if !parsed.Response.AuthenticatorData.Flags.UserVerified() {
-		return VerifiedPasskey{}, iam.ErrPasskeyUserVerificationRequired
+		return verifiedPasskey{}, iam.ErrPasskeyUserVerificationRequired
 	}
 	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {
-		return VerifiedPasskey{}, iam.ErrPasskeyCloneDetected
+		return verifiedPasskey{}, iam.ErrPasskeyCloneDetected
 	}
 	id, err := s.updatePasskeyAfterUse(ctx, user.id, cred)
 	if err != nil {
-		return VerifiedPasskey{}, err
+		return verifiedPasskey{}, err
 	}
-	return VerifiedPasskey{
+	return verifiedPasskey{
 		credentialVersion: user.credentialVersion,
 		UserID:            user.id,
 		PasskeyID:         id,
@@ -360,23 +360,23 @@ func (s *engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 // BeginPasskeyAccount starts a passkey-only account: it mints the user id (no
 // row yet), uses its bytes as the discoverable user handle, and requires user
 // verification. Allowed only while public native registration is open.
-func (s *engine) BeginPasskeyAccount(ctx context.Context) (PendingPasskeyAccount, error) {
+func (s *engine) BeginPasskeyAccount(ctx context.Context) (pendingPasskeyAccount, error) {
 	if err := s.requirePG(); err != nil {
-		return PendingPasskeyAccount{}, err
+		return pendingPasskeyAccount{}, err
 	}
 	if !s.PublicNativeUserRegistrationEnabled() {
-		return PendingPasskeyAccount{}, iam.ErrRegistrationDisabled
+		return pendingPasskeyAccount{}, iam.ErrRegistrationDisabled
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
-		return PendingPasskeyAccount{}, err
+		return pendingPasskeyAccount{}, err
 	}
 	u := passkeyAccountUser(id)
 	creation, err := s.beginPasskeyCreation(ctx, u, passkeyPurposeAccount, protocol.VerificationRequired)
 	if err != nil {
-		return PendingPasskeyAccount{}, err
+		return pendingPasskeyAccount{}, err
 	}
-	return PendingPasskeyAccount{UserID: u.id, Creation: creation}, nil
+	return pendingPasskeyAccount{UserID: u.id, Creation: creation}, nil
 }
 
 // FinishPasskeyAccount consumes the ceremony once, validates the credential,

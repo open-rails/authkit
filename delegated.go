@@ -27,7 +27,7 @@ func (s *engine) MintDelegatedAccessToken(ctx context.Context, p iam.DelegatedAc
 	if strings.TrimSpace(p.Issuer) == "" {
 		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
 	}
-	return MintDelegatedAccessToken(ctx, signer, p)
+	return mintDelegatedAccessToken(ctx, signer, p)
 }
 
 // CheckDelegatedGrant refuses a delegated grant carrying AuthKit authority the
@@ -68,17 +68,14 @@ func (s *engine) delegatedPermissionHeld(ctx context.Context, userID string, per
 	return s.Can(ctx, iam.UserSubject(userID), iam.RootGroup(), perm)
 }
 
-// MintDelegatedAccessToken signs a canonical delegated access token with an
+// mintDelegatedAccessToken signs a canonical delegated access token with an
 // explicit signer. It stamps the `typ=delegated-access+jwt` JOSE header, writes
 // the canonical `delegated_sub`/`permissions`/`attributes` claims, and NEVER
 // sets `sub` — the sub-XOR-delegated_sub invariant is enforced by construction.
 // Receiving services authorize by issuer/resource-account trust plus
 // `permissions`. A top-level `roles` claim is never minted; delegated-subject
 // role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
-//
-// Hosts embedding core.Service should prefer (*engine).MintDelegatedAccessToken
-// so they never construct their own signer or read the PEM.
-func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.DelegatedAccessParams) (string, error) {
+func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p iam.DelegatedAccessParams) (string, error) {
 	if signer == nil {
 		return "", errors.New("signer required")
 	}

@@ -8,33 +8,33 @@ import (
 
 // RBACDriftReport counts orphaned authority rows — assigned group roles, custom
 // roles, and API keys whose role definitions no longer exist.
-type RBACDriftReport struct {
+type rbacDriftReport struct {
 	GroupUserRoles int `json:"group_user_roles"`
 	CustomRoles    int `json:"group_custom_roles"`
 	APIKeys        int `json:"api_keys"`
 }
 
-func (r RBACDriftReport) Total() int {
+func (r rbacDriftReport) Total() int {
 	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
 }
 
-func (s *engine) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
+func (s *engine) RBACDriftReport(ctx context.Context) (rbacDriftReport, error) {
 	if s == nil || s.pg == nil {
-		return RBACDriftReport{}, nil
+		return rbacDriftReport{}, nil
 	}
 	custom, err := s.driftCustomRoles(ctx)
 	if err != nil {
-		return RBACDriftReport{}, err
+		return rbacDriftReport{}, err
 	}
 	userRoles, err := s.driftAssignedRoles(ctx, "group_user_roles", "true")
 	if err != nil {
-		return RBACDriftReport{}, err
+		return rbacDriftReport{}, err
 	}
 	apiKeys, err := s.driftAssignedRoles(ctx, "api_keys", "revoked_at IS NULL")
 	if err != nil {
-		return RBACDriftReport{}, err
+		return rbacDriftReport{}, err
 	}
-	return RBACDriftReport{GroupUserRoles: userRoles, CustomRoles: custom, APIKeys: apiKeys}, nil
+	return rbacDriftReport{GroupUserRoles: userRoles, CustomRoles: custom, APIKeys: apiKeys}, nil
 }
 
 func (s *engine) driftCustomRoles(ctx context.Context) (int, error) {

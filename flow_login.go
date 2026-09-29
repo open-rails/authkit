@@ -18,7 +18,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 // stageErr prefixes an engine failure with the stage it happened in, for the
@@ -26,7 +26,7 @@ import (
 func stageErr(stage string, err error) error { return fmt.Errorf("%s: %w", stage, err) }
 
 // LoginSessionInput describes the session a completed authentication earns.
-type LoginSessionInput struct {
+type loginSessionInput struct {
 	UserID      string
 	AuthMethods []string       // how the session was established, e.g. {"pwd"}
 	Event       string         // session-created audit event, e.g. "password_login"
@@ -39,7 +39,7 @@ type LoginSessionInput struct {
 // writes the session-created audit event — the shared tail of every login.
 // The liveness and MFA gates fire exactly as IssueAuthenticatedSession does
 // (ErrUserBanned, ErrTwoFAEnrollmentRequired).
-func (s *engine) IssueLoginSession(ctx context.Context, in LoginSessionInput) (authflow.IssuedSession, error) {
+func (s *engine) IssueLoginSession(ctx context.Context, in loginSessionInput) (authflow.IssuedSession, error) {
 	sid, rt, access, exp, _, err := s.IssueAuthenticatedSession(ctx, in.UserID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods, in.Extra)
 	if err != nil {
 		return authflow.IssuedSession{}, err
@@ -69,12 +69,12 @@ func (s *engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 		if err != nil || u == nil {
 			// No account: a pending (unverified) email registration whose password
 			// matches is re-sent.
-			return s.recoverPendingLogin(ctx, in, KindRegisterEmail, identifier)
+			return s.recoverPendingLogin(ctx, in, kindRegisterEmail, identifier)
 		}
 	case strings.HasPrefix(identifier, "+"):
 		u, err = s.getUserByPhone(ctx, identifier)
 		if err != nil || u == nil {
-			return s.recoverPendingLogin(ctx, in, KindRegisterPhone, identifier)
+			return s.recoverPendingLogin(ctx, in, kindRegisterPhone, identifier)
 		}
 	default:
 		u, err = s.getUserByUsername(ctx, identifier)
@@ -95,7 +95,7 @@ func (s *engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
 	if errors.Is(err, iam.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
@@ -124,7 +124,7 @@ func (s *engine) loginFailed(ctx context.Context, in authflow.PasswordLoginInput
 }
 
 // recoverPendingLogin resends the same pending signup after checking its password.
-func (s *engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLoginInput, kind PendingChangeKind, identifier string) (authflow.LoginOutcome, error) {
+func (s *engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLoginInput, kind pendingChangeKind, identifier string) (authflow.LoginOutcome, error) {
 	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
 	if err != nil {
 		return authflow.LoginOutcome{}, err
@@ -140,7 +140,7 @@ func (s *engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 		return authflow.LoginOutcome{}, err
 	}
 	channel := "email"
-	if kind == KindRegisterPhone {
+	if kind == kindRegisterPhone {
 		channel = "phone"
 	}
 	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel}}, nil

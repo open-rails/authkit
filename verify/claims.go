@@ -9,6 +9,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -148,22 +149,33 @@ func (c Claims) PrincipalKind() iam.PrincipalKind {
 	}
 }
 
-// Principal returns the small generic-auth shape for host adapters.
-func (c Claims) Principal() iam.Principal {
-	subject := strings.TrimSpace(c.UserID)
-	if subject == "" {
-		subject = strings.TrimSpace(c.Subject)
-	}
-	if c.isDelegated() {
-		subject = strings.TrimSpace(c.DelegatedSubject)
-	}
-	if c.isAPIKey() || c.isRemoteApplication() {
-		subject = strings.TrimSpace(c.RemoteApplicationSlug)
-		if subject == "" {
-			subject = strings.TrimSpace(c.RemoteApplicationID)
+// Identity is the provider-neutral identity of verified claims: the one
+// principal shape AuthenticateRequest and the framework adapters return. ok is
+// false when the claims name no subject under an issuer.
+func (c Claims) Identity() (auth.Identity, bool) {
+	i := auth.Identity{Issuer: c.Issuer, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username, SessionID: c.SessionID}
+	switch c.PrincipalKind() {
+	case iam.PrincipalKindUser:
+		i.Kind, i.Subject = auth.KindUser, c.UserID
+		if i.Subject == "" {
+			i.Subject = c.Subject
 		}
+		if c.DeviceKeyID != "" {
+			i.Kind, i.Subject = auth.KindDeviceKey, c.DeviceKeyID
+		}
+	case iam.PrincipalKindAPIKey:
+		i.Kind, i.Subject, i.Issuer = auth.KindAPIKey, c.APIKeyID, c.PermissionGroupAuthorityIssuer
+	case iam.PrincipalKindRemoteApplication:
+		i.Kind, i.Subject = auth.KindRemoteApplication, c.RemoteApplicationID
+	case iam.PrincipalKindDelegated:
+		i.Kind, i.Subject = auth.KindDelegated, c.DelegatedSubject
+	default:
+		return auth.Identity{}, false
 	}
-	return iam.Principal{Kind: c.PrincipalKind(), Issuer: strings.TrimSpace(c.Issuer), Subject: subject}
+	if strings.TrimSpace(i.Subject) == "" || strings.TrimSpace(i.Issuer) == "" {
+		return auth.Identity{}, false
+	}
+	return i, true
 }
 
 // IsUser reports whether these claims represent a native human user.

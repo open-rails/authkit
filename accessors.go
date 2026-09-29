@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -179,7 +180,7 @@ func (s *engine) Settings() authflow.Settings {
 		RegistrationMode:         c.Registration.NativeUserMode,
 		RegistrationVerification: c.Registration.Verification,
 		Username:                 c.Username,
-		Password:                 c.Password,
+		Password:                 password.Policy(c.Password),
 		Delegated: authflow.DelegatedSettings{
 			Audiences:  append([]string(nil), c.Delegated.Audiences...),
 			AllowDPoP:  c.Delegated.AllowDPoP,

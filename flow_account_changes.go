@@ -29,7 +29,7 @@ import (
 // pending-change store under kind/target/userID with ttl, and returns the
 // plaintext code and link token for delivery. Re-storing supersedes any prior
 // record for the same user/kind.
-func (s *engine) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
+func (s *engine) newPendingContactChange(ctx context.Context, kind pendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
 	code = randAlphanumeric(6)
 	linkToken = secret.RandB64(32)
 	if err := s.storePendingChange(ctx, pendingChange{
@@ -46,7 +46,7 @@ func (s *engine) newPendingContactChange(ctx context.Context, kind PendingChange
 
 // confirmContactChangeCode finalizes the caller's own pending change when the
 // typed code matches and (if supplied) the target is the one being changed to.
-func (s *engine) confirmContactChangeCode(ctx context.Context, kind PendingChangeKind, userID, target, code string, keepSessionID *string) error {
+func (s *engine) confirmContactChangeCode(ctx context.Context, kind pendingChangeKind, userID, target, code string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -112,7 +112,7 @@ func (s *engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		return iam.ErrPhoneInUse
 	}
 
-	code, linkToken, err := s.newPendingContactChange(ctx, KindChangePhone, trimmed, userID, defaultPhoneVerificationTTL)
+	code, linkToken, err := s.newPendingContactChange(ctx, kindChangePhone, trimmed, userID, defaultPhoneVerificationTTL)
 	if err != nil {
 		return err
 	}
@@ -127,12 +127,12 @@ func (s *engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 // ConfirmPhoneChange verifies the code and applies the new phone. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
 func (s *engine) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
-	return s.confirmContactChangeCode(ctx, KindChangePhone, userID, phone, code, keepSessionID)
+	return s.confirmContactChangeCode(ctx, kindChangePhone, userID, phone, code, keepSessionID)
 }
 
 // ConfirmPhoneChangeByToken applies a pending phone change using its high-entropy link token.
 func (s *engine) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangePhone)
+	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kindChangePhone)
 }
 
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
@@ -167,7 +167,7 @@ func (s *engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 		return iam.ErrEmailInUse
 	}
 
-	code, linkToken, err := s.newPendingContactChange(ctx, KindChangeEmail, trimmed, userID, defaultEmailVerificationTTL)
+	code, linkToken, err := s.newPendingContactChange(ctx, kindChangeEmail, trimmed, userID, defaultEmailVerificationTTL)
 	if err != nil {
 		return err
 	}
@@ -188,10 +188,10 @@ func (s *engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 // ConfirmEmailChange verifies the code and applies the new email. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
 func (s *engine) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
-	return s.confirmContactChangeCode(ctx, KindChangeEmail, userID, email, code, keepSessionID)
+	return s.confirmContactChangeCode(ctx, kindChangeEmail, userID, email, code, keepSessionID)
 }
 
 // ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
 func (s *engine) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangeEmail)
+	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kindChangeEmail)
 }

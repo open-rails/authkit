@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/helpers/auth"
+
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -173,7 +175,9 @@ func TestExternalIdentityNeverBecomesLocalUser(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, cl.UserID)
 		require.False(t, cl.IsUser())
-		require.Equal(t, iam.Principal{Kind: iam.PrincipalKindUser, Issuer: issuer, Subject: "same-user-id"}, cl.Principal())
+		identity, ok := cl.Identity()
+		require.True(t, ok)
+		require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: issuer, Subject: "same-user-id"}, identity)
 		allowed, err := Allow(ctx, nil, cl, "repo:read", PermissionScope{GroupID: "local-group"})
 		require.NoError(t, err)
 		require.False(t, allowed)

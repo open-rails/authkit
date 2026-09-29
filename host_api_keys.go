@@ -44,7 +44,7 @@ func randBase62(n int) (string, error) {
 	return string(out), nil
 }
 
-func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
+func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
 	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, iam.PermCredentialsManage(persona), role)
 }
 
@@ -52,7 +52,7 @@ func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGro
 // set within a permission-group of persona: a catalog role from the schema
 // (core.Config), or a per-group custom role from group_custom_roles. The role —
 // not any snapshot — is the source of truth, so resolution repeats at use time.
-func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *PermissionGroupStore, groupID string, persona iam.Persona, role iam.Role) ([]string, error) {
+func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *permissionGroupStore, groupID string, persona iam.Persona, role iam.Role) ([]string, error) {
 	sch := s.groupSchemaOrDefault()
 	if def, ok := sch.Role(persona, role); ok {
 		perms := append([]string(nil), def.Permissions...)
@@ -111,7 +111,7 @@ func (s *engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.AP
 			return iam.APIKey{}, "", err
 		}
 		var out iam.APIKey
-		err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+		err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 			if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
 				return err
 			}
@@ -227,7 +227,7 @@ func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claim
 	}
 	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
 	revoked := false
-	err = s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		var role iam.Role
 		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, strings.TrimSpace(tokenID), gid).Scan(&role)
 		if errors.Is(err, pgx.ErrNoRows) {

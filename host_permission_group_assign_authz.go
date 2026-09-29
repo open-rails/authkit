@@ -44,15 +44,15 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 
 // authorizeRoleChange enforces the #136 capability + no-escalation rules for
 // actorUserID changing (assign or unassign) targetRole in group gid of persona.
-func (s *engine) authorizeRoleChange(ctx context.Context, st *PermissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, targetRole iam.Role) error {
+func (s *engine) authorizeRoleChange(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, targetRole iam.Role) error {
 	return s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermMembersManage(persona), targetRole)
 }
 
-func (s *engine) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, capabilityPerm iam.Perm, targetRole iam.Role) error {
+func (s *engine) authorizeRoleGrant(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, capabilityPerm iam.Perm, targetRole iam.Role) error {
 	return s.authorizeGroupActorRole(ctx, st, sch, persona, gid, groupMutationActor{userID: actorUserID}, capabilityPerm, targetRole)
 }
 
-func (s *engine) authorizeGroupActorRole(ctx context.Context, st *PermissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid string, actor groupMutationActor, capabilityPerm iam.Perm, targetRole iam.Role) error {
+func (s *engine) authorizeGroupActorRole(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid string, actor groupMutationActor, capabilityPerm iam.Perm, targetRole iam.Role) error {
 	subject, err := s.groupMutationSubject(ctx, st, persona, gid, actor)
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func (s *engine) roleGrantsForAuthz(sch *iam.GroupSchema, persona iam.Persona, g
 // sets are supplied directly by the caller rather than resolved from a role
 // name — DefineGroupCustomRole/DeleteGroupCustomRole already have both the
 // stored old grants and the requested new ones in hand.
-func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *PermissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, oldGrants, newGrants []string) error {
+func (s *engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGroupStore, sch *iam.GroupSchema, persona iam.Persona, gid, actorUserID string, oldGrants, newGrants []string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	if actorUserID == "" {
 		return iam.ErrInsufficientRoleAuthority
@@ -173,7 +173,7 @@ func (s *engine) assignGroupRoleForActor(ctx context.Context, actor groupMutatio
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.authorizeGroupActorRole(ctx, st, sch, group.Persona, gid, actor, iam.PermMembersManage(group.Persona), role); err != nil {
 			return err
 		}
@@ -207,7 +207,7 @@ func (s *engine) UnassignGroupRoleAs(ctx context.Context, actorUserID string, gr
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, actorUserID, role); err != nil {
 			return err
 		}
@@ -249,7 +249,7 @@ func (s *engine) removeGroupSubjectForActor(ctx context.Context, actor groupMuta
 		return err
 	}
 	subject.ID = strings.TrimSpace(subject.ID)
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		role, err := st.directRole(ctx, gid, subject)
 		if err != nil {
 			return err

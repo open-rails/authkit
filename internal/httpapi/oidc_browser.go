@@ -12,8 +12,8 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
-	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -21,8 +21,8 @@ import (
 // own state/nonce/PKCE values.
 type flowStart struct {
 	link   *authflow.ExternalLinkAuthorization
-	stepUp *oidckit.StateData // StepUp* fields to carry
-	params map[string]string  // extra authorization parameters
+	stepUp *oidcstate.StateData // StepUp* fields to carry
+	params map[string]string    // extra authorization parameters
 	login  *loginStart
 }
 
@@ -129,7 +129,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error
-		if verifier, challenge, err = oidckit.GeneratePKCE(); err != nil {
+		if verifier, challenge, err = oidcstate.GeneratePKCE(); err != nil {
 			fail(http.StatusInternalServerError, iam.CodePKCEGenerationFailed)
 			return
 		}
@@ -149,7 +149,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		fail(http.StatusBadRequest, iam.CodeOIDCBeginFailed)
 		return
 	}
-	sd := oidckit.StateData{
+	sd := oidcstate.StateData{
 		Provider:    p.Name(),
 		Verifier:    verifier,
 		Nonce:       nonce,
@@ -280,7 +280,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 // emitBrowserLogin hands the browser its session as a popup postMessage, a
 // JSON body, or a fragment redirect — the transport half of the callback.
-func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authflow.IssuedSession, sd oidckit.StateData) {
+func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authflow.IssuedSession, sd oidcstate.StateData) {
 	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
 	// ak#271: the popup document and the fragment redirect both hand the
 	// browser its tokens in script-readable form by design. The ACCESS token

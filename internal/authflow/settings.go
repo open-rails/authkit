@@ -5,7 +5,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 // Settings is the normalized engine configuration the HTTP layer reads,

@@ -41,9 +41,9 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/password"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )

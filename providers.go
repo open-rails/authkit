@@ -131,7 +131,7 @@ func (s *engine) LinkProviderByIssuer(ctx context.Context, userID, issuer, provi
 	if err != nil {
 		return err
 	}
-	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() && verified {
+	if providerSlug == solanaProviderSlug && issuer == s.solanaIssuer() && verified {
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
 	}
 	return nil

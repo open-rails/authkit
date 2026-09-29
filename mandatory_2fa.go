@@ -14,7 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-var ErrTwoFARequired = iam.E(iam.CodeTwoFARequired)
+var errTwoFARequired = iam.E(iam.CodeTwoFARequired)
 
 func (s *engine) MFAStatus(ctx context.Context, userID string) (authflow.MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
@@ -92,7 +92,7 @@ func (s *engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 		return iam.ErrTwoFAEnrollmentRequired
 	}
 	if !hasAuthMethod(authMethods, "mfa") {
-		return ErrTwoFARequired
+		return errTwoFARequired
 	}
 	return nil
 }
@@ -112,7 +112,7 @@ func (s *engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, per
 	if gid == "" || role == "" {
 		return false, nil
 	}
-	_, requiresMFA, err := NewPermissionGroupStore(q).CustomRole(ctx, gid, role)
+	_, requiresMFA, err := newPermissionGroupStore(q).CustomRole(ctx, gid, role)
 	return requiresMFA, err
 }
 
@@ -255,7 +255,7 @@ func (s *engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 			removals = append(removals, r)
 		}
 	}
-	st := NewPermissionGroupStore(q)
+	st := newPermissionGroupStore(q)
 	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
 		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 			return nil, err

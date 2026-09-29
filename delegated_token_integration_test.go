@@ -239,7 +239,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	req := requests[0]
 	require.Equal(t, user.ID, req.UserID)
 	require.Equal(t, []string{"tensorhub.net", "other.example"}, req.Audiences)
-	require.Equal(t, DefaultDelegatedTTLDefault, req.TTL)
+	require.Equal(t, defaultDelegatedTTLDefault, req.TTL)
 	require.Equal(t, jwtkit.CertificateSHA256(delegate.Leaf.Raw), req.ConfirmationCertificateSHA256)
 	require.Equal(t, delegate.Leaf.Raw, req.DelegateCertificate.Raw)
 	require.JSONEq(t, testRequestedGrant, string(req.RequestedGrant))
@@ -259,7 +259,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, docSvc.Reference().Digest, stamped[documentsTestType])
 	require.Equal(t, hostDocument, stamped["example.host-doc/v1"], "authorizer documents ride alongside registered providers")
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
-	require.Equal(t, int64(DefaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
+	require.Equal(t, int64(defaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
 	require.WithinDuration(t, time.Unix(exp, 0), resp.ExpiresAt, time.Second)
 
 	// ak#270: revocable by id, fresh per mint.
@@ -336,8 +336,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Contains(t, badAud.Body.String(), "invalid_audiences")
 
 	for requested, want := range map[int]int64{
-		10:     int64(DefaultDelegatedTTLFloor / time.Second),
-		999999: int64(DefaultDelegatedTTLCeiling / time.Second),
+		10:     int64(defaultDelegatedTTLFloor / time.Second),
+		999999: int64(defaultDelegatedTTLCeiling / time.Second),
 		600:    600,
 	} {
 		before := len(requests)

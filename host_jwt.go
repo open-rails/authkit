@@ -15,7 +15,7 @@ import (
 const (
 
 	// ServiceJWTType is the JOSE typ header AuthKit stamps on minted service JWTs.
-	ServiceJWTType = "service+jwt"
+	serviceJWTType = "service+jwt"
 )
 
 // MintServiceJWT creates a short-lived signed service JWT from AuthKit's active
@@ -78,7 +78,7 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		"token_use":   iam.ServiceJWTTokenUse,
 		"permissions": permissions,
 	}
-	token, err := jwtkit.SignWithType(ctx, signer, claims, ServiceJWTType, false)
+	token, err := jwtkit.SignWithType(ctx, signer, claims, serviceJWTType, false)
 	if err != nil {
 		return "", iam.ServiceJWTClaims{}, err
 	}

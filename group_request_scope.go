@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 )
 
-func (st *PermissionGroupStore) requestGroupID(ctx context.Context, g iam.GroupRef) (string, bool, error) {
+func (st *permissionGroupStore) requestGroupID(ctx context.Context, g iam.GroupRef) (string, bool, error) {
 	scope, ok := authflow.ResolvedGroupFrom(ctx)
 	if !ok || scope.Persona != g.Persona || scope.Reference != strings.ToLower(strings.TrimSpace(g.Instance)) {
 		return "", false, nil

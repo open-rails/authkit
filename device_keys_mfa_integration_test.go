@@ -33,7 +33,7 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	secret, _, err := fixtureBackend(srv.Backend()).StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
-	_, err = fixtureBackend(srv.Backend()).EnableTOTP2FA(ctx, TOTPEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authflow.FirstFactorOnly})
+	_, err = fixtureBackend(srv.Backend()).EnableTOTP2FA(ctx, totpEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authflow.FirstFactorOnly})
 	require.NoError(t, err)
 
 	publicKey, privateKey := newDeviceKey(t)

@@ -36,7 +36,7 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 		return nil, iam.ErrReservedIssuer
 	}
 	var out *iam.RemoteApplication
-	err = s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	err = s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {
 			return err
 		}
@@ -92,7 +92,7 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 	if err != nil {
 		return err
 	}
-	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {
 			return err
 		}
@@ -117,7 +117,7 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 
 // authorizeApplicationControl requires credentials:manage in gid, plus coverage
 // of the role appID currently holds there (none for a new application).
-func (s *engine) authorizeApplicationControl(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor, appID string) error {
+func (s *engine) authorizeApplicationControl(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor, appID string) error {
 	sch := s.groupSchemaOrDefault()
 	capability := iam.PermCredentialsManage(persona)
 	if appID != "" {

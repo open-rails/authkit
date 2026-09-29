@@ -14,8 +14,8 @@ import (
 
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )

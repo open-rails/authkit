@@ -25,8 +25,8 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
 )
 

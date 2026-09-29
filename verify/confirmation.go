@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,9 @@ var (
 	// verification detached from its request.
 	ErrSenderProofRequired = iam.E(iam.CodeSenderProofRequired)
 	errDPoPProofRequired   = fmt.Errorf("DPoP: %w", ErrSenderProofRequired)
+	// ErrSenderProofUnavailable reports that the DPoP replay store failed: the
+	// request is refused, not proven invalid.
+	ErrSenderProofUnavailable = errors.New("sender proof replay protection unavailable")
 	// ErrInvalidConfirmation rejects a `cnf` claim that is not exactly
 	// {"x5t#S256": <unpadded base64url sha256>} or {"jkt": <same format>}.
 	ErrInvalidConfirmation = iam.E(iam.CodeInvalidConfirmation)

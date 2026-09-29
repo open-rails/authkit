@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/oidckit"
+	"github.com/open-rails/authkit/internal/oidcstate"
 )
 
 // ephemeralKV is AuthKit's short-lived auth state in Postgres (ephemeral_kv):
@@ -230,14 +230,14 @@ const (
 )
 
 // PutOIDCState records a pending browser login for the provider callback.
-func (s *engine) PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error {
+func (s *engine) PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error {
 	return s.ephemSetJSON(ctx, keyOIDCState+state, data, oidcStateTTL)
 }
 
 // ConsumeOIDCState claims a pending browser login once; concurrent callbacks
 // cannot both win it.
-func (s *engine) ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error) {
-	var d oidckit.StateData
+func (s *engine) ConsumeOIDCState(ctx context.Context, state string) (oidcstate.StateData, bool, error) {
+	var d oidcstate.StateData
 	ok, err := s.ephemConsumeJSON(ctx, keyOIDCState+state, &d)
 	return d, ok, err
 }

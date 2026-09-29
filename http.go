@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/verify"
 )
 

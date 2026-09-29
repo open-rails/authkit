@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/oidckit"
+	"github.com/open-rails/authkit/internal/oidcstate"
 )
 
 // Browser-flow error propagation.
@@ -43,14 +43,14 @@ import (
 // Rate-limit rejections (429) are deliberately left on the JSON path: they are
 // an abuse defense with Retry-After header semantics, not a user-flow outcome,
 // and the shared limiter helper serves every route group.
-func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code iam.Code) {
+func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, status int, code iam.Code) {
 	s.failBrowserFlowExtra(w, r, sd, provider, status, code, nil)
 }
 
 // failBrowserFlowExtra is failBrowserFlow with additional payload fields
 // carried to the frontend (fragment params / postMessage keys) — e.g. the
 // 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string, status int, code iam.Code, extra map[string]any) {
+func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, status int, code iam.Code, extra map[string]any) {
 	if wantsJSONResponse(r) {
 		sendErr(w, status, code)
 		return
@@ -183,7 +183,7 @@ func truncateForLog(s string, max int) string {
 // redirects too). The state cookie must match — a mismatched cookie means this
 // browser did not start the flow, and no context may be recovered for it.
 // Consuming here also burns the one-time state on the error path.
-func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p authprovider.Provider) *oidckit.StateData {
+func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p authprovider.Provider) *oidcstate.StateData {
 	state := callbackParams(r).Get("state")
 	if strings.TrimSpace(state) == "" || !s.stateCookieMatches(r, p, state) {
 		return nil
@@ -197,7 +197,7 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 }
 
 // Browser and JSON callbacks present the same engine-produced continuation.
-func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, provider string, sd oidckit.StateData) {
+func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, provider string, sd oidcstate.StateData) {
 	out.ReturnTo = sd.ReturnTo
 	if wantsJSONResponse(r) {
 		s.writeLoginContinuation(w, r, out, nil)

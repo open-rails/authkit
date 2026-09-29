@@ -22,7 +22,7 @@ const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
 
 type accountInviteTokenContextKey struct{}
 
-func WithAccountRegistrationInviteToken(ctx context.Context, token string) context.Context {
+func withAccountRegistrationInviteToken(ctx context.Context, token string) context.Context {
 	return contextWithAccountRegistrationInviteToken(ctx, token)
 }
 
@@ -129,7 +129,7 @@ func (s *engine) createAccountRegistrationInvite(ctx context.Context, req authfl
 	}
 	var err error
 	if groupID != nil {
-		err = s.withLockedGroup(ctx, *groupID, func(st *PermissionGroupStore) error {
+		err = s.withLockedGroup(ctx, *groupID, func(st *permissionGroupStore) error {
 			if err := s.authorizeRoleChange(ctx, st, s.groupSchemaOrDefault(), persona, *groupID, invitedBy, role); err != nil {
 				return err
 			}
@@ -258,7 +258,7 @@ func (s *engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 		if invite.Persona != nil {
 			persona = *invite.Persona
 		}
-		return s.assignInvitedRole(ctx, NewPermissionGroupStore(q), *invite.GroupID, persona, userID, *invite.Role)
+		return s.assignInvitedRole(ctx, newPermissionGroupStore(q), *invite.GroupID, persona, userID, *invite.Role)
 	}
 	return nil
 }

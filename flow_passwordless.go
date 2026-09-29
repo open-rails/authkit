@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	PasswordlessModeCode = "code"
-	PasswordlessModeLink = "link"
-	PasswordlessModeBoth = "both"
+	passwordlessModeCode = "code"
+	passwordlessModeLink = "link"
+	passwordlessModeBoth = "both"
 
-	PasswordlessChannelEmail = "email"
-	PasswordlessChannelSMS   = "sms"
+	passwordlessChannelEmail = "email"
+	passwordlessChannelSMS   = "sms"
 
 	defaultPasswordlessTTL = 10 * time.Minute
 
@@ -72,9 +72,9 @@ func (s *engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 
 	var user *iam.User
 	switch channel {
-	case PasswordlessChannelEmail:
+	case passwordlessChannelEmail:
 		user, err = s.getUserByEmail(ctx, identifier)
-	case PasswordlessChannelSMS:
+	case passwordlessChannelSMS:
 		user, err = s.getUserByPhone(ctx, identifier)
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -94,7 +94,7 @@ func (s *engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 			return authflow.PasswordlessStartResult{}, err
 		}
 		contact := version.Email
-		if channel == PasswordlessChannelSMS {
+		if channel == passwordlessChannelSMS {
 			contact = version.PhoneNumber
 		}
 		if contact == nil || *contact != identifier {
@@ -118,11 +118,11 @@ func (s *engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 
 	code := ""
 	linkToken := ""
-	if mode == PasswordlessModeCode || mode == PasswordlessModeBoth {
+	if mode == passwordlessModeCode || mode == passwordlessModeBoth {
 		code = randAlphanumeric(6)
 		rec.CodeHash = sha256Hex(code)
 	}
-	if mode == PasswordlessModeLink || mode == PasswordlessModeBoth {
+	if mode == passwordlessModeLink || mode == passwordlessModeBoth {
 		linkToken = secret.RandB64(32)
 		rec.LinkHash = sha256Hex(linkToken)
 	}
@@ -192,10 +192,10 @@ func (s *engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	}
 	s.clearPasswordlessCodeAttempts(ctx, rec.Identifier)
 	method := "email"
-	if rec.Channel == PasswordlessChannelSMS {
+	if rec.Channel == passwordlessChannelSMS {
 		method = "sms"
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
+	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
 	return out, err
 }
 
@@ -296,11 +296,11 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 		return registeredAccount{}, err
 	}
 	switch channel {
-	case PasswordlessChannelEmail:
+	case passwordlessChannelEmail:
 		if u.Email == nil || *u.Email != identifier {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-	case PasswordlessChannelSMS:
+	case passwordlessChannelSMS:
 		if u.PhoneNumber == nil || *u.PhoneNumber != identifier {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
@@ -312,9 +312,9 @@ func (s *engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 		return registeredAccount{}, err
 	}
 	switch channel {
-	case PasswordlessChannelEmail:
+	case passwordlessChannelEmail:
 		err = q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: u.ID, EmailVerified: true})
-	case PasswordlessChannelSMS:
+	case passwordlessChannelSMS:
 		err = q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: u.ID, PhoneNumber: &identifier})
 	}
 	if err != nil {
@@ -338,10 +338,10 @@ func (s *engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 	}
 	in := iam.ImportUserInput{Username: username}
 	switch rec.Channel {
-	case PasswordlessChannelEmail:
+	case passwordlessChannelEmail:
 		in.Email = rec.Identifier
 		in.EmailVerified = true
-	case PasswordlessChannelSMS:
+	case passwordlessChannelSMS:
 		in.PhoneNumber = rec.Identifier
 		in.PhoneVerified = true
 	default:
@@ -363,14 +363,14 @@ func (s *engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 	}
 	sendCtx := contextWithPreferredLanguage(ctx, rec.PreferredLanguage)
 	switch rec.Channel {
-	case PasswordlessChannelEmail:
+	case passwordlessChannelEmail:
 		if s.email == nil {
 			return iam.ErrEmailSenderUnavailable
 		}
 		return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.email.SendVerification(sendCtx, rec.Identifier, rec.GeneratedUsername, msg)
 		}))
-	case PasswordlessChannelSMS:
+	case passwordlessChannelSMS:
 		if s.sms == nil || !s.SMSAvailable() {
 			return iam.ErrSMSSenderUnavailable
 		}
@@ -392,11 +392,11 @@ func (s *engine) passwordlessAutoRegistrationAllowed() bool {
 
 func (s *engine) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {
 	base := "user"
-	if channel == PasswordlessChannelEmail {
+	if channel == passwordlessChannelEmail {
 		if at := strings.IndexByte(identifier, '@'); at > 0 {
 			base = identifier[:at]
 		}
-	} else if channel == PasswordlessChannelSMS {
+	} else if channel == passwordlessChannelSMS {
 		base = "u" + strings.TrimLeft(strings.Map(func(r rune) rune {
 			if r >= '0' && r <= '9' {
 				return r
@@ -417,23 +417,23 @@ func normalizePasswordlessIdentifier(identifier string) (channel, normalized str
 		if err := contact.ValidateEmail(normalized); err != nil {
 			return "", "", err
 		}
-		return PasswordlessChannelEmail, normalized, nil
+		return passwordlessChannelEmail, normalized, nil
 	}
 	normalized = contact.NormalizePhone(identifier)
 	if err := contact.ValidatePhone(normalized); err != nil {
 		return "", "", err
 	}
-	return PasswordlessChannelSMS, normalized, nil
+	return passwordlessChannelSMS, normalized, nil
 }
 
 func normalizePasswordlessMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case PasswordlessModeCode:
-		return PasswordlessModeCode
-	case PasswordlessModeLink:
-		return PasswordlessModeLink
+	case passwordlessModeCode:
+		return passwordlessModeCode
+	case passwordlessModeLink:
+		return passwordlessModeLink
 	default:
-		return PasswordlessModeBoth
+		return passwordlessModeBoth
 	}
 }
 
@@ -442,7 +442,7 @@ func passwordlessKey(channel, identifier string) string {
 }
 
 func passwordlessSessionMethod(channel string) string {
-	if channel == PasswordlessChannelSMS {
+	if channel == passwordlessChannelSMS {
 		return "passwordless_sms"
 	}
 	return "passwordless_email"

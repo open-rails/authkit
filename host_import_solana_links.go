@@ -106,7 +106,7 @@ func (s *engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportUn
 	if err != nil {
 		return out, err
 	}
-	providerSlug := SolanaProviderSlug
+	providerSlug := solanaProviderSlug
 	_, err = s.q.UserProviderImportUnverified(ctx, db.UserProviderImportUnverifiedParams{
 		ID:           id,
 		UserID:       userID,

@@ -15,8 +15,8 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/password"
 )
 
 // Keyset is a fixed active signer + public-key set for the low-level
@@ -172,7 +172,7 @@ func (s *engine) GetPendingRegistrationByEmail(ctx context.Context, email string
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
-	rec, ok := s.findPendingChangeByTarget(ctx, KindRegisterEmail, email)
+	rec, ok := s.findPendingChangeByTarget(ctx, kindRegisterEmail, email)
 	if !ok {
 		return nil, nil
 	}
@@ -190,7 +190,7 @@ func (s *engine) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone s
 	if !s.useEphemeralStore() {
 		return nil, nil
 	}
-	rec, ok := s.findPendingChangeByTarget(ctx, KindRegisterPhone, phone)
+	rec, ok := s.findPendingChangeByTarget(ctx, kindRegisterPhone, phone)
 	if !ok {
 		return nil, nil
 	}

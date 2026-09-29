@@ -279,22 +279,22 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		for _, tc := range []struct {
 			name   string
 			run    func() error
-			mutate func(*PermissionGroupStore) error
+			mutate func(*permissionGroupStore) error
 			want   error
 		}{
-			{"target_promotion", func() error { return svc.AssignRoleBySlugAs(ctx, manager, target, "reader") }, func(st *PermissionGroupStore) error {
+			{"target_promotion", func() error { return svc.AssignRoleBySlugAs(ctx, manager, target, "reader") }, func(st *permissionGroupStore) error {
 				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.OwnerRole)
 			}, iam.ErrRoleAssignmentEscalation},
 			{"custom_role_redefinition", func() error {
 				return svc.AssignGroupRoleAs(ctx, customActor, customGroup, iam.UserSubject(customTarget), "reader")
-			}, func(st *PermissionGroupStore) error {
+			}, func(st *permissionGroupStore) error {
 				return st.UpsertCustomRole(ctx, customGID, authflow.CustomRoleDef{Role: "auditor", Permissions: []string{"org:records:write"}})
 			}, iam.ErrRoleAssignmentEscalation},
-			{"banned_actor_retains_current_permission", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *PermissionGroupStore) error {
+			{"banned_actor_retains_current_permission", func() error { return svc.AssignRoleBySlugAs(ctx, expiringActor, peer, "reader") }, func(st *permissionGroupStore) error {
 				_, err := st.q.Exec(ctx, `UPDATE users SET banned_at=statement_timestamp(),banned_until=NULL WHERE id=$1::uuid`, expiringActor)
 				return err
 			}, nil},
-			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *PermissionGroupStore) error {
+			{"actor_revocation", func() error { return svc.AssignRoleBySlugAs(ctx, manager, peer, "reader") }, func(st *permissionGroupStore) error {
 				return st.UnassignSubject(ctx, root, iam.UserSubject(manager))
 			}, iam.ErrInsufficientRoleAuthority},
 		} {
@@ -316,7 +316,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					t.Fatalf("mutation escaped held authority lock: %v", err)
 				default:
 				}
-				require.NoError(t, tc.mutate(NewPermissionGroupStore(raw)))
+				require.NoError(t, tc.mutate(newPermissionGroupStore(raw)))
 				require.NoError(t, tx.Commit(ctx))
 				if tc.want == nil {
 					require.NoError(t, <-done)

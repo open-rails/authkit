@@ -35,7 +35,7 @@ func groupRoleTable(kind iam.SubjectKind) (table, subjectColumn string, err erro
 
 // PermissionGroupStore is the database access layer for permission-groups. It
 // holds a db.DBTX (a *pgxpool.Pool or a pgx.Tx), so callers choose the txn scope.
-type PermissionGroupStore struct {
+type permissionGroupStore struct {
 	q   db.DBTX
 	now func() time.Time
 	// touched records authority reductions for the enclosing authority
@@ -47,21 +47,21 @@ type PermissionGroupStore struct {
 // authority changed ("" = every holder of an edited role).
 type authorityTouch struct{ groupID, userID string }
 
-func (st *PermissionGroupStore) touch(groupID string, subject iam.Subject) {
+func (st *permissionGroupStore) touch(groupID string, subject iam.Subject) {
 	if subject.Kind == iam.SubjectKindUser {
 		st.touched = append(st.touched, authorityTouch{groupID, subject.ID})
 	}
 }
 
 // NewPermissionGroupStore wraps a db.DBTX (pool or transaction).
-func NewPermissionGroupStore(q db.DBTX) *PermissionGroupStore {
-	return &PermissionGroupStore{q: q, now: time.Now}
+func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
+	return &permissionGroupStore{q: q, now: time.Now}
 }
 
 // SeedContainment reconciles the containment schema (group_persona_parents) from a
 // validated GroupSchema. Idempotent; call once at bootstrap so the DB trigger
 // can enforce the declared tree shape. root has no rows (parentless).
-func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *iam.GroupSchema) error {
+func (st *permissionGroupStore) SeedContainment(ctx context.Context, schema *iam.GroupSchema) error {
 	live := make([]string, 0, len(schema.Personas()))
 	for _, persona := range schema.Personas() {
 		if schema.IsRoot(persona) {
@@ -91,13 +91,13 @@ func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *iam
 // the DB (the trigger resolves the parent's persona by parent_id); callers
 // SHOULD also pre-validate via GroupSchema.ValidateParent for a clear error
 // before hitting the DB.
-func (st *PermissionGroupStore) CreateGroup(ctx context.Context, g iam.GroupRef, parentID string) (string, error) {
+func (st *permissionGroupStore) CreateGroup(ctx context.Context, g iam.GroupRef, parentID string) (string, error) {
 	return st.CreateGroupNamed(ctx, g, parentID, "")
 }
 
 // CreateGroupNamed is CreateGroup with a first-class display name (#264):
 // free-form, non-unique vanity metadata (the slug stays the unique handle).
-func (st *PermissionGroupStore) CreateGroupNamed(ctx context.Context, g iam.GroupRef, parentID, displayName string) (string, error) {
+func (st *permissionGroupStore) CreateGroupNamed(ctx context.Context, g iam.GroupRef, parentID, displayName string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
 		`WITH identity AS MATERIALIZED (SELECT uuidv7() AS id),
@@ -112,7 +112,7 @@ func (st *PermissionGroupStore) CreateGroupNamed(ctx context.Context, g iam.Grou
 }
 
 // SetGroupDisplayName updates a group's free-form display name.
-func (st *PermissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID, displayName string) error {
+func (st *permissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID, displayName string) error {
 	tag, err := st.q.Exec(ctx,
 		`UPDATE permission_groups SET display_name = $2 WHERE id = $1::uuid AND deleted_at IS NULL`,
 		groupID, displayName)
@@ -124,7 +124,7 @@ func (st *PermissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID
 
 // lockGroupSubtree serializes lifecycle changes with new children and renames.
 // Each level is read after its parents are locked, using a fresh snapshot.
-func (st *PermissionGroupStore) lockGroupSubtree(ctx context.Context, groupID string) ([]string, error) {
+func (st *permissionGroupStore) lockGroupSubtree(ctx context.Context, groupID string) ([]string, error) {
 	var persona iam.Persona
 	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -166,7 +166,7 @@ func (st *PermissionGroupStore) lockGroupSubtree(ctx context.Context, groupID st
 	return ids, nil
 }
 
-func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts iam.DeletePermissionGroupOptions) error {
+func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string, opts iam.DeletePermissionGroupOptions) error {
 	ids, err := st.lockGroupSubtree(ctx, groupID)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 }
 
 // InstanceSlugAvailable applies exactly the resolver's request-time expiry rule.
-func (st *PermissionGroupStore) InstanceSlugAvailable(ctx context.Context, g iam.GroupRef) (bool, error) {
+func (st *permissionGroupStore) InstanceSlugAvailable(ctx context.Context, g iam.GroupRef) (bool, error) {
 	var available bool
 	err := st.q.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM name_claims WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND (canonical OR expires_at IS NULL OR expires_at>$3))`, g.Persona, g.Instance, st.now()).Scan(&available)
 	return available, err
@@ -189,7 +189,7 @@ func (st *PermissionGroupStore) InstanceSlugAvailable(ctx context.Context, g iam
 
 // RenameGroupSlug requires the group owner row locked in the caller transaction.
 // It reads the outgoing spelling again rather than trusting a route's old alias.
-func (st *PermissionGroupStore) renameGroupSlug(ctx context.Context, groupID, newSlug string, policy iam.NamingPolicy) error {
+func (st *permissionGroupStore) renameGroupSlug(ctx context.Context, groupID, newSlug string, policy iam.NamingPolicy) error {
 	var persona string
 	var old *string
 	var last *time.Time
@@ -218,7 +218,7 @@ func (st *PermissionGroupStore) renameGroupSlug(ctx context.Context, groupID, ne
 	return err
 }
 
-func (st *PermissionGroupStore) ResolveGroupSlug(ctx context.Context, g iam.GroupRef) (iam.NameResolution, error) {
+func (st *permissionGroupStore) ResolveGroupSlug(ctx context.Context, g iam.GroupRef) (iam.NameResolution, error) {
 	var out iam.NameResolution
 	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE g.deleted_at IS NULL AND c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona, g.Instance, st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -227,7 +227,7 @@ func (st *PermissionGroupStore) ResolveGroupSlug(ctx context.Context, g iam.Grou
 	return out, err
 }
 
-func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
+func (st *permissionGroupStore) GroupByInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
 	if id, bound, err := st.requestGroupID(ctx, g); bound {
 		return id, err
 	}
@@ -237,7 +237,7 @@ func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, g iam.G
 
 // GroupByLiveInstanceSlug resolves (persona, instance_slug) WITHOUT tombstone
 // forwarding — the group currently holding the slug, or ErrGroupNotFound.
-func (st *PermissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
+func (st *permissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g iam.GroupRef) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM permission_groups
@@ -254,7 +254,7 @@ func (st *PermissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g i
 
 // RootGroupID returns the singleton root group's internal id (ErrGroupNotFound
 // if the deployment has not seeded one yet).
-func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error) {
+func (st *permissionGroupStore) RootGroupID(ctx context.Context) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM permission_groups WHERE persona = 'root'`).Scan(&id)
@@ -268,7 +268,7 @@ func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // the subject's assignments at each ancestor where it holds at least one role —
 // exactly the []GroupAssignment that GroupSchema.ResolveGrants/Can consume. This
 // is the additive walk-up made concrete.
-func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]iam.GroupAssignment, error) {
+func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID string, subject iam.Subject) ([]iam.GroupAssignment, error) {
 	assignments, _, err := st.assignmentsWithCustomRoles(ctx, groupID, subject, false)
 	return assignments, err
 }
@@ -277,14 +277,14 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 // A delete/recreate cannot combine a retired membership with the replacement
 // role's permissions. Include all definitions on assigned groups, preserving
 // the existing authorization resolver's scope for target-role checks.
-func (st *PermissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject iam.Subject, definitions bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
+func (st *permissionGroupStore) assignmentsWithCustomRoles(ctx context.Context, groupID string, subject iam.Subject, definitions bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	return st.readAssignments(ctx, groupID, subject, definitions, false)
 }
 
 // Authorization excludes deleted/reserved native accounts in the same MVCC
 // query. Ban freshness is separate. Introspection and no-escalation comparisons
 // must retain latent assignments, including those of a deleted target.
-func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID string, subject iam.Subject, definitions, requirePresentUser bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
+func (st *permissionGroupStore) readAssignments(ctx context.Context, groupID string, subject iam.Subject, definitions, requirePresentUser bool) ([]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, []string{groupID}, subject, definitions, requirePresentUser)
 	if err != nil {
 		return nil, nil, err
@@ -294,7 +294,7 @@ func (st *PermissionGroupStore) readAssignments(ctx context.Context, groupID str
 
 // readAssignmentsForGroups walks every live target's parent chain in one
 // recursive query. Deleted, unknown and malformed targets have no assignments.
-func (st *PermissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, definitions, requirePresentUser bool) (map[string][]iam.GroupAssignment, iam.CustomRoleResolver, error) {
+func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject, definitions, requirePresentUser bool) (map[string][]iam.GroupAssignment, iam.CustomRoleResolver, error) {
 	table, column, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return nil, nil, err
@@ -368,7 +368,7 @@ func groupBatchIDs(ids []string) []string {
 // the root group (rootGID). Root roles are direct assignments on the parentless
 // root group, so no parent walk is needed — this batches a whole page's lookups
 // into one query (the admin-directory enrichment path; avoids a per-row N+1).
-func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID string, userIDs []string) (map[string][]string, error) {
+func (st *permissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID string, userIDs []string) (map[string][]string, error) {
 	out := make(map[string][]string, len(userIDs))
 	if len(userIDs) == 0 {
 		return out, nil
@@ -393,7 +393,7 @@ func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 
 // AssignRole replaces the current role for a group and subject. The composite
 // primary key enforces one assignment; callers validate the role definition.
-func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
+func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
 	if subject.Kind == iam.SubjectKindRemoteApp && role == iam.OwnerRole {
 		var operable bool
 		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled AND permission_group_id=$2::uuid)`, subject.ID, groupID).Scan(&operable); err != nil {
@@ -422,7 +422,7 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 }
 
 // UnassignRole deletes the matching current assignment.
-func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
+func (st *permissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -437,7 +437,7 @@ func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID string
 }
 
 // UnassignSubject deletes the subject's current assignment in this group.
-func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID string, subject iam.Subject) error {
+func (st *permissionGroupStore) UnassignSubject(ctx context.Context, groupID string, subject iam.Subject) error {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return err
@@ -453,7 +453,7 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID str
 // OwnerCount returns the count of live, unbanned, unreserved user owners and
 // enabled application owners. Lifecycle safety uses the transaction-bound
 // Runtime guard, which also checks the deployment's MFA policy.
-func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
+func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
 	var n int
 	err := st.q.QueryRow(ctx, `SELECT
     (SELECT count(*) FROM group_user_roles r JOIN users u ON u.id=r.user_id
@@ -469,7 +469,7 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // its requires_mfa flag (#247). Only meaningful for personas whose CustomRoles
 // capability is set; the caller enforces that + validates each grant pattern
 // against the group's persona.
-func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authflow.CustomRoleDef) error {
+func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID string, def authflow.CustomRoleDef) error {
 	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
  INSERT INTO group_custom_roles(permission_group_id,role,permissions,requires_mfa)
  SELECT id,$2,$3,$4 FROM locked
@@ -486,7 +486,7 @@ func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID st
 // CustomRole returns a single per-group custom role's stored permissions and
 // requires_mfa flag, or (nil, false, nil) if no such custom role is defined —
 // absence is not an error (the caller may be about to CREATE it).
-func (st *PermissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (permissions []string, requiresMFA bool, err error) {
+func (st *permissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (permissions []string, requiresMFA bool, err error) {
 	err = st.q.QueryRow(ctx,
 		`SELECT permissions, requires_mfa FROM group_custom_roles
 		 WHERE permission_group_id = $1::uuid AND role = $2`,
@@ -500,7 +500,7 @@ func (st *PermissionGroupStore) CustomRole(ctx context.Context, groupID string, 
 // CustomRolesFor preloads the custom roles for a set of group ids and returns a
 // CustomRoleResolver backed by the result — so the pure decision core resolves
 // custom-role grants without per-call DB access.
-func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []string) (iam.CustomRoleResolver, error) {
+func (st *permissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []string) (iam.CustomRoleResolver, error) {
 	if len(groupIDs) == 0 {
 		return func(string, iam.Role) ([]string, bool) { return nil, false }, nil
 	}
@@ -540,7 +540,7 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 // schema. The caller constructs perm per the two-persona rule (e.g. for an
 // action on a persona-RT resource reached from an ancestor of persona LT, the perm is
 // `LT:RT:<action>`).
-func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
+func (st *permissionGroupStore) CanOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string, perm iam.Perm) (bool, error) {
 	assignments, resolver, err := st.readAssignments(ctx, groupID, subject, true, subject.Kind == iam.SubjectKindUser)
 	if err != nil {
 		return false, err
@@ -553,7 +553,7 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *iam.Grou
 // against the schema's catalog + per-group custom roles, in one query. Globs
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
 // are absent. Latent assignments of deleted/reserved accounts are included.
-func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
+func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
 	byGroup, resolver, err := st.readAssignmentsForGroups(ctx, groupIDs, subject, true, false)
 	if err != nil {
 		return nil, err
@@ -568,7 +568,7 @@ func (st *PermissionGroupStore) GrantsOnGroups(ctx context.Context, schema *iam.
 }
 
 // GrantsOnGroup is GrantsOnGroups for one group; no grants is an empty slice.
-func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string) ([]string, error) {
+func (st *permissionGroupStore) GrantsOnGroup(ctx context.Context, schema *iam.GroupSchema, subject iam.Subject, groupID string) ([]string, error) {
 	grants, err := st.GrantsOnGroups(ctx, schema, subject, []string{groupID})
 	if err != nil {
 		return nil, err
@@ -580,7 +580,7 @@ func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *iam.G
 }
 
 // GroupMembers lists the live role-assignments in a group.
-func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]iam.GroupMember, error) {
+func (st *permissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]iam.GroupMember, error) {
 	rows, err := st.q.Query(ctx,
 		`SELECT user_id::text, 'user' AS subject_kind, role FROM group_user_roles
 		 WHERE permission_group_id = $1::uuid
@@ -606,7 +606,7 @@ func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string
 
 // SubjectGroups lists every group membership a subject holds (cross-persona),
 // the data behind /me/groups.
-func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error) {
+func (st *permissionGroupStore) SubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error) {
 	table, subjectColumn, err := groupRoleTable(subject.Kind)
 	if err != nil {
 		return nil, err
@@ -635,7 +635,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subject iam.S
 // GroupInstancesByIDs reads many groups' own identity rows (#269), including
 // retained soft-deleted ones (DeletedAt set), in one query. Unknown and
 // malformed ids are absent. Ids are ones the caller already resolved.
-func (st *PermissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]iam.GroupInstance, error) {
+func (st *permissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]iam.GroupInstance, error) {
 	out := map[string]iam.GroupInstance{}
 	ids := groupBatchIDs(groupIDs)
 	if len(ids) == 0 {
@@ -659,7 +659,7 @@ func (st *PermissionGroupStore) GroupInstancesByIDs(ctx context.Context, groupID
 }
 
 // GroupInstanceByID is GroupInstancesByIDs for one id; absence is ErrGroupNotFound.
-func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
+func (st *permissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
 	groups, err := st.GroupInstancesByIDs(ctx, []string{groupID})
 	if err != nil {
 		return iam.GroupInstance{}, err
@@ -674,7 +674,7 @@ func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID s
 // DeleteCustomRole retires a definition and every reference to it. The caller
 // must hold the group lifecycle lock in a transaction. An absent definition is
 // a no-op, so a catalog role cannot accidentally lose its assignments here.
-func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID string, role iam.Role) error {
+func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID string, role iam.Role) error {
 	var exists bool
 	if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2)`, groupID, role).Scan(&exists); err != nil {
 		return err
@@ -694,7 +694,7 @@ func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID st
 // SearchGroupInstances searches canonical names only. Former names are addresses,
 // not additional directory entries. Keyset ordering keeps the host's paginated
 // binding join bounded without loading every group or performing per-row reads.
-func (st *PermissionGroupStore) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
+func (st *permissionGroupStore) SearchGroupInstances(ctx context.Context, persona iam.Persona, query, afterSlug, afterID string, limit int) ([]iam.GroupInstance, error) {
 	persona = iam.Persona(strings.TrimSpace(string(persona)))
 	query = strings.ToLower(strings.TrimSpace(query))
 	afterSlug = strings.ToLower(strings.TrimSpace(afterSlug))

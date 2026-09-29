@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
 

@@ -26,7 +26,7 @@ func groupActorFromClaims(claims verify.Claims) (groupMutationActor, error) {
 	return groupMutationActor{remote: &claims}, nil
 }
 
-func (s *engine) groupMutationSubject(ctx context.Context, st *PermissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor) (iam.Subject, error) {
+func (s *engine) groupMutationSubject(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor) (iam.Subject, error) {
 	if actor.remote == nil {
 		actor.userID = strings.TrimSpace(actor.userID)
 		if actor.userID == "" {

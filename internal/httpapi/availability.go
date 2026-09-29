@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 func availabilityFromRateLimit(bucket string, result ratelimit.Result, now time.Time) authflow.ActionAvailability {

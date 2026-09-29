@@ -92,7 +92,7 @@ func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	st := NewPermissionGroupStore(tx)
+	st := newPermissionGroupStore(tx)
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (s *engine) DeleteGroupInstanceByID(ctx context.Context, groupID string, op
 func (s *engine) SoftDeleteGroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
 	var out iam.GroupInstance
 	groupID = strings.TrimSpace(groupID)
-	err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		ids, err := st.lockGroupSubtree(ctx, groupID)
 		if err != nil {
 			return err

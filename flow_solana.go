@@ -16,7 +16,7 @@ import (
 )
 
 // SolanaProviderSlug is the provider slug used for Solana wallets.
-const SolanaProviderSlug = "solana"
+const solanaProviderSlug = "solana"
 
 func normalizeSolanaNetwork(network string) string {
 	network = strings.ToLower(strings.TrimSpace(network))
@@ -169,7 +169,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		created = true
 
 		// Link wallet to user
-		if err := s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil); err != nil {
+		if err := s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), solanaProviderSlug, output.Account.Address, nil); err != nil {
 			return authflow.LoginOutcome{}, fmt.Errorf("failed to link wallet: %w", err)
 		}
 	}
@@ -177,7 +177,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 	if extra == nil {
 		extra = make(map[string]any)
 	}
-	extra["provider"] = SolanaProviderSlug
+	extra["provider"] = solanaProviderSlug
 	extra["solana_address"] = output.Account.Address
 
 	var version int64
@@ -186,7 +186,7 @@ func (s *engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: providerID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
 	out.Created = created
 	return out, err
 }
@@ -249,7 +249,7 @@ func (s *engine) linkVerifiedSolanaWallet(ctx context.Context, userID, address s
 	if err != nil {
 		return err
 	}
-	providerSlug := SolanaProviderSlug
+	providerSlug := solanaProviderSlug
 
 	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
 		ID:           providerID,

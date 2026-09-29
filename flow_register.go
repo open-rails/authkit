@@ -15,7 +15,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 // Register runs the registration decision tree. Input problems come back as
@@ -143,7 +143,7 @@ func registrationErr(stage string, err error) error {
 }
 
 func (s *engine) registeredSession(ctx context.Context, in authflow.RegisterInput, out authflow.RegisterOutcome, account registeredAccount) (authflow.RegisterOutcome, error) {
-	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
+	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}

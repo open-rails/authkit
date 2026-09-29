@@ -10,6 +10,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 func httpHandler(h http.Handler) fiber.Handler {
@@ -101,14 +102,14 @@ func Claims(c fiber.Ctx) (verify.Claims, bool) {
 	return verify.ClaimsFromContext(c.Context())
 }
 
-// Principal returns the typed user, API-key, or application principal.
-func Principal(c fiber.Ctx) (iam.Principal, bool) {
+// Identity returns the verified caller's provider-neutral identity (user,
+// device key, API key, remote application or delegated principal).
+func Identity(c fiber.Ctx) (auth.Identity, bool) {
 	cl, ok := Claims(c)
 	if !ok {
-		return iam.Principal{}, false
+		return auth.Identity{}, false
 	}
-	p := cl.Principal()
-	return p, p.Kind != ""
+	return cl.Identity()
 }
 
 // UserClaims returns only a verified local user, never a machine principal or

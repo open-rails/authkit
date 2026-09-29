@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -54,9 +55,11 @@ func normalizeConfig(cfg Config) (Config, error) {
 	if cfg.namingPolicy, err = cfg.Naming.Normalize(); err != nil {
 		return Config{}, err
 	}
-	if cfg.Password, err = cfg.Password.Normalize(); err != nil {
+	policy, err := password.Policy(cfg.Password).Normalize()
+	if err != nil {
 		return Config{}, err
 	}
+	cfg.Password = PasswordPolicy(policy)
 	if cfg.Username, err = cfg.Username.Normalize(); err != nil {
 		return Config{}, err
 	}

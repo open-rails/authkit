@@ -20,7 +20,7 @@ func (s *engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 
 	// If the target already matches the current email, just mark it verified.
 	if u.Email != nil && strings.EqualFold(*u.Email, rec.Target) {
-		receipt, err := s.verifyContactProof(ctx, rec.UserID, rec.Version, PasswordlessChannelEmail, rec.Target, keepSessionID)
+		receipt, err := s.verifyContactProof(ctx, rec.UserID, rec.Version, passwordlessChannelEmail, rec.Target, keepSessionID)
 		return receipt.ID, err
 	}
 
@@ -54,7 +54,7 @@ func (s *engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 	}
 
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, rec.Target) {
-		receipt, err := s.verifyContactProof(ctx, rec.UserID, rec.Version, PasswordlessChannelSMS, rec.Target, keepSessionID)
+		receipt, err := s.verifyContactProof(ctx, rec.UserID, rec.Version, passwordlessChannelSMS, rec.Target, keepSessionID)
 		return receipt.ID, err
 	}
 

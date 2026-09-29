@@ -74,7 +74,7 @@ func (s *engine) StartTOTPEnrollment(ctx context.Context, userID string) (secret
 // TOTPEnrollment completes a pending authenticator-app enrollment: Code is the
 // current TOTP for the pending secret; MakeDefault promotes it to the user's
 // default second factor; Mode is the deployment's factor-enrollment policy.
-type TOTPEnrollment struct {
+type totpEnrollment struct {
 	UserID      string
 	Code        string
 	MakeDefault bool
@@ -83,13 +83,13 @@ type TOTPEnrollment struct {
 
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
 // the user, returning fresh backup codes.
-func (s *engine) EnableTOTP2FA(ctx context.Context, in TOTPEnrollment) ([]string, error) {
+func (s *engine) EnableTOTP2FA(ctx context.Context, in totpEnrollment) ([]string, error) {
 	codes, _, err := s.enableTOTP2FA(ctx, in, "")
 	return codes, err
 }
 
 // enableTOTP2FA also marks provenSessionID 2FA-verified (see enable2FA).
-func (s *engine) enableTOTP2FA(ctx context.Context, in TOTPEnrollment, provenSessionID string) ([]string, bool, error) {
+func (s *engine) enableTOTP2FA(ctx context.Context, in totpEnrollment, provenSessionID string) ([]string, bool, error) {
 	userID := in.UserID
 	if !s.TwoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
 		return nil, false, iam.ErrTwoFAMethodUnavailable

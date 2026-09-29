@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 // RateLimiter is a minimal interface used by adapters.

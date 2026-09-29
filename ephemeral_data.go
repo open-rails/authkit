@@ -90,7 +90,7 @@ func (s *engine) DeletePendingRegistrationByEmail(ctx context.Context, email str
 	if !s.useEphemeralStore() {
 		return nil
 	}
-	s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
+	s.deletePendingChangeByTarget(ctx, kindRegisterEmail, email)
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (s *engine) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phon
 	if !s.useEphemeralStore() {
 		return nil
 	}
-	s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
+	s.deletePendingChangeByTarget(ctx, kindRegisterPhone, phone)
 	return nil
 }
 
@@ -255,7 +255,7 @@ func (s *engine) invalidateEmailVerifyCodes(ctx context.Context, email string) {
 	if email == "" {
 		return
 	}
-	s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
+	s.deletePendingChangeByTarget(ctx, kindRegisterEmail, email)
 	if s.pg != nil {
 		if u, err := s.getUserByEmail(ctx, email); err == nil && u != nil {
 			s.deleteEmailVerification(ctx, u.ID)
@@ -300,7 +300,7 @@ func (s *engine) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
 	if phone == "" {
 		return
 	}
-	s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
+	s.deletePendingChangeByTarget(ctx, kindRegisterPhone, phone)
 	s.deletePhoneVerification(ctx, phoneVerificationKey("verify_phone", phone))
 }
 

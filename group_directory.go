@@ -13,7 +13,7 @@ import (
 // GroupDirectory reads immutable group identities and current/active alias names.
 // It uses AuthKit's existing store; it carries no signer, issuer or session state.
 type GroupDirectory struct {
-	store *PermissionGroupStore
+	store *permissionGroupStore
 	pool  *pgxpool.Pool
 }
 
@@ -35,7 +35,7 @@ func NewGroupDirectory(pool *pgxpool.Pool, schema string) (*GroupDirectory, erro
 	if err != nil {
 		return nil, err
 	}
-	return &GroupDirectory{store: NewPermissionGroupStore(bound), pool: bound}, nil
+	return &GroupDirectory{store: newPermissionGroupStore(bound), pool: bound}, nil
 }
 
 // Close releases the directory's schema-bound pool. The caller's pool passed

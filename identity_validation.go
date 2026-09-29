@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 // ValidateUsername applies the configured username policy and fixed
@@ -20,7 +20,7 @@ func (s *engine) ValidateUsername(username string) error {
 // the account's username and email address when known. Length failures carry
 // min_length/max_length; requirement failures carry the missing classes.
 func (s *engine) ValidatePassword(value string, identifiers ...string) error {
-	return validatePassword(s.cfg.Password, value, identifiers...)
+	return validatePassword(password.Policy(s.cfg.Password), value, identifiers...)
 }
 
 func validatePassword(p password.Policy, value string, identifiers ...string) error {

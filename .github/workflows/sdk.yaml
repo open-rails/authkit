@@ -13,7 +13,6 @@ on:
       - 'documents/**'
       - 'verify/**'
       - 'jwtkit/**'
-      - 'ratelimit/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/sdk.yaml'

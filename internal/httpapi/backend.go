@@ -9,9 +9,9 @@ import (
 	protocol "github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/oidcstate"
 	siws "github.com/open-rails/authkit/internal/siws"
 	jwtkit "github.com/open-rails/authkit/jwtkit"
-	oidckit "github.com/open-rails/authkit/oidckit"
 	verify "github.com/open-rails/authkit/verify"
 )
 
@@ -115,8 +115,8 @@ type Backend interface {
 	PublicNativeUserRegistrationEnabled() bool
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (authflow.RedeemGroupInviteLinkResult, error)
-	PutOIDCState(ctx context.Context, state string, data oidckit.StateData) error
-	ConsumeOIDCState(ctx context.Context, state string) (oidckit.StateData, bool, error)
+	PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error
+	ConsumeOIDCState(ctx context.Context, state string) (oidcstate.StateData, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegisterApplicationFromDomain(ctx context.Context, domain string) (*authflow.RegisteredApplication, error)

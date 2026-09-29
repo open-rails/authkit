@@ -14,7 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/internal/password"
 	"gopkg.in/yaml.v3"
 )
 
@@ -269,14 +269,14 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
 			return iam.ErrInvalidBootstrapManifest
 		}
-		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, TrustSourcePolicy{AllowPrivateNetworkJWKS: allowInsecureJWKS}); err != nil {
+		if _, err := normalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: allowInsecureJWKS}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *engine) applyBootstrapRemoteApplication(ctx context.Context, groups *PermissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
+func (s *engine) applyBootstrapRemoteApplication(ctx context.Context, groups *permissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
 	ra, err := s.upsertRemoteApplication(ctx, groups, iam.RemoteApplication{
 		Slug:              strings.TrimSpace(app.Slug),
 		PermissionGroupID: rootID,

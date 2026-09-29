@@ -35,7 +35,7 @@ func (s *engine) groupSchemaOrDefault() *iam.GroupSchema {
 
 // groupStore binds a PermissionGroupStore to the Runtime's schema-bound pool
 // handle, so unqualified SQL resolves to the configured namespace (authkit #69).
-func (s *engine) groupStore() *PermissionGroupStore {
+func (s *engine) groupStore() *permissionGroupStore {
 	return s.groupStoreFor(s.pg)
 }
 
@@ -47,7 +47,7 @@ func (s *engine) initializeGroups() error {
 		return nil
 	}
 	ctx := context.Background()
-	if err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	if err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		// An issuer-only runtime may share the identity schema with a host that
 		// declares additional personas. Omitted RBAC is not permission to
 		// reconcile that host's topology down to the implicit root default.
@@ -93,7 +93,7 @@ func (s *engine) EnsureRootGroup(ctx context.Context) (string, error) {
 	return s.groupStore().ensureRootGroup(ctx)
 }
 
-func (st *PermissionGroupStore) ensureRootGroup(ctx context.Context) (string, error) {
+func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, error) {
 	id, err := st.RootGroupID(ctx)
 	if err == nil {
 		return id, nil
@@ -272,7 +272,7 @@ func (s *engine) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID
 
 // resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
 // the singleton and ignores instance_slug.
-func (s *engine) resolveGroupID(ctx context.Context, st *PermissionGroupStore, g iam.GroupRef) (string, error) {
+func (s *engine) resolveGroupID(ctx context.Context, st *permissionGroupStore, g iam.GroupRef) (string, error) {
 	g = g.Canonical()
 	if g.IsRoot() {
 		return st.RootGroupID(ctx)
@@ -356,7 +356,7 @@ func (s *engine) assignGroupRole(ctx context.Context, group iam.GroupRef, subjec
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.requireDefinedGroupRole(ctx, st, gid, group.Persona, role); err != nil {
 			return err
 		}
@@ -386,7 +386,7 @@ func (s *engine) UnassignGroupRole(ctx context.Context, group iam.GroupRef, subj
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		current, err := st.directRole(ctx, gid, subject)
 		if err != nil {
 			return err
@@ -558,7 +558,7 @@ func (s *engine) DefineGroupCustomRole(ctx context.Context, actorUserID string, 
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		oldGrants, _, err := st.CustomRole(ctx, gid, role)
 		if err != nil {
 			return err
@@ -583,7 +583,7 @@ func (s *engine) DeleteGroupCustomRole(ctx context.Context, actorUserID string, 
 	if err != nil {
 		return err
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		oldGrants, _, err := st.CustomRole(ctx, gid, role)
 		if err != nil {
 			return err
@@ -595,8 +595,8 @@ func (s *engine) DeleteGroupCustomRole(ctx context.Context, actorUserID string, 
 	})
 }
 
-func (s *engine) groupStoreFor(q db.DBTX) *PermissionGroupStore {
-	st := NewPermissionGroupStore(q)
+func (s *engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
+	st := newPermissionGroupStore(q)
 	st.now = s.namingNow
 	return st
 }

@@ -258,7 +258,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := fixtureBackend(srv.Backend()).StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = fixtureBackend(srv.Backend()).EnableTOTP2FA(ctx, TOTPEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
+	_, err = fixtureBackend(srv.Backend()).EnableTOTP2FA(ctx, totpEnrollment{UserID: userID, Code: testTOTPCode(t, secret, time.Now().Unix()/30), MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
 	require.NoError(t, err)
 	token, _, err := srv.Backend().MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)

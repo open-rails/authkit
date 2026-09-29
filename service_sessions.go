@@ -250,7 +250,7 @@ func (s *engine) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	}
 	mfa, mfaErr := s.MFAStatus(ctx, userID)
 	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
-		if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) || errors.Is(err, ErrTwoFARequired) {
+		if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) || errors.Is(err, errTwoFARequired) {
 			return "", time.Time{}, &authflow.MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
 		}
 		return "", time.Time{}, err
@@ -333,7 +333,7 @@ func (s *engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 	if ip != nil {
 		address = ip.String()
 	}
-	session, exp, evicted, err := s.issueLoginSessionTx(ctx, q, u, mfa, LoginSessionInput{UserID: userID, UserAgent: userAgent, IP: address, AuthMethods: authMethods, Extra: extra})
+	session, exp, evicted, err := s.issueLoginSessionTx(ctx, q, u, mfa, loginSessionInput{UserID: userID, UserAgent: userAgent, IP: address, AuthMethods: authMethods, Extra: extra})
 	if err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}
@@ -344,7 +344,7 @@ func (s *engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 	return session.SessionID, session.RefreshToken, session.AccessToken, session.AccessExpiresAt, exp, nil
 }
 
-func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa authflow.MFAStatus, in LoginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
+func (s *engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *iam.User, mfa authflow.MFAStatus, in loginSessionInput) (authflow.IssuedSession, *time.Time, []string, error) {
 	now := time.Now().UTC()
 	if err := q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: user.ID, LastLogin: &now}); err != nil {
 		return authflow.IssuedSession{}, nil, nil, err

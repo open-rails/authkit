@@ -190,7 +190,7 @@ func (s *engine) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID 
 	if strings.TrimSpace(ra.PermissionGroupID) != strings.TrimSpace(gid) {
 		return iam.ErrRemoteApplicationNotFound
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, iam.PermCredentialsManage(persona), role); err != nil {
 			return err
 		}

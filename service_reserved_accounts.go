@@ -52,7 +52,7 @@ func (s *engine) PatchUserMetadata(ctx context.Context, userID string, patch map
 	if err != nil {
 		return err
 	}
-	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if metadataMarksReserved(raw) {
 			if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 				return err

@@ -116,7 +116,7 @@ func (s *engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 			}
 			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollTOTPStarted, Method: method, Secret: secret, OTPAuthURI: uri}, nil
 		}
-		backupCodes, verified, err := s.enableTOTP2FA(ctx, TOTPEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode}, sessionID)
+		backupCodes, verified, err := s.enableTOTP2FA(ctx, totpEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode}, sessionID)
 		if err != nil {
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("enable_totp", err)
 		}

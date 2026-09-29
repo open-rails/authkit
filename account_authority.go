@@ -16,7 +16,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *PermissionGroupStore, actorUserID, targetUserID string) error {
+func (s *engine) authorizeAccountAuthorityOn(ctx context.Context, st *permissionGroupStore, actorUserID, targetUserID string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	targetUserID = strings.TrimSpace(targetUserID)
 	if actorUserID == "" || targetUserID == "" {

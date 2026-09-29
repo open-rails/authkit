@@ -21,7 +21,7 @@ func (s *engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 	if in.Token != "" && in.Code != "" || in.Token == "" && (in.Identifier == "" || in.Code == "") {
 		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
-	kinds := []PendingChangeKind{KindRegisterEmail, KindRegisterPhone, KindVerifyEmail, KindVerifyPhone, KindChangeEmail, KindChangePhone}
+	kinds := []pendingChangeKind{kindRegisterEmail, kindRegisterPhone, kindVerifyEmail, kindVerifyPhone, kindChangeEmail, kindChangePhone}
 	for _, kind := range kinds {
 		if in.Identifier != "" && kind.isEmail() != strings.Contains(in.Identifier, "@") {
 			continue
@@ -54,10 +54,10 @@ func (s *engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 				input.PhoneVerified = true
 			}
 			account, err = s.registerAccount(ctx, accountRegistration{User: input, Language: rec.PreferredLanguage, InviteToken: rec.AccountInviteToken})
-		} else if kind == KindVerifyEmail || kind == KindVerifyPhone {
-			channel := PasswordlessChannelEmail
+		} else if kind == kindVerifyEmail || kind == kindVerifyPhone {
+			channel := passwordlessChannelEmail
 			if !kind.isEmail() {
-				channel = PasswordlessChannelSMS
+				channel = passwordlessChannelSMS
 			}
 			var keep *string
 			if in.UserID == rec.UserID && in.SessionID != "" {
@@ -87,7 +87,7 @@ func (s *engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 		} else {
 			s.ClearPhoneVerifyCodeAttempts(ctx, rec.Target)
 		}
-		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: LoginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
+		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
 	}
 	if in.Token == "" {
 		if strings.Contains(in.Identifier, "@") {
@@ -99,8 +99,8 @@ func (s *engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 	return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 }
 
-func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
-	if kind == KindVerifyEmail || kind == KindVerifyPhone {
+func (s *engine) verificationRecord(ctx context.Context, kind pendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
+	if kind == kindVerifyEmail || kind == kindVerifyPhone {
 		return s.existingVerificationRecord(ctx, kind, in)
 	}
 	var key string
@@ -126,11 +126,11 @@ func (s *engine) verificationRecord(ctx context.Context, kind PendingChangeKind,
 	return rec, rec.Kind == kind && (in.Identifier == "" || rec.Target == normalizePendingTarget(kind, in.Identifier)), nil
 }
 
-func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
+func (s *engine) existingVerificationRecord(ctx context.Context, kind pendingChangeKind, in authflow.VerificationInput) (pendingChange, bool, error) {
 	var key, linkKey string
 	if in.Token != "" {
 		prefix := keyEmailVerifyLink
-		if kind == KindVerifyPhone {
+		if kind == kindVerifyPhone {
 			prefix = keyPhoneVerifyLink
 		}
 		linkKey = prefix + sha256Hex(in.Token)
@@ -140,7 +140,7 @@ func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingCha
 		if err != nil || !ok {
 			return pendingChange{}, false, err
 		}
-	} else if kind == KindVerifyEmail {
+	} else if kind == kindVerifyEmail {
 		user, err := s.getUserByEmail(ctx, contact.NormalizeEmail(in.Identifier))
 		if errors.Is(err, pgx.ErrNoRows) || user == nil && err == nil {
 			return pendingChange{}, false, nil
@@ -156,7 +156,7 @@ func (s *engine) existingVerificationRecord(ctx context.Context, kind PendingCha
 	var raw []byte
 	var ok bool
 	var err error
-	if kind == KindVerifyEmail {
+	if kind == kindVerifyEmail {
 		var data emailVerifyData
 		raw, ok, err = s.ephemReadJSON(ctx, key, &data)
 		rec.ID, rec.Version, rec.UserID, rec.CodeHash, rec.LinkHash = data.ID, data.Version, data.UserID, data.CodeHash, data.LinkHash

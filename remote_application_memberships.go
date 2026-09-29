@@ -58,7 +58,7 @@ func (s *engine) AssignRemoteApplicationRole(ctx context.Context, appID string, 
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}
-	return s.withLockedGroup(ctx, gid, func(st *PermissionGroupStore) error {
+	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
 			return err
 		}

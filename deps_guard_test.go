@@ -18,12 +18,16 @@ var forbiddenDepPrefixes = []string{
 	"github.com/open-rails/authkit/internal/",
 }
 
-// sharedStdlibLeaves are engine-free internal packages the verify surface may
-// share with the engine (ak#316: one outbound/SSRF policy). Each is pinned to
-// the standard library by TestStdlibOnlyPackages.
-var sharedStdlibLeaves = map[string]bool{
+// sharedInternal are engine-free internal packages the verification surface
+// may share with the engine: one outbound/SSRF policy (ak#316) and one DPoP
+// proof verifier.
+var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard": true,
+	"github.com/open-rails/authkit/internal/dpop":     true,
 }
+
+// stdlibOnly packages depend on nothing outside the standard library.
+var stdlibOnly = []string{"./iam", "./internal/netguard"}
 
 func listDeps(t *testing.T, pkg string) []string {
 	t.Helper()
@@ -35,11 +39,7 @@ func listDeps(t *testing.T, pkg string) []string {
 }
 
 func TestStdlibOnlyPackages(t *testing.T) {
-	pkgs := []string{"./iam"}
-	for leaf := range sharedStdlibLeaves {
-		pkgs = append(pkgs, leaf)
-	}
-	for _, pkg := range pkgs {
+	for _, pkg := range stdlibOnly {
 		deps := listDeps(t, pkg)
 		self := deps[len(deps)-1]
 		for _, dep := range deps {
@@ -58,7 +58,7 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 				violations = append(violations, pkg+" -> "+dep)
 				continue
 			}
-			if sharedStdlibLeaves[dep] {
+			if sharedInternal[dep] {
 				continue
 			}
 			for _, prefix := range forbiddenDepPrefixes {

@@ -18,8 +18,8 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/documents"
-	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -167,10 +167,13 @@ type issuerKeys struct {
 // VerifierOption configures a Verifier.
 type VerifierOption func(*Verifier)
 
-// WithDPoP enables RFC 9449 sender-bound delegated requests. requestURL returns
-// the trusted externally visible URL (including any proxy-stripped prefix).
-// Both callbacks are required; no Host/Forwarded header fallback is used.
-func WithDPoP(replay dpop.ReplayGuard, requestURL func(*http.Request) string) VerifierOption {
+// WithDPoP enables RFC 9449 sender-bound delegated requests. replay
+// atomically claims key until ttl elapses and returns true only for the first
+// claim; every replica must share its store, and its errors fail closed.
+// requestURL returns the trusted externally visible URL (including any
+// proxy-stripped prefix). Both are required; no Host/Forwarded header fallback
+// is used.
+func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (bool, error), requestURL func(*http.Request) string) VerifierOption {
 	return func(v *Verifier) { v.dpopReplay, v.dpopRequestURL = replay, requestURL }
 }
 
@@ -1037,7 +1040,7 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	if confirmationKind == jwtkit.JWKThumbprintMember {
 		if _, err := dpop.VerifyRequest(r, v.dpopRequestURL(r), tokenStr, confirmation, v.dpopReplay); err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
-				return Claims{}, iam.E(iam.CodeInternalError, iam.WithCause(err))
+				return Claims{}, iam.E(iam.CodeInternalError, iam.WithCause(fmt.Errorf("%w: %w", ErrSenderProofUnavailable, err)))
 			}
 			return Claims{}, errDPoPProofRequired
 		}

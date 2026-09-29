@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/migrations/retired"
+	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/password"
 	"github.com/open-rails/migratekit"
 	"github.com/stretchr/testify/require"
 )

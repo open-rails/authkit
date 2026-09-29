@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/helpers/auth"
+
 	"github.com/gofiber/fiber/v3"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	"github.com/open-rails/authkit/authtest"
@@ -149,8 +151,8 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 				if !ok {
 					t.Error("verified claims missing")
 				}
-				p, ok := authkitfiber.Principal(c)
-				if !ok || p.Kind != iam.PrincipalKindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
+				p, ok := authkitfiber.Identity(c)
+				if !ok || p.Kind != auth.KindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
 					t.Errorf("principal = %+v, present = %v", p, ok)
 				}
 				user, ok := authkitfiber.UserClaims(c)
@@ -201,8 +203,9 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			if _, ok := authkitfiber.UserClaims(c); ok {
 				t.Error("machine/delegated principal exposed as a local user")
 			}
-			if p, ok := authkitfiber.Principal(c); !ok || p != cl.Principal() {
-				t.Errorf("principal = %+v, present = %v", p, ok)
+			want, wantOK := cl.Identity()
+			if p, ok := authkitfiber.Identity(c); ok != wantOK || p != want {
+				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
 			return c.SendStatus(http.StatusNoContent)
 		})
@@ -217,7 +220,7 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 	if _, ok := authkitfiber.UserClaims(nil); ok {
 		t.Error("nil context has user")
 	}
-	if _, ok := authkitfiber.Principal(nil); ok {
+	if _, ok := authkitfiber.Identity(nil); ok {
 		t.Error("nil context has principal")
 	}
 }

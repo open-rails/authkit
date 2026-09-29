@@ -75,26 +75,8 @@ func (v *Verifier) requestPrincipal(cl Claims, err error) (auth.Principal, error
 	if err != nil {
 		return nil, requestAuthenticationError(err)
 	}
-	i := auth.Identity{Issuer: cl.Issuer, Email: cl.Email, EmailVerified: cl.EmailVerified, Username: cl.Username, SessionID: cl.SessionID}
-	switch cl.PrincipalKind() {
-	case iam.PrincipalKindUser:
-		i.Kind, i.Subject = auth.KindUser, cl.UserID
-		if i.Subject == "" {
-			i.Subject = cl.Subject
-		}
-		if cl.DeviceKeyID != "" {
-			i.Kind, i.Subject = auth.KindDeviceKey, cl.DeviceKeyID
-		}
-	case iam.PrincipalKindAPIKey:
-		i.Kind, i.Subject, i.Issuer = auth.KindAPIKey, cl.APIKeyID, cl.PermissionGroupAuthorityIssuer
-	case iam.PrincipalKindRemoteApplication:
-		i.Kind, i.Subject = auth.KindRemoteApplication, cl.RemoteApplicationID
-	case iam.PrincipalKindDelegated:
-		i.Kind, i.Subject = auth.KindDelegated, cl.DelegatedSubject
-	default:
-		return nil, auth.ErrUnauthenticated
-	}
-	if strings.TrimSpace(i.Subject) == "" || strings.TrimSpace(i.Issuer) == "" {
+	i, ok := cl.Identity()
+	if !ok {
 		return nil, auth.ErrUnauthenticated
 	}
 	// The permission ceiling is private and detached from backend-owned slices.

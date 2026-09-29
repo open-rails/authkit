@@ -1,5 +1,5 @@
 // Package securitytest attacks AuthKit the way an embedding host exposes it:
-// authkit.New with an authhttp surface mounted under /auth/v1, a real
+// authkit.New with its HTTP surface mounted under /auth/v1, a real
 // PostgreSQL database and real ephemeral stores. docs/security-tests.md maps
 // each threat to its test.
 package securitytest

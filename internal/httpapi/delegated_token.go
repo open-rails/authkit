@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/dpop"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )

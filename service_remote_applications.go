@@ -34,15 +34,15 @@ func validateRemoteAppSlug(slug string) error {
 // TrustSourcePolicy relaxes remote-application trust-source validation.
 // AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
 // development only; production leaves it off, see Config.Applications).
-type TrustSourcePolicy struct {
+type trustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
-func (s *engine) trustSourcePolicy() TrustSourcePolicy {
-	return TrustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
+func (s *engine) trustSourcePolicy() trustSourcePolicy {
+	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
-func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.RemoteAppKey, policy TrustSourcePolicy) (string, error) {
+func normalizeRemoteAppTrustSource(jwksURI string, mode string, keys []iam.RemoteAppKey, policy trustSourcePolicy) (string, error) {
 	allowInsecureJWKS := policy.AllowPrivateNetworkJWKS
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	jwksURI = strings.TrimSpace(jwksURI)
@@ -183,7 +183,7 @@ func (s *engine) UpsertRemoteApplication(ctx context.Context, in iam.RemoteAppli
 		return nil, err
 	}
 	var out *iam.RemoteApplication
-	err := s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		var err error
 		out, err = s.upsertRemoteApplication(ctx, st, in)
 		return err
@@ -191,7 +191,7 @@ func (s *engine) UpsertRemoteApplication(ctx context.Context, in iam.RemoteAppli
 	return out, err
 }
 
-func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+func (s *engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	issuer := strings.TrimSpace(in.Issuer)
@@ -214,7 +214,7 @@ func (s *engine) upsertRemoteApplication(ctx context.Context, st *PermissionGrou
 	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, iam.ErrInvalidRemoteApplication
 	}
-	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
+	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +309,7 @@ func issuerKey(issuer string) string {
 // bound through a member's session (trust root "user"): naming an unregistered
 // issuer URL first must not keep it from the domain that controls it. An
 // issuer held by a manual or domain-rooted application still conflicts.
-func (s *engine) evictSessionBoundIssuer(ctx context.Context, st *PermissionGroupStore, issuer string) error {
+func (s *engine) evictSessionBoundIssuer(ctx context.Context, st *permissionGroupStore, issuer string) error {
 	holder, err := db.New(st.q).RemoteApplicationByIssuer(ctx, issuer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -468,7 +468,7 @@ func (s *engine) DeleteRemoteApplication(ctx context.Context, issuer string) err
 	if issuer == "" {
 		return iam.ErrInvalidRemoteApplication
 	}
-	return s.withAuthorityMutation(ctx, func(st *PermissionGroupStore) error {
+	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		q := db.New(st.q)
 		app, err := q.RemoteApplicationByIssuer(ctx, issuer)
 		if errors.Is(err, pgx.ErrNoRows) {

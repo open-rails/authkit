@@ -7,7 +7,6 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/password"
 )
 
 // Config is the host-provided configuration for an AuthKit Runtime. Fields are
@@ -32,9 +31,10 @@ type Config struct {
 	Frontend FrontendConfig
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig
-	// Password is the length policy every password write enforces; zero fields
-	// default to 8..128 characters. Published by GET {api}/capabilities.
-	Password password.Policy
+	// Password is the rule every password write enforces; the zero value is
+	// 8..128 characters, no composition rules, common passwords rejected.
+	// Published by GET {api}/capabilities.
+	Password PasswordPolicy
 	// Username bounds username length; zero fields default to 4..30. The
 	// character rule is fixed (iam.UsernamePattern). Published by
 	// GET {api}/capabilities.
@@ -96,6 +96,22 @@ type Config struct {
 	// before CleanupExpiredAuthState prunes them. 0 (unset) defaults to 365
 	// days — the deliberate ceiling; any negative value keeps events forever.
 	SessionEventRetention time.Duration
+}
+
+// PasswordPolicy is the operator-configured password rule, NIST SP
+// 800-63B-style by default. Zero lengths default to 8..128 characters (Unicode
+// code points; MaxLength at most 1024). Composition rules are opt-in:
+// uppercase/lowercase/digit use Unicode categories, and a symbol is any rune
+// that is neither a letter nor a digit. AllowCommon disables the embedded
+// common-password blocklist.
+type PasswordPolicy struct {
+	MinLength        int
+	MaxLength        int
+	RequireUppercase bool
+	RequireLowercase bool
+	RequireDigit     bool
+	RequireSymbol    bool
+	AllowCommon      bool
 }
 
 // ApplicationsConfig configures application self-registration (#264).
