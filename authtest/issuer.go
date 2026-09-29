@@ -96,10 +96,6 @@ func (ti *TestIssuer) CreateTokenWithClaims(userID, email string, extraClaims ma
 	return token
 }
 
-func (ti *TestIssuer) CreateTokenWithRoles(userID, email string, roles []string) string {
-	return ti.CreateTokenWithClaims(userID, email, map[string]any{"roles": roles})
-}
-
 func (ti *TestIssuer) CreateTokenWithExpiry(userID, email string, expiry time.Time) string {
 	return ti.CreateTokenWithClaims(userID, email, map[string]any{"exp": expiry.Unix()})
 }
