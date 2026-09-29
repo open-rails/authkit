@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	stdlog "log"
 	"net/url"
@@ -185,8 +186,8 @@ func newWithKeys(cfg Config, keys keyset, deps Deps) (*Engine, error) {
 	return e.finish()
 }
 
-// finish initializes the permission groups and the verifier; a failure
-// closes the engine.
+// finish initializes the permission groups, reconciles credentials with the
+// role catalog, and builds the verifier; a failure closes the engine.
 func (s *Engine) finish() (_ *Engine, err error) {
 	defer func() {
 		if err != nil {
@@ -194,6 +195,9 @@ func (s *Engine) finish() (_ *Engine, err error) {
 		}
 	}()
 	if err := s.initializeGroups(); err != nil {
+		return nil, err
+	}
+	if err := s.reconcileRoleCatalog(context.Background()); err != nil {
 		return nil, err
 	}
 	if s.verifier, err = s.newVerifier(); err != nil {

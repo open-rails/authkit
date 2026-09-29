@@ -97,23 +97,25 @@ func TestRequestPrincipalNativeAuthorityAndExplicitLiveness(t *testing.T) {
 
 type principalAPIKeySource struct {
 	authoritySource
-	resolved iam.ResolvedAPIKey
+	resolved iam.APIKeyPrincipal
 	err      error
 	calls    int
 }
 
-func (s *principalAPIKeySource) ResolveAPIKeyDetailed(_ context.Context, key, secret string) (iam.ResolvedAPIKey, error) {
+const presentedAPIKey = "st_presented_secret"
+
+func (s *principalAPIKeySource) ResolveAPIKey(_ context.Context, token string) (iam.APIKeyPrincipal, error) {
 	s.calls++
-	if key != "presented" || secret != "secret" {
-		return iam.ResolvedAPIKey{}, iam.ErrInvalidAccessToken
+	if token != presentedAPIKey {
+		return iam.APIKeyPrincipal{}, iam.ErrInvalidAccessToken
 	}
 	return s.resolved, s.err
 }
 
 func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
-	source := &principalAPIKeySource{resolved: iam.ResolvedAPIKey{APIKeyID: "immutable-key-id", PermissionGroupID: "group-1", AuthorityIssuer: confirmationIssuer, Persona: "repo", Permissions: []string{"repo:read"}}}
+	source := &principalAPIKeySource{resolved: iam.APIKeyPrincipal{ID: "immutable-key-id", Group: iam.GroupInstance{ID: "group-1", Persona: "repo"}, Issuer: confirmationIssuer, Permissions: []string{"repo:read"}}}
 	v := NewVerifier().WithService(source).WithPermissionChecker(source, confirmationIssuer)
-	r := principalRequest(iam.FormatAPIKey("", "presented", "secret"))
+	r := principalRequest(presentedAPIKey)
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
 	require.Equal(t, auth.Identity{Kind: auth.KindAPIKey, Issuer: confirmationIssuer, Subject: "immutable-key-id"}, p.Identity())

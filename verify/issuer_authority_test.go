@@ -48,8 +48,8 @@ func (s *authoritySource) GetRemoteApplication(context.Context, string) (*iam.Re
 func (s *authoritySource) ResolveRemoteApplicationAuthority(context.Context, string) (iam.RemoteApplicationAuthority, error) {
 	return s.authority, s.authorityErr
 }
-func (s *authoritySource) ResolveAPIKeyDetailed(context.Context, string, string) (iam.ResolvedAPIKey, error) {
-	return iam.ResolvedAPIKey{}, errors.New("unused")
+func (s *authoritySource) ResolveAPIKey(context.Context, string) (iam.APIKeyPrincipal, error) {
+	return iam.APIKeyPrincipal{}, errors.New("unused")
 }
 
 func storedVerifier(t *testing.T) (*Verifier, *authoritySource, *jwtkit.RSASigner) {

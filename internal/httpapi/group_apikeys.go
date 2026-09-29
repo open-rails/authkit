@@ -11,93 +11,83 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys. Role
-// is required (the single group role the key holds); the key's scope is the
-// addressed permission-group instance plus that role's permissions.
+// apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys:
+// the one group role the key holds, and an optional expiry.
 type apiKeyMintRequest struct {
 	Name      string     `json:"name"`
 	Role      string     `json:"role"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
-// groupAPIKeyMint mints a new API key for the group, returning the plaintext
-// secret ONCE (it is never recoverable afterward). The created-by attribution is
-// the authenticated caller.
+// apiKeyJSON is a key's metadata on the wire (never its secret).
+func apiKeyJSON(k iam.APIKey) map[string]any {
+	m := map[string]any{
+		"id":          k.ID,
+		"lookup_id":   k.LookupID,
+		"name":        k.Name,
+		"role":        k.Role,
+		"permissions": k.Permissions,
+		"created_at":  k.CreatedAt,
+	}
+	if k.CreatedBy != "" {
+		m["created_by"] = k.CreatedBy
+	}
+	if k.LastUsedAt != nil {
+		m["last_used_at"] = k.LastUsedAt
+	}
+	if k.ExpiresAt != nil {
+		m["expires_at"] = k.ExpiresAt
+	}
+	if k.RevokedAt != nil {
+		m["revoked_at"] = k.RevokedAt
+	}
+	return m
+}
+
+// groupAPIKeyMint mints a key created by the caller and returns its token
+// once, as "secret".
 func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	createdBy, ok := userActorID(w, actor)
-	if !ok {
-		return
-	}
-	key, secret, err := s.svc.MintAPIKey(r.Context(), group, iam.APIKeyMintOptions{
+	key, token, err := s.svc.MintAPIKey(r.Context(), actor, group, iam.NewAPIKey{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      iam.Role(strings.TrimSpace(body.Role)),
-		CreatedBy: createdBy,
 		ExpiresAt: body.ExpiresAt,
 	})
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          key.ID,
-		"key_id":      key.KeyID,
-		"name":        key.Name,
-		"role":        key.Role,
-		"permissions": key.Permissions,
-		"secret":      secret, // shown ONCE
-	})
+	out := apiKeyJSON(key)
+	out["secret"] = token // shown once
+	writeJSON(w, http.StatusCreated, out)
 }
 
-// groupAPIKeyList lists the group's API keys. The secret is NEVER returned here
-// (only on mint).
+// groupAPIKeyList lists the group's keys, newest first (?cursor=, ?limit=).
 func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	keys, err := s.svc.ListAPIKeys(r.Context(), group)
+	page, err := s.svc.APIKeys(r.Context(), group, pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	data := make([]map[string]any, 0, len(keys))
-	for _, k := range keys {
-		m := map[string]any{
-			"id":          k.ID,
-			"key_id":      k.KeyID,
-			"name":        k.Name,
-			"role":        k.Role,
-			"permissions": k.Permissions,
-			"created_at":  k.CreatedAt,
-		}
-		if k.LastUsedAt != nil {
-			m["last_used_at"] = k.LastUsedAt
-		}
-		if k.ExpiresAt != nil {
-			m["expires_at"] = k.ExpiresAt
-		}
-		if k.RevokedAt != nil {
-			m["revoked_at"] = k.RevokedAt
-		}
-		data = append(data, m)
+	data := make([]map[string]any, 0, len(page.Items))
+	for _, k := range page.Items {
+		data = append(data, apiKeyJSON(k))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object":        "list",
-		"persona":       group.Persona(),
-		"instance_slug": group.Slug(),
-		"data":          data,
-	})
+	writeList(w, data, page.Next)
 }
 
-// groupAPIKeyRevoke revokes the group's API key by token id (the :key path
-// param). 404 if no matching, not-already-revoked key exists in this group.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, tokenID string) {
-	if tokenID == "" {
+// groupAPIKeyRevoke revokes the group's key (the :key path param). 404 when no
+// live key matches in this group.
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, id string) {
+	if id == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	ok, err := s.svc.RevokeAPIKeyForActor(r.Context(), actor, group, tokenID)
+	ok, err := s.svc.RevokeAPIKey(r.Context(), actor, group, id)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -106,5 +96,5 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, grou
 		fail(w, errmodel.CodeNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": tokenID})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }

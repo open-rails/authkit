@@ -69,7 +69,7 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			var recorded, converted int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM public.migrations WHERE app='authkit' AND schema=$1`, src.schema).Scan(&recorded))
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM public.migration_repairs WHERE app='authkit' AND schema=$1 AND verb='convert'`, src.schema).Scan(&converted))
-			require.Equal(t, 5, recorded)
+			require.Equal(t, 6, recorded)
 			require.NotZero(t, converted)
 			// A second boot converts nothing and applies nothing.
 			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: src.schema}))

@@ -122,18 +122,6 @@ func (a *Auth) ListEffectivePermissions(ctx context.Context, subject iam.Subject
 	return a.engine.ListEffectivePermissions(ctx, subject, group)
 }
 
-func (a *Auth) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupInviteLinkRequest) (iam.GroupInviteLinkCreated, error) {
-	return a.engine.CreateGroupInviteLink(ctx, req)
-}
-
-func (a *Auth) ListGroupInviteLinks(ctx context.Context, group iam.GroupRef) ([]iam.GroupInviteLink, error) {
-	return a.engine.ListGroupInviteLinks(ctx, group)
-}
-
-func (a *Auth) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, linkID string) error {
-	return a.engine.RevokeGroupInviteLink(ctx, group, linkID)
-}
-
 // WithResolvedGroup binds a group address the host already resolved and
 // authorized to its immutable target, so later name-addressed operations in
 // ctx act on the same group even if the name is reclaimed. It confers no

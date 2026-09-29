@@ -4,26 +4,6 @@ import "time"
 
 // Shared operation inputs and results, importable without the engine.
 
-type APIKey struct {
-	ID          string
-	KeyID       string
-	Name        string
-	Role        Role
-	Permissions []string
-	CreatedBy   string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	ExpiresAt   *time.Time
-	RevokedAt   *time.Time
-}
-
-type APIKeyMintOptions struct {
-	Name      string
-	Role      Role
-	CreatedBy string
-	ExpiresAt *time.Time
-}
-
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
 	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
@@ -153,34 +133,6 @@ type DelegatedAccessParams struct {
 	// ConfirmationJWKThumbprintSHA256 binds the token to a DPoP key (RFC 9449).
 	// Mutually exclusive with ConfirmationCertificateSHA256.
 	ConfirmationJWKThumbprintSHA256 *[32]byte
-}
-
-type GroupInviteLink struct {
-	ID                string
-	PermissionGroupID string
-	Role              Role
-	InvitedBy         string
-	// RedeemedAt is non-nil once the single-use link has been redeemed (#235;
-	// replaces the former Uses 0/1 counter).
-	RedeemedAt *time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-type CreateGroupInviteLinkRequest struct {
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-	ExpiresIn    time.Duration
-	InvitedBy    string
-}
-
-type GroupInviteLinkCreated struct {
-	ID   string
-	Code string
-	URL  string
 }
 
 type ImportUserStatus string

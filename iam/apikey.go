@@ -1,7 +1,7 @@
 package iam
 
 import (
-	"strings"
+	"time"
 
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -11,69 +11,45 @@ var (
 	// secret, or whose owning permission group is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
 	ErrInvalidAccessToken Error = errmodel.E(errmodel.CodeInvalidToken)
-	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.
+	// ErrAccessTokenRevoked indicates the API key was revoked, or its creator
+	// can no longer act (banned, deleted or reserved).
 	ErrAccessTokenRevoked Error = errmodel.E(errmodel.CodeAccessTokenRevoked)
 	// ErrAccessTokenExpired indicates the API key is past its expires_at.
 	ErrAccessTokenExpired Error = errmodel.E(errmodel.CodeAccessTokenExpired)
 )
 
-// apiKeyTypeSegment is the FIXED, non-configurable type tag. The full marker is
-// "<app>_st_" when an app prefix is set, or bare "st_" when it is empty.
-const apiKeyTypeSegment = "st_"
-
-// APIKeyMarker returns the leading marker that identifies an API key for the given
-// application prefix: "<prefix>_st_" when prefix is non-empty, else "st_".
-func APIKeyMarker(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		return apiKeyTypeSegment
-	}
-	return prefix + "_" + apiKeyTypeSegment
+// APIKey is an API key's metadata. The secret is returned only by MintAPIKey.
+// A key holds one role of its group; Permissions is that role resolved now,
+// so editing the role changes every key holding it.
+type APIKey struct {
+	ID          string // the key's identity: APIKeyActor(ID), verify Claims.APIKeyID
+	LookupID    string // the public lookup id embedded in the token
+	Name        string
+	Role        Role
+	Permissions []string
+	CreatedBy   string // "" = issued by the operator
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	ExpiresAt   *time.Time
+	RevokedAt   *time.Time
 }
 
-// HasAPIKeyPrefix reports whether token carries the API-key marker for prefix.
-// Used by middleware to route to the API-key path before attempting JWT verification.
-func HasAPIKeyPrefix(prefix, token string) bool {
-	return strings.HasPrefix(token, APIKeyMarker(prefix))
+// NewAPIKey is the input of MintAPIKey. ExpiresAt nil means no expiry, capped
+// by Config.APIKeys.MaxTTL when set.
+type NewAPIKey struct {
+	Name      string
+	Role      Role
+	ExpiresAt *time.Time
 }
 
-// FormatAPIKey assembles the full presented token: <marker><key_id>_<secret>.
-func FormatAPIKey(prefix, keyID, secret string) string {
-	return APIKeyMarker(prefix) + keyID + "_" + secret
-}
-
-// ParseAPIKey splits a presented token into its key_id and secret. key_id and
-// secret are base62 (no underscores), so the first "_" after the marker is the
-// unambiguous delimiter. ok is false if the token lacks the marker or either
-// part is empty.
-func ParseAPIKey(prefix, token string) (keyID, secret string, ok bool) {
-	marker := APIKeyMarker(prefix)
-	if !strings.HasPrefix(token, marker) {
-		return "", "", false
-	}
-	rest := token[len(marker):]
-	keyID, secret, found := strings.Cut(rest, "_")
-	if !found || keyID == "" || secret == "" {
-		return "", "", false
-	}
-	return keyID, secret, true
-}
-
-// ResolvedAPIKey is the API-key resolution result. Permissions is the key's role
-// resolved to its effective permission set AT VERIFY TIME (so a role edit is
-// reflected immediately — perms are never frozen into the key).
-type ResolvedAPIKey struct {
-	APIKeyID string
-	KeyID    string
-	// PermissionGroupID is the controlling permission-group id.
-	PermissionGroupID string
-	AuthorityIssuer   string
-	// Persona / InstanceSlug identify the owning permission-group INSTANCE the
-	// key was minted on (#248). InstanceSlug is "" for singleton personas (root).
-	// The verify layer binds the key's token-carried permissions to this exact
-	// instance.
-	Persona      Persona
-	InstanceSlug string
-	Role         Role
-	Permissions  []string
+// APIKeyPrincipal is a resolved, live API key: the group it acts in and the
+// permissions of its role at resolution time.
+type APIKeyPrincipal struct {
+	ID          string
+	LookupID    string
+	Group       GroupInstance
+	Issuer      string // the issuer of the AuthKit deployment holding the key
+	Role        Role
+	Permissions []string
+	ExpiresAt   *time.Time
 }

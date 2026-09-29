@@ -22,6 +22,7 @@ Add a row and a test for every new attack class.
 | Credentials manager swaps keys of, disables or deletes an owner application | `TestSecurityRemoteApplicationTakeover` |
 | Role, custom-role, invite-link and API-key escalation; cross-group action; root routes with a group role | `TestSecurityRoleEscalation` |
 | Demoted creator redeems their own invite link or keeps their API key | `TestSecurityDemotedCreatorCredentials` |
+| Banned or deleted creator's API key or invite link keeps working | `TestSecurityDeadCreatorCredentials` |
 | Bounded manager revokes a higher role's API key or invite link | `TestSecurityRevokeAboveOwnRole` |
 | Group binds a reserved issuer or squats an unregistered one against its domain | `TestSecurityRemoteApplicationIssuerSquat` |
 | Group or domain claims a shared-account peer issuer; peer user tokens replayed as delegations or sessions | `TestSecurityAccountPeerRemoteApplication` |

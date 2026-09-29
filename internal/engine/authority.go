@@ -207,7 +207,8 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 	return out, err
 }
 
-// apiKeyAuthority resolves a live key: the permissions of its role, bound to its group.
+// apiKeyAuthority resolves a live key of a live creator: the permissions of
+// its role, bound to its group.
 func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, out authority, keyID string, g groupTarget) (authority, error) {
 	if !isUUID(keyID) {
 		return authority{}, iam.ErrInsufficientRoleAuthority
@@ -215,7 +216,7 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	var gid string
 	var role iam.Role
 	err := st.q.QueryRow(ctx, `SELECT k.permission_group_id::text, k.role FROM api_keys k JOIN permission_groups g ON g.id=k.permission_group_id
- WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL`, keyID).Scan(&gid, &role)
+ WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL AND `+issuerLive("k.created_by"), keyID).Scan(&gid, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientRoleAuthority
 	}

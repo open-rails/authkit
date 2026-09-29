@@ -98,7 +98,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 
 	// Machine and delegated actors never reach the management plane, even
 	// with the authority to act.
-	_, keyToken, err := client.MintAPIKey(t.Context(), iam.RootGroup(), iam.APIKeyMintOptions{Name: "root-admin-key", Role: "admin", CreatedBy: owner})
+	_, keyToken, err := client.MintAPIKey(t.Context(), iam.UserActor(owner), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: "admin"})
 	require.NoError(t, err)
 	delegated, err := client.MintDelegatedAccessToken(t.Context(), iam.DelegatedAccessParams{Audiences: []string{"test-app"}, DelegatedSubject: admin, Permissions: []string{"root:members:*", iam.PermRootUsersRead}})
 	require.NoError(t, err)
