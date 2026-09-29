@@ -25,5 +25,5 @@ successful link issues no access token, refresh token or cookie: JSON callbacks
 answer `204`, browser callbacks redirect to the frontend callback with
 `#flow=link&provider=<provider>&result=success`, and failures keep the
 `error`/`flow=link` result. Clients keep their session and reload the account.
-Host code links with `LinkProvider(ctx, iam.SystemActor(), ...)`, trusted
-authority that must never take a user-supplied UUID.
+Host code links with `LinkProvider(ctx, userID, link)`, a host operation that
+must never take a user-supplied UUID.
