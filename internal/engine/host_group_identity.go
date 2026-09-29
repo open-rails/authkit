@@ -1,6 +1,6 @@
 package engine
 
-// Group reads and deletion.
+// Group reads.
 
 import (
 	"context"
@@ -293,79 +293,4 @@ func decodePageCursor(cursor string, n int) ([]string, error) {
 		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithCause(errors.New("invalid page cursor")))
 	}
 	return key, nil
-}
-
-// DeleteGroup soft-deletes a group: it stops resolving and granting, while its
-// rows and name reservations stay. It needs <persona>:self:delete. The root
-// group cannot be deleted. An operator deleting an already deleted group by
-// id gets it back unchanged.
-func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef) (iam.Group, error) {
-	var out iam.Group
-	if err := requireActor(a); err != nil {
-		return out, err
-	}
-	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		auth, err := s.actorAuthority(ctx, st, a, g)
-		if err != nil {
-			return err
-		}
-		if g.Persona == iam.RootPersona {
-			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
-		}
-		if err := auth.requireCap(iam.PermSelfDelete(g.Persona)); err != nil {
-			return err
-		}
-		surviving, err := outsideApplicationOwnerGroups(ctx, st, g.ID)
-		if err != nil {
-			return err
-		}
-		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=$2 WHERE id=$1::uuid`, g.ID, st.now()); err != nil {
-			return err
-		}
-		if err := st.record(ctx, groupEvent(iam.EventGroupDeleted, g.ID, g.Persona)); err != nil {
-			return err
-		}
-		for _, id := range surviving {
-			if err := s.requireRemainingOwner(ctx, st, id, iam.Subject{}); err != nil {
-				return err
-			}
-		}
-		out, err = st.groupByID(ctx, g.ID)
-		return err
-	})
-	if errors.Is(err, iam.ErrGroupNotFound) && a.Kind() == iam.ActorOperator && ref.ID() != "" {
-		if g, gerr := s.Group(ctx, ref); gerr == nil && g.DeletedAt != nil {
-			return g, nil
-		}
-	}
-	return out, err
-}
-
-// PurgeGroup permanently deletes a group, live or soft-deleted, with every
-// role, custom role, key and link in it. Only an operator may purge. Purging
-// an unknown group is a no-op.
-func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientAuthority
-	}
-	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
-		id := ref.ID()
-		if id == "" {
-			g, err := s.resolveGroup(ctx, st, ref)
-			if err != nil {
-				return err
-			}
-			id = g.ID
-		} else if !isUUID(id) {
-			return iam.ErrGroupNotFound
-		}
-		return s.deleteGroupTx(ctx, st, strings.ToLower(id))
-	})
-	if errors.Is(err, iam.ErrGroupNotFound) {
-		return nil
-	}
-	return err
 }

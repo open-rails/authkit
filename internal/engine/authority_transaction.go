@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
@@ -28,10 +29,26 @@ func (s *Engine) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) 
 // withAuthorityMutation runs apply, a's change, in one authority transaction.
 // The zero actor is AuthKit itself.
 func (s *Engine) withAuthorityMutation(ctx context.Context, a iam.Actor, apply func(*permissionGroupStore) error) error {
+	return s.withAuthorityMutationIn(ctx, a, nil, apply)
+}
+
+// withAuthorityMutationIn is withAuthorityMutation inside host, the host's own
+// transaction, when host is set: a savepoint in it takes the authority lock
+// (held until the host commits or rolls back), applies the change, sweeps
+// credentials and records events, so all of it commits or rolls back with the
+// host's own writes. A refused change rolls back to the savepoint and leaves
+// host usable.
+func (s *Engine) withAuthorityMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, apply func(*permissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	tx, err := s.beginAuthorityTransaction(ctx)
+	var tx pgx.Tx
+	var err error
+	if host == nil {
+		tx, err = s.beginAuthorityTransaction(ctx)
+	} else {
+		tx, err = s.joinHostTransaction(ctx, host)
+	}
 	if err != nil {
 		return err
 	}
@@ -48,6 +65,45 @@ func (s *Engine) withAuthorityMutation(ctx context.Context, a iam.Actor, apply f
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// joinHostTransaction opens a savepoint in host. host must be a READ
+// COMMITTED transaction on AuthKit's database: authority reads after the lock
+// need a fresh snapshot per statement. The savepoint resolves AuthKit's
+// tables through AuthKit's search_path, as the engine's own pool does, and
+// gives the host its own back when it is released.
+func (s *Engine) joinHostTransaction(ctx context.Context, host pgx.Tx) (pgx.Tx, error) {
+	sp, err := host.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var isolation, hostPath string
+	err = sp.QueryRow(ctx, `SELECT current_setting('transaction_isolation'), current_setting('search_path')`).Scan(&isolation, &hostPath)
+	if err == nil && isolation != "read committed" {
+		err = fmt.Errorf("authkit: InTx needs a READ COMMITTED transaction, not %s", strings.ToUpper(isolation))
+	}
+	if err == nil {
+		_, err = sp.Exec(ctx, `SELECT set_config('search_path', $1, true)`, pgx.Identifier{s.dbSchema()}.Sanitize()+", public")
+	}
+	if err != nil {
+		_ = sp.Rollback(ctx)
+		return nil, err
+	}
+	return hostSavepoint{Tx: sp, hostSearchPath: hostPath}, nil
+}
+
+// hostSavepoint is a savepoint in the host's transaction that restores the
+// host's search_path when released.
+type hostSavepoint struct {
+	pgx.Tx
+	hostSearchPath string
+}
+
+func (h hostSavepoint) Commit(ctx context.Context) error {
+	if _, err := h.Exec(ctx, `SELECT set_config('search_path', $1, true)`, h.hostSearchPath); err != nil {
+		return err
+	}
+	return h.Tx.Commit(ctx)
 }
 
 // revokeUncoveredCredentials revokes live invite links, account invitations and

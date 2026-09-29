@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
@@ -40,13 +41,12 @@ func (a *Auth) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.
 }
 
 // Groups. A persona is a type of permission group (channel, org, merchant); a
-// group is one instance of it (/c/golang); root is the persona with exactly
-// one group, the whole site. Reads take no actor: the host is the trust
-// boundary.
+// group is one instance of it, addressed by ID; root is the persona with
+// exactly one group, the whole site. Reads take no actor: the host is the
+// trust boundary.
 
-// Group reads one group. A slug resolves only a live group; an id also
-// returns a soft-deleted one, with DeletedAt set. Absence is
-// iam.ErrGroupNotFound.
+// Group reads one group, a soft-deleted one included, with DeletedAt set.
+// Absence is iam.ErrGroupNotFound.
 func (a *Auth) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
 	return a.engine.Group(ctx, ref)
 }
@@ -57,7 +57,7 @@ func (a *Auth) Groups(ctx context.Context, ids []string) (map[string]iam.Group, 
 	return a.engine.Groups(ctx, ids)
 }
 
-// ListGroups lists and searches groups, ordered by slug, a page at a time.
+// ListGroups lists the groups of a persona, oldest first, a page at a time.
 func (a *Auth) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
 	return a.engine.ListGroups(ctx, q)
 }
@@ -83,33 +83,55 @@ func (a *Auth) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.List
 	return a.engine.OwnerlessGroups(ctx, p)
 }
 
-// CreateGroup creates a group. A user actor creates a group of a persona
-// whose GroupCreation is enabled and becomes its owner; a reserved slug needs
-// `<persona>:*` held on root, and the host's admission hooks apply. An
-// operator may create a group of any persona, with NewGroup.Owner or no
-// owner. created is false when the slug already exists and the owner is a
-// member: a re-run returns the existing group.
-func (a *Auth) CreateGroup(ctx context.Context, actor iam.Actor, g iam.NewGroup) (group iam.Group, created bool, err error) {
-	return a.engine.CreateGroup(ctx, actor, g)
+// Group lifecycle. A group guards an entity of the host app (a channel);
+// the app owns that entity, its name and its data, and stores the group's ID.
+// So the app decides who may create or delete one, checking its own
+// permissions first, and then calls these with iam.OperatorActor(). Any other
+// actor is refused. Pass InTx to create or delete the group in the same
+// transaction as the app's own row.
+
+// CreateGroup creates a group of a declared persona. g.Owner, when set, must
+// be a live account (not banned, deleted or reserved); it becomes the
+// group's owner.
+func (a *Auth) CreateGroup(ctx context.Context, actor iam.Actor, g iam.NewGroup, opts ...Option) (iam.Group, error) {
+	return a.engine.CreateGroup(ctx, actor, g, options(opts).tx)
 }
 
-// UpdateGroup renames a group or changes its display name. It needs
-// `<persona>:self:update`.
-func (a *Auth) UpdateGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, u iam.GroupUpdate) (iam.Group, error) {
-	return a.engine.UpdateGroup(ctx, actor, ref, u)
+// DeleteGroup soft-deletes a group: it stops resolving and granting at once,
+// while its rows stay until PurgeGroup. Deleting a deleted group is a no-op.
+func (a *Auth) DeleteGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, opts ...Option) error {
+	return a.engine.DeleteGroup(ctx, actor, ref, options(opts).tx)
 }
 
-// DeleteGroup soft-deletes a group: it stops resolving and granting, while its
-// rows and slug stay reserved. It needs `<persona>:self:delete`.
-func (a *Auth) DeleteGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef) (iam.Group, error) {
-	return a.engine.DeleteGroup(ctx, actor, ref)
+// PurgeGroup permanently deletes a group, live or soft-deleted, with every
+// role, custom role, API key, invite and application in it. Purging an
+// unknown group is a no-op.
+func (a *Auth) PurgeGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, opts ...Option) error {
+	return a.engine.PurgeGroup(ctx, actor, ref, options(opts).tx)
 }
 
-// PurgeGroup permanently deletes a group, live or soft-deleted (address it by
-// id), with everything in it. Only iam.OperatorActor() may purge.
-func (a *Auth) PurgeGroup(ctx context.Context, actor iam.Actor, ref iam.GroupRef, o iam.PurgeGroupOptions) error {
-	return a.engine.PurgeGroup(ctx, actor, ref, o)
+// Option adjusts one operation.
+type Option func(*operationOptions)
+
+type operationOptions struct{ tx pgx.Tx }
+
+func options(opts []Option) operationOptions {
+	var o operationOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
 }
+
+// InTx runs the operation inside tx, the host's own transaction, so AuthKit's
+// changes commit or roll back with the host's: a group and the app row that
+// stores its ID, or neither. tx must be a READ COMMITTED transaction on the
+// database of Deps.Postgres; AuthKit's schema needs no search_path entry.
+// AuthKit works in a savepoint of tx: a refused operation rolls back to it and
+// leaves tx usable. Its authority lock, the credential sweep and its event
+// records are all part of tx, and the lock is held until tx ends, so commit
+// promptly.
+func InTx(tx pgx.Tx) Option { return func(o *operationOptions) { o.tx = tx } }
 
 // DefineGroupRole creates or redefines a custom role in a group whose persona
 // has CustomRoles. It needs `<persona>:roles:manage` and must cover the old
