@@ -15,7 +15,9 @@ import (
 
 // User returns one account by iam.UserByID, UserByEmail, UserByPhone or
 // UserByUsername. Soft-deleted accounts need iam.IncludeDeleted(). A miss is
-// iam.ErrUserNotFound.
+// iam.ErrUserNotFound. An address match proves nothing about who owns the
+// account unless EmailVerified or PhoneVerified is set: never grant authority
+// to an account found by an unverified address.
 func (a *Auth) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOption) (iam.User, error) {
 	return a.engine.User(ctx, ref, opts...)
 }
