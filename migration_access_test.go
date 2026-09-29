@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
+func TestMigrateProvisionsRuntimePool(t *testing.T) {
 	for _, schema := range []string{"profiles", "shop_profiles"} {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
@@ -29,13 +29,13 @@ func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
 			admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
 			require.NoError(t, err)
 			t.Cleanup(admin.Close)
-			opts := MigrationOptions{RuntimePool: runtimePool, River: RiverFromHost()}
+			opts := MigrateOptions{Schema: schema, RuntimePool: runtimePool, River: RiverFromHost()}
 			start := make(chan struct{})
 			results := make(chan error, 6)
 			for range 6 {
 				go func() {
 					<-start
-					results <- ApplyMigrations(ctx, admin, schema, opts)
+					results <- Migrate(ctx, admin, opts)
 				}()
 			}
 			close(start)
@@ -56,7 +56,7 @@ func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
 			// supply the function permission used by canonical-name triggers.
 			_, err = admin.Exec(ctx, "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA "+pgx.Identifier{schema}.Sanitize()+" FROM PUBLIC")
 			require.NoError(t, err)
-			require.NoError(t, ApplyMigrations(ctx, admin, schema, opts))
+			require.NoError(t, Migrate(ctx, admin, opts))
 			assertMigrationRuntimeUser(t, runtimePool)
 			for _, table := range []string{"public.host_data", "public.river_job", "public.migrations"} {
 				var allowed bool
@@ -72,7 +72,7 @@ func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
 			cfg.Keys.VerifyOnly = false
-			client, err := newEngineWithKeys(cfg, Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}, Deps{Postgres: runtimePool, River: opts.River})
+			client, err := newEngineWithKeys(cfg, keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}, Deps{Postgres: runtimePool, River: opts.River})
 			require.NoError(t, err)
 			t.Cleanup(client.Close)
 			registered, err := client.Register(ctx, authflow.RegisterInput{Identifier: "runtime@example.test", Username: "runtimeuser", Password: "Pool-Test-Password-49!"})
@@ -95,7 +95,7 @@ func TestApplyMigrationsProvisionsRuntimePool(t *testing.T) {
 	}
 }
 
-func TestApplyMigrationsRuntimeIdentityValidation(t *testing.T) {
+func TestMigrateRuntimeIdentityValidation(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	runtimePool := migrationRuntimePool(t, pg)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -106,21 +106,21 @@ func TestApplyMigrationsRuntimeIdentityValidation(t *testing.T) {
 		otherDatabase, err := pgxpool.NewWithConfig(ctx, cfg)
 		require.NoError(t, err)
 		defer otherDatabase.Close()
-		err = ApplyMigrations(ctx, pg.Pool, "profiles", MigrationOptions{RuntimePool: otherDatabase})
+		err = Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles", RuntimePool: otherDatabase})
 		require.ErrorContains(t, err, "same database")
 	})
 	t.Run("unavailable_runtime", func(t *testing.T) {
 		closed, err := pgxpool.NewWithConfig(ctx, runtimePool.Config())
 		require.NoError(t, err)
 		closed.Close()
-		err = ApplyMigrations(ctx, pg.Pool, "profiles", MigrationOptions{RuntimePool: closed})
+		err = Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles", RuntimePool: closed})
 		require.ErrorContains(t, err, "identify runtime database user")
 	})
 	var exists bool
 	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT to_regnamespace('profiles') IS NOT NULL").Scan(&exists))
 	require.False(t, exists, "bad runtime configuration must fail before DDL or grants")
 	// An omitted runtime pool retains the existing migration-only contract.
-	require.NoError(t, ApplyMigrations(ctx, pg.Pool, "profiles", MigrationOptions{River: RiverFromHost()}))
+	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles", River: RiverFromHost()}))
 	var allowed bool
 	require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,'profiles','USAGE')").Scan(&allowed))
 	require.False(t, allowed)
@@ -137,7 +137,7 @@ func TestApplyMigrationsRuntimeIdentityValidation(t *testing.T) {
 	rolePool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer rolePool.Close()
-	require.NoError(t, ApplyMigrations(ctx, pg.Pool, "profiles", MigrationOptions{RuntimePool: rolePool, River: RiverFromHost()}))
+	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles", RuntimePool: rolePool, River: RiverFromHost()}))
 	require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,'profiles','USAGE')").Scan(&allowed))
 	require.True(t, allowed)
 	assertMigrationRuntimeUser(t, runtimePool)

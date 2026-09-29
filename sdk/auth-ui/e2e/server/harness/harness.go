@@ -20,9 +20,9 @@ const (
 	Audience = "auth-ui-e2e"
 )
 
-// Runtime is a started-or-not AuthKit runtime plus its captured deliveries.
+// Runtime is a started-or-not AuthKit instance plus its captured deliveries.
 type Runtime struct {
-	*authkit.Runtime
+	*authkit.Auth
 	Outbox *Outbox
 }
 
@@ -35,7 +35,7 @@ func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := authkit.ApplyMigrations(ctx, pool, Schema); err != nil {
+	if err := authkit.Migrate(ctx, pool, authkit.MigrateOptions{Schema: Schema}); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -55,9 +55,9 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	outbox := &Outbox{}
 	cfg := authkit.Config{
 		HTTP: &authkit.HTTPConfig{
-			DirectPeerIP:         true,
-			RateLimits:           limits,
-			RefreshCookie:        true,
+			DirectPeerIP:  true,
+			RateLimits:    limits,
+			RefreshCookie: true,
 		},
 		Schema: Schema,
 		Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{
@@ -95,5 +95,5 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Runtime: rt, Outbox: outbox}, nil
+	return &Runtime{Auth: rt, Outbox: outbox}, nil
 }

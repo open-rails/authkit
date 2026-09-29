@@ -81,8 +81,8 @@ type Config struct {
 	// "profiles" (the historical hard-coded name). Set it when multiple apps
 	// embed AuthKit against the same database and must not share auth tables
 	// (authkit issue 69). The name must match ^[a-z_][a-z0-9_]*$ (max 63 bytes);
-	// NewFromConfig rejects anything else. Hosts must call ApplyMigrations with
-	// the same schema before constructing the Runtime.
+	// New rejects anything else. Hosts must run Migrate with
+	// the same schema before New.
 	Schema string
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").

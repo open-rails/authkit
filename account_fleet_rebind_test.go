@@ -11,18 +11,18 @@ import (
 
 func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: "replacement_jobs"}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{RiverSchema: "replacement_jobs"}))
 	cfg := maintenanceConfig()
 	old, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(old.Close)
-	user, err := old.Client().CreateUser(t.Context(), "rebind@example.test", "rebind")
+	user, err := old.CreateUser(t.Context(), "rebind@example.test", "rebind")
 	require.NoError(t, err)
 	require.NoError(t, old.engine.SoftDeleteUser(t.Context(), user.ID))
 	cfg.River.Schema = "replacement_jobs"
 	_, err = New(cfg, Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "active account lifecycle work")
-	results, err := old.Client().OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err := old.OperatorRestoreUsers(t.Context(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	_, err = New(cfg, Deps{Postgres: pg.Pool})

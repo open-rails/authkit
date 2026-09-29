@@ -50,7 +50,7 @@ func TestTokenEntitlementSelectionAndBounds(t *testing.T) {
 	provider := &tokenEntitlementFixture{grants: []string{"premium", "product-1", "premium", "unselected"}}
 	signer, err := jwtkit.NewRSASigner(2048, "entitlements")
 	require.NoError(t, err)
-	keys := Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}
+	keys := keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}
 	newEngineFor := func(allowlist []string) *engine {
 		t.Helper()
 		return mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://entitlements.test", IssuedAudiences: []string{"app"}, EntitlementAllowlist: allowlist}}, keys, Deps{Entitlements: provider})

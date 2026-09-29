@@ -44,7 +44,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	f := newAccountFlow(t, pg.Pool, cfg, withSolanaSNSResolver(noSNSResolver{}))
 	remove := func(id string) {
 		t.Helper()
-		results, err := f.service.Backend().SoftDeleteUsers(t.Context(), []string{id})
+		results, err := fixtureBackend(f.service.Backend()).SoftDeleteUsers(t.Context(), []string{id})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}
@@ -54,10 +54,10 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 		f.expect(204, f.post("/account/recovery/confirm", map[string]any{"token": token}))
 		f.expect(401, f.post("/account/recovery/confirm", map[string]any{"token": token}))
 	}
-	user, err := f.service.Backend().CreateUser(t.Context(), uniqueEmail("recover-mfa"), "recmfa"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).CreateUser(t.Context(), uniqueEmail("recover-mfa"), "recmfa"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, f.service.Backend().AdminSetPassword(t.Context(), user.ID, "Correct-recovery-password-1"))
-	require.NoError(t, f.service.Backend().MarkEmailVerified(t.Context(), user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(t.Context(), user.ID, "Correct-recovery-password-1"))
+	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(t.Context(), user.ID))
 	backups, err := fixtureBackend(f.service.Backend()).Enable2FA(t.Context(), user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	beforeDelete := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
@@ -80,7 +80,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	otherConfig.Token.Issuer += "/other"
 	other := newServerClient(t, otherConfig, pg.Pool)
 	t.Cleanup(other.Close)
-	require.Error(t, other.ConfirmAccountRecovery(t.Context(), accountRecoveryToken(t, confirmed.raw)))
+	require.Error(t, other.engine.ConfirmAccountRecovery(t.Context(), accountRecoveryToken(t, confirmed.raw)))
 	confirm(confirmed.raw)
 	remove(user.ID)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": *user.Email, "mode": "code"}))
@@ -91,9 +91,9 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 
 	// The existing UV passkey assertion is a complete proof; it still produces
 	// only a recovery confirmation while the account is deleted.
-	keyUser, err := f.service.Backend().CreateUser(t.Context(), uniqueEmail("recover-key"), "reckey"+uniqueSuffix())
+	keyUser, err := fixtureBackend(f.service.Backend()).CreateUser(t.Context(), uniqueEmail("recover-key"), "reckey"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, f.service.Backend().MarkEmailVerified(t.Context(), keyUser.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(t.Context(), keyUser.ID))
 	authn := passkeytest.New(t, "https://app.example")
 	creation, err := f.service.Backend().BeginPasskeyRegistration(t.Context(), keyUser.ID)
 	require.NoError(t, err)

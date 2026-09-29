@@ -14,8 +14,8 @@ func TestClientOperatorRoleOperations(t *testing.T) {
 	runtime := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://admin-client.test"},
 		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{
 			iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}),
-		}}, Keyset{}, Deps{Postgres: pg.Pool})
-	client := runtime.Client()
+		}}, keyset{}, Deps{Postgres: pg.Pool})
+	client := runtime
 	ctx := t.Context()
 	user, err := client.CreateUser(ctx, "operator@example.test", "operator")
 	require.NoError(t, err)

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func softDeleteRuntime(t *testing.T) (*Runtime, *pgxpool.Pool) {
+func softDeleteRuntime(t *testing.T) (*Auth, *pgxpool.Pool) {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
@@ -38,7 +38,7 @@ func softDeleteRuntime(t *testing.T) (*Runtime, *pgxpool.Pool) {
 func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	rt, pool := softDeleteRuntime(t)
 	ctx := t.Context()
-	client := rt.Client()
+	client := rt
 	owner, err := client.CreateUser(ctx, "retained-owner@example.test", "retained-owner")
 	require.NoError(t, err)
 	peer, err := client.CreateUser(ctx, "active-owner@example.test", "active-owner")
@@ -50,7 +50,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.NoError(t, err)
 	active, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "channel", InstanceSlug: "still-active", OwnerSubjectID: peer.ID})
 	require.NoError(t, err)
-	key, token, err := client.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "retained-key", Role: "reader", CreatedBy: owner.ID})
+	key, token, err := client.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "retained-key", Role: "reader", CreatedBy: owner.ID})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://maintenance.test/channel", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -91,7 +91,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Error(t, err)
 	_, err = client.UpdateGroupInstanceAs(ctx, owner.ID, id, iam.GroupInstanceUpdate{DisplayName: new("changed")})
 	require.Error(t, err)
-	_, _, err = client.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "forbidden", Role: "reader"})
+	_, _, err = client.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "forbidden", Role: "reader"})
 	require.Error(t, err)
 	var roles, keys, names int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM profiles.group_user_roles WHERE permission_group_id=ANY($1::uuid[])", []string{id, child}).Scan(&roles))
@@ -119,7 +119,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 
 func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 	rt, _ := softDeleteRuntime(t)
-	client := rt.Client()
+	client := rt
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	for n := range 8 {
@@ -156,7 +156,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 
 func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	rt, pool := softDeleteRuntime(t)
-	client := rt.Client()
+	client := rt
 	ctx := t.Context()
 	owner, err := client.CreateUser(ctx, "external-owner@example.test", "external-owner")
 	require.NoError(t, err)

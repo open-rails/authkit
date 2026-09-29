@@ -59,7 +59,7 @@ func (s *engine) AdminSetPassword(ctx context.Context, userID, new string) error
 }
 
 func (s *engine) EntitlementsProvider() EntitlementsProvider {
-	return s.entitlements
+	return s.entitlementsProvider()
 }
 
 // DelegationAuthorizer returns the host-injected delegated-token authorizer
@@ -137,19 +137,21 @@ func (s *engine) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(tx)
 }
 
-// SetEntitlementsProvider installs the entitlements provider AFTER construction.
-//
-// This is the ONE sanctioned post-construction setter — #108 otherwise removed
-// every mutating builder in favor of constructor options. It exists for a
-// genuine initialization CYCLE: an embedded billing engine (e.g. OpenRails)
-// authenticates through this Runtime — it needs the Verifier/Core, so the
-// Runtime must exist first — yet that same engine is the SOURCE of the
-// entitlements provider, so the provider cannot exist at construction time. The
-// host builds the Runtime, builds the engine with it, then installs the engine's
-// provider here. Safe because entitlements are read LAZILY at token-mint time;
-// call it during wiring, before serving requests. Hosts WITHOUT this cycle
-// should set Deps.Entitlements instead.
-func (s *engine) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
+// entitlementsBox lets a nil provider be stored atomically.
+type entitlementsBox struct{ provider EntitlementsProvider }
+
+func (s *engine) setEntitlements(p EntitlementsProvider) {
+	s.entitlements.Store(&entitlementsBox{provider: p})
+}
+
+// entitlementsProvider is read on request paths, concurrently with
+// Auth.SetEntitlements during wiring.
+func (s *engine) entitlementsProvider() EntitlementsProvider {
+	if b := s.entitlements.Load(); b != nil {
+		return b.provider
+	}
+	return nil
+}
 
 // Settings derives the configuration the HTTP layer reads.
 func (s *engine) Settings() authflow.Settings {

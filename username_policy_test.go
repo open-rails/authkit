@@ -18,13 +18,13 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 
 	first := rt.engine.DeriveUsernameForOAuth(t.Context(), "google", "", "ab@example.test", "")
 	require.Equal(t, "ab_user_us", first)
-	_, err = rt.Client().CreateUser(t.Context(), "first@example.test", first)
+	_, err = rt.CreateUser(t.Context(), "first@example.test", first)
 	require.NoError(t, err)
 	second := rt.engine.DeriveUsernameForOAuth(t.Context(), "google", "", "ab@example.test", "")
 	require.Equal(t, "ab_user_u1", second, "a taken name is suffixed within the maximum")
 	require.NoError(t, rt.engine.ValidateUsername(second))
 
-	_, err = rt.Client().CreateUser(t.Context(), "short@example.test", "shorty")
+	_, err = rt.CreateUser(t.Context(), "short@example.test", "shorty")
 	e := iam.AsError(err)
 	require.NotNil(t, e, "%v", err)
 	require.Equal(t, iam.CodeUsernameTooShort, e.Code)

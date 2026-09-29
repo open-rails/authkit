@@ -176,7 +176,7 @@ SELECT 'expired:' || i, '\x00', now() - interval '1 second' FROM generate_series
 func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	runtimePool := migrationRuntimePool(t, pg)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RuntimePool: runtimePool}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{RuntimePool: runtimePool}))
 	cfg := maintenanceConfig()
 	cfg.River = RiverConfig{CleanupInterval: time.Second}
 	core, err := newEngine(cfg, Deps{Postgres: runtimePool})

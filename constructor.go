@@ -163,7 +163,7 @@ func normalizeConfig(cfg Config) (Config, error) {
 // resolution, no required-field checks. The Keyset
 // is fixed for the lifetime of the Runtime — hosts that need hot-reloaded
 // signing keys construct via New with a live jwtkit.KeySource (#238).
-func newEngineWithKeys(cfg Config, keys Keyset, deps Deps) (*engine, error) {
+func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*engine, error) {
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
 		return nil, err

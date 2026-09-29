@@ -200,8 +200,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 		Payload:   json.RawMessage(`{"entitlements":{"pro":{}}}`),
 		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
-		Signer:    client,
-		Store:     client.DocumentStore(),
+		Signer:    client.engine,
+		Store:     client.engine.DocumentStore(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -212,7 +212,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
 
-	user, err := srv.Backend().CreateUser(ctx, "delegated-"+suffix+"@test.example", "delegated"+suffix)
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, "delegated-"+suffix+"@test.example", "delegated"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
@@ -464,8 +464,8 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 		Payload:   json.RawMessage(fmt.Sprintf(`{"rotation":%q}`, suffix)),
 		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
-		Signer:    client,
-		Store:     client.DocumentStore(),
+		Signer:    client.engine,
+		Store:     client.engine.DocumentStore(),
 	})
 	require.NoError(t, err)
 	digest := docSvc.Reference().Digest
@@ -477,7 +477,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
 
-	user, err := srv.Backend().CreateUser(ctx, "rotate-"+suffix+"@test.example", "rotate"+suffix)
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, "rotate-"+suffix+"@test.example", "rotate"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)

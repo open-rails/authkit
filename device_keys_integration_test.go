@@ -327,7 +327,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 
 func requireActiveDeviceKeys(t *testing.T, srv *httpapi.Service, userID string, want ...string) {
 	t.Helper()
-	keys, err := srv.Backend().ActiveDeviceKeys(context.Background(), userID)
+	keys, err := fixtureBackend(srv.Backend()).ActiveDeviceKeys(context.Background(), userID)
 	require.NoError(t, err)
 	var got []string
 	for _, key := range keys {

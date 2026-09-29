@@ -17,13 +17,13 @@ func TestSecurityPurgedUsernameStaysReserved(t *testing.T) {
 	// Final purge is this physical delete, after recovery and host callbacks.
 	_, err := h.pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, gone.id)
 	require.NoError(t, err)
-	_, err = h.client.CreateUser(ctx, unique("impostor")+"@security.test", gone.username)
+	_, err = h.auth.CreateUser(ctx, unique("impostor")+"@security.test", gone.username)
 	require.Error(t, err, "the purged username was released for re-registration")
-	_, err = h.client.GetUserByUsername(ctx, gone.username)
+	_, err = h.auth.GetUserByUsername(ctx, gone.username)
 	require.Error(t, err, "the reserved name resolved to a dead account")
 	t.Run("control: other names remain available", func(t *testing.T) {
 		name := unique("fresh")
-		_, err := h.client.CreateUser(ctx, name+"@security.test", name)
+		_, err := h.auth.CreateUser(ctx, name+"@security.test", name)
 		require.NoError(t, err)
 	})
 }

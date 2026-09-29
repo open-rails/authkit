@@ -26,9 +26,9 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	pool := fixtureBackend(srv.Backend()).Postgres()
 
 	email := uniqueEmail("device-key-mfa")
-	user, err := srv.Backend().CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 	secret, _, err := fixtureBackend(srv.Backend()).StartTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
@@ -99,6 +99,6 @@ func TestDeviceKeyRoutesRequireConfigOptIn(t *testing.T) {
 	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 	_, err = srv.Backend().BeginDeviceKeyLogin(ctx, "00000000-0000-0000-0000-000000000000")
 	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
-	_, err = srv.Backend().ActiveDeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
+	_, err = fixtureBackend(srv.Backend()).ActiveDeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
 	require.True(t, errors.Is(err, iam.ErrDeviceKeysDisabled), "engine must refuse without the opt-in: %v", err)
 }

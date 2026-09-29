@@ -69,10 +69,10 @@ func (s *engine) effectiveGroupRolePermissions(ctx context.Context, st *Permissi
 	return []string{}, nil
 }
 
-// MintAPIKeyWithOptions inserts a new API key. The key references exactly ONE
+// MintAPIKey inserts a new API key. The key references exactly ONE
 // role (opts.Role) valid for the owning group's persona; its effective
 // permissions are resolved from the role at use time.
-func (s *engine) MintAPIKeyWithOptions(ctx context.Context, group iam.GroupRef, opts iam.APIKeyMintOptions) (iam.APIKey, string, error) {
+func (s *engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.APIKeyMintOptions) (iam.APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.APIKey{}, "", err
 	}

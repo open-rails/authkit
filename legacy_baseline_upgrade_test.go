@@ -59,8 +59,8 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			userID, username := seedRetiredAccount(t, pg.Pool, src.schema)
 
 			pool := testSchemaPool(t, pg.URL, src.schema)
-			require.NoError(t, ApplyMigrations(ctx, pool, src.schema))
-			require.NoError(t, ApplyMigrations(ctx, pool, "fresh_reference"))
+			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: src.schema}))
+			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: "fresh_reference"}))
 			db := sqlDB(t, pg.URL)
 			diff, err := migratekit.SchemaDiff(ctx, db, src.schema, "fresh_reference")
 			require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			require.Equal(t, 4, recorded)
 			require.NotZero(t, converted)
 			// A second boot converts nothing and applies nothing.
-			require.NoError(t, ApplyMigrations(ctx, pool, src.schema))
+			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: src.schema}))
 
 			cfg := newServerTestConfig()
 			cfg.Schema = src.schema
@@ -98,7 +98,7 @@ func TestRetiredBaselineRefusesInFlightDeletion(t *testing.T) {
 	_, err := pg.Pool.Exec(ctx, `UPDATE profiles.users SET deleted_at = now() WHERE id = $1`, userID)
 	require.NoError(t, err)
 
-	err = ApplyMigrations(ctx, testSchemaPool(t, pg.URL, "profiles"), "profiles")
+	err = Migrate(ctx, testSchemaPool(t, pg.URL, "profiles"), MigrateOptions{Schema: "profiles"})
 	require.Error(t, err)
 	for _, want := range []string{"1 soft-deleted account(s)", "retired deletion lifecycle", "AuthKit v0.124.0", "nothing was changed"} {
 		require.Contains(t, err.Error(), want)
@@ -119,7 +119,7 @@ func TestRetiredBaselineRefusesHandEditedSchema(t *testing.T) {
 	applyRetired(t, pg, "profiles", "0001_schema.up.sql")
 	_, err := pg.Pool.Exec(ctx, `ALTER TABLE profiles.users ADD COLUMN nickname text`)
 	require.NoError(t, err)
-	err = ApplyMigrations(ctx, testSchemaPool(t, pg.URL, "profiles"), "profiles")
+	err = Migrate(ctx, testSchemaPool(t, pg.URL, "profiles"), MigrateOptions{Schema: "profiles"})
 	require.ErrorIs(t, err, migratekit.ErrSchemaMismatch)
 	require.Contains(t, err.Error(), "nickname")
 }

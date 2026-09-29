@@ -143,7 +143,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	// A receiver owns trusted URLs and its shared replay storage. Here the same
 	// engine backs the replay guard; namespaces remain bounded by key and TTL.
 	var resource *httptest.Server
-	verifier := verify.NewVerifier(verify.WithDPoP(engine.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
+	verifier := verify.NewVerifier(verify.WithDPoP(engine.engine.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 	require.NoError(t, verifier.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 	resourceMux := http.NewServeMux()
 	resourceMux.Handle("/", resourceHandler(verifier))
@@ -235,7 +235,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		require.Equal(t, 500, status, string(raw))
 		require.Contains(t, string(raw), "internal_error")
 		require.Empty(t, lastChallenge)
-		v := verify.NewVerifier(verify.WithDPoP(broken.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
+		v := verify.NewVerifier(verify.WithDPoP(broken.engine.ClaimDPoPProof, func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() }))
 		require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
 		req := httptest.NewRequest("GET", resource.URL+"/tasks", nil)
 		req.Header.Set("Authorization", "DPoP "+minted.Token)

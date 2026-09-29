@@ -19,8 +19,8 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	cfg := instanceCreateTestConfig()
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
-	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
-	_, err := client.EnsureRootGroup(ctx)
+	require.NoError(t, client.engine.SeedPermissionGroupContainment(ctx))
+	_, err := client.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	// Verification is not a lease on database authority: a change between
 	// verification and mutation must be seen inside the mutation transaction.
 	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "member"))
-	require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, verified, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, client.engine.AssignGroupRoleFromClaims(ctx, verified, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
 	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
 	for _, mutate := range []func(*verify.Claims){
 		func(c *verify.Claims) { c.Issuer = "https://another-issuer.test" },
@@ -66,7 +66,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	} {
 		invalid := verified
 		mutate(&invalid)
-		require.ErrorIs(t, client.AssignGroupRoleFromClaims(ctx, invalid, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, client.engine.AssignGroupRoleFromClaims(ctx, invalid, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
 	}
 	call := func(method, path, body, bearer string, status int) {
 		t.Helper()
@@ -107,8 +107,8 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
 	ctx := context.Background()
-	require.NoError(t, client.SeedPermissionGroupContainment(ctx))
-	_, err := client.EnsureRootGroup(ctx)
+	require.NoError(t, client.engine.SeedPermissionGroupContainment(ctx))
+	_, err := client.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, second, iam.RemoteAppSubject(app.ID), "owner"), iam.ErrInsufficientRoleAuthority)
 	// Simulate an old invalid assignment: it must not allow the real owner to
 	// depart, although ordinary non-owner ancestor assignments remain valid.
-	_, err = client.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
+	_, err = client.engine.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())

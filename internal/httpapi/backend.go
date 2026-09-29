@@ -18,7 +18,24 @@ import (
 // Backend is the engine capability the HTTP layer drives. The engine
 // implements it; hosts never see it.
 type Backend interface {
-	iam.Client
+	AdminGetUser(ctx context.Context, id string) (*iam.AdminUser, error)
+	AdminListUsers(ctx context.Context, opts iam.AdminUserListOptions) (*iam.AdminListUsersResult, error)
+	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
+	Can(ctx context.Context, subject iam.Subject, group iam.GroupRef, perm iam.Perm) (bool, error)
+	CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error)
+	CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupInviteLinkRequest) (iam.GroupInviteLinkCreated, error)
+	GetUserByEmail(ctx context.Context, email string) (*iam.User, error)
+	GetUserByPhone(ctx context.Context, phone string) (*iam.User, error)
+	GroupInstanceForSlug(ctx context.Context, group iam.GroupRef) (iam.GroupInstance, error)
+	ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]iam.APIKey, error)
+	ListEffectivePermissions(ctx context.Context, subject iam.Subject, group iam.GroupRef) ([]iam.Perm, error)
+	ListGroupInviteLinks(ctx context.Context, group iam.GroupRef) ([]iam.GroupInviteLink, error)
+	ListGroupMembers(ctx context.Context, group iam.GroupRef) ([]iam.GroupMember, error)
+	ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error)
+	MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
+	MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.APIKeyMintOptions) (iam.APIKey, string, error)
+	PublicUsersByIDs(ctx context.Context, ids []string) (map[string]iam.PublicUserRef, error)
+	UpdateUsername(ctx context.Context, id, username string) error
 	verify.Enricher
 	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject, role iam.Role) error
 	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject) error

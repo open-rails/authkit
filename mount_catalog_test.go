@@ -222,7 +222,7 @@ func TestMountCatalogOIDCAndDocuments(t *testing.T) {
 	doc, err := documents.NewService(t.Context(), documents.ServiceConfig{
 		Type: "example.mount-catalog/v1", Payload: json.RawMessage(`{"catalog":true}`),
 		Issuer: cfg.Token.Issuer, Audiences: cfg.Token.ExpectedAudiences,
-		Signer: client, Store: client.DocumentStore(),
+		Signer: client.engine, Store: client.engine.DocumentStore(),
 	})
 	require.NoError(t, err)
 	svc, err := newServer(client, WithoutRateLimiter(), WithDocuments(doc))

@@ -60,7 +60,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	rt, err := New(cfg, Deps{Postgres: pool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
-	client := rt.Client()
+	client := rt
 
 	owner, err := client.CreateUser(ctx, "batch-owner@example.test", "batch-owner")
 	require.NoError(t, err)

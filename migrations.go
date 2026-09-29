@@ -15,10 +15,12 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-// MigrationOptions declares River ownership alongside AuthKit initialization.
-// River uses the same declaration as Deps.River. Nil owns River initialization;
-// RiverFromHost skips it. RiverSchema defaults to public, matching Config.River.
-type MigrationOptions struct {
+// MigrateOptions configures Migrate. Schema is AuthKit's PostgreSQL schema
+// ("" selects "profiles"); it must match Config.Schema. River uses the same
+// declaration as Deps.River: nil owns River initialization, RiverFromHost
+// skips it. RiverSchema defaults to public, matching Config.River.
+type MigrateOptions struct {
+	Schema      string
 	River       *RiverOwnership
 	RiverSchema string
 	// RuntimePool identifies the existing database user that will run AuthKit.
@@ -28,23 +30,14 @@ type MigrationOptions struct {
 	RuntimePool *pgxpool.Pool
 }
 
-// ApplyMigrations applies AuthKit's PostgreSQL migrations to a privileged pool.
-// It also initializes managed River unless RiverFromHost is declared. Runtime
-// New and Start never run DDL; runtime credentials can be separately restricted.
+// Migrate applies AuthKit's PostgreSQL migrations to a privileged pool. It
+// also initializes managed River unless RiverFromHost is declared. New and
+// Start never run DDL, so runtime credentials can be separately restricted.
 //
-// AuthKit owns its migration source and migratekit runner. The host supplies
-// the database pool and the schema name, then constructs the Runtime after
-// this function returns successfully. The schema is created by migratekit;
-// callers must not create it separately. An empty schema selects AuthKit's
-// default "profiles" schema.
-func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, options ...MigrationOptions) error {
-	if len(options) > 1 {
-		return errors.New("authkit: ApplyMigrations accepts at most one MigrationOptions")
-	}
-	var opts MigrationOptions
-	if len(options) == 1 {
-		opts = options[0]
-	}
+// AuthKit owns its migration source and runner; the host supplies the pool,
+// then calls New once Migrate succeeds. Migrate creates the schema; callers
+// must not create it separately.
+func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error {
 	var riverCfg RiverConfig
 	if opts.River == nil || !opts.River.fromHost {
 		var err error
@@ -54,9 +47,9 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, opt
 		}
 	}
 	if pool == nil {
-		return errors.New("authkit: ApplyMigrations requires a non-nil *pgxpool.Pool")
+		return errors.New("authkit: Migrate requires a non-nil *pgxpool.Pool")
 	}
-	normalized, err := normalizeSchemaName(schema)
+	normalized, err := normalizeSchemaName(opts.Schema)
 	if err != nil {
 		return err
 	}

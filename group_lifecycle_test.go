@@ -51,7 +51,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, RBAC: []iam.PersonaDef{
 		{Name: "org", Parent: iam.RootPersona, Capabilities: iam.PersonaCapabilities{CustomRoles: true, APIKeys: true}, Catalog: []string{"org:billing:read", "org:billing:write"}},
 		{Name: "repo", Parent: "org"}, {Name: "leaf", Parent: "repo"},
-	}}, Keyset{}, Deps{Postgres: pool})
+	}}, keyset{}, Deps{Postgres: pool})
 	require.NoError(t, svc.SeedPermissionGroupContainment(ctx))
 	_, err = svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role))
 	require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role))
 	mint := func() (string, string) {
-		_, token, err := svc.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "lifecycle-key", Role: role, CreatedBy: owner.ID})
+		_, token, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "lifecycle-key", Role: role, CreatedBy: owner.ID})
 		require.NoError(t, err)
 		key, secret, ok := iam.ParseAPIKey(svc.cfg.APIKeys.Prefix, token)
 		require.True(t, ok)
@@ -242,7 +242,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			func() error { return svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role) },
 			func() error { return svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role) },
 			func() error {
-				_, _, err := svc.MintAPIKeyWithOptions(ctx, group, iam.APIKeyMintOptions{Name: "waiting", Role: role, CreatedBy: owner.ID})
+				_, _, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "waiting", Role: role, CreatedBy: owner.ID})
 				return err
 			},
 			func() error {

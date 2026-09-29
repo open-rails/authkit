@@ -21,7 +21,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			runtime, err := New(maintenanceConfig(), Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
 			t.Cleanup(runtime.Close)
-			user, err := runtime.Client().CreateUser(t.Context(), name+"@example.test", name)
+			user, err := runtime.CreateUser(t.Context(), name+"@example.test", name)
 			require.NoError(t, err)
 			require.NoError(t, runtime.engine.SoftDeleteUser(t.Context(), user.ID))
 			var generation string

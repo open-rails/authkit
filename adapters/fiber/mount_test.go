@@ -16,7 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/testhttp"
 )
 
-func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Runtime {
+func newMountAuth(t *testing.T, mutate ...func(*authkit.HTTPConfig)) *authkit.Auth {
 	t.Helper()
 	cfg := testhttp.HTTP()
 	for _, m := range mutate {

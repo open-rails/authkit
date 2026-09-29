@@ -48,8 +48,8 @@ func newHardeningTestService(t *testing.T) (*httpapi.Service, *pgxpool.Pool, str
 	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
 	require.NoError(t, err)
 	t.Cleanup(coreSvc.Close)
-	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
-	_, err = coreSvc.EnsureRootGroup(ctx)
+	require.NoError(t, coreSvc.engine.SeedPermissionGroupContainment(ctx))
+	_, err = coreSvc.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	var owner string
@@ -82,7 +82,7 @@ func TestCustomRoleRedefineRejectsEscalation_HTTP(t *testing.T) {
 	s, pool, owner := newHardeningTestService(t)
 	ctx := context.Background()
 
-	_, err := s.Backend().CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-escalate", OwnerSubjectID: owner})
+	_, err := fixtureBackend(s.Backend()).CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-escalate", OwnerSubjectID: owner})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-escalate'`)
@@ -145,7 +145,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	s, pool, owner := newHardeningTestService(t)
 	ctx := context.Background()
 
-	_, err := s.Backend().CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-mfa-role", OwnerSubjectID: owner})
+	_, err := fixtureBackend(s.Backend()).CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-mfa-role", OwnerSubjectID: owner})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM permission_groups WHERE persona='merchant' AND instance_slug='m-mfa-role'`)

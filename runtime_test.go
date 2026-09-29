@@ -35,9 +35,9 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	cfg.HTTP.APIPrefix = "/auth"
 	runtime := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(runtime.Close)
-	user, err := runtime.Client().CreateUser(context.Background(), "runtime-boundary@example.test", "runtime-boundary")
+	user, err := runtime.CreateUser(context.Background(), "runtime-boundary@example.test", "runtime-boundary")
 	require.NoError(t, err)
-	require.NoError(t, runtime.Client().AdminSetPassword(context.Background(), user.ID, "Correct-horse-battery-1"))
+	require.NoError(t, runtime.AdminSetPassword(context.Background(), user.ID, "Correct-horse-battery-1"))
 	require.NotNil(t, runtime.Verifier())
 	require.Contains(t, runtime.Patterns(), "GET "+iam.JWKSPath)
 	require.Contains(t, runtime.Patterns(), "POST /auth/password/login")
@@ -115,7 +115,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			if fail {
 				cfg.HTTP.APIPrefix = "invalid prefix"
 			}
-			var runtime *Runtime
+			var runtime *Auth
 			var err error
 			pprof.Do(t.Context(), pprof.Labels(label, t.Name()), func(context.Context) {
 				runtime, err = New(cfg, Deps{Postgres: pg.Pool, River: RiverFromHost()})
@@ -133,7 +133,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	}
 }
 
-func newPublicRuntime(t *testing.T, cfg Config, pool *pgxpool.Pool) *Runtime {
+func newPublicRuntime(t *testing.T, cfg Config, pool *pgxpool.Pool) *Auth {
 	t.Helper()
 	r, err := New(cfg, Deps{Postgres: pool})
 	require.NoError(t, err)

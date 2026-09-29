@@ -14,7 +14,7 @@ import (
 
 // Runtime builds a runtime serving httpCfg (nil: headless) on a scratch
 // database, with one Google provider so provider routes exist.
-func Runtime(t testing.TB, httpCfg *authkit.HTTPConfig) *authkit.Runtime {
+func Runtime(t testing.TB, httpCfg *authkit.HTTPConfig) *authkit.Auth {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	signer, err := jwtkit.NewRSASigner(2048, "runtime-http-test")

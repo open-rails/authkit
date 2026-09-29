@@ -2,9 +2,7 @@ package authkit
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -189,59 +187,3 @@ func newHTTP(s *engine, v *verify.Verifier, cfg HTTPConfig) (*httpapi.Service, *
 	}
 	return svc, mount, nil
 }
-
-// Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is nil.
-// Mount it at the host root: it owns its anchored paths.
-func (r *Runtime) Handler() http.Handler {
-	if r.mount == nil {
-		return nil
-	}
-	return r.mount
-}
-
-// Routes returns the mounted route catalog, with a HEAD entry per GET route.
-func (r *Runtime) Routes() []iam.Route { return r.mount.Routes() }
-
-// Patterns returns the mounted routes as net/http ServeMux patterns
-// ("GET /api/v1/me"), sorted. A GET pattern also serves HEAD.
-func (r *Runtime) Patterns() []string {
-	var out []string
-	for _, route := range r.mount.Routes() {
-		if route.Method == http.MethodHead {
-			continue
-		}
-		out = append(out, route.Method+" "+route.Path)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// Mount registers every pattern on mux, all served by Handler.
-func (r *Runtime) Mount(mux *http.ServeMux) (err error) {
-	if r.mount == nil {
-		return errors.New("authkit: HTTP is not configured; set Config.HTTP")
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("authkit: mount: %v", p)
-		}
-	}()
-	for _, pattern := range r.Patterns() {
-		mux.Handle(pattern, r.mount)
-	}
-	return nil
-}
-
-// Verifier verifies requests and tokens against this deployment. It exists
-// from New on, with or without an HTTP surface.
-func (r *Runtime) Verifier() *verify.Verifier { return r.verifier }
-
-// Require rejects requests without a valid credential. Ordinary
-// verification is stateless; see RequireLive.
-func (r *Runtime) Require(next http.Handler) http.Handler { return verify.Required(r.verifier)(next) }
-
-// Optional verifies a credential when one is presented.
-func (r *Runtime) Optional(next http.Handler) http.Handler { return verify.Optional(r.verifier)(next) }
-
-// RequireLive is Require plus a live account check for sensitive operations.
-func (r *Runtime) RequireLive(next http.Handler) http.Handler { return r.requireLive(next) }

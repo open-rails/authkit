@@ -169,7 +169,7 @@ func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool,
 	ctx := context.Background()
 	_, err := fixtureBackend(srv.Backend()).EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	inviter, err := srv.Backend().CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
+	inviter, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(srv.Backend()).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole))
 	invite, err := srv.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{
@@ -319,8 +319,8 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 	t.Helper()
 	ctx := context.Background()
 	coreSvc := core
-	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
-	rootGID, err := coreSvc.EnsureRootGroup(ctx)
+	require.NoError(t, coreSvc.engine.SeedPermissionGroupContainment(ctx))
+	rootGID, err := coreSvc.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
@@ -336,7 +336,7 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 		}},
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = coreSvc.DeleteRemoteApplication(context.Background(), issuer) })
+	t.Cleanup(func() { _ = coreSvc.engine.DeleteRemoteApplication(context.Background(), issuer) })
 
 	// A remote application addresses its token to THIS platform (ak#324: the
 	// lazily-loaded issuer enforces Config.Token.ExpectedAudiences).
@@ -427,15 +427,15 @@ func mustPasswordUser(t *testing.T, srv *httpapi.Service, prefix string) string 
 	t.Helper()
 	email := uniqueEmail(prefix)
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
-	user, err := srv.Backend().CreateUser(context.Background(), email, username)
+	user, err := fixtureBackend(srv.Backend()).CreateUser(context.Background(), email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).Postgres().Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
-	require.NoError(t, srv.Backend().MarkEmailVerified(context.Background(), user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(context.Background(), user.ID))
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
 	return user.ID
 }
 
@@ -452,9 +452,9 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
-	user, err := srv.Backend().CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 
 	sid, _, _, err := fixtureBackend(srv.Backend()).IssueRefreshSession(ctx, user.ID, "test", nil)
@@ -894,9 +894,9 @@ func instanceCreateTestConfig() Config {
 func newInstanceTestUser(t *testing.T, srv *httpapi.Service, prefix string) (id, token string) {
 	t.Helper()
 	ctx := context.Background()
-	user, err := srv.Backend().CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
@@ -945,15 +945,15 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *httpapi.Service, p
 	ctx := context.Background()
 	email = uniqueEmail(prefix)
 	pass = "correct-horse-battery-97"
-	user, err := srv.Backend().CreateUser(ctx, email, prefix+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, prefix+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	return email, pass
 }
 
@@ -962,15 +962,15 @@ func stalePasswordUserToken(t *testing.T, srv *httpapi.Service, pool *pgxpool.Po
 	ctx := context.Background()
 	email := uniqueEmail(prefix)
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
-	user, err := srv.Backend().CreateUser(ctx, email, username)
+	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, username)
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).Postgres().Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.Backend().UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := fixtureBackend(srv.Backend()).IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)

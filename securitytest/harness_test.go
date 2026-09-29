@@ -44,13 +44,12 @@ var signer = sync.OnceValue(func() *jwtkit.RSASigner {
 })
 
 type host struct {
-	t       *testing.T
-	cfg     hostConfig
-	runtime *authkit.Runtime
-	client  iam.Client
-	pool    *pgxpool.Pool
-	server  *httptest.Server
-	mail    *outbox
+	t      *testing.T
+	cfg    hostConfig
+	auth   *authkit.Auth
+	pool   *pgxpool.Pool
+	server *httptest.Server
+	mail   *outbox
 }
 
 type hostConfig struct {
@@ -124,13 +123,13 @@ func newHost(t *testing.T, opts ...hostOption) *host {
 
 // fork serves runtime's configured routes; every route shares the one
 // canonical AuthKit mount.
-func (h *host) fork(runtime *authkit.Runtime) *host {
+func (h *host) fork(runtime *authkit.Auth) *host {
 	h.t.Helper()
 	require.NotNil(h.t, runtime.Handler())
 	server := httptest.NewServer(runtime.Handler())
 	h.t.Cleanup(server.Close)
 	out := *h
-	out.runtime, out.client, out.server = runtime, runtime.Client(), server
+	out.auth, out.server = runtime, server
 	return &out
 }
 
@@ -244,10 +243,10 @@ func (h *host) newAccount(prefix string) account {
 	h.t.Helper()
 	name := unique(prefix)
 	email := name + "@security.test"
-	u, err := h.client.CreateUser(context.Background(), email, name)
+	u, err := h.auth.CreateUser(context.Background(), email, name)
 	require.NoError(h.t, err)
-	require.NoError(h.t, h.client.MarkEmailVerified(context.Background(), u.ID))
-	require.NoError(h.t, h.client.AdminSetPassword(context.Background(), u.ID, password))
+	require.NoError(h.t, h.auth.MarkEmailVerified(context.Background(), u.ID))
+	require.NoError(h.t, h.auth.AdminSetPassword(context.Background(), u.ID, password))
 	return account{id: u.ID, email: email, username: name}
 }
 

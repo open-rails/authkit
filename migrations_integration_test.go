@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyMigrationsCreatesSchemaBeforeClientConstruction(t *testing.T) {
+func TestMigrateCreatesSchemaBeforeClientConstruction(t *testing.T) {
 	ctx := context.Background()
 	pg := testdb.EmptyScratchPostgres(t)
 
-	require.NoError(t, ApplyMigrations(ctx, pg.Pool, ""))
+	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{}))
 	var usersTable bool
 	require.NoError(t, pg.Pool.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -26,14 +26,14 @@ func TestApplyMigrationsCreatesSchemaBeforeClientConstruction(t *testing.T) {
 
 	client, err := newEngineWithKeys(
 		Config{Token: TokenConfig{Issuer: "https://migrations.test"}},
-		Keyset{},
+		keyset{},
 		Deps{Postgres: pg.Pool},
 	)
 	require.NoError(t, err)
 	client.Close()
 }
 
-func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
+func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 	for _, schema := range []string{"public", "shared_jobs"} {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
@@ -52,7 +52,7 @@ func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testin
 			for range 6 {
 				go func() {
 					<-start
-					results <- ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool})
+					results <- Migrate(ctx, pool, MigrateOptions{Schema: "profiles", RiverSchema: schema, RuntimePool: runtimePool})
 				}()
 			}
 			close(start)
@@ -62,7 +62,7 @@ func TestApplyMigrationsSerializesManagedRiverWithSingleConnectionPool(t *testin
 			var exists bool
 			require.NoError(t, pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".river_job").Scan(&exists))
 			require.True(t, exists)
-			require.NoError(t, ApplyMigrations(ctx, pool, "profiles", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool}))
+			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: "profiles", RiverSchema: schema, RuntimePool: runtimePool}))
 			assertMigrationRuntimeUser(t, runtimePool)
 		})
 	}

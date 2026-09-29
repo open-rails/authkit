@@ -1,5 +1,5 @@
 // Command authkit-migrate is AuthKit's repository-owned migration runner.
-// Consumers should call authkit.ApplyMigrations from their application
+// Consumers should call authkit.Migrate from their application
 // startup instead of importing this command or AuthKit's private source.
 package main
 
@@ -33,11 +33,11 @@ func main() {
 	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf("ping PostgreSQL: %v", err)
 	}
-	opts := authkit.MigrationOptions{RiverSchema: *riverSchema}
+	opts := authkit.MigrateOptions{Schema: *schema, RiverSchema: *riverSchema}
 	if *hostRiver {
 		opts.River = authkit.RiverFromHost()
 	}
-	if err := authkit.ApplyMigrations(ctx, pool, *schema, opts); err != nil {
+	if err := authkit.Migrate(ctx, pool, opts); err != nil {
 		log.Fatalf("apply AuthKit migrations: %v", err)
 	}
 }

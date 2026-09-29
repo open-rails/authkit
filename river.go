@@ -18,7 +18,7 @@ import (
 
 // RiverOwnership declares who initializes and runs River. Nil means AuthKit
 // owns its client. Use RiverFromHost for a fleet shared with other libraries.
-// Pass the same declaration to Deps and MigrationOptions.
+// Pass the same declaration to Deps and MigrateOptions.
 type RiverOwnership struct{ fromHost bool }
 
 // RiverFromHost selects a host-owned River fleet. AuthKit never migrates,

@@ -84,7 +84,7 @@ func (s *engine) applyDeps(d Deps) error {
 	}
 	s.email = d.Email
 	s.sms = d.SMS
-	s.entitlements = d.Entitlements
+	s.setEntitlements(d.Entitlements)
 	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.appAdmission = d.ApplicationAdmission

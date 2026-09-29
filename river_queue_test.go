@@ -62,7 +62,7 @@ func TestLongIdentitySchemaRunsRiverCleanup(t *testing.T) {
 			if host {
 				ownership = RiverFromHost()
 			}
-			require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, schema, MigrationOptions{River: ownership}))
+			require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{Schema: schema, River: ownership}))
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
 			core, err := newEngine(cfg, Deps{Postgres: pg.Pool, River: ownership})

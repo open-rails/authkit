@@ -73,7 +73,7 @@ func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ strin
 func newHardeningService(t *testing.T) (*engine, *hardeningEmailSender) {
 	t.Helper()
 	sender := &hardeningEmailSender{}
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, Keyset{},
+	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://hardening.test"}}, keyset{},
 		Deps{Postgres: testdb.Pool(t), Email: sender})
 	return svc, sender
 }
@@ -103,7 +103,7 @@ func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 }
 
 // mustNewWithKeys constructs a client and releases its owned resources after the test.
-func mustNewWithKeys(t testing.TB, cfg Config, keys Keyset, deps Deps) *engine {
+func mustNewWithKeys(t testing.TB, cfg Config, keys keyset, deps Deps) *engine {
 	t.Helper()
 	svc, err := newEngineWithKeys(cfg, keys, deps)
 	if err != nil {

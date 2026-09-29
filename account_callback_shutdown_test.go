@@ -13,7 +13,7 @@ import (
 func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	entered := make(chan struct{})
-	var runtime *Runtime
+	var runtime *Auth
 	var err error
 	runtime, err = New(maintenanceConfig(), Deps{Postgres: pg.Pool, OnSoftDelete: func(ctx context.Context, _ iam.UserDeletion) error {
 		close(entered)
@@ -24,7 +24,7 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 		return err
 	}})
 	require.NoError(t, err)
-	user, err := runtime.Client().CreateUser(t.Context(), "shutdown@example.test", "shutdown")
+	user, err := runtime.CreateUser(t.Context(), "shutdown@example.test", "shutdown")
 	require.NoError(t, err)
 	require.NoError(t, runtime.engine.SoftDeleteUser(t.Context(), user.ID))
 	require.NoError(t, runtime.Start(t.Context()))

@@ -41,7 +41,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	client := runtime.Client()
+	client := runtime
 	user, err := client.CreateUser(t.Context(), "finalize-fk@example.test", "finalizefk")
 	require.NoError(t, err)
 	require.NoError(t, client.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "member"))

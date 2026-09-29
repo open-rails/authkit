@@ -48,7 +48,7 @@ func TestManagedRiverMaintenance(t *testing.T) {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
 			runtimePool := migrationRuntimePool(t, pg)
-			require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: schema, RuntimePool: runtimePool}))
+			require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{RiverSchema: schema, RuntimePool: runtimePool}))
 			_, err := pg.Pool.Exec(t.Context(), "REVOKE CREATE ON SCHEMA public FROM PUBLIC")
 			require.NoError(t, err)
 			assertMigrationRuntimeUser(t, runtimePool)
@@ -94,7 +94,7 @@ func (w *hostMaintenanceWorker) Work(context.Context, *river.Job[hostMaintenance
 func TestHostRiverMaintenanceComposition(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	ownership := RiverFromHost()
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: ownership}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{River: ownership}))
 	var riverExists bool
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT to_regclass('public.river_job') IS NOT NULL").Scan(&riverExists))
 	require.False(t, riverExists, "host mode must not migrate River")
@@ -164,7 +164,7 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 
 func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{River: RiverFromHost()}))
 	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	defer core.Close()
@@ -181,7 +181,7 @@ func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testin
 
 func TestClosedRiverJobsCannotCompose(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{River: RiverFromHost()}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{River: RiverFromHost()}))
 	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	core.Close()

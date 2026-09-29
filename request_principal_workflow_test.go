@@ -16,7 +16,7 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	cfg := instanceCreateTestConfig()
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := t.Context()
-	group, err := client.EnsureRootGroup(ctx)
+	group, err := client.engine.EnsureRootGroup(ctx)
 	require.NoError(t, err)
 	service, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(service.Close)
 	ctx := t.Context()
-	client := runtime.Runtime.Client()
+	client := runtime
 	owner, token := newInstanceTestUser(t, service, "retirednative")
 	group := iam.GroupRef{Persona: "org", Instance: "retained-native"}
 	id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: group.Persona, InstanceSlug: group.Instance, OwnerSubjectID: owner})

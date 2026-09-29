@@ -80,7 +80,7 @@ func (h *host) verificationCode(email string) string {
 
 func (h *host) userID(email string) string {
 	h.t.Helper()
-	u, err := h.client.GetUserByEmail(context.Background(), email)
+	u, err := h.auth.GetUserByEmail(context.Background(), email)
 	require.NoError(h.t, err)
 	return u.ID
 }
@@ -251,7 +251,7 @@ func TestSecurityRegistrationNeverSelfVerifies(t *testing.T) {
 			h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) { c.Registration.Verification = policy }))
 			email := unique("selfverify") + "@security.test"
 			s := h.register(email)
-			u, err := h.client.GetUserByEmail(context.Background(), email)
+			u, err := h.auth.GetUserByEmail(context.Background(), email)
 			require.NoError(t, err)
 			require.False(t, u.EmailVerified)
 			_, claims := splitToken(t, s.AccessToken)
@@ -291,7 +291,7 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 	t.Run("control: trusted provider creates a verified account", func(t *testing.T) {
 		resp := h.providerCallback("trustedfresh")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		u, err := h.client.GetUserByEmail(ctx, fresh)
+		u, err := h.auth.GetUserByEmail(ctx, fresh)
 		require.NoError(t, err)
 		require.True(t, u.EmailVerified)
 	})

@@ -17,21 +17,21 @@ import (
 
 func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
 	cfgPool := pg.Pool.Config().Copy()
 	cfgPool.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfgPool)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	cfg := maintenanceConfig()
-	var runtime *Runtime
+	var runtime *Auth
 	var mu sync.Mutex
 	var events []string
 	hook := func(stage string) func(context.Context, iam.UserDeletion) error {
 		return func(ctx context.Context, deletion iam.UserDeletion) error {
 			// A callback may reenter the same one-slot AuthKit pool. It must
 			// execute outside the mutation/delivery receipt transaction.
-			user, err := runtime.Client().AdminGetUser(ctx, deletion.UserID)
+			user, err := runtime.AdminGetUser(ctx, deletion.UserID)
 			if err != nil {
 				return err
 			}
@@ -47,7 +47,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	runtime, err = New(cfg, Deps{Postgres: pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	client := runtime.Client()
+	client := runtime
 	user, err := client.CreateUser(t.Context(), "lifecycle@example.test", "lifecycle")
 	require.NoError(t, err)
 	remove := func() {
@@ -125,15 +125,15 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 
 func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
 	cfg := maintenanceConfig()
 	cfg.River.Schema = "uninitialized_jobs"
 	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	user, err := runtime.Client().CreateUser(t.Context(), "rollback@example.test", "rollback")
+	user, err := runtime.CreateUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
-	results, err := runtime.Client().SoftDeleteUsers(t.Context(), []string{user.ID})
+	results, err := runtime.SoftDeleteUsers(t.Context(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err)
 	var deleted *time.Time
@@ -146,12 +146,12 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 
 func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, ""))
-	require.NoError(t, ApplyMigrations(t.Context(), pg.Pool, "", MigrationOptions{RiverSchema: "sibling_jobs"}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{RiverSchema: "sibling_jobs"}))
 	issuers := []string{"https://first.example.test", "https://second.example.test"}
 	var mu sync.Mutex
 	events := map[string][]string{}
-	makeRuntime := func(issuer, schema string) *Runtime {
+	makeRuntime := func(issuer, schema string) *Auth {
 		t.Helper()
 		cfg := maintenanceConfig()
 		cfg.Token.Issuer = issuer
@@ -172,9 +172,9 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	}
 	first := makeRuntime(issuers[0], "public")
 	second := makeRuntime(issuers[1], "sibling_jobs")
-	user, err := first.Client().CreateUser(t.Context(), "two-fleets@example.test", "twofleets")
+	user, err := first.CreateUser(t.Context(), "two-fleets@example.test", "twofleets")
 	require.NoError(t, err)
-	results, err := first.Client().SoftDeleteUsers(t.Context(), []string{user.ID})
+	results, err := first.SoftDeleteUsers(t.Context(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	var generation string
@@ -190,7 +190,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		defer mu.Unlock()
 		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
 	}, 10*time.Second, 25*time.Millisecond)
-	results, err = first.Client().OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err = first.OperatorRestoreUsers(t.Context(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	// The second deployment was offline throughout deletion and recovery. Its

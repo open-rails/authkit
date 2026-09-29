@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,7 +24,7 @@ import (
 // jwtkit.KeySource at construction and never read again directly — hosts that
 // need rotation should provide a live jwtkit.KeySource via
 // Config.Keys.Source / NewFromConfig instead. See #238.
-type Keyset struct {
+type keyset struct {
 	Active     jwtkit.Signer
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
 }
@@ -87,7 +88,7 @@ type engine struct {
 	q            *db.Queries
 	schema       string           // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema  *iam.GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
-	entitlements EntitlementsProvider
+	entitlements atomic.Pointer[entitlementsBox]
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer iam.DelegationAuthorizer
@@ -150,10 +151,11 @@ func (s *engine) HasPassword(ctx context.Context, userID string) (bool, error) {
 // the provider — a one-element batch, #221). A provider failure is logged and
 // returned as none — callers (admin user views) degrade rather than fail.
 func (s *engine) ListEntitlements(ctx context.Context, userID string) []string {
-	if s.entitlements == nil {
+	provider := s.entitlementsProvider()
+	if provider == nil {
 		return nil
 	}
-	m, err := s.entitlements.ListEntitlements(ctx, []string{userID})
+	m, err := provider.ListEntitlements(ctx, []string{userID})
 	if err != nil {
 		stdlog.Printf("authkit: error: entitlements provider failed for user %q; reporting no entitlements: %v", userID, err)
 		return nil

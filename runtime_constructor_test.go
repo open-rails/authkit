@@ -13,10 +13,10 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	cfg := Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{
 		iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}),
 	}}
-	first, err := NewWithKeys(cfg, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	first, err := newWithKeys(cfg, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(first.Close)
-	client := first.Client()
+	client := first
 	_, err = client.GroupInstanceForSlug(t.Context(), iam.RootGroup())
 	require.NoError(t, err, "construction installs the root without application provisioning")
 	user, err := client.CreateUser(t.Context(), "constructor@example.test", "constructor")
@@ -24,10 +24,10 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	require.NoError(t, client.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "editor"))
 	require.NoError(t, client.OperatorUnassignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "editor"))
 	first.Close()
-	second, err := NewWithKeys(cfg, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	second, err := newWithKeys(cfg, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(second.Close)
-	allowed, err := second.Client().Can(t.Context(), iam.UserSubject(user.ID), iam.RootGroup(), "root:posts:edit")
+	allowed, err := second.Can(t.Context(), iam.UserSubject(user.ID), iam.RootGroup(), "root:posts:edit")
 	require.NoError(t, err)
 	require.False(t, allowed, "restart must never restore an operator-revoked role")
 }
@@ -36,7 +36,7 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	// No client-IP posture: the HTTP layer refuses after the engine is built.
 	cfg := Config{HTTP: &HTTPConfig{}}
-	runtime, err := NewWithKeys(cfg, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	runtime, err := newWithKeys(cfg, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.ErrorContains(t, err, "client-IP posture")
 	require.Nil(t, runtime)
 	require.NoError(t, pg.Pool.Ping(t.Context()), "constructor cleanup must preserve the borrowed host pool")
@@ -44,32 +44,32 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 
 func TestRuntimeConstructorWithoutRBACPreservesSharedTopology(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	owner, err := NewWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}), {Name: "merchant", Parent: iam.RootPersona}}}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	owner, err := newWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, RBAC: []iam.PersonaDef{iam.IntrinsicRootPersona(iam.RoleDef{Name: "editor", Permissions: []string{"root:posts:edit"}}), {Name: "merchant", Parent: iam.RootPersona}}}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(owner.Close)
-	user, err := owner.Client().CreateUser(t.Context(), "shared-topology@example.test", "shared-topology")
+	user, err := owner.CreateUser(t.Context(), "shared-topology@example.test", "shared-topology")
 	require.NoError(t, err)
-	require.NoError(t, owner.Client().OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "editor"))
-	issuer, err := NewWithKeys(Config{}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	require.NoError(t, owner.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(user.ID), "editor"))
+	issuer, err := newWithKeys(Config{}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(issuer.Close)
-	allowed, err := owner.Client().Can(t.Context(), iam.UserSubject(user.ID), iam.RootGroup(), "root:posts:edit")
+	allowed, err := owner.Can(t.Context(), iam.UserSubject(user.ID), iam.RootGroup(), "root:posts:edit")
 	require.NoError(t, err)
 	require.True(t, allowed, "secondary issuer construction must preserve existing role authority")
-	_, err = owner.Client().CreatePermissionGroup(t.Context(), iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "preserved-parent", ParentPersona: iam.RootPersona})
+	_, err = owner.CreatePermissionGroup(t.Context(), iam.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "preserved-parent", ParentPersona: iam.RootPersona})
 	require.NoError(t, err, "a second issuer with omitted RBAC must not delete the host's declared topology")
 }
 
 func TestRuntimeConcurrentConstructionSharesRoot(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	type result struct {
-		runtime *Runtime
+		runtime *Auth
 		err     error
 	}
 	results := make(chan result, 2)
 	for range 2 {
 		go func() {
-			r, err := NewWithKeys(Config{}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+			r, err := newWithKeys(Config{}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 			results <- result{r, err}
 		}()
 	}
@@ -78,7 +78,7 @@ func TestRuntimeConcurrentConstructionSharesRoot(t *testing.T) {
 		result := <-results
 		require.NoError(t, result.err)
 		t.Cleanup(result.runtime.Close)
-		group, err := result.runtime.Client().GroupInstanceForSlug(t.Context(), iam.RootGroup())
+		group, err := result.runtime.GroupInstanceForSlug(t.Context(), iam.RootGroup())
 		require.NoError(t, err)
 		if rootID == "" {
 			rootID = group.ID

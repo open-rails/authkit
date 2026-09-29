@@ -122,8 +122,8 @@ func (s *engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *iam
 	// perms resolved at request time from the DB (svc.Can), not snapshotted into
 	// the access token.
 	var ents []string
-	if len(s.cfg.Token.EntitlementAllowlist) > 0 && s.entitlements != nil {
-		m, entErr := s.entitlements.ListEntitlements(ctx, []string{userID})
+	if provider := s.entitlementsProvider(); len(s.cfg.Token.EntitlementAllowlist) > 0 && provider != nil {
+		m, entErr := provider.ListEntitlements(ctx, []string{userID})
 		if entErr != nil {
 			// Deliberate availability-over-consistency: a failing entitlements
 			// provider must not block login, but it must be LOUD — the user is

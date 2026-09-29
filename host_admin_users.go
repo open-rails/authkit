@@ -65,7 +65,7 @@ func (s *engine) adminUserDirectoryQuery(ctx context.Context, o iam.AdminUserLis
 	}
 
 	if ent := strings.TrimSpace(o.Entitlement); ent != "" {
-		fp, ok := s.entitlements.(EntitlementFilterProvider)
+		fp, ok := s.entitlementsProvider().(EntitlementFilterProvider)
 		if !ok {
 			return "", nil, nil, iam.ErrEntitlementFilterUnavailable
 		}
@@ -187,14 +187,15 @@ func (s *engine) AdminListUsers(ctx context.Context, opts iam.AdminUserListOptio
 // call (the provider is batch-native, #221). Provider failures log and degrade
 // to no entitlements.
 func (s *engine) enrichEntitlements(ctx context.Context, users []iam.AdminUser) {
-	if s.entitlements == nil || len(users) == 0 {
+	provider := s.entitlementsProvider()
+	if provider == nil || len(users) == 0 {
 		return
 	}
 	ids := make([]string, 0, len(users))
 	for i := range users {
 		ids = append(ids, users[i].ID)
 	}
-	ents, err := s.entitlements.ListEntitlements(ctx, ids)
+	ents, err := provider.ListEntitlements(ctx, ids)
 	if err != nil {
 		stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(users), err)
 		return

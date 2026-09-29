@@ -45,7 +45,7 @@ func withRBAC(c *authkit.Config) {
 
 func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
 	h.t.Helper()
-	require.NoError(h.t, h.client.OperatorAssignGroupRole(context.Background(), group, iam.UserSubject(a.id), role))
+	require.NoError(h.t, h.auth.OperatorAssignGroupRole(context.Background(), group, iam.UserSubject(a.id), role))
 }
 
 func publicKeyPEM(t *testing.T) string {
@@ -76,8 +76,8 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	unban := func(target account, token string) response {
 		return h.post("/admin/users/"+target.id+"/unban", nil, token)
 	}
-	require.NoError(t, h.client.BanUser(ctx, moderator.id, nil, nil, owner.id))
-	require.NoError(t, h.client.BanUser(ctx, admin.id, nil, nil, owner.id))
+	require.NoError(t, h.auth.BanUser(ctx, moderator.id, nil, nil, owner.id))
+	require.NoError(t, h.auth.BanUser(ctx, admin.id, nil, nil, owner.id))
 
 	for _, tc := range []struct {
 		name   string
@@ -90,7 +90,7 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := unban(tc.target, tc.token)
 			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-			u, err := h.client.AdminGetUser(ctx, tc.target.id)
+			u, err := h.auth.AdminGetUser(ctx, tc.target.id)
 			require.NoError(t, err)
 			require.NotNil(t, u.BannedAt, "ban was lifted")
 		})
@@ -110,7 +110,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique("org")}
-	_, err := h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
 		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := tc.attack()
 			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-			app, err := h.client.GetRemoteApplication(ctx, "https://owner-app.security.test")
+			app, err := h.auth.GetRemoteApplication(ctx, "https://owner-app.security.test")
 			require.NoError(t, err)
 			require.True(t, app.Enabled)
 			require.Len(t, app.PublicKeys, 1)
@@ -171,12 +171,12 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique("esc")}
-	_, err := h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
 		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	other := iam.GroupRef{Persona: orgPersona, Instance: unique("other")}
-	_, err = h.client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
+	_, err = h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
 		Persona: orgPersona, InstanceSlug: other.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
@@ -217,10 +217,10 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.client.Can(ctx, iam.UserSubject(manager.id), group, "org:*")
+	ownerAllowed, err := h.auth.Can(ctx, iam.UserSubject(manager.id), group, "org:*")
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
-	stillOwner, err := h.client.Can(ctx, iam.UserSubject(owner.id), group, "org:members:manage")
+	stillOwner, err := h.auth.Can(ctx, iam.UserSubject(owner.id), group, "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, stillOwner)
 }
@@ -229,7 +229,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 	h.t.Helper()
 	group := iam.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
-	_, err := h.client.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
+	_, err := h.auth.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
 		Persona: orgPersona, InstanceSlug: group.Instance, ParentPersona: iam.RootPersona, OwnerSubjectID: founder.id,
 	})
 	require.NoError(h.t, err)
@@ -253,7 +253,7 @@ func (h *host) issue(path, token string, body map[string]any) issued {
 
 func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	keys, err := h.client.ListAPIKeys(context.Background(), group)
+	keys, err := h.auth.ListAPIKeys(context.Background(), group)
 	require.NoError(t, err)
 	for _, k := range keys {
 		if k.ID == id {
@@ -266,7 +266,7 @@ func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 
 func liveLink(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	links, err := h.client.ListGroupInviteLinks(context.Background(), group)
+	links, err := h.auth.ListGroupInviteLinks(context.Background(), group)
 	require.NoError(t, err)
 	for _, l := range links {
 		if l.ID == id {
@@ -297,7 +297,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.client.Can(ctx, iam.UserSubject(creator.id), group, "org:*")
+		owner, err := h.auth.Can(ctx, iam.UserSubject(creator.id), group, "org:*")
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))
@@ -379,7 +379,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	t.Cleanup(domain.Close)
 	resp = h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
 	require.Equal(t, http.StatusCreated, resp.status, "the squatter kept the issuer from its domain: %s", resp)
-	app, err := h.client.GetRemoteApplication(ctx, victimIssuer)
+	app, err := h.auth.GetRemoteApplication(ctx, victimIssuer)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootDomain, app.TrustRoot)
 	resp = register("squatted-again", victimIssuer)
@@ -425,14 +425,14 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		t.Cleanup(domain.Close)
 		resp := h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		_, err = h.client.GetRemoteApplication(ctx, peerIssuer)
+		_, err = h.auth.GetRemoteApplication(ctx, peerIssuer)
 		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
 
 	t.Run("the operator may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
-			_, err := h.client.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+			_, err := h.auth.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapReconcileOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
@@ -440,13 +440,13 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	enabled := true
-	_, err = h.client.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+	_, err = h.auth.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
 	}}, iam.BootstrapReconcileOptions{})
 	require.NoError(t, err)
 
 	user := h.newAccount("peeruser")
-	ver := h.runtime.Verifier()
+	ver := h.auth.Verifier()
 	peerToken := func(typ string, claims jwt.MapClaims) string {
 		now := time.Now()
 		claims["iss"], claims["iat"], claims["exp"] = peerIssuer, now.Unix(), now.Add(5*time.Minute).Unix()
@@ -481,10 +481,10 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	t.Run("the operator disables the peer", func(t *testing.T) {
-		app, err := h.client.GetRemoteApplication(ctx, peerIssuer)
+		app, err := h.auth.GetRemoteApplication(ctx, peerIssuer)
 		require.NoError(t, err)
 		app.Enabled = false
-		_, err = h.client.UpsertRemoteApplication(ctx, *app)
+		_, err = h.auth.UpsertRemoteApplication(ctx, *app)
 		require.NoError(t, err)
 		_, err = ver.Verify(ctx, delegated)
 		require.Error(t, err)

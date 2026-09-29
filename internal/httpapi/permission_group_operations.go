@@ -297,7 +297,7 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group 
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	key, secret, err := s.svc.MintAPIKeyWithOptions(r.Context(), group, iam.APIKeyMintOptions{
+	key, secret, err := s.svc.MintAPIKey(r.Context(), group, iam.APIKeyMintOptions{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      iam.Role(strings.TrimSpace(body.Role)),
 		CreatedBy: createdBy,

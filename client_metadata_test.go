@@ -11,10 +11,10 @@ import (
 
 func TestClientReadsUserMetadata(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	runtime, err := NewWithKeys(Config{}, Keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
+	runtime, err := newWithKeys(Config{}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	client := runtime.Client()
+	client := runtime
 	imported, err := client.ImportUsers(t.Context(), []iam.ImportUserInput{{Email: "metadata-client@example.test", Username: "metadata-client", Metadata: map[string]any{"biography": "Public bio", "host_private": "not automatically public"}}})
 	require.NoError(t, err)
 	require.Equal(t, 1, imported.Inserted)

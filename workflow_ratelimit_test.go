@@ -179,7 +179,7 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 	svc.Close()
 	require.Eventually(t, func() bool { return !hasWorkers() }, 5*time.Second, 10*time.Millisecond,
 		"Close must stop every worker started by the HTTP service")
-	require.NoError(t, client.Postgres().Ping(t.Context()), "the host's pool remains usable")
+	require.NoError(t, client.engine.Postgres().Ping(t.Context()), "the host's pool remains usable")
 	if rdb != nil {
 		require.NoError(t, rdb.Ping(t.Context()).Err(), "the host's Redis client remains usable")
 	}
