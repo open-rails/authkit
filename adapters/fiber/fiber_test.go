@@ -488,6 +488,16 @@ func TestRequirePermissionPropagatesResolvedScope(t *testing.T) {
 	}
 }
 
+func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
+	checker := permissionChecker(func(context.Context, iam.Subject, string, iam.Perm) (bool, error) { return true, nil })
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unregistered permission must panic when the route is built")
+		}
+	}()
+	authkitfiber.RequirePermission(checker, "blog:posts:delete", nil)
+}
+
 type livenessSource func(context.Context, []string) (map[string]iam.UserLiveness, error)
 
 func (f livenessSource) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error) {

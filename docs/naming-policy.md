@@ -1,8 +1,8 @@
 # User and group naming
 
 AuthKit identifies users and group instances by immutable UUID. A persona is a
-schema/type, not a group instance. Usernames and `(persona, slug)` remain separate
-namespaces. Public routes resolve a current name or active alias to one UUID;
+type of permission group; a permission group is one instance of a persona. Usernames
+and `(persona, slug)` remain separate namespaces. Public routes resolve a current name or active alias to one UUID;
 authorization and the operation must retain that same UUID.
 
 ## Case
@@ -104,7 +104,7 @@ every call, so restarts cannot extend an alias promise.
 Generated group routes capture an immutable target before permission checks. A
 request-local binding matches only that original persona/reference; subsequent
 operation lookups recheck the captured group's liveness and never fall back to a
-new owner of its name. Other targets and parent-group lookups remain independent.
+new owner of its name. Other targets remain independent.
 `GroupByLiveInstanceSlug` is deliberately limited to the old trusted slug-delete
 entry point; captured lifecycle retries use `DeleteGroupInstanceByID`.
 

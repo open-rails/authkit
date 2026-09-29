@@ -145,27 +145,27 @@ remote applications, and group role assignments.
 | POST | `{api}/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` | `auth_admin_user_sessions_revoke_all` |  |
 | GET | `{api}/admin/users/{user_id}/signins` | admin | `root:resources:read` |  |  |
 | POST | `{api}/admin/users/{user_id}/unban` | admin | `root:users:ban` | `auth_admin_user_sessions_revoke_all` |  |
-| POST | `{api}/invites/redeem` | permission_groups | required |  | RBAC persona profile |
-| POST | `{api}/org` | permission_groups | required |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}` | permission_groups | `org:settings:read` |  | RBAC persona profile |
-| PATCH | `{api}/org/{instance_slug}` | permission_groups | `org:settings:manage` |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:read` |  | RBAC persona profile |
-| POST | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:manage` |  | RBAC persona profile |
-| DELETE | `{api}/org/{instance_slug}/api-keys/{key}` | permission_groups | `org:credentials:manage` |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:read` |  | RBAC persona profile |
-| POST | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:manage` |  | RBAC persona profile |
-| DELETE | `{api}/org/{instance_slug}/invites/links/{link}` | permission_groups | `org:members:manage` |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:read` |  | RBAC persona profile |
-| POST | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:manage` |  | RBAC persona profile |
-| DELETE | `{api}/org/{instance_slug}/members/{user}` | permission_groups | `org:members:manage` |  | RBAC persona profile |
-| PUT | `{api}/org/{instance_slug}/members/{user}/roles/{role}` | permission_groups | `org:members:manage` |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:read` |  | RBAC persona profile |
-| POST | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:manage` |  | RBAC persona profile |
-| DELETE | `{api}/org/{instance_slug}/remote-applications/{app}` | permission_groups | `org:credentials:manage` |  | RBAC persona profile |
-| PUT | `{api}/org/{instance_slug}/remote-applications/{app}/roles/{role}` | permission_groups | `org:credentials:manage` |  | RBAC persona profile |
-| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:read` |  | RBAC persona profile |
-| POST | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:manage` |  | RBAC persona profile |
-| DELETE | `{api}/org/{instance_slug}/roles/{role}` | permission_groups | `org:roles:manage` |  | RBAC persona profile |
+| POST | `{api}/invites/redeem` | permission_groups | required |  | Roles.Personas |
+| POST | `{api}/org` | permission_groups | required |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}` | permission_groups | `org:self:read` |  | Roles.Personas |
+| PATCH | `{api}/org/{instance_slug}` | permission_groups | `org:self:update` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:read` |  | Roles.Personas |
+| POST | `{api}/org/{instance_slug}/api-keys` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}/api-keys/{key}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:read` |  | Roles.Personas |
+| POST | `{api}/org/{instance_slug}/invites/links` | permission_groups | `org:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}/invites/links/{link}` | permission_groups | `org:members:manage` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:read` |  | Roles.Personas |
+| POST | `{api}/org/{instance_slug}/members` | permission_groups | `org:members:manage` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}/members/{user}` | permission_groups | `org:members:manage` |  | Roles.Personas |
+| PUT | `{api}/org/{instance_slug}/members/{user}/roles/{role}` | permission_groups | `org:members:manage` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:read` |  | Roles.Personas |
+| POST | `{api}/org/{instance_slug}/remote-applications` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}/remote-applications/{app}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
+| PUT | `{api}/org/{instance_slug}/remote-applications/{app}/roles/{role}` | permission_groups | `org:credentials:manage` |  | Roles.Personas |
+| GET | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:read` |  | Roles.Personas |
+| POST | `{api}/org/{instance_slug}/roles` | permission_groups | `org:roles:manage` |  | Roles.Personas |
+| DELETE | `{api}/org/{instance_slug}/roles/{role}` | permission_groups | `org:roles:manage` |  | Roles.Personas |
 <!-- routes:end -->
 
 ## Authentication Levels

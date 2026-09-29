@@ -296,7 +296,7 @@ func (r RouteSpec) Requires() string {
 	case r.Group == iam.RouteBrowserOIDC, isOIDCPath(r.Path):
 		return "Identity.Providers"
 	case r.Group == iam.RoutePermissionGroups:
-		return "RBAC persona profile"
+		return "Roles.Personas"
 	case isPasskeyPath(r.Path):
 		return "Passkeys.RPID"
 	case isPasswordlessPath(r.Path):
