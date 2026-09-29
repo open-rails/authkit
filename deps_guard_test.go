@@ -119,9 +119,12 @@ func TestNothingBelowRootImportsRoot(t *testing.T) {
 
 // Request-facing code never builds an actor from path or body fields: the only
 // actor derivation is verify.ActorFromClaims, and nothing there may name the
-// system actor or its kind.
+// system actor or its kind, or call a host operation (they take no actor).
 func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 	constructors := map[string]bool{"SystemActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+	hostOperations := map[string]bool{"CreateUser": true, "PurgeUsers": true, "ResetAccountMFA": true, "MintAccessToken": true,
+		"CreateGroup": true, "DeleteGroup": true, "PurgeGroup": true, "ApplyBootstrapManifest": true, "EnsureUserRole": true,
+		"ImportUsers": true, "ImportSolanaLinks": true, "LinkProvider": true}
 	derivation := filepath.Join("verify", "actor.go")
 	var violations []string
 	for _, root := range []string{"internal/httpapi", "verify", "adapters"} {
@@ -147,7 +150,7 @@ func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 				if !ok {
 					return true
 				}
-				if sel.Sel.Name == "SystemActor" || sel.Sel.Name == "ActorSystem" {
+				if sel.Sel.Name == "SystemActor" || sel.Sel.Name == "ActorSystem" || hostOperations[sel.Sel.Name] {
 					violations = append(violations, path+": "+sel.Sel.Name)
 				}
 				if iamName == "" {

@@ -254,7 +254,7 @@ func (h *host) newAccount(prefix string) account {
 	h.t.Helper()
 	name := unique(prefix)
 	email := name + "@security.test"
-	u, err := h.auth.CreateUser(context.Background(), iam.SystemActor(), iam.NewUser{Email: email, Username: name, Password: password, EmailVerified: true})
+	u, err := h.auth.CreateUser(context.Background(), iam.NewUser{Email: email, Username: name, Password: password, EmailVerified: true})
 	require.NoError(h.t, err)
 	return account{id: u.ID, email: email, username: name}
 }

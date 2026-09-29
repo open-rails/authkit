@@ -22,13 +22,13 @@ func TestSecurityPurgedUsernameStaysReserved(t *testing.T) {
 	// Final purge is this physical delete, after recovery and host callbacks.
 	_, err := h.pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, gone.id)
 	require.NoError(t, err)
-	_, err = h.auth.CreateUser(ctx, iam.SystemActor(), iam.NewUser{Email: unique("impostor") + "@security.test", Username: gone.username})
+	_, err = h.auth.CreateUser(ctx, iam.NewUser{Email: unique("impostor") + "@security.test", Username: gone.username})
 	require.Error(t, err, "the purged username was released for re-registration")
 	_, err = h.auth.User(ctx, iam.UserByUsername(gone.username))
 	require.Error(t, err, "the reserved name resolved to a dead account")
 	t.Run("control: other names remain available", func(t *testing.T) {
 		name := unique("fresh")
-		_, err := h.auth.CreateUser(ctx, iam.SystemActor(), iam.NewUser{Email: name + "@security.test", Username: name})
+		_, err := h.auth.CreateUser(ctx, iam.NewUser{Email: name + "@security.test", Username: name})
 		require.NoError(t, err)
 	})
 }
@@ -102,7 +102,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	h.grant(root, moderator, "moderator")
 	h.grant(root, siteadmin, "siteadmin")
 	h.grant(root, target, "siteadmin")
-	group, _ := h.newOrg("acct", orgOwner)
+	group, _ := h.newOrg(orgOwner)
 	h.grant(group, coOwner, "owner")
 	ops := accountOps(h)
 
@@ -229,7 +229,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 		// of the fresh-auth gate is the only way through.
 		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day', mfa_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
 		require.NoError(t, err)
-		tok, err := h.auth.MintAccessToken(ctx, iam.SystemActor(), a.id, iam.AccessTokenOptions{SessionID: sid})
+		tok, err := h.auth.MintAccessToken(ctx, a.id, iam.AccessTokenOptions{SessionID: sid})
 		require.NoError(t, err)
 		return tok.Value
 	}
@@ -267,7 +267,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("h1founder")
-	group, base := h.newOrg("h1", founder)
+	group, base := h.newOrg(founder)
 	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder-key", "role": "owner"})
 	for _, tc := range []struct {
 		name string
@@ -293,7 +293,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 			fresh := h.newAccount("h1fresh")
 			resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(fresh).AccessToken)
 			require.GreaterOrEqual(t, resp.status, 400, resp.String())
-			can, err := h.auth.Can(ctx, iam.UserActor(fresh.id), group, iam.PermSelfDelete(orgPersona))
+			can, err := h.auth.Can(ctx, iam.UserActor(fresh.id), group, ownerOnly)
 			require.NoError(t, err)
 			require.False(t, can)
 		})
@@ -413,28 +413,76 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 	})
 }
 
-// TestSecurityBannedTokenCreatesNoGroup: a banned account's still-valid access
-// token creates no group.
-func TestSecurityBannedTokenCreatesNoGroup(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
-		org := c.Roles.Personas[string(orgPersona)]
-		org.Creation = authkit.GroupCreation{Enabled: true}
-		c.Roles.Personas[string(orgPersona)] = org
-	}))
+// TestSecurityGroupLifecycleIsTheHosts: creating and deleting a group are
+// host operations. No HTTP route creates, reads, renames or deletes a group,
+// and a group is never seeded with an owner who cannot act: an unknown,
+// banned, deleted or reserved account, or an application of another group.
+func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
-	banned := h.newAccount("bannedcreator")
-	token := h.login(banned).AccessToken
-	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
-	slug := unique("bannedorg")
-	resp := h.post("/"+string(orgPersona), map[string]string{"slug": slug}, token)
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	_, err := h.auth.Group(ctx, iam.GroupBySlug(orgPersona, slug))
-	require.ErrorIs(t, err, iam.ErrGroupNotFound)
+	founder := h.newAccount("lifefounder")
+	group, base := h.newOrg(founder)
+	token := h.login(founder).AccessToken
+	for _, req := range []request{
+		{method: http.MethodPost, path: "/" + string(orgPersona), body: map[string]string{"slug": unique("org")}, token: token},
+		{method: http.MethodGet, path: base, token: token},
+		{method: http.MethodPatch, path: base, body: map[string]string{"slug": unique("renamed")}, token: token},
+		{method: http.MethodDelete, path: base, token: token},
+		{method: http.MethodGet, path: "/" + string(orgPersona) + "/" + group.ID() + "/members", token: token},
+	} {
+		resp := h.do(req)
+		require.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.status, "%s %s: %s", req.method, req.path, resp)
+	}
+	g, err := h.auth.Group(ctx, group)
+	require.NoError(t, err)
+	require.Nil(t, g.DeletedAt)
 
-	t.Run("control: a live account creates one", func(t *testing.T) {
-		live := h.newAccount("livecreator")
-		resp := h.post("/"+string(orgPersona), map[string]string{"slug": unique("liveorg")}, h.login(live).AccessToken)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+	app := h.registerApp(base, token, "life-app", "member")
+	banned, deleted, reserved := h.newAccount("lifebanned"), h.newAccount("lifedeleted"), h.newAccount("lifereserved")
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
+	require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{deleted.id})))
+	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET metadata=COALESCE(metadata,'{}'::jsonb)||'{"reserved":true}'::jsonb WHERE id=$1::uuid`, reserved.id)
+	require.NoError(t, err)
+	groups := func() int {
+		var n int
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE persona=$1`, string(orgPersona)).Scan(&n))
+		return n
+	}
+	before := groups()
+	for name, tc := range map[string]struct {
+		owner iam.Subject
+		want  error
+	}{
+		"unknown account":  {iam.UserSubject("0190a0a0-0000-7000-8000-000000000000"), iam.ErrUserNotFound},
+		"banned account":   {iam.UserSubject(banned.id), iam.ErrInsufficientAuthority},
+		"deleted account":  {iam.UserSubject(deleted.id), iam.ErrInsufficientAuthority},
+		"reserved account": {iam.UserSubject(reserved.id), iam.ErrInsufficientAuthority},
+		"application":      {iam.RemoteApplicationSubject(app.ID), iam.ErrInsufficientAuthority},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &tc.owner})
+			require.ErrorIs(t, err, tc.want)
+			require.Equal(t, before, groups(), "a refused CreateGroup left a group")
+		})
+	}
+	_, err = h.auth.CreateGroup(ctx, iam.NewGroup{Persona: iam.RootPersona})
+	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, "a second root group")
+	require.ErrorIs(t, h.auth.DeleteGroup(ctx, iam.RootGroup()), iam.ErrUnknownGroupPersona, "root cannot be deleted")
+
+	t.Run("control: a live owner is seeded, and deleting twice is one delete", func(t *testing.T) {
+		owner := iam.UserSubject(h.newAccount("lifeowner").id)
+		g, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &owner})
+		require.NoError(t, err)
+		require.Equal(t, iam.OwnerRole, h.roleOf(iam.GroupByID(g.ID), owner))
+		require.NoError(t, h.auth.DeleteGroup(ctx, iam.GroupByID(g.ID)))
+		first, err := h.auth.Group(ctx, iam.GroupByID(g.ID))
+		require.NoError(t, err)
+		require.NotNil(t, first.DeletedAt)
+		require.NoError(t, h.auth.DeleteGroup(ctx, iam.GroupByID(g.ID)))
+		again, err := h.auth.Group(ctx, iam.GroupByID(g.ID))
+		require.NoError(t, err)
+		require.True(t, first.DeletedAt.Equal(*again.DeletedAt))
+		require.Equal(t, http.StatusForbidden, h.do(request{method: http.MethodGet, path: "/groups/" + g.ID + "/members", token: h.login(founder).AccessToken}).status)
 	})
 }
 

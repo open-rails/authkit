@@ -72,7 +72,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "a user cannot make someone else an owner")
 	_, _, err = e.CreateGroup(ctx, iam.Actor{}, iam.NewGroup{Persona: "channel", Slug: "anonymous"})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	acme, created, err := e.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: "org", Slug: "acme"})
+	acme, created, err := e.CreateGroup(ctx, iam.NewGroup{Persona: "org", Slug: "acme"})
 	require.NoError(t, err)
 	require.True(t, created, "the system creates any persona's group, with or without an owner")
 	for _, slug := range []string{"rust", "python"} {
@@ -222,16 +222,16 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(iam.UserActor(bob), golangRef, "channel:posts:edit"), "a deleted group grants nothing")
 	require.Equal(t, []string{"announcements", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel"}))
 	require.Equal(t, []string{"announcements", "go", "python", "rust"}, slugs(iam.GroupQuery{Persona: "channel", IncludeDeleted: true}))
-	replay, err := e.DeleteGroup(ctx, iam.SystemActor(), golangRef)
+	replay, err := e.DeleteGroup(ctx, golangRef)
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, replay.DeletedAt)
-	_, err = e.DeleteGroup(ctx, iam.SystemActor(), iam.RootGroup())
+	_, err = e.DeleteGroup(ctx, iam.RootGroup())
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
 	// Purge is the system's permanent delete.
 	require.ErrorIs(t, e.PurgeGroup(ctx, iam.UserActor(bob), golangRef, iam.PurgeGroupOptions{}), iam.ErrInsufficientAuthority)
-	require.NoError(t, e.PurgeGroup(ctx, iam.SystemActor(), golangRef, iam.PurgeGroupOptions{}))
-	require.NoError(t, e.PurgeGroup(ctx, iam.SystemActor(), golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
+	require.NoError(t, e.PurgeGroup(ctx, golangRef, iam.PurgeGroupOptions{}))
+	require.NoError(t, e.PurgeGroup(ctx, golangRef, iam.PurgeGroupOptions{}), "purging again is a no-op")
 	_, err = e.Group(ctx, golangRef)
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }

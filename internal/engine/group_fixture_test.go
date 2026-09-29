@@ -14,7 +14,7 @@ func seedGroup(ctx context.Context, e *Engine, persona iam.Persona, slug, ownerI
 		owner := iam.UserSubject(ownerID)
 		ng.Owner = &owner
 	}
-	g, _, err := e.CreateGroup(ctx, iam.SystemActor(), ng)
+	g, _, err := e.CreateGroup(ctx, ng)
 	return g.ID, err
 }
 

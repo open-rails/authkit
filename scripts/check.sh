@@ -72,7 +72,7 @@ required = {
                      'TestSecurityFirstProofRevokesSquatterInvitations', 'TestSecurityDeletionRecoveryIsSelfOnly',
                      'TestSecuritySelfRulesUseCanonicalIDs', 'TestSecurityEnrollmentTokenOutsideMiddleware',
                      'TestSecurityMFARequirementRevokesMachineCredentials', 'TestSecurityMemberEmailIsAnInvitation',
-                     'TestSecurityContactChangeKeepsEnrolledMFA', 'TestSecurityBannedTokenCreatesNoGroup',
+                     'TestSecurityContactChangeKeepsEnrolledMFA', 'TestSecurityGroupLifecycleIsTheHosts',
                      'TestSecurityAPIKeysNeedPersonaOptIn', 'TestSecurityDeviceKeyNeedsIndependentFactor',
                      'TestSecurityCredentialSweepNeverBlocksBoot', 'TestSecurityEmailFactorIsPinned',
                      'TestSecurityGroupRoleIDsAreCanonical', 'TestSecurityPasswordStepUpOnPasskeySession',

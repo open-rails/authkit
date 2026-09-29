@@ -66,10 +66,10 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	result, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID})
 	require.NoError(t, err)
 	require.ErrorIs(t, result[0].Err, iam.ErrLastOwner)
-	deleted, err := client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))
+	deleted, err := client.DeleteGroup(ctx, iam.GroupByID(id))
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt)
-	again, err := client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))
+	again, err := client.DeleteGroup(ctx, iam.GroupByID(id))
 	require.NoError(t, err)
 	require.Equal(t, deleted.DeletedAt, again.DeletedAt)
 	descriptor, err := client.Group(ctx, iam.GroupByID(id))
@@ -106,10 +106,10 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.Nil(t, current.DeletedAt)
 	root, err := client.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
-	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(root.ID))
+	_, err = client.DeleteGroup(ctx, iam.GroupByID(root.ID))
 	require.Error(t, err)
-	require.NoError(t, client.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
-	require.NoError(t, client.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(id), iam.PurgeGroupOptions{}))
+	require.NoError(t, client.PurgeGroup(ctx, iam.GroupByID(id), iam.PurgeGroupOptions{}))
+	require.NoError(t, client.PurgeGroup(ctx, iam.GroupByID(id), iam.PurgeGroupOptions{}))
 	_, err = client.Group(ctx, iam.GroupByID(id))
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
@@ -127,7 +127,7 @@ func TestSoftDeleteGroupSerializesOwnerAccountDeletion(t *testing.T) {
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		var retireErr, deleteErr error
-		wg.Go(func() { <-start; _, retireErr = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id)) })
+		wg.Go(func() { <-start; _, retireErr = client.DeleteGroup(ctx, iam.GroupByID(id)) })
 		wg.Go(func() {
 			<-start
 			results, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID})
@@ -168,13 +168,13 @@ func TestSoftDeleteGroupRollsBackExternalOwnerLoss(t *testing.T) {
 	// already refuse. Retirement must not count this departing app as a replacement.
 	_, err = pool.Exec(ctx, "INSERT INTO profiles.group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'owner')", survivorID, application.ID)
 	require.NoError(t, err)
-	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(controller))
+	_, err = client.DeleteGroup(ctx, iam.GroupByID(controller))
 	require.ErrorIs(t, err, iam.ErrLastOwner)
 	unchanged, err := client.Group(ctx, iam.GroupByID(controller))
 	require.NoError(t, err)
 	require.Nil(t, unchanged.DeletedAt, "failed retirement is atomic")
 	grantRole(t, client, survivor, iam.UserSubject(owner.ID), "owner")
-	_, err = client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(controller))
+	_, err = client.DeleteGroup(ctx, iam.GroupByID(controller))
 	require.NoError(t, err)
 	_, err = client.GetRemoteApplication(ctx, application.Issuer)
 	require.Error(t, err)

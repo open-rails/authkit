@@ -28,7 +28,7 @@ const orgPersona iam.Persona = "org"
 func withRBAC(c *authkit.Config) {
 	c.Roles = authkit.RoleConfig{
 		Personas: map[string]authkit.Persona{
-			string(orgPersona): {Permissions: []string{"org:catalog:read"}, RemoteApplications: true, APIKeys: true, CustomRoles: true},
+			string(orgPersona): {Permissions: []string{"org:catalog:read", "org:settings:edit"}, RemoteApplications: true, APIKeys: true, CustomRoles: true},
 		},
 		Roles: []authkit.Role{
 			{Persona: iam.RootPersona, Name: "superadmin", Permissions: iam.IntrinsicRootPermissions()},
@@ -118,12 +118,11 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
-	group := iam.GroupBySlug(orgPersona, unique("org"))
-	_, err := h.createOrg(ctx, group, owner)
+	group, err := h.createOrg(ctx, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
-	base := "/" + string(orgPersona) + "/" + group.Slug() + "/remote-applications"
+	base := "/groups/" + group.ID() + "/remote-applications"
 	register := func(token, slug, issuer, key string, enabled bool) response {
 		return h.post(base, map[string]any{"slug": slug, "issuer": issuer, "public_keys": []map[string]string{{"public_key_pem": key}}, "enabled": enabled}, token)
 	}
@@ -177,17 +176,15 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
-	group := iam.GroupBySlug(orgPersona, unique("esc"))
-	_, err := h.createOrg(ctx, group, owner)
+	group, err := h.createOrg(ctx, owner)
 	require.NoError(t, err)
-	other := iam.GroupBySlug(orgPersona, unique("other"))
-	_, err = h.createOrg(ctx, other, owner)
+	other, err := h.createOrg(ctx, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	h.grant(group, member, "member")
 	managerToken := h.login(manager).AccessToken
 	memberToken := h.login(member).AccessToken
-	base := "/" + string(orgPersona) + "/" + group.Slug()
+	base := "/groups/" + group.ID()
 
 	for _, tc := range []struct {
 		name  string
@@ -207,7 +204,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
 			body: map[string]any{"name": "k", "role": "owner"}}, false},
 		{"member grants themself manager", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/manager", token: memberToken}, false},
-		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/" + string(orgPersona) + "/" + other.Slug() + "/members/" + member.id + "/roles/member", token: managerToken}, false},
+		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/groups/" + other.ID() + "/members/" + member.id + "/roles/member", token: managerToken}, false},
 		{"root admin surface with a group role", request{method: http.MethodGet, path: "/admin/users", token: managerToken}, false},
 		{"control: manager assigns member", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/member", token: managerToken}, true},
 	} {
@@ -220,7 +217,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.auth.Can(ctx, iam.UserActor(manager.id), group, iam.PermSelfDelete(orgPersona))
+	ownerAllowed, err := h.auth.Can(ctx, iam.UserActor(manager.id), group, ownerOnly)
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
 	stillOwner, err := h.auth.Can(ctx, iam.UserActor(owner.id), group, "org:members:manage")
@@ -228,20 +225,22 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	require.True(t, stillOwner)
 }
 
-// createOrg creates group as the system, owned by owner.
-func (h *host) createOrg(ctx context.Context, group iam.GroupRef, owner account) (iam.Group, error) {
+// ownerOnly is an org permission only the owner (org:*) holds.
+const ownerOnly iam.Perm = "org:settings:edit"
+
+// createOrg creates an org owned by owner, as the host does.
+func (h *host) createOrg(ctx context.Context, owner account) (iam.GroupRef, error) {
 	o := iam.UserSubject(owner.id)
-	g, _, err := h.auth.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: group.Persona(), Slug: group.Slug(), Owner: &o})
-	return g, err
+	g, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &o})
+	return iam.GroupByID(g.ID), err
 }
 
-// newOrg creates an org whose founder is its owner.
-func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
+// newOrg creates an org whose founder is its owner, and its route base.
+func (h *host) newOrg(founder account) (iam.GroupRef, string) {
 	h.t.Helper()
-	group := iam.GroupBySlug(orgPersona, unique(prefix))
-	_, err := h.createOrg(context.Background(), group, founder)
+	group, err := h.createOrg(context.Background(), founder)
 	require.NoError(h.t, err)
-	return group, "/" + string(orgPersona) + "/" + group.Slug()
+	return group, "/groups/" + group.ID()
 }
 
 type issued struct {
@@ -293,7 +292,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	founder, creator := h.newAccount("founder"), h.newAccount("creator")
-	group, base := h.newOrg("demote", founder)
+	group, base := h.newOrg(founder)
 	h.grant(group, creator, "owner")
 	creatorToken, founderToken := h.login(creator).AccessToken, h.login(founder).AccessToken
 	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "owner"})
@@ -306,7 +305,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, iam.PermSelfDelete(orgPersona))
+		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, ownerOnly)
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))
@@ -325,7 +324,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	owner, manager := h.newAccount("revowner"), h.newAccount("revmanager")
-	group, base := h.newOrg("revoke", owner)
+	group, base := h.newOrg(owner)
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
 	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "owner"})
@@ -360,7 +359,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	}))
 	ctx := context.Background()
 	squatter := h.newAccount("squatter")
-	_, base := h.newOrg("squat", squatter)
+	_, base := h.newOrg(squatter)
 	token := h.login(squatter).AccessToken
 	register := func(slug, iss string) response {
 		return h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": iss,
@@ -418,7 +417,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 
 	t.Run("no group or domain may claim the peer issuer", func(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
-		_, base := h.newOrg("peersquat", squatter)
+		_, base := h.newOrg(squatter)
 		for _, iss := range []string{peerIssuer, strings.ToUpper(peerIssuer) + "/"} {
 			resp := h.post(base+"/remote-applications", map[string]any{"slug": unique("peer"), "issuer": iss,
 				"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, h.login(squatter).AccessToken)
@@ -441,7 +440,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	t.Run("the system may not register this deployment's or a provider's issuer", func(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
-			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
@@ -449,7 +448,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	enabled := true
-	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
+	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
 		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
 	}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
@@ -507,7 +506,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	founder, manager := h.newAccount("p4founder"), h.newAccount("p4manager")
-	group, base := h.newOrg("p4", founder)
+	group, base := h.newOrg(founder)
 	h.grant(group, manager, "manager")
 	token := h.login(manager).AccessToken
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
@@ -554,7 +553,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("r1founder")
-	group, base := h.newOrg("r1", founder)
+	group, base := h.newOrg(founder)
 	g, err := h.auth.Group(ctx, group)
 	require.NoError(t, err)
 	token := h.login(founder).AccessToken
@@ -571,7 +570,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	t.Run("OwnerlessGroups lists groups without an owner", func(t *testing.T) {
 		var empty []string
 		for range 2 {
-			created, _, err := h.auth.CreateGroup(ctx, iam.SystemActor(), iam.NewGroup{Persona: orgPersona, Slug: unique("r1empty")})
+			created, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona})
 			require.NoError(t, err)
 			empty = append(empty, created.ID)
 		}

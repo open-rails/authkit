@@ -69,7 +69,7 @@ Add a row and a test for every new attack class.
 | Imported deleted account signs in or restores itself, skips its deletion hooks, outlives its window, or frees its username when purged | `TestSecurityImportedDeletionLifecycle` |
 | Username availability reveals more than "taken" or differs by owner; a deleted owner or expired alias resolves | `TestSecurityUsernameChecks` |
 | Session history shows another account's events, repeats or skips rows while paging, accepts a forged cursor, or is served without `root:users:read` | `TestSecuritySessionEventHistory` |
-| A non-system caller links a provider identity; a system link reaches another account | `TestSecurityLinkProvider` |
+| A host-linked provider identity reaches another account, or moves to one | `TestSecurityLinkProvider` |
 | Stolen session plus password on an account with a second factor: password step-up, or a password-refreshed session, clears the fresh-auth gate (backup codes, passkey, factor, provider link, address change, host `Sensitive` route) | `TestSecurityPasswordStepUpNeedsSecondFactor` |
 | Device key enrolled before MFA signs in without it; an MFA-required role holder without a factor enrolls one; a password change leaves device keys | `TestSecurityDeviceKeyMFAGate` |
 | API key registers an application; an application outranks, or outlives the authority of, the user who registered it | `TestSecurityApplicationRegistrar` |
@@ -80,7 +80,7 @@ Add a row and a test for every new attack class.
 | API key or application keeps a role after the host makes it need MFA | `TestSecurityMFARequirementRevokesMachineCredentials` |
 | Adding a member by email reveals the account or adds it without consent; a failed verification link reveals the address's state | `TestSecurityMemberEmailIsAnInvitation` |
 | Staff email change plus reset strips the second factor of an account holding no MFA role | `TestSecurityContactChangeKeepsEnrolledMFA` |
-| Banned account's live token creates a group | `TestSecurityBannedTokenCreatesNoGroup` |
+| A request creates, renames or deletes a group; a group is seeded with an unknown, banned, deleted or reserved owner, or an application | `TestSecurityGroupLifecycleIsTheHosts` |
 | API key minted for a persona that does not enable keys | `TestSecurityAPIKeysNeedPersonaOptIn` |
 | Mailbox reader binds a device key with the email factor, from the same mailbox as the enrollment code | `TestSecurityDeviceKeyNeedsIndependentFactor` |
 | Credential sweep's last-owner refusal fails `authkit.New` or a root custom-role edit (MFA added to owner, 2FA turned on with an app root owner, pre-0008 app owner, orphaned app under Required 2FA) | `TestSecurityCredentialSweepNeverBlocksBoot` |
@@ -91,7 +91,7 @@ Add a row and a test for every new attack class.
 | Password of a passkey-only MFA-role holder yields an enrollment token | `TestSecurityPasskeyHolderNeedsPasskey` |
 | Anonymous verification request reveals whether an address exists or is verified | `TestSecurityVerifyRequestRevealsNothing` |
 | `root:users:manage` held without MFA; staff set another account's password | `TestSecurityUserManagementNeedsMFA` |
-| Lost passkey under Required 2FA is a permanent lockout; anyone but the system resets an account's MFA | `TestSecurityResetAccountMFA` |
+| Lost passkey under Required 2FA is a permanent lockout; a reset leaves a session, passkey or device key behind | `TestSecurityResetAccountMFA` |
 | Last human owner deletes themselves or is banned while only their own application co-owns the group; ownerless groups go unnoticed | `TestSecurityOwnApplicationIsNoReplacementOwner` |
 | The account's own verified email change leaves its email factor's codes at the old mailbox | `TestSecurityEmailFactorFollowsOwnChange` |
 | Re-enrolling a revoked or foreign device key burns backup codes | `TestSecurityDeviceKeyRefusedBeforeBackupCode` |

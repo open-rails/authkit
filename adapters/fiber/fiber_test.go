@@ -461,7 +461,7 @@ func (authority) KnownPermission(perm iam.Perm) bool { return perm == "blog:post
 
 func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	issuer := newIssuer(t)
-	group := iam.GroupBySlug("blog", "writers")
+	group := iam.GroupByID("0190e2b6-0000-7000-8000-000000000001")
 	for _, allow := range []bool{true, false} {
 		calls := 0
 		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
@@ -473,18 +473,18 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		}}
 		app := fiber.New()
 		app.Get("/blogs/:blog", authkitfiber.RequirePermission(auth, "blog:posts:write", func(c fiber.Ctx) iam.GroupRef {
-			return iam.GroupBySlug("blog", c.Params("blog"))
+			return iam.GroupByID(c.Params("blog"))
 		}), func(c fiber.Ctx) error {
 			if !allow {
 				t.Error("denied permission reached handler")
 			}
 			return c.SendStatus(http.StatusNoContent)
 		})
-		status, _, body := request(t, app, http.MethodGet, "/blogs/writers", "")
+		status, _, body := request(t, app, http.MethodGet, "/blogs/"+group.ID(), "")
 		if status != http.StatusUnauthorized || calls != 0 {
 			t.Fatalf("anonymous response = %d %q, calls = %d", status, body, calls)
 		}
-		status, _, body = request(t, app, http.MethodGet, "/blogs/writers", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		status, _, body = request(t, app, http.MethodGet, "/blogs/"+group.ID(), "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
 		want := http.StatusForbidden
 		if allow {
 			want = http.StatusNoContent

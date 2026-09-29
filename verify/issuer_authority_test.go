@@ -57,7 +57,7 @@ func storedVerifier(t *testing.T) (*Verifier, *authoritySource, *jwtkit.RSASigne
 	app, signer := staticApp(t, "app", "https://application.example")
 	app.ID = "application-id"
 	src := &authoritySource{app: &app, authority: iam.RemoteApplicationAuthority{
-		Permissions: []string{"repo:read"}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo", InstanceSlug: "alpha",
+		Permissions: []string{"repo:read"}, PermissionGroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo",
 	}}
 	v := NewVerifier().WithService(src).WithPermissionChecker(src, "https://local.example")
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"resource"}))
@@ -143,7 +143,7 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 	cl, principal, err := v.VerifyDelegatedAccess(ctx, token)
 	require.NoError(t, err)
 	require.NotNil(t, principal.PermissionGroup)
-	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: iam.Persona(cl.PermissionGroupPersona), Instance: cl.PermissionGroupInstance}, principal.PermissionGroup)
+	require.Equal(t, &PermissionScope{GroupID: cl.PermissionGroupID, AuthorityIssuer: cl.PermissionGroupAuthorityIssuer, Persona: iam.Persona(cl.PermissionGroupPersona)}, principal.PermissionGroup)
 	for name, scope := range map[string]PermissionScope{
 		"own":              {GroupID: "group-alpha", AuthorityIssuer: "https://local.example", Persona: "repo"},
 		"different UUID":   {GroupID: "group-beta", AuthorityIssuer: "https://local.example", Persona: "repo"},

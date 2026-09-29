@@ -315,7 +315,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	})
 	ctx := context.Background()
 	manager, moderator := h.newAccount("delegmanager"), h.newAccount("delegmod")
-	group, _ := h.newOrg("delegate", h.newAccount("delegowner"))
+	group, _ := h.newOrg(h.newAccount("delegowner"))
 	h.grant(group, manager, "manager")
 	h.grant(iam.RootGroup(), moderator, "moderator")
 	mint := func(a account, perms ...string) response {

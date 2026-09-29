@@ -67,7 +67,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	apply := func(users ...iam.BootstrapManifestUser) (iam.BootstrapResult, error) {
-		return h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
+		return h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
 	}
 	requireUntouched := func(t *testing.T, userID string) {
 		t.Helper()
@@ -158,15 +158,6 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		require.False(t, phoneVerified)
 		h.login(owner)
 	})
-
-	t.Run("non-system actors are refused", func(t *testing.T) {
-		admin := h.newAccount("bootadmin")
-		h.grant(iam.RootGroup(), admin, "admin")
-		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
-			_, err := h.auth.ApplyBootstrapManifest(ctx, actor, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{{Username: unique("x"), RootRole: "admin"}}}, iam.BootstrapOptions{})
-			require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-		}
-	})
 }
 
 // TestSecurityEnsureUserRole: the README's first-admin call is idempotent on
@@ -175,23 +166,23 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 func TestSecurityEnsureUserRole(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
-	op, root := iam.SystemActor(), iam.RootGroup()
+	root := iam.RootGroup()
 
 	t.Run("creates a credential-less account, then re-runs as a no-op", func(t *testing.T) {
 		email := unique("firstadmin") + "@security.test"
-		first, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "moderator")
+		first, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
 		require.NoError(t, err)
 		require.False(t, first.EmailVerified)
 		emailVerified, _, hasPassword, _, _ := h.contactState(first.ID)
 		require.False(t, emailVerified)
 		require.False(t, hasPassword)
 		require.Equal(t, iam.Role("moderator"), h.rootRole(first.ID))
-		again, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "moderator")
+		again, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
 		require.NoError(t, err)
 		require.Equal(t, first.ID, again.ID)
 
 		// Unproven, the account gets nothing more.
-		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		require.Equal(t, iam.Role("moderator"), h.rootRole(first.ID))
 		login := h.post("/password/login", map[string]string{"identifier": email, "password": password}, "")
@@ -202,15 +193,15 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		emailVerified, _, _, _, _ = h.contactState(first.ID)
 		require.True(t, emailVerified)
 		// admin edits accounts, which needs MFA.
-		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
 		require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
 		h.enrollEmail2FA(account{id: first.ID, email: email})
-		promoted, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
+		promoted, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
 		require.NoError(t, err)
 		require.Equal(t, first.ID, promoted.ID)
 		require.Equal(t, iam.Role("admin"), h.rootRole(first.ID))
 		// A held role covering the requested one is kept, never downgraded.
-		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "moderator")
 		require.NoError(t, err)
 		require.Equal(t, iam.Role("admin"), h.rootRole(first.ID))
 	})
@@ -219,7 +210,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		email := unique("squatadmin") + "@security.test"
 		h.register(email)
 		squatter := h.userID(email)
-		_, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(email), root, "admin")
 		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		require.Empty(t, h.rootRole(squatter))
 		emailVerified, _, hasPassword, _, _ := h.contactState(squatter)
@@ -230,7 +221,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 	t.Run("a username never finds an account", func(t *testing.T) {
 		name := unique("namedadmin")
 		h.registerAs(unique("named")+"@security.test", name)
-		_, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByUsername(name), "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByUsername(name), root, "admin")
 		require.Error(t, err)
 		require.Empty(t, h.rootRole(h.userIDByName(name)))
 	})
@@ -238,7 +229,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 	t.Run("a verified account or an explicit id binds", func(t *testing.T) {
 		verified := h.newAccount("verifiedadmin")
 		h.enrollEmail2FA(verified)
-		u, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(verified.email), "admin")
+		u, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(verified.email), root, "admin")
 		require.NoError(t, err)
 		require.Equal(t, verified.id, u.ID)
 		require.Equal(t, iam.Role("admin"), h.rootRole(verified.id))
@@ -246,30 +237,21 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		email := unique("byid") + "@security.test"
 		h.register(email)
 		named := h.userID(email)
-		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByID(named), "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(named), root, "moderator")
 		require.NoError(t, err)
 		require.Equal(t, iam.Role("moderator"), h.rootRole(named))
 		emailVerified, _, _, _, _ := h.contactState(named)
 		require.False(t, emailVerified, "EnsureUserRole marked an address verified")
-		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByID(uuid.NewString()), "moderator")
+		_, err = h.auth.EnsureUserRole(ctx, iam.UserByID(uuid.NewString()), root, "moderator")
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 
 	t.Run("a covering role is kept", func(t *testing.T) {
 		owner := h.newAccount("keptowner")
 		h.grant(root, owner, "superadmin")
-		_, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(owner.email), "admin")
+		_, err := h.auth.EnsureUserRole(ctx, iam.UserByEmail(owner.email), root, "admin")
 		require.NoError(t, err)
 		require.Equal(t, iam.Role("superadmin"), h.rootRole(owner.id))
-	})
-
-	t.Run("non-system actors are refused", func(t *testing.T) {
-		admin := h.newAccount("ensureadmin")
-		h.grant(root, admin, "superadmin")
-		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
-			_, err := h.auth.EnsureUserRole(ctx, actor, root, iam.UserByEmail(unique("nobody")+"@security.test"), "moderator")
-			require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-		}
 	})
 }
 
@@ -279,7 +261,6 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 func TestSecurityImportUsers(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
-	op := iam.SystemActor()
 	raw, err := bcrypt.GenerateFromPassword([]byte("Imported-legacy-pass-1"), bcrypt.MinCost)
 	require.NoError(t, err)
 	bcryptHash := string(raw)
@@ -293,7 +274,7 @@ func TestSecurityImportUsers(t *testing.T) {
 		{Email: a.Email, Username: unique("impdup")},
 		{Email: legacy.Email, Username: b.Username},
 	}
-	res, err := h.auth.ImportUsers(ctx, op, rows, iam.ImportOptions{})
+	res, err := h.auth.ImportUsers(ctx, rows, iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 4, res.Inserted)
 	require.Equal(t, iam.ImportRejected, res.Rows[4].Status)
@@ -304,7 +285,7 @@ func TestSecurityImportUsers(t *testing.T) {
 	ids := []string{res.Rows[0].UserID, res.Rows[1].UserID, res.Rows[2].UserID, res.Rows[3].UserID}
 
 	// A re-run reports the same accounts.
-	again, err := h.auth.ImportUsers(ctx, op, rows[:4], iam.ImportOptions{})
+	again, err := h.auth.ImportUsers(ctx, rows[:4], iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 4, again.Skipped)
 	for i, match := range []iam.ImportMatch{iam.ImportMatchEmail, iam.ImportMatchPhone, iam.ImportMatchEmail, iam.ImportMatchID} {
@@ -327,7 +308,7 @@ func TestSecurityImportUsers(t *testing.T) {
 		squatter := h.userID(squat)
 		owner := h.newAccount("impowner")
 		merge := iam.ImportOptions{OnConflict: iam.ImportMerge}
-		out, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{
+		out, err := h.auth.ImportUsers(ctx, []iam.ImportUser{
 			{Email: squat, EmailVerified: true, Username: unique("impx"), Metadata: map[string]any{"vip": true}, PasswordHash: bcryptHash, HashAlgo: "bcrypt"},
 			{ID: ids[1], Username: b.Username, Metadata: map[string]any{"legacy_id": 7}, PasswordHash: bcryptHash, HashAlgo: "bcrypt"},
 			{Email: owner.email, EmailVerified: true, Username: unique("impy"), Metadata: map[string]any{"legacy_id": 8}, PasswordHash: bcryptHash, HashAlgo: "bcrypt"},
@@ -350,12 +331,6 @@ func TestSecurityImportUsers(t *testing.T) {
 		require.False(t, phoneVerified)
 		h.login(owner) // the account's own password survives a merge
 	})
-
-	t.Run("non-system actors are refused", func(t *testing.T) {
-		user := h.newAccount("impuser")
-		_, err := h.auth.ImportUsers(ctx, iam.UserActor(user.id), []iam.ImportUser{{Username: unique("x")}}, iam.ImportOptions{})
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	})
 }
 
 // TestSecurityImportSolanaLinks: imported wallets are reservations, never
@@ -368,7 +343,7 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 	_, _ = rand.Read(key)
 	address := base58.Encode(key)
 	link := iam.ImportSolanaLink{UserID: one.id, Address: address, Source: "legacy", SourceID: "1"}
-	res, err := h.auth.ImportSolanaLinks(ctx, iam.SystemActor(), []iam.ImportSolanaLink{
+	res, err := h.auth.ImportSolanaLinks(ctx, []iam.ImportSolanaLink{
 		link,
 		link,
 		{UserID: two.id, Address: address, Source: "legacy", SourceID: "2"},
@@ -384,12 +359,10 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 	var verified bool
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT verified_at IS NOT NULL FROM user_providers WHERE subject=$1`, address).Scan(&verified))
 	require.False(t, verified, "an imported wallet became a login method")
-	_, err = h.auth.ImportSolanaLinks(ctx, iam.UserActor(one.id), []iam.ImportSolanaLink{link})
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 }
 
-// TestSecurityLinkProvider: the system-linked identity signs in to exactly
-// the account it names; nobody else can link.
+// TestSecurityLinkProvider: a host-linked identity signs in to exactly the
+// account it names, and never moves to another.
 func TestSecurityLinkProvider(t *testing.T) {
 	provider := &stubProvider{name: "opidp"}
 	provider.identity.Subject = unique("opsub")
@@ -397,9 +370,8 @@ func TestSecurityLinkProvider(t *testing.T) {
 	ctx := context.Background()
 	owner := h.newAccount("linked")
 	l := iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: provider.identity.Subject}
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.UserActor(owner.id), owner.id, l), iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.SystemActor(), uuid.NewString(), l), iam.ErrUserNotFound)
-	require.NoError(t, h.auth.LinkProvider(ctx, iam.SystemActor(), owner.id, l))
+	require.ErrorIs(t, h.auth.LinkProvider(ctx, uuid.NewString(), l), iam.ErrUserNotFound)
+	require.NoError(t, h.auth.LinkProvider(ctx, owner.id, l))
 	var users int
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&users))
 	resp := h.providerCallback(provider.name)
@@ -411,7 +383,7 @@ func TestSecurityLinkProvider(t *testing.T) {
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&after))
 	require.Equal(t, users, after, "the provider login created an account instead of using the linked one")
 	other := h.newAccount("linkedother")
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.SystemActor(), other.id, l), errmodel.ErrProviderAlreadyLinked)
+	require.ErrorIs(t, h.auth.LinkProvider(ctx, other.id, l), errmodel.ErrProviderAlreadyLinked)
 }
 
 // TestSecurityImportProviders: an imported provider identity signs in to
@@ -422,7 +394,6 @@ func TestSecurityImportProviders(t *testing.T) {
 	provider := &stubProvider{name: "impidp"}
 	h := newHost(t, withHTTP(generousLimits), withProviders(provider))
 	ctx := context.Background()
-	op := iam.SystemActor()
 	link := func(prefix string) iam.ProviderLink {
 		return iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: unique(prefix)}
 	}
@@ -432,7 +403,7 @@ func TestSecurityImportProviders(t *testing.T) {
 	}
 	holder := h.newAccount("impholder")
 	held, fresh, skipped := link("heldsub"), link("freshsub"), link("skipsub")
-	require.NoError(t, h.auth.LinkProvider(ctx, op, holder.id, held))
+	require.NoError(t, h.auth.LinkProvider(ctx, holder.id, held))
 	exists := row("impexists", skipped)
 	exists.Email = holder.email
 	rows := []iam.ImportUser{
@@ -444,7 +415,7 @@ func TestSecurityImportProviders(t *testing.T) {
 		row("impblank", iam.ProviderLink{Issuer: provider.Issuer()}),
 		exists,
 	}
-	res, err := h.auth.ImportUsers(ctx, op, rows, iam.ImportOptions{})
+	res, err := h.auth.ImportUsers(ctx, rows, iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, iam.ImportInserted, res.Rows[0].Status)
 	for i, reason := range map[int]string{1: "provider_already_linked", 2: "provider_already_linked", 3: "invalid_provider", 4: "invalid_provider", 5: "invalid_provider"} {
@@ -465,7 +436,7 @@ func TestSecurityImportProviders(t *testing.T) {
 		merge := iam.ImportOptions{OnConflict: iam.ImportMerge}
 		byID, byEmail, byBoth := link("mergeid"), link("mergeemail"), link("mergeboth")
 		target, other, both := h.newAccount("impmerge"), h.newAccount("impmergeother"), h.newAccount("impmergeboth")
-		out, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{
+		out, err := h.auth.ImportUsers(ctx, []iam.ImportUser{
 			{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{byID}},
 			{Email: other.email, Username: unique("impmergex"), Providers: []iam.ProviderLink{byEmail}},
 			{ID: other.id, Username: other.username, Providers: []iam.ProviderLink{held}, Metadata: map[string]any{"stolen": true}},
@@ -484,7 +455,7 @@ func TestSecurityImportProviders(t *testing.T) {
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata ? 'stolen' FROM users WHERE id=$1::uuid`, other.id).Scan(&stolen))
 		require.False(t, stolen, "a rejected merge kept part of its row")
 
-		again, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{link("mergesecond")}}}, merge)
+		again, err := h.auth.ImportUsers(ctx, []iam.ImportUser{{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{link("mergesecond")}}}, merge)
 		require.NoError(t, err)
 		require.Equal(t, iam.ImportRow{Index: 0, Status: iam.ImportRejected, Reason: "provider_change_requires_unlink"}, again.Rows[0])
 	})
@@ -526,7 +497,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 		return iam.ImportUser{Email: name + "@security.test", EmailVerified: true, Username: name, PasswordHash: string(raw), HashAlgo: "bcrypt", DeletedAt: at}
 	}
 	recent, old := deletedRow("imprecent", &recentAt), deletedRow("impold", &oldAt)
-	res, err := h.auth.ImportUsers(ctx, op, []iam.ImportUser{recent, old, deletedRow("impfuture", &future)}, iam.ImportOptions{})
+	res, err := h.auth.ImportUsers(ctx, []iam.ImportUser{recent, old, deletedRow("impfuture", &future)}, iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 2, res.Inserted)
 	require.Equal(t, iam.ImportRow{Index: 2, Status: iam.ImportRejected, Reason: "invalid_deleted_at"}, res.Rows[2])
@@ -558,7 +529,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	t.Run("without River", func(t *testing.T) {
 		bare := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
 		row := deletedRow("impnoriver", &recentAt)
-		_, err := bare.auth.ImportUsers(ctx, op, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
+		_, err := bare.auth.ImportUsers(ctx, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
 		require.Error(t, err)
 		require.False(t, bare.emailTaken(row.Email))
 	})

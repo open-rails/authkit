@@ -31,7 +31,7 @@ func (h *host) mfaSession(a account) string {
 // sessionToken mints a fresh access token for an existing session.
 func (h *host) sessionToken(userID, sid string) string {
 	h.t.Helper()
-	tok, err := h.auth.MintAccessToken(context.Background(), iam.SystemActor(), userID, iam.AccessTokenOptions{SessionID: sid})
+	tok, err := h.auth.MintAccessToken(context.Background(), userID, iam.AccessTokenOptions{SessionID: sid})
 	require.NoError(h.t, err)
 	return tok.Value
 }
@@ -296,12 +296,7 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	passkeySession := session(t, resp)
 
-	for _, actor := range []iam.Actor{iam.UserActor(admin.id), iam.UserActor(holder.id)} {
-		require.ErrorIs(t, h.auth.ResetAccountMFA(ctx, actor, holder.id), iam.ErrInsufficientAuthority)
-	}
-	require.Equal(t, "passkey_required", signIn(holder).errorCode(), "a refused reset changed the account")
-
-	require.NoError(t, h.auth.ResetAccountMFA(ctx, iam.SystemActor(), holder.id))
+	require.NoError(t, h.auth.ResetAccountMFA(ctx, holder.id))
 	require.Equal(t, 1, h.mail.count(`^mfa-reset to=`+holder.email+`$`))
 	require.Equal(t, http.StatusUnauthorized, h.refresh(passkeySession.RefreshToken).status, "a session outlived the reset")
 	require.NotEqual(t, http.StatusOK, h.passkeyLogin(authn, 2).status, "the passkey outlived the reset")
@@ -325,7 +320,7 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: the enrolled factor signs in")
 
 	t.Run("factors and backup codes go too", func(t *testing.T) {
-		require.NoError(t, h.auth.ResetAccountMFA(ctx, iam.SystemActor(), lost.id))
+		require.NoError(t, h.auth.ResetAccountMFA(ctx, lost.id))
 		var factors, settings int
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM profiles.mfa_factors WHERE user_id=$1::uuid), (SELECT count(*) FROM profiles.mfa_settings WHERE user_id=$1::uuid)`, lost.id).Scan(&factors, &settings))
 		require.Zero(t, factors)

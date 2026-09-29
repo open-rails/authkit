@@ -144,7 +144,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		done := make(chan error, 2)
 		go func() {
 			<-start
-			done <- svc.PurgeGroup(ctx, iam.SystemActor(), iam.GroupByID(controllerID), iam.PurgeGroupOptions{})
+			done <- svc.PurgeGroup(ctx, iam.GroupByID(controllerID), iam.PurgeGroupOptions{})
 		}()
 		go func() {
 			<-start

@@ -109,7 +109,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 
 	t.Run("a role held in another group needs coverage there", func(t *testing.T) {
 		owner, manager := h.newAccount("appowner"), h.newAccount("appmanager")
-		group, base := h.newOrg("rekey", owner)
+		group, base := h.newOrg(owner)
 		h.grant(group, manager, "manager")
 		managerToken := h.login(manager).AccessToken
 		register := func() response {
@@ -140,7 +140,7 @@ func TestSecurityGroupApplicationTier(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("tierowner")
-	group, base := h.newOrg("tier", owner)
+	group, base := h.newOrg(owner)
 	token := h.login(owner).AccessToken
 	key := publicKeyPEM(t)
 	register := func(key string, extra map[string]any) response {
@@ -218,7 +218,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 
 	t.Run("bootstrap hands an application no MFA-required root role", func(t *testing.T) {
 		enabled := true
-		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.SystemActor(), iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
+		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
 			Slug: "boot-app", Issuer: "https://boot-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "boot-app")), Enabled: &enabled, RootRole: iam.OwnerRole,
 		}}}, iam.BootstrapOptions{})
 		require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
@@ -235,7 +235,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("regowner")
-	group, base := h.newOrg("registrar", owner)
+	group, base := h.newOrg(owner)
 	ownerToken := h.login(owner).AccessToken
 	type registered struct {
 		registrar account
@@ -399,7 +399,7 @@ func TestSecurityIssuerSquatLastOwner(t *testing.T) {
 	}))
 	ctx := context.Background()
 	squatter := h.newAccount("lastsquatter")
-	_, base := h.newOrg("lastsquat", squatter)
+	_, base := h.newOrg(squatter)
 	token := h.login(squatter).AccessToken
 	const victimIssuer = "https://last-owner-victim.security.test"
 	resp := h.post(base+"/remote-applications", map[string]any{"slug": "squat-app", "issuer": victimIssuer,
@@ -443,7 +443,7 @@ func TestSecurityTokenMatrix(t *testing.T) {
 	ctx := context.Background()
 	user := h.newAccount("matrixuser")
 	h.grant(iam.RootGroup(), user, "admin")
-	_, base := h.newOrg("matrix", user)
+	_, base := h.newOrg(user)
 	managed, foreign := newSigner(t, "managed-kid"), newSigner(t, "foreign-kid")
 	const managedIssuer, foreignIssuer = "https://managed.security.test", "https://foreign.security.test"
 	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
@@ -549,7 +549,7 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("pageowner")
-	group, base := h.newOrg("paging", owner)
+	group, base := h.newOrg(owner)
 	for _, slug := range []string{"page-a", "page-b", "page-c"} {
 		_, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
 			Slug: slug, Issuer: "https://" + slug + ".security.test", PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: true,

@@ -38,7 +38,7 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	cfg.HTTP.APIPath = "/auth"
 	runtime := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(runtime.Close)
-	_, err := runtime.CreateUser(context.Background(), iam.SystemActor(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
+	_, err := runtime.CreateUser(context.Background(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
 	require.NotNil(t, runtime.Verifier())
 	require.Contains(t, runtime.Patterns(), "GET "+iam.JWKSPath)

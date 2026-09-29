@@ -42,16 +42,15 @@ func TestActor(t *testing.T) {
 }
 
 func TestGroupRef(t *testing.T) {
-	if !RootGroup().IsRoot() || !GroupBySlug(" root ", "ignored").IsRoot() || GroupBySlug("root", "x").Slug() != "" {
+	if !RootGroup().IsRoot() || RootGroup().ID() != "" || RootGroup().String() != "root" {
 		t.Fatal("root reference")
 	}
-	g := GroupBySlug(" org ", " Acme ")
-	if g.Persona() != "org" || g.Slug() != "acme" || g.ID() != "" || g.IsRoot() || g.String() != "org/acme" {
-		t.Fatalf("slug reference = %v", g)
-	}
 	id := GroupByID(" 0190e2b6-0000-7000-8000-000000000000 ")
-	if id.ID() != "0190e2b6-0000-7000-8000-000000000000" || id.Persona() != "" || id.IsRoot() || id.IsZero() {
+	if id.ID() != "0190e2b6-0000-7000-8000-000000000000" || id.IsRoot() || id.IsZero() || id.String() != "id:0190e2b6-0000-7000-8000-000000000000" {
 		t.Fatalf("id reference = %v", id)
+	}
+	if GroupByID("").IsRoot() || !GroupByID("").IsZero() {
+		t.Fatal("an empty id addresses nothing")
 	}
 	if !(GroupRef{}).IsZero() || RootGroup().IsZero() {
 		t.Fatal("zero reference")

@@ -11,25 +11,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAuthPublicSurface keeps Auth's surface a deliberate choice: a new method
-// must be placed in one of these lists. Every mutation and every check takes
-// the acting iam.Actor right after ctx; nothing else takes an actor.
+// TestAuthPublicSurface keeps Auth's surface a deliberate choice: every method
+// is in exactly one of two lists. Methods whose rules depend on who acts take
+// the acting iam.Actor right after ctx; host operations (your code decides),
+// reads, lifecycle and HTTP take none.
 func TestAuthPublicSurface(t *testing.T) {
 	takesActor := []string{
-		// Accounts, sessions and tokens.
-		"CreateUser", "UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers", "PurgeUsers",
-		"ResetAccountMFA", "RevokeSession", "RevokeAccountSessions", "MintAccessToken",
-		// Groups, roles and checks.
-		"CreateGroup", "UpdateGroup", "DeleteGroup", "PurgeGroup", "AssignGroupRoles", "UnassignGroupRoles",
-		"RemoveGroupMembers", "DefineGroupRole", "DeleteGroupRole", "Can", "EffectivePermissions",
+		// Accounts and sessions.
+		"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
+		"RevokeSession", "RevokeAccountSessions",
+		// Roles and checks.
+		"AssignGroupRoles", "UnassignGroupRoles", "RemoveGroupMembers", "DefineGroupRole", "DeleteGroupRole",
+		"Can", "EffectivePermissions",
 		// Credentials and invitations.
 		"MintAPIKey", "RevokeAPIKey", "CreateInviteLink", "RevokeInviteLink", "CreateAccountInvite",
 		// Remote applications and delegation.
 		"UpsertRemoteApplication", "DeleteRemoteApplication", "MintDelegatedAccessToken",
-		// Bootstrap and import (operator only).
-		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 	}
 	noActor := []string{
+		// Host operations: your code decides.
+		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken",
+		"CreateGroup", "DeleteGroup", "PurgeGroup",
+		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 		// Reads: the host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ResolveUsername", "CheckUsername",
 		"ActiveDeviceKeys", "Sessions", "SessionEvents",
@@ -65,7 +68,7 @@ func TestAuthPublicSurface(t *testing.T) {
 			if in.Kind() == reflect.Slice {
 				in = in.Elem()
 			}
-			require.NotEqual(t, actorType, in, "%s takes an actor: list it with the operations", name)
+			require.NotEqual(t, actorType, in, "%s takes an actor: list it in takesActor", name)
 		}
 	}
 	for _, name := range names {

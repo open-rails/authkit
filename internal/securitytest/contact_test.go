@@ -310,7 +310,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("n9owner")
-	group, base := h.newOrg("n9", owner)
+	group, base := h.newOrg(owner)
 	ownerToken := h.login(owner).AccessToken
 	verified := h.newAccount("n9verified")
 	unverified := unique("n9unverified") + "@security.test"

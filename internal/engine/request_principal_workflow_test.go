@@ -67,7 +67,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	before, err := client.DeleteUsers(ctx, iam.SystemActor(), []string{owner})
 	require.NoError(t, err)
 	require.ErrorIs(t, before[0].Err, iam.ErrLastOwner)
-	descriptor, err := client.DeleteGroup(ctx, iam.SystemActor(), iam.GroupByID(id))
+	descriptor, err := client.DeleteGroup(ctx, iam.GroupByID(id))
 	require.NoError(t, err)
 	require.NotNil(t, descriptor.DeletedAt)
 	allowed, err = checker.Can(ctx, scope, "org:catalog:read")
