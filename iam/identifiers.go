@@ -118,16 +118,23 @@ func (p *Perm) UnmarshalText(b []byte) error {
 }
 
 func validPermText(s string) bool {
+	_, ok := permSegments(s)
+	return ok
+}
+
+// permSegments splits well-formed permission text: a persona name, then one
+// or more segments, each a name or `*`.
+func permSegments(s string) ([]string, bool) {
 	segs := strings.Split(s, ":")
 	if len(segs) < 2 || !ValidPermissionSegment(segs[0]) {
-		return false
+		return nil, false
 	}
 	for _, seg := range segs[1:] {
 		if seg != PermWildcard && !ValidPermissionSegment(seg) {
-			return false
+			return nil, false
 		}
 	}
-	return true
+	return segs, true
 }
 
 // Grant is what a role holds: a permission or pattern, or another role of the
@@ -167,34 +174,31 @@ func (p Perm) Persona() Persona {
 	return Persona{s}
 }
 
-// Matches reports whether grant authorizes this CONCRETE permission. The grant
-// may be a literal (`org:members:read`) or a namespace-anchored glob where `*`
-// wildcards a whole segment (`org:members:*`, `org:*:read`, `org:*`). The
-// namespace (segment 0) must be a literal — a bare `*` (or a `*` namespace)
-// never matches. A two-segment glob `ns:*` matches every concrete `ns:…` perm.
-//
-// This is the shared, authz-critical matcher used by both the engine's RBAC
-// checks and the verification layer's permission-coverage checks.
+// Matches reports whether grant authorizes p. A grant is a literal
+// (`org:members:read`) or a pattern whose segments after the persona may be
+// `*`: `org:*` covers every `org:` permission; any other pattern covers only
+// permissions with as many segments (`org:members:*` covers
+// `org:members:read`, not `org:members:read:x`). The persona is always
+// literal, so a bare `*` matches nothing. When p is itself a pattern, Matches
+// reports whether grant covers all of it. Malformed text on either side
+// matches nothing, and nothing is trimmed. testdata/perm_vectors.json pins
+// this rule for Go and the auth-ui TypeScript matcher.
 func (p Perm) Matches(grant Perm) bool {
-	g := strings.Split(strings.TrimSpace(grant.s), ":")
-	c := strings.Split(strings.TrimSpace(p.s), ":")
-	if g[0] == "" || g[0] == PermWildcard {
-		return false // namespace must be a literal prefix (namespace-anchored)
+	g, ok := permSegments(grant.s)
+	if !ok {
+		return false
 	}
-	// Two-segment namespace-wide glob: `ns:*` covers every `ns:<resource>:<action>`.
+	c, ok := permSegments(p.s)
+	if !ok || g[0] != c[0] {
+		return false
+	}
 	if len(g) == 2 && g[1] == PermWildcard {
-		return c[0] == g[0]
+		return true
 	}
 	if len(g) != len(c) {
 		return false
 	}
-	for i := range g {
-		if i == 0 {
-			if g[i] != c[i] {
-				return false
-			}
-			continue
-		}
+	for i := 1; i < len(g); i++ {
 		if g[i] != PermWildcard && g[i] != c[i] {
 			return false
 		}

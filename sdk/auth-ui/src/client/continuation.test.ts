@@ -2,7 +2,6 @@ import { expect, it } from "vitest"
 
 import { readContinuation, readStepUpRequired } from "./continuation.ts"
 import { AuthKitError } from "./errors.ts"
-import { hasPermission, permMatches } from "./permissions.ts"
 import { safeReturnTo } from "./returnTo.ts"
 
 const err = (status: number, code: string, metadata: Record<string, unknown>) =>
@@ -99,17 +98,6 @@ it("reads step_up_required and narrows MFA-gated methods to 2fa", () => {
     mfaRequired: true,
     twoFactor: { methods: ["totp"] },
   })
-})
-
-it("matches permission globs like AuthKit", () => {
-  expect(permMatches("root:*", "root:tags:update")).toBe(true)
-  expect(permMatches("root:tags:*", "root:tags:update")).toBe(true)
-  expect(permMatches("root:*:update", "root:tags:update")).toBe(false)
-  expect(permMatches("root:tags", "root:tags:update")).toBe(false)
-  expect(
-    hasPermission(["org:x:y", "root:tags:update"], "root:tags:update")
-  ).toBe(true)
-  expect(hasPermission(undefined, "root:tags:update")).toBe(false)
 })
 
 it("keeps only app-relative return targets", () => {
