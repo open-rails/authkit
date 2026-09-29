@@ -53,7 +53,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	client := runtime
 	owner, token := newInstanceTestUser(t, service, "retirednative")
 	group := iam.GroupBySlug("org", "retained-native")
-	id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: group.Persona(), InstanceSlug: group.Slug(), OwnerSubjectID: owner})
+	id, err := seedGroup(ctx, client, group.Persona(), group.Slug(), owner)
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodGet, "https://example.com/org/retained-native", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -67,7 +67,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	before, err := client.SoftDeleteUsers(ctx, []string{owner})
 	require.NoError(t, err)
 	require.ErrorIs(t, before[0].Err, iam.ErrCannotRemoveLastAdminRole)
-	descriptor, err := client.SoftDeleteGroupInstanceByID(ctx, id)
+	descriptor, err := client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(id))
 	require.NoError(t, err)
 	require.NotNil(t, descriptor.DeletedAt)
 	allowed, err = checker.Can(ctx, scope, "org:catalog:read")
@@ -78,7 +78,7 @@ func TestRetiredGroupRevokesNativeSessionAuthority(t *testing.T) {
 	after, err := client.SoftDeleteUsers(ctx, []string{owner})
 	require.NoError(t, err)
 	require.NoError(t, after[0].Err)
-	retained, err := client.GroupInstanceByID(ctx, id)
+	retained, err := client.Group(ctx, iam.GroupByID(id))
 	require.NoError(t, err)
 	require.Equal(t, descriptor.DeletedAt, retained.DeletedAt)
 }

@@ -2,33 +2,28 @@ package verify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	authprotocol "github.com/open-rails/helpers/auth"
 )
 
-// PermissionChecker checks live authority on an already resolved immutable group.
-// Hosts resolve a name once at their request boundary and reuse its GroupID.
-// Scoped machine checks additionally require GroupInstanceByID on the same
-// checker, so a retained inactive group cannot grant captured token authority.
+// PermissionChecker checks an actor's live authority in a group; *authkit.Auth
+// is one. Can is false for a dead actor, an unknown group or an actor bound
+// to another group, and ErrUnknownPermission for an unregistered perm.
 type PermissionChecker interface {
-	CanOnGroup(ctx context.Context, subject iam.Subject, groupID string, perm iam.Perm) (bool, error)
+	Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error)
 	// KnownPermission reports whether perm is registered in the checker's
 	// permission catalogs.
 	KnownPermission(perm iam.Perm) bool
 }
 
-// MustKnowPermission panics when checker does not register perm: gating a
-// route on an unregistered permission is a programming error, caught when the
-// route is built. A nil checker (token-carried authority only) has no catalog.
-func MustKnowPermission(checker PermissionChecker, perm iam.Perm) {
-	if checker != nil && !checker.KnownPermission(perm) {
-		panic(fmt.Sprintf("authkit: RequirePermission: permission %q is not registered in any persona catalog", perm))
-	}
+// Authority authenticates requests and checks permissions: what
+// RequirePermission needs. *authkit.Auth is one.
+type Authority interface {
+	PermissionChecker
+	Verifier() *Verifier
 }
 
 // DelegatedAuthority is implemented by a checker that can re-check, on use, a
@@ -38,20 +33,8 @@ type DelegatedAuthority interface {
 	DelegatedPermissionLive(ctx context.Context, cl Claims, perm iam.Perm) (bool, error)
 }
 
-// tokenPermission reports whether an unbound, non-user token grants perm,
-// re-checking delegated authority live when the checker can.
-func tokenPermission(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm) (bool, error) {
-	if !cl.IsMachine() || !cl.HasPermission(perm) {
-		return false, nil
-	}
-	if live, ok := checker.(DelegatedAuthority); ok && cl.IsDelegatedAccessToken() {
-		return live.DelegatedPermissionLive(ctx, cl, perm)
-	}
-	return true, nil
-}
-
-// PermissionScope is a trusted request resolution. GroupID and AuthorityIssuer
-// identify ownership; Persona and Instance describe its canonical public name.
+// PermissionScope is a credential's permission-group binding: the group id,
+// the issuer whose group it is, and the group's public name.
 type PermissionScope struct {
 	GroupID         string
 	AuthorityIssuer string
@@ -59,91 +42,50 @@ type PermissionScope struct {
 	Instance        string
 }
 
-// Allow checks machine permission ceilings against the exact UUID and authority
-// issuer. Unbound delegated permissions retain their explicit issuer-trust
-// contract. Human permissions always come from live assignments on GroupID.
-// A missing or mismatched machine binding never falls back to human authority.
-func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm, scope PermissionScope) (bool, error) {
-	if cl.BoundToPermissionGroup() {
-		if !cl.HasPermission(perm) || !cl.PermissionGroupAllows(scope) {
-			return false, nil
-		}
-		reader, ok := checker.(interface {
-			GroupInstanceByID(context.Context, string) (iam.GroupInstance, error)
-		})
-		if !ok {
-			return false, fmt.Errorf("%w: scoped machine permissions require group liveness", authprotocol.ErrUnavailable)
-		}
-		group, err := reader.GroupInstanceByID(ctx, scope.GroupID)
-		if errors.Is(err, iam.ErrGroupNotFound) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return group.ID == scope.GroupID && group.DeletedAt == nil, nil
+// MustKnowPermission panics when checker does not register perm: gating a
+// route on an unregistered permission is a programming error, caught when the
+// route is built.
+func MustKnowPermission(checker PermissionChecker, perm iam.Perm) {
+	if !checker.KnownPermission(perm) {
+		panic(fmt.Sprintf("authkit: RequirePermission: permission %q is not registered in any persona catalog", perm))
 	}
-	if cl.IsMachine() && cl.HasPermission(perm) {
-		return tokenPermission(ctx, checker, cl, perm)
-	}
-	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
-		return false, nil
-	}
-	return checker.CanOnGroup(ctx, iam.UserSubject(cl.UserID), scope.GroupID, perm)
 }
 
-// RequirePermission authorizes the resolved group once and places that exact
-// scope in the request context for the downstream handler. Missing resolution or
-// any permission-check error denies. Unbound delegated authority is scope-free.
-// It panics at construction on a perm the checker does not register.
-func RequirePermission(checker PermissionChecker, perm iam.Perm, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
-	MustKnowPermission(checker, perm)
+// Allow reports whether the actor verified claims act as holds perm in the
+// group ref addresses, checked live by checker. Claims carrying no AuthKit
+// authority, a nil checker and a zero ref are refused.
+func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm iam.Perm, ref iam.GroupRef) (bool, error) {
+	actor, ok := ActorFromClaims(cl)
+	if !ok || checker == nil || ref.IsZero() {
+		return false, nil
+	}
+	return checker.Can(ctx, actor, ref, perm)
+}
+
+// RequirePermission authenticates the request (it includes Required; do not
+// stack Required in front of it) and requires perm, checked live, in the group
+// resolve returns for the request. A nil resolve means the root group. It
+// panics at construction on a perm the authority does not register.
+func RequirePermission(a Authority, perm iam.Perm, resolve func(*http.Request) iam.GroupRef) func(http.Handler) http.Handler {
+	MustKnowPermission(a, perm)
+	if resolve == nil {
+		resolve = func(*http.Request) iam.GroupRef { return iam.RootGroup() }
+	}
+	authenticate := Required(a.Verifier())
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil {
 				fail(w, errmodel.CodeForbidden)
 				return
 			}
-			// Token-carried authority short-circuits without a scope ONLY for
-			// unbound principals (delegated access — issuer trust + permissions).
-			// A group-bound machine principal (#248) needs the resolved scope to
-			// check its instance binding, so it falls through to Allow.
-			if cl.IsMachine() && cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
-				if ok, err := tokenPermission(r.Context(), checker, cl, perm); err != nil || !ok {
-					fail(w, errmodel.CodeForbidden)
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-			if resolve == nil {
-				fail(w, errmodel.CodeForbidden)
-				return
-			}
-			scope := resolve(r)
-			ok, err := Allow(r.Context(), checker, cl, perm, scope)
+			ok, err := Allow(r.Context(), a, cl, perm, resolve(r))
 			if err != nil || !ok {
 				fail(w, errmodel.CodeForbidden)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))
+			next.ServeHTTP(w, r)
 		})
+		return authenticate(gate)
 	}
-}
-
-// PermissionScopeFromContext returns the exact group authorized by middleware,
-// so a domain handler does not resolve the mutable path a second time.
-func PermissionScopeFromContext(ctx context.Context) (PermissionScope, bool) {
-	scope, ok := ctx.Value(permissionScopeKey{}).(PermissionScope)
-	return scope, ok
-}
-
-type permissionScopeKey struct{}
-
-// WithPermissionScope carries an already authorized scope into a trusted host
-// adapter's handler. Call only after Allow/AllowLive succeeds; this does not
-// authorize anything itself.
-func WithPermissionScope(ctx context.Context, scope PermissionScope) context.Context {
-	return context.WithValue(ctx, permissionScopeKey{}, scope)
 }

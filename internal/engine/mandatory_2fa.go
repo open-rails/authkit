@@ -98,28 +98,26 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 	return nil
 }
 
-// roleRequiresMFA reports whether role (in persona) requires MFA: a catalog
-// role's declared Role.RequiresMFA, or — for a non-catalog role (#247) — a
-// per-group custom role's stored requires_mfa flag, looked up in gid. gid may
-// be empty when the role is known to be a catalog role at the call site (the
-// custom-role branch is then simply skipped, reporting false).
+// roleRequiresMFA reports whether role (in persona) needs MFA: its permissions
+// reach one the schema marks as needing MFA (Persona.RequireMFA). A custom
+// role is looked up in gid; with gid empty only catalog roles are known.
 func (s *Engine) roleRequiresMFA(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, role iam.Role) (bool, error) {
 	persona = iam.Persona(strings.TrimSpace(string(persona)))
 	role = iam.Role(strings.TrimSpace(string(role)))
-	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
+	sch := s.groupSchemaOrDefault()
+	if def, ok := sch.Role(persona, role); ok {
 		return def.RequiresMFA, nil
 	}
 	gid = strings.TrimSpace(gid)
 	if gid == "" || role == "" {
 		return false, nil
 	}
-	_, requiresMFA, err := newPermissionGroupStore(q).CustomRole(ctx, gid, role)
-	return requiresMFA, err
+	grants, _, err := newPermissionGroupStore(q).CustomRole(ctx, gid, role)
+	return sch.RequiresMFA(grants), err
 }
 
 // userHoldsMFARequiredRole reports whether userID currently holds at least one
-// role, in any permission group, that requires MFA — a catalog role with
-// Role.RequiresMFA or a custom role with requires_mfa (#247). Used only by
+// role, in any permission group, whose permissions need MFA. Used only by
 // requireSessionMFAStateWith (login/refresh session establishment) — never
 // per-request middleware — since it hits the database.
 func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {

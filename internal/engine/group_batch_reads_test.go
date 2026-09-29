@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +53,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		},
 		Roles: []Role{
 			{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}},
-			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []iam.Role{"reader"}, RequiresMFA: true},
+			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []iam.Role{"reader"}},
 			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
 		},
 	}
@@ -68,8 +67,9 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	member, err := client.CreateUser(ctx, "batch-member@example.test", "batch-member")
 	require.NoError(t, err)
 	subject := iam.UserSubject(member.ID)
+	actor := iam.UserActor(member.ID)
 	create := func(persona iam.Persona, slug string) (string, iam.GroupRef) {
-		id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID})
+		id, err := seedGroup(ctx, client, persona, slug, owner.ID)
 		require.NoError(t, err)
 		return id, iam.GroupBySlug(persona, slug)
 	}
@@ -84,37 +84,41 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	section, sectionRef := create("section", "batch-section")
 	assign(sectionRef, "editor")
 	curated, curatedRef := create("channel", "batch-curated")
-	require.NoError(t, rt.DefineGroupCustomRole(ctx, owner.ID, curatedRef, authflow.CustomRoleDef{Role: "curator", Permissions: []string{"channel:posts:write"}}))
+	require.NoError(t, rt.DefineGroupRole(ctx, iam.UserActor(owner.ID), curatedRef, iam.CustomRole{Name: "curator", Permissions: []string{"channel:posts:write"}}))
 	assign(curatedRef, "curator")
 	retired, retiredRef := create("channel", "batch-retired")
 	assign(retiredRef, "reader")
-	_, err = client.SoftDeleteGroupInstanceByID(ctx, retired)
+	_, err = client.DeleteGroup(ctx, iam.OperatorActor(), iam.GroupByID(retired))
 	require.NoError(t, err)
 	unassigned, unassignedRef := create("channel", "batch-unassigned")
 	unknown := uuid.NewString()
 
 	ids := []string{reader, moderated, section, curated, retired, unassigned, unknown, "not-a-uuid", reader}
 	refs := map[string]iam.GroupRef{reader: readerRef, moderated: moderatedRef, section: sectionRef, curated: curatedRef, retired: retiredRef, unassigned: unassignedRef}
+	byID := make([]iam.GroupRef, 0, len(ids))
+	for _, id := range ids {
+		byID = append(byID, iam.GroupByID(id))
+	}
 
-	var instances map[string]iam.GroupInstance
+	var instances map[string]iam.Group
 	require.EqualValues(t, 1, counter.during(t, func() {
-		instances, err = client.GroupInstancesByIDs(ctx, ids)
+		instances, err = client.Groups(ctx, ids)
 	}))
 	require.NoError(t, err)
 	require.Len(t, instances, 6)
 	require.NotNil(t, instances[retired].DeletedAt)
 	require.Nil(t, instances[reader].DeletedAt)
 	for id := range refs {
-		single, err := client.GroupInstanceByID(ctx, id)
+		single, err := client.Group(ctx, iam.GroupByID(id))
 		require.NoError(t, err)
 		require.Equal(t, single, instances[id])
 	}
-	_, err = client.GroupInstanceByID(ctx, unknown)
+	_, err = client.Group(ctx, iam.GroupByID(unknown))
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 
 	var perms map[string][]iam.Perm
 	require.EqualValues(t, 1, counter.during(t, func() {
-		perms, err = client.EffectivePermissionsForGroups(ctx, subject, ids)
+		perms, err = client.EffectivePermissions(ctx, actor, byID)
 	}))
 	require.NoError(t, err)
 	want := map[string][]iam.Perm{
@@ -128,11 +132,11 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.ElementsMatch(t, grants, perms[id])
 	}
 	for id, ref := range refs {
-		single, err := client.ListEffectivePermissions(ctx, subject, ref)
+		single, err := effectivePermissions(ctx, client, actor, ref)
 		require.NoError(t, err)
 		require.ElementsMatch(t, single, perms[id], "group %s", ref.Slug())
 		for _, perm := range []iam.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
-			allowed, err := client.CanOnGroup(ctx, subject, id, perm)
+			allowed, err := client.Can(ctx, actor, iam.GroupByID(id), perm)
 			require.NoError(t, err)
 			covered := false
 			for _, grant := range perms[id] {
@@ -142,25 +146,27 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		}
 	}
 
-	ownerPerms, err := client.EffectivePermissionsForGroups(ctx, iam.UserSubject(owner.ID), ids)
+	ownerPerms, err := client.EffectivePermissions(ctx, iam.UserActor(owner.ID), byID)
 	require.NoError(t, err)
 	require.NotContains(t, ownerPerms, retired)
 	for _, id := range []string{reader, section, unassigned} {
-		single, err := client.ListEffectivePermissions(ctx, iam.UserSubject(owner.ID), refs[id])
+		single, err := effectivePermissions(ctx, client, iam.UserActor(owner.ID), refs[id])
 		require.NoError(t, err)
 		require.NotEmpty(t, single)
 		require.ElementsMatch(t, single, ownerPerms[id])
 	}
 
-	empty, err := client.EffectivePermissionsForGroups(ctx, subject, nil)
+	empty, err := client.EffectivePermissions(ctx, actor, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
 	tooMany := make([]string, iam.MaxBatch+1)
+	tooManyRefs := make([]iam.GroupRef, iam.MaxBatch+1)
 	for i := range tooMany {
 		tooMany[i] = uuid.NewString()
+		tooManyRefs[i] = iam.GroupByID(tooMany[i])
 	}
-	_, err = client.GroupInstancesByIDs(ctx, tooMany)
+	_, err = client.Groups(ctx, tooMany)
 	require.Error(t, err)
-	_, err = client.EffectivePermissionsForGroups(ctx, subject, tooMany)
+	_, err = client.EffectivePermissions(ctx, actor, tooManyRefs)
 	require.Error(t, err)
 }

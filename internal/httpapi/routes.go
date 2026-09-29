@@ -41,8 +41,8 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	selected := routeGroupSet(groups)
 	required := verify.Required(s.verifier)
 	// rootPermission gates an intrinsic, root-scoped route on a `root:*`
-	// permission through the granular permission system (svc.Can for users,
-	// the verified ceiling for machine principals — see requirePermission).
+	// permission through the granular permission system (the engine's live
+	// Can for every actor kind — see requirePermission).
 	// Native account status follows token issuance unless the host explicitly
 	// adds live-account middleware; the permission lookup itself is always live.
 	// There is no bespoke "admin" auth tier; these are plain root-group perms.

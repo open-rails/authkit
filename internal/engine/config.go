@@ -143,6 +143,7 @@ type RoleConfig struct {
 
 type Persona struct {
 	Permissions        []string
+	RequireMFA         []string
 	Creation           GroupCreation
 	CustomRoles        bool
 	APIKeys            bool
@@ -160,7 +161,6 @@ type Role struct {
 	Name        iam.Role
 	Permissions []string
 	Includes    []iam.Role
-	RequiresMFA bool
 }
 
 func (c RoleConfig) schema() (*rbac.Schema, error) {
@@ -168,6 +168,7 @@ func (c RoleConfig) schema() (*rbac.Schema, error) {
 	for name, p := range c.Personas {
 		personas[iam.Persona(name)] = rbac.PersonaSpec{
 			Permissions:        p.Permissions,
+			RequireMFA:         p.RequireMFA,
 			Creation:           rbac.Creation(p.Creation),
 			CustomRoles:        p.CustomRoles,
 			APIKeys:            p.APIKeys,

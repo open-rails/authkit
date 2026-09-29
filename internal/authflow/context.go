@@ -45,8 +45,8 @@ type ResolvedGroup struct {
 // Only this exact persona/reference matches. Parent and other-target lookups keep
 // normal resolution. Every use rechecks target liveness and never falls back to
 // the name if the captured group has been deleted.
-func WithResolvedGroup(ctx context.Context, instance iam.GroupInstance, reference string) context.Context {
-	return context.WithValue(ctx, resolvedGroupKey{}, ResolvedGroup{Persona: instance.Persona, Reference: strings.ToLower(strings.TrimSpace(reference)), ID: instance.ID})
+func WithResolvedGroup(ctx context.Context, g iam.Group, reference string) context.Context {
+	return context.WithValue(ctx, resolvedGroupKey{}, ResolvedGroup{Persona: g.Persona, Reference: strings.ToLower(strings.TrimSpace(reference)), ID: g.ID})
 }
 
 // ResolvedGroupFrom reads the group WithResolvedGroup bound, if any.

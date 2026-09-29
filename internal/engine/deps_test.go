@@ -40,10 +40,6 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 	require.NoError(t, err)
 	client.Close()
 	require.NoError(t, host.Ping(ctx))
-	directory, err := NewGroupDirectory(host, "profiles")
-	require.NoError(t, err)
-	directory.Close()
-	require.NoError(t, host.Ping(ctx))
 
 	connections := func() int {
 		var count int

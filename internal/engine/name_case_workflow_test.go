@@ -116,9 +116,9 @@ func TestGroupInstanceSlugCaseWorkflow(t *testing.T) {
 	require.Contains(t, permissions.Body.String(), "org:*")
 
 	client := runtime
-	hosted, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "Host-Made", OwnerSubjectID: ownerID})
+	hosted, err := seedGroup(ctx, client, "org", "Host-Made", ownerID)
 	require.NoError(t, err)
-	resolved, err := client.ResolveGroupIDForSlug(ctx, iam.GroupBySlug("org", "host-MADE"))
+	resolved, err := groupIDOf(ctx, client, iam.GroupBySlug("org", "host-MADE"))
 	require.NoError(t, err)
 	require.Equal(t, hosted, resolved)
 	var groups int

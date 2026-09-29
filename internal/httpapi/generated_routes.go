@@ -48,6 +48,8 @@ func GeneratedRoutes(s *rbac.Schema) []GeneratedRoute {
 			// #269: the instance's own identity descriptor, and the only
 			// place a caller outside the process learns the group's uuid.
 			add("GET", "", iam.PermSelfRead(persona))
+			// The recoverable (soft) delete.
+			add("DELETE", "", iam.PermSelfDelete(persona))
 		}
 		// The role catalog is visible to member readers and custom-role managers.
 		if memberRoutes || td.CustomRoles {

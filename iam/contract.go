@@ -183,67 +183,8 @@ type ImportUnverifiedSolanaLinksResult struct {
 	Rejected int
 }
 
-type CreatePermissionGroupRequest struct {
-	Persona        Persona
-	InstanceSlug   string
-	OwnerSubjectID string
-	// OwnerSubjectKind selects the owner principal kind: "user" (default) or
-	// "remote_application" (#264 service-owned orgs — an application principal
-	// owning its own permission group).
-	OwnerSubjectKind SubjectKind
-	// DisplayName is free-form, non-unique group metadata (#264 naming
-	// doctrine: vanity naming lives here, never on the slug).
-	DisplayName string
-}
-
-// DeletePermissionGroupOptions controls the delete-time naming rule (#264):
-// by DEFAULT a deleted group's slug is TOMBSTONED to its uuid forever
-// (fail-safe — published references can never be re-claimed by someone else).
-// ReleaseSlug frees the name (and drops the group's own tombstones) instead;
-// that is safe ONLY for names nothing ever referenced, and the judgment is
-// the host's: a released name re-created by a different owner is live and
-// "live slugs win" in slug resolution, so any dangling published reference
-// to the old group now resolves to the new owner (#308). authkit never
-// deletes a group on its own.
-type DeletePermissionGroupOptions struct {
-	// ReleaseSlug applies to every canonical name of the deleted group;
-	// prior aliases retain their original expiry.
-	ReleaseSlug bool
-}
-
-type GroupMember struct {
-	SubjectID   string
-	SubjectKind SubjectKind
-	Role        Role
-}
-
-type SubjectGroupMembership struct {
-	// GroupID is the instance's internal uuid (#269). It is a JOIN KEY, not an
-	// address — every route stays slug-addressed — and it is reported only for
-	// the caller's OWN memberships.
-	GroupID      string
-	Persona      Persona
-	InstanceSlug string
-	DisplayName  string
-	Role         Role
-}
-
 // MaxBatch bounds the ids (users, groups, subjects) accepted by one batch call.
 const MaxBatch = 500
-
-// GroupInstance is one persona instance's own identity (#269): the addressing
-// pair a caller already holds, plus the uuid a HOST needs to own rows about the
-// group in its own (or a sibling service's) ledger — openrails' `customer_id`
-// being the case that forced it. Group ids never appear in a PATH; this type is
-// how a caller who already has authority over an instance LEARNS its id.
-type GroupInstance struct {
-	// DeletedAt marks retained inactive state; only trusted ID reads include it.
-	DeletedAt    *time.Time
-	ID           string
-	Persona      Persona
-	InstanceSlug string
-	DisplayName  string
-}
 
 type RemoteApplicationAccessParams struct {
 	// Issuer becomes the `iss` claim: the remote_application's OIDC issuer,

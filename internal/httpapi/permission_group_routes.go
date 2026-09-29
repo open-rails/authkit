@@ -28,10 +28,6 @@ import (
 // not not_found, so it does not enumerate groups.
 var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.CodeForbidden}
 
-func (s *Service) groupCan(r *http.Request, subjectID string, group iam.GroupRef, perm iam.Perm) (bool, error) {
-	return s.svc.Can(r.Context(), iam.UserSubject(subjectID), group, perm)
-}
-
 // PermissionGroupRoutes returns the auto-generated management routes implied by
 // this Service's declared permission-group schema, plus the cross-persona
 // GET /me/groups discovery route. Mirrors APIRoutes: prefix-neutral RouteSpecs in
@@ -161,19 +157,23 @@ func pathParam(r *http.Request, name string) string {
 }
 
 // generatedGroupHandler returns the handler for one generated route. It:
-//  1. derives the caller's actor once (401 if none);
+//  1. derives the caller's actor once (401 if none; 403 for a delegation);
 //  2. resolves persona + :instance_slug from the route/path;
-//  3. authorizes route.Perm (or route.OrPerm when set) on the group (403 on deny);
+//  3. authorizes route.Perm (or route.OrPerm when set) on the group with the
+//     engine's live Can, for every actor kind (403 on deny);
 //  4. performs the operation, passing the actor to the operation handler,
 //     where the engine applies the operation's own authority rules.
 func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
-	// Remote-application self credentials may use the member operations only.
-	remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := verify.ActorFromContext(r.Context())
-		if !ok || !(actor.Kind() == iam.ActorUser || actor.Kind() == iam.ActorRemoteApplication && remoteOperation) {
+		if !ok {
 			fail(w, errmodel.CodeNotAuthenticated)
+			return
+		}
+		// AuthKit's management routes refuse delegated principals.
+		if actor.Kind() == iam.ActorDelegated {
+			fail(w, errmodel.CodeForbidden)
 			return
 		}
 		instanceSlug := pathParam(r, "instance_slug")
@@ -183,28 +183,17 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 		}
 
 		group := iam.GroupBySlug(gr.Persona, instanceSlug)
-		instance, err := s.svc.GroupInstanceForSlug(r.Context(), group)
+		instance, err := s.svc.Group(r.Context(), group)
 		if err != nil {
 			writeError(w, remap(err, groupScopeCodes))
 			return
 		}
+		// Later slug lookups in this request stay on the resolved group.
 		r = r.WithContext(authflow.WithResolvedGroup(r.Context(), instance, instanceSlug))
-
-		// Native authority is live. Remote self credentials additionally remain
-		// bound to their controlling group and verified permission ceiling.
-		check := func(perm iam.Perm) (bool, error) {
-			if actor.Kind() != iam.ActorRemoteApplication {
-				return s.groupCan(r, actor.ID(), group, perm)
-			}
-			claims, _ := verify.ClaimsFromContext(r.Context())
-			if !claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) || !actor.CeilingCovers(perm) {
-				return false, nil
-			}
-			return s.svc.Can(r.Context(), iam.RemoteApplicationSubject(actor.ID()), group, perm)
-		}
-		allowed, err := check(gr.Perm)
+		resolved := iam.GroupByID(instance.ID)
+		allowed, err := s.svc.Can(r.Context(), actor, resolved, gr.Perm)
 		if err == nil && !allowed && gr.OrPerm != "" {
-			allowed, err = check(gr.OrPerm)
+			allowed, err = s.svc.Can(r.Context(), actor, resolved, gr.OrPerm)
 		}
 		if err != nil {
 			serverErr(w, "database_error", err)
@@ -216,7 +205,7 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 		}
 
 		w.Header().Set("X-AuthKit-Group-ID", instance.ID)
-		w.Header().Set("X-AuthKit-Canonical-Instance", instance.InstanceSlug)
+		w.Header().Set("X-AuthKit-Canonical-Instance", instance.Slug)
 		switch op {
 		case opMembersList:
 			s.groupMembersList(w, r, group, actor)
@@ -256,6 +245,8 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			s.groupUpdate(w, r, group, actor)
 		case opGroupRead:
 			s.groupInstanceDescriptor(w, r, group, actor)
+		case opGroupDelete:
+			s.groupDelete(w, r, group, actor)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			fail(w, errmodel.CodeNotImplemented)
@@ -310,6 +301,7 @@ const (
 	opInviteLinkRevoke
 	opGroupUpdate
 	opGroupRead
+	opGroupDelete
 )
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
@@ -323,6 +315,8 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 			return opGroupUpdate // #264 group settings: slug rename + display name
 		case http.MethodGet:
 			return opGroupRead // #269 instance descriptor: id + slug + display name
+		case http.MethodDelete:
+			return opGroupDelete
 		}
 		return opStub
 	case strings.HasSuffix(path, "/members/:user/roles/:role"):

@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +57,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	member, err := svc.CreateUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
 	create := func(name string) string {
-		id, err := svc.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: name, OwnerSubjectID: owner.ID})
+		id, err := seedGroup(ctx, svc, "org", name, owner.ID)
 		require.NoError(t, err)
 		return id
 	}
@@ -67,12 +66,12 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			name := fmt.Sprintf("group-%v", release)
 			group := create(name)
 			renamed := name + "-renamed"
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, group, iam.GroupInstanceUpdate{Slug: &renamed})
+			_, err := svc.UpdateGroup(ctx, iam.UserActor(owner.ID), iam.GroupByID(group), iam.GroupUpdate{Slug: &renamed})
 			require.NoError(t, err)
 			var deadline time.Time
 			require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM name_claims WHERE owner_id=$1 AND name=$2`, group, name).Scan(&deadline))
-			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{ReleaseSlug: release}))
-			require.NoError(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{ReleaseSlug: release})) // captured-ID replay
+			require.NoError(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release}))
+			require.NoError(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{ReleaseSlug: release})) // captured-ID replay
 			var remaining int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
 			require.Zero(t, remaining)
@@ -91,7 +90,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		_, err := pool.Exec(ctx, `CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
   CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.instance_slug='fault-group') EXECUTE FUNCTION lifecycle_delete_failure()`)
 		require.NoError(t, err)
-		require.ErrorContains(t, svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{}), "injected lifecycle failure")
+		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{}), "injected lifecycle failure")
 		var canonical bool
 		require.NoError(t, pool.QueryRow(ctx, `SELECT canonical FROM name_claims WHERE owner_id=$1`, group).Scan(&canonical))
 		require.True(t, canonical, "reservation rolls back with the failed delete")
@@ -103,7 +102,9 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		_, err = blocker.Exec(ctx, `SELECT id FROM permission_groups WHERE id=$1 FOR KEY SHARE`, group)
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
-		go func() { deleted <- svc.DeleteGroupInstanceByID(ctx, group, iam.DeletePermissionGroupOptions{}) }()
+		go func() {
+			deleted <- svc.PurgeGroup(ctx, iam.OperatorActor(), iam.GroupByID(group), iam.PurgeGroupOptions{})
+		}()
 		require.Eventually(t, func() bool {
 			var n int
 			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE%'`).Scan(&n)
@@ -112,12 +113,13 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		renamed := make(chan error, 1)
 		newName := "fault-group-renamed"
 		go func() {
-			_, err := svc.UpdateGroupInstanceAs(ctx, owner.ID, group, iam.GroupInstanceUpdate{Slug: &newName})
+			_, err := svc.UpdateGroup(ctx, iam.UserActor(owner.ID), iam.GroupByID(group), iam.GroupUpdate{Slug: &newName})
 			renamed <- err
 		}()
 		require.Eventually(t, func() bool {
 			var n int
-			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%permission_groups%'`).Scan(&n)
+			// The rename waits for the authority lock the delete holds.
+			err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE '%permission_groups%' OR query LIKE '%pg_advisory_xact_lock%')`).Scan(&n)
 			return err == nil && n == 2
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, blocker.Commit(ctx))
@@ -132,7 +134,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	group := iam.GroupBySlug("org", "role-lifecycle")
 	role := iam.Role("auditor")
 	define := func(permission string) {
-		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, authflow.CustomRoleDef{Role: role, Permissions: []string{permission}}))
+		require.NoError(t, svc.DefineGroupRole(ctx, iam.UserActor(owner.ID), group, iam.CustomRole{Name: role, Permissions: []string{permission}}))
 	}
 	define("org:billing:read")
 	app, err := svc.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", PermissionGroupID: gid, Enabled: true})
@@ -150,7 +152,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	invite, err := svc.CreateAccountInvite(ctx, iam.UserActor(owner.ID), iam.NewAccountInvite{Email: "invitee@lifecycle.test", Group: group, Role: role})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
-	allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
+	allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
 	require.NoError(t, err)
 	require.True(t, allowed)
 	resolved, err := svc.ResolveAPIKey(ctx, token)
@@ -159,14 +161,14 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	_, err = pool.Exec(ctx, `CREATE FUNCTION lifecycle_role_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected role failure'; END $$;
  CREATE TRIGGER lifecycle_role_failure BEFORE DELETE ON group_custom_roles FOR EACH ROW EXECUTE FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
-	require.ErrorContains(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role), "injected role failure")
+	require.ErrorContains(t, svc.DeleteGroupRole(ctx, iam.UserActor(owner.ID), group, role), "injected role failure")
 	_, err = svc.ResolveAPIKey(ctx, token)
 	require.NoError(t, err, "key deletion must roll back with definition deletion")
 	_, err = pool.Exec(ctx, `DROP TRIGGER lifecycle_role_failure ON group_custom_roles; DROP FUNCTION lifecycle_role_failure()`)
 	require.NoError(t, err)
-	require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
+	require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(owner.ID), group, role))
 	define("org:billing:write")
-	allowed, err = svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
+	allowed, err = svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
 	require.NoError(t, err)
 	require.False(t, allowed)
 	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, app.ID)
@@ -187,13 +189,13 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
 			token := mint()
 			swap := func() {
-				require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
+				require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(owner.ID), group, role))
 				define("org:billing:write")
 			}
 			trace.swap.Store(&swap)
 			switch reader {
 			case "member":
-				allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
+				allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
 				require.NoError(t, err)
 				require.False(t, allowed)
 			case "application":
@@ -253,7 +255,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.Error(t, <-results)
 		}
 		define("org:billing:write")
-		allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
+		allowed, err := svc.Can(ctx, iam.UserActor(member.ID), group, "org:billing:write")
 		require.NoError(t, err)
 		require.False(t, allowed)
 	})

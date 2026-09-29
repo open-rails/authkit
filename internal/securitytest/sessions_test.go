@@ -351,11 +351,11 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
 		perm := iam.Perm(iam.PermRootUsersBan)
 		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: jwtkit.DelegatedAccessTokenType, Permissions: []string{string(perm)}}
-		ok, err := verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
+		ok, err := verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, ok)
 		revokeRole(t, h.auth, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator")
-		ok, err = verify.Allow(ctx, h.auth, cl, perm, verify.PermissionScope{})
+		ok, err = verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.False(t, ok, "a delegated token kept root authority its user lost")
 	})

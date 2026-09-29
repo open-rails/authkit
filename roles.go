@@ -25,6 +25,11 @@ type Persona struct {
 	// `<persona>:<resource>:<action>`. AuthKit adds its own built-ins
 	// (members, roles, credentials and, except on root, self).
 	Permissions []string
+	// RequireMFA lists catalog permissions (or patterns over the catalog)
+	// that need a second factor. A subject holding a grant that reaches one,
+	// through any role, include or root role, must have MFA enrolled, and no
+	// API key may hold it. root:members:manage always needs MFA.
+	RequireMFA []string
 	// Creation opts the persona into POST /<persona>.
 	Creation GroupCreation
 	// CustomRoles lets group owners define roles at run time, composed from
@@ -57,7 +62,4 @@ type Role struct {
 	// Includes names roles of the same persona whose permissions this role
 	// also holds.
 	Includes []iam.Role
-	// RequiresMFA refuses assignment to a subject without an enrolled second
-	// factor.
-	RequiresMFA bool
 }

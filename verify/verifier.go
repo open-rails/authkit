@@ -290,7 +290,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		PermissionGroupID:              p.Group.ID,
 		PermissionGroupAuthorityIssuer: p.Issuer,
 		PermissionGroupPersona:         string(p.Group.Persona),
-		PermissionGroupInstance:        p.Group.InstanceSlug,
+		PermissionGroupInstance:        p.Group.Slug,
 	}, true, nil
 }
 

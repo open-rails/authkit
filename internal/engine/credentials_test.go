@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -53,7 +52,7 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	t.Cleanup(e.Close)
 	f := &credentialFixture{t: t, e: e, pool: pg.Pool, acme: iam.GroupBySlug("org", "acme")}
 	f.founder = f.user("founder")
-	f.acmeID, err = e.CreatePermissionGroup(t.Context(), iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: f.founder.ID})
+	f.acmeID, err = seedGroup(t.Context(), e, "org", "acme", f.founder.ID)
 	require.NoError(t, err)
 	return f
 }
@@ -170,7 +169,7 @@ func TestCredentialIssuance(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, key.ID, principal.ID)
 	require.Equal(t, key.LookupID, principal.LookupID)
-	require.Equal(t, iam.GroupInstance{ID: f.acmeID, Persona: "org", InstanceSlug: "acme", DisplayName: principal.Group.DisplayName}, principal.Group)
+	require.Equal(t, iam.Group{ID: f.acmeID, Persona: "org", Slug: "acme", DisplayName: principal.Group.DisplayName}, principal.Group)
 	require.Equal(t, "https://maintenance.test", principal.Issuer)
 	require.Equal(t, iam.Role("member"), principal.Role)
 	require.Equal(t, []string{"org:catalog:read"}, principal.Permissions)
@@ -415,7 +414,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms ...string) {
 	t.Helper()
 	require.NoError(t, f.e.withGroupMutation(t.Context(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
-		return st.UpsertCustomRole(t.Context(), g.ID, authflow.CustomRoleDef{Role: role, Permissions: perms})
+		return st.UpsertCustomRole(t.Context(), g.ID, role, perms)
 	}))
 }
 

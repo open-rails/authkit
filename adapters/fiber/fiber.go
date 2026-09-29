@@ -131,17 +131,18 @@ func UserClaims(c fiber.Ctx) (verify.UserClaimsData, bool) {
 	return verify.UserClaimsFromContext(c.Context())
 }
 
-// RequirePermission checks the canonical permission policy using a
-// Fiber-native scope resolver. Mount after Required or RequiredLive. It panics
-// at construction on a perm the checker does not register.
-func RequirePermission(checker verify.PermissionChecker, perm iam.Perm, resolve func(fiber.Ctx) verify.PermissionScope) fiber.Handler {
-	verify.MustKnowPermission(checker, perm)
+// RequirePermission authenticates the request (it includes Required) and
+// requires perm, checked live, in the group resolve returns; a nil resolve
+// means the root group. It panics at construction on a perm the authority
+// does not register.
+func RequirePermission(a verify.Authority, perm iam.Perm, resolve func(fiber.Ctx) iam.GroupRef) fiber.Handler {
+	verify.MustKnowPermission(a, perm)
 	return func(c fiber.Ctx) error {
-		var resolver func(*http.Request) verify.PermissionScope
+		var r func(*http.Request) iam.GroupRef
 		if resolve != nil {
-			resolver = func(*http.Request) verify.PermissionScope { return resolve(c) }
+			r = func(*http.Request) iam.GroupRef { return resolve(c) }
 		}
-		return Use(verify.RequirePermission(checker, perm, resolver))(c)
+		return Use(verify.RequirePermission(a, perm, r))(c)
 	}
 }
 

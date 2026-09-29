@@ -28,11 +28,13 @@ type principalAuthority struct {
 	allowed bool
 	calls   int
 	err     error
+	actor   iam.Actor
 }
 
-func (s *principalAuthority) CanOnGroup(_ context.Context, subject iam.Subject, group string, permission iam.Perm) (bool, error) {
+func (s *principalAuthority) Can(_ context.Context, a iam.Actor, ref iam.GroupRef, permission iam.Perm) (bool, error) {
 	s.calls++
-	return s.allowed && subject == iam.UserSubject("native-user") && group == "group-1" && permission == "repo:read", s.err
+	s.actor = a
+	return s.allowed && a.Kind() == iam.ActorUser && a.ID() == "native-user" && ref == iam.GroupByID("group-1") && permission == "repo:read", s.err
 }
 
 func (s *principalAuthority) KnownPermission(iam.Perm) bool { return true }
@@ -100,6 +102,13 @@ type principalAPIKeySource struct {
 	resolved iam.APIKeyPrincipal
 	err      error
 	calls    int
+	retired  bool
+}
+
+// Can models the engine: a key acts only in its own live group, with its role's permissions.
+func (s *principalAPIKeySource) Can(_ context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return a.Kind() == iam.ActorAPIKey && a.ID() == s.resolved.ID && ref == iam.GroupByID(s.resolved.Group.ID) &&
+		!s.retired && iam.AnyGrantCovers(s.resolved.Permissions, perm), nil
 }
 
 const presentedAPIKey = "st_presented_secret"
@@ -113,7 +122,7 @@ func (s *principalAPIKeySource) ResolveAPIKey(_ context.Context, token string) (
 }
 
 func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
-	source := &principalAPIKeySource{resolved: iam.APIKeyPrincipal{ID: "immutable-key-id", Group: iam.GroupInstance{ID: "group-1", Persona: "repo"}, Issuer: confirmationIssuer, Permissions: []string{"repo:read"}}}
+	source := &principalAPIKeySource{resolved: iam.APIKeyPrincipal{ID: "immutable-key-id", Group: iam.Group{ID: "group-1", Persona: "repo"}, Issuer: confirmationIssuer, Permissions: []string{"repo:read"}}}
 	v := NewVerifier().WithService(source).WithPermissionChecker(source, confirmationIssuer)
 	r := principalRequest(presentedAPIKey)
 	p, err := v.AuthenticateRequest(r.Context(), r)
@@ -136,13 +145,8 @@ func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 		require.Equal(t, tc.allowed, allowed)
 	}
 	require.Equal(t, 1, source.calls, "permission checks must not resolve or verify the key again")
-	source.resolved.Permissions[0] = "repo:*"
-	allowed, err := checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:write")
-	require.NoError(t, err)
-	require.False(t, allowed, "backend-owned slices cannot enlarge a captured credential ceiling")
-	deleted := time.Now()
-	source.deletedAt = &deleted
-	allowed, err = checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:read")
+	source.retired = true
+	allowed, err := checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:read")
 	require.NoError(t, err)
 	require.False(t, allowed, "same captured credential observes group retirement")
 	require.Equal(t, 1, source.calls, "group liveness never repeats credential verification")
@@ -226,17 +230,21 @@ func TestRequestPrincipalRemoteApplicationUsesImmutableIdentity(t *testing.T) {
 	require.Equal(t, source.app.ID, p.Identity().Subject)
 }
 
+// A credential reaches the checker as the actor it verifies as, never as a
+// native user it is not. Device keys act as their user.
 func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		local  bool
-		typ    string
-		kind   auth.Kind
-		claims jwt.MapClaims
+		name    string
+		local   bool
+		typ     string
+		kind    auth.Kind
+		claims  jwt.MapClaims
+		actor   iam.ActorKind
+		allowed bool
 	}{
-		{"external user", false, jwtkit.AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}},
-		{"device key", true, jwtkit.AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}},
-		{"unbound delegation", false, jwtkit.DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}},
+		{"external user", false, jwtkit.AccessTokenType, auth.KindUser, jwt.MapClaims{"sub": "native-user"}, "", false},
+		{"device key", true, jwtkit.AccessTokenType, auth.KindDeviceKey, jwt.MapClaims{"sub": "native-user", "device_key_id": "device-1"}, iam.ActorUser, true},
+		{"unbound delegation", false, jwtkit.DelegatedAccessTokenType, auth.KindDelegated, jwt.MapClaims{"delegated_sub": "native-user", "permissions": []string{"repo:*"}}, iam.ActorDelegated, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, signer := confirmationVerifier(t)
@@ -250,19 +258,24 @@ func TestRequestPrincipalCannotUpgradeCredentialProvenance(t *testing.T) {
 			require.Equal(t, tc.kind, principal.Identity().Kind)
 			allowed, err := principal.(auth.PermissionChecker).Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:read")
 			require.NoError(t, err)
-			require.False(t, allowed)
-			require.Zero(t, authority.calls, "non-native credentials must never look up a native user's authority")
+			require.Equal(t, tc.allowed, allowed)
+			require.Equal(t, tc.actor, authority.actor.Kind())
 		})
 	}
 }
 
-func TestScopedMachinePermissionRequiresLiveGroupReader(t *testing.T) {
-	cl := Claims{PermissionGroupID: "group", PermissionGroupAuthorityIssuer: "https://issuer.test", PermissionGroupPersona: "repo", Permissions: []string{"repo:read"}, APIKeyID: "key"}
-	scope := PermissionScope{GroupID: "group", AuthorityIssuer: "https://issuer.test", Persona: "repo"}
-	allowed, err := Allow(t.Context(), nil, cl, "repo:read", scope)
-	require.ErrorIs(t, err, auth.ErrUnavailable)
-	require.False(t, allowed)
-	allowed, err = Allow(t.Context(), &principalAuthority{allowed: true}, cl, "repo:read", scope)
-	require.ErrorIs(t, err, auth.ErrUnavailable)
-	require.False(t, allowed)
+func TestAllowForwardsTheVerifiedActor(t *testing.T) {
+	cl := Claims{PermissionGroupID: "group", PermissionGroupAuthorityIssuer: "https://issuer.test", PermissionGroupPersona: "repo", Permissions: []string{"repo:read"}, APIKeyID: "key", TokenType: APIKeyPrincipalType}
+	allowed, err := Allow(t.Context(), nil, cl, "repo:read", iam.GroupByID("group"))
+	require.NoError(t, err)
+	require.False(t, allowed, "no checker, no authority")
+	authority := &principalAuthority{allowed: true}
+	allowed, err = Allow(t.Context(), authority, cl, "repo:read", iam.GroupRef{})
+	require.NoError(t, err)
+	require.False(t, allowed, "no group, no authority")
+	require.Zero(t, authority.calls)
+	_, err = Allow(t.Context(), authority, cl, "repo:read", iam.GroupByID("group"))
+	require.NoError(t, err)
+	require.Equal(t, iam.ActorAPIKey, authority.actor.Kind())
+	require.Equal(t, "key", authority.actor.ID())
 }

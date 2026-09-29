@@ -8,39 +8,28 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// customRoleRequest is the body for defining a per-group custom role.
-// RequiresMFA (#247) mirrors Role.RequiresMFA for catalog roles: a custom
-// role granting sensitive perms can require MFA on the same assignment/redeem
-// gate.
+// customRoleRequest is the body for defining a per-group custom role. Whether
+// holding it needs MFA follows from its permissions.
 type customRoleRequest struct {
 	Role        string   `json:"role"`
 	Permissions []string `json:"permissions"`
-	RequiresMFA bool     `json:"requires_mfa,omitempty"`
 }
 
-// groupCustomRoleDefine creates/updates a custom role in the group (custom-role
-// personas only). #247 SECURITY: redefining an existing role is a deferred
-// grant to every current holder, so this requires the SAME actor-authz
-// (capability + no-escalation, covering old ∪ new grants) as a direct role
-// assignment — DefineGroupCustomRole enforces it. Validation failures (bad
-// perm, cross-persona, persona disallows custom roles) are client errors (400);
-// an unknown resource is 404; an escalation attempt is 403.
+// groupCustomRoleDefine creates or redefines a custom role in the group
+// (custom-role personas only). A redefinition changes what every holder has,
+// so the engine applies DefineGroupRole's authority rule. Validation failures
+// are 400; an escalation attempt is 403.
 func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body customRoleRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	actorID, ok := userActorID(w, actor)
-	if !ok {
-		return
-	}
 	role := iam.Role(strings.TrimSpace(body.Role))
-	if err := s.svc.DefineGroupCustomRole(r.Context(), actorID, group, authflow.CustomRoleDef{Role: role, Permissions: body.Permissions, RequiresMFA: body.RequiresMFA}); err != nil {
+	if err := s.svc.DefineGroupRole(r.Context(), actor, group, iam.CustomRole{Name: role, Permissions: body.Permissions}); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -49,23 +38,17 @@ func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, 
 		"instance_slug": group.Slug(),
 		"role":          role,
 		"permissions":   body.Permissions,
-		"requires_mfa":  body.RequiresMFA,
 	})
 }
 
-// groupCustomRoleDelete removes a custom role from the group. #247 SECURITY:
-// deleting a role is a deferred REVOKE from every current holder, gated by the
-// same actor-authz as define.
+// groupCustomRoleDelete removes a custom role from the group, and it from
+// every holder, under the same authority rule as define.
 func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, role iam.Role) {
 	if role == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	actorID, ok := userActorID(w, actor)
-	if !ok {
-		return
-	}
-	if err := s.svc.DeleteGroupCustomRole(r.Context(), actorID, group, role); err != nil {
+	if err := s.svc.DeleteGroupRole(r.Context(), actor, group, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -81,7 +64,7 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 // reports the group's CURRENT live slug — so a caller holding an old reference
 // learns the new one in the same call.
 func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
-	inst, err := s.svc.GroupInstanceForSlug(r.Context(), group)
+	inst, err := s.svc.Group(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -96,15 +79,15 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 		"ok":            true,
 		"group_id":      inst.ID,
 		"persona":       inst.Persona,
-		"instance_slug": inst.InstanceSlug,
+		"instance_slug": inst.Slug,
 		"display_name":  inst.DisplayName,
 	})
 }
 
 // groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):
 // display-name changes and slug renames, gated by <persona>:self:update
-// (the owner holds it via the wildcard). The captured UUID is retained through
-// authorization, slug rename and display-name mutation in one transaction.
+// (the owner holds it via the wildcard). The engine re-checks the actor and
+// applies the change in one authority transaction.
 func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var req struct {
 		Slug        *string `json:"slug"`
@@ -114,14 +97,10 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	actorID, ok := userActorID(w, actor)
-	if !ok {
-		return
-	}
 	// #264 anti-squat velocity: a slug rename is a CLAIM — capped per IP and
-	// per user (authkit owns anti-spam velocity; cost gates are the host's).
+	// per actor (authkit owns anti-spam velocity; cost gates are the host's).
 	if req.Slug != nil {
-		if s.rateLimited(w, r, RLGroupSettings) || s.rateLimitedByIdentifier(w, r, RLGroupSettings, actorID) {
+		if s.rateLimited(w, r, RLGroupSettings) || s.rateLimitedByIdentifier(w, r, RLGroupSettings, actor.String()) {
 			return
 		}
 	}
@@ -129,12 +108,7 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	inst, err := s.svc.GroupInstanceForSlug(r.Context(), group)
-	if err != nil {
-		s.writeGroupOpError(w, err)
-		return
-	}
-	updated, err := s.svc.UpdateGroupInstanceAs(r.Context(), actorID, inst.ID, iam.GroupInstanceUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
+	updated, err := s.svc.UpdateGroup(r.Context(), actor, group, iam.GroupUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -144,5 +118,15 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, group iam.
 		s.writeGroupOpError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": updated.ID, "persona": updated.Persona, "instance_slug": updated.InstanceSlug, "display_name": updated.DisplayName, "naming": state})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": updated.ID, "persona": updated.Persona, "instance_slug": updated.Slug, "display_name": updated.DisplayName, "naming": state})
+}
+
+// groupDelete soft-deletes the group (DELETE /<persona>/{instance_slug}),
+// gated by <persona>:self:delete; the engine re-checks the actor.
+func (s *Service) groupDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
+	if _, err := s.svc.DeleteGroup(r.Context(), actor, group); err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	noContent(w)
 }

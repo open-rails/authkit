@@ -353,8 +353,7 @@ type TwoFactorConfig struct {
 	// routes usable), Optional (users may enroll), or Required (every user must
 	// enroll before normal session use; existing un-enrolled users are challenged
 	// on their next authenticated request). Empty defaults to Optional; other
-	// values fail construction. Per-role
-	// Role.RequiresMFA remains available for narrower enforcement.
+	// values fail construction. Persona.RequireMFA enforces MFA per permission.
 	Mode iam.TwoFactorMode
 
 	// Methods is the set of second-factor channels the host enables

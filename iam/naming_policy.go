@@ -119,12 +119,6 @@ type NameResolution struct {
 	AliasExpiresAt *time.Time `json:"alias_expires_at,omitempty"`
 }
 
-// GroupInstanceUpdate changes group settings atomically against a captured UUID.
-type GroupInstanceUpdate struct {
-	Slug        *string `json:"slug,omitempty"`
-	DisplayName *string `json:"display_name,omitempty"`
-}
-
 type NameAlias struct {
 	Name      string     `json:"name"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`

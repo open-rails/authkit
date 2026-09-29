@@ -350,7 +350,7 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	if !row.Enabled {
 		return nil, iam.ErrRemoteApplicationNotFound
 	}
-	group, err := s.groupStore().GroupInstanceByID(ctx, row.PermissionGroupID)
+	group, err := s.groupStore().groupByID(ctx, row.PermissionGroupID)
 	if err != nil {
 		return nil, err
 	}

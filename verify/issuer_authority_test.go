@@ -24,17 +24,17 @@ type authoritySource struct {
 	app                  *iam.RemoteApplication
 	authority            iam.RemoteApplicationAuthority
 	getErr, authorityErr error
-	deletedAt            *time.Time
 }
 
-func (s *authoritySource) CanOnGroup(context.Context, iam.Subject, string, iam.Perm) (bool, error) {
-	return false, nil
+// Can models the engine for a delegation bound to the stored application: its
+// authority applies only in the application's group, under the token ceiling.
+func (s *authoritySource) Can(_ context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	g, ok := a.Delegation()
+	return ok && s.app != nil && g.RemoteApplicationID == s.app.ID && ref == iam.GroupByID(s.authority.PermissionGroupID) &&
+		a.CeilingCovers(perm) && iam.AnyGrantCovers(s.authority.Permissions, perm), nil
 }
 
 func (s *authoritySource) KnownPermission(iam.Perm) bool { return true }
-func (s *authoritySource) GroupInstanceByID(_ context.Context, id string) (iam.GroupInstance, error) {
-	return iam.GroupInstance{ID: id, DeletedAt: s.deletedAt}, nil
-}
 
 func (s *authoritySource) ListEnabledRemoteApplications(context.Context) ([]iam.RemoteApplication, error) {
 	if s.app == nil {
@@ -150,15 +150,13 @@ func TestDelegatedStoredAuthorityAndScopeFailClosed(t *testing.T) {
 		"different issuer": {GroupID: "group-alpha", AuthorityIssuer: "https://other.example", Persona: "repo"},
 		"absent":           {},
 	} {
-		allowed, err := Allow(ctx, src, cl, "repo:read", scope)
-		require.NoError(t, err)
-		require.Equal(t, name == "own", allowed, name)
+		require.Equal(t, name == "own", cl.PermissionGroupAllows(scope), name)
 	}
 	src.authority = iam.RemoteApplicationAuthority{Permissions: []string{"repo:read"}}
 	cl, err = v.Verify(ctx, token)
 	require.NoError(t, err)
 	require.True(t, cl.BoundToPermissionGroup(), "missing binding must not become platform-wide delegation")
-	allowed, err := Allow(ctx, nil, cl, "repo:read", PermissionScope{})
+	allowed, err := Allow(ctx, nil, cl, "repo:read", iam.GroupByID("group-alpha"))
 	require.NoError(t, err)
 	require.False(t, allowed)
 	src.authorityErr = errors.New("authority unavailable")
@@ -180,7 +178,7 @@ func TestExternalIdentityNeverBecomesLocalUser(t *testing.T) {
 		identity, ok := cl.Identity()
 		require.True(t, ok)
 		require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: issuer, Subject: "same-user-id"}, identity)
-		allowed, err := Allow(ctx, nil, cl, "repo:read", PermissionScope{GroupID: "local-group"})
+		allowed, err := Allow(ctx, nil, cl, "repo:read", iam.GroupByID("local-group"))
 		require.NoError(t, err)
 		require.False(t, allowed)
 	}
