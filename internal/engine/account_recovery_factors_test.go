@@ -45,7 +45,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	f := newAccountFlow(t, pg.Pool, cfg, withSolanaSNSResolver(noSNSResolver{}))
 	remove := func(id string) {
 		t.Helper()
-		results, err := fixtureBackend(f.service.Backend()).DeleteUsers(t.Context(), iam.OperatorActor(), []string{id})
+		results, err := fixtureBackend(f.service.Backend()).DeleteUsers(t.Context(), iam.UserActor(id), []string{id})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}

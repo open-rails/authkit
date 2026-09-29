@@ -21,11 +21,15 @@ import (
 // operator-registered ones rotate through the operator and domain-rooted ones
 // through a new domain proof. A group registration starts unapproved (tier
 // registered), and so does any re-key of it.
+//
+// A group registration is a credential (rule CRED, credential_issuers.go):
+// only a user registers one, the user who supplies its keys is its registrar,
+// and its roles never outlive the registrar's authority.
 
 // UpsertRemoteApplication registers the application app.Issuer in the group
 // ref, or updates it there. The operator may set Mode, Tier and TrustRoot
-// (new applications default to manual and approved); any other actor
-// registers at trust root user and tier registered.
+// (new applications default to manual and approved); a user registers at
+// trust root user and tier registered. Machine actors cannot register.
 func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	if err := requireActor(actor); err != nil {
 		return nil, err
@@ -34,6 +38,9 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 		return nil, err
 	}
 	operator := actor.Kind() == iam.ActorOperator
+	if _, err := credentialIssuer(actor); err != nil {
+		return nil, err
+	}
 	in.Issuer = strings.TrimSpace(in.Issuer)
 	if s.reservedIssuer(in.Issuer) || !operator && s.accountPeerIssuer(in.Issuer) {
 		return nil, iam.ErrReservedIssuer
@@ -55,12 +62,16 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 		default:
 			existing = remoteAppFromRow(remoteAppRow(row))
 		}
+		rekey := false
 		if !operator {
-			if err := s.groupApplicationChange(ctx, st, actor, g, existing, &in); err != nil {
+			if rekey, err = s.groupApplicationChange(ctx, st, actor, g, existing, &in); err != nil {
 				return err
 			}
 		}
-		out, err = s.upsertRemoteApplication(ctx, st, in)
+		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil || !rekey {
+			return err
+		}
+		_, err = st.q.Exec(ctx, `UPDATE remote_applications SET registered_by=$2::uuid WHERE id=$1::uuid`, out.ID, actor.ID())
 		return err
 	})
 	return out, err
@@ -68,22 +79,24 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 
 // groupApplicationChange authorizes a non-operator upsert and sets the trust
 // root and tier it produces; the caller's Tier and TrustRoot are ignored.
-func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, existing *iam.RemoteApplication, in *iam.RemoteApplication) error {
+// rekey reports whether the actor supplies new keys, becoming the registrar.
+func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, existing *iam.RemoteApplication, in *iam.RemoteApplication) (rekey bool, err error) {
 	appID := ""
 	if existing != nil {
 		if existing.TrustRoot != iam.ApplicationTrustRootUser {
-			return iam.ErrInsufficientAuthority
+			return false, iam.ErrInsufficientAuthority
 		}
 		appID = existing.ID
 	}
 	if err := s.authorizeApplicationControl(ctx, st, actor, g, appID); err != nil {
-		return err
+		return false, err
 	}
 	in.TrustRoot, in.Tier = iam.ApplicationTrustRootUser, iam.ApplicationTierRegistered
 	if existing != nil && !rekeys(existing, in) {
 		in.Tier = existing.Tier
+		return false, nil
 	}
-	return nil
+	return true, nil
 }
 
 // rekeys reports whether in replaces existing's trust source.

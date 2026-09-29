@@ -39,6 +39,7 @@ type accountTx struct {
 	st       *permissionGroupStore
 	operator bool
 	self     bool
+	by       *string // the acting user; nil for the operator
 }
 
 func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
@@ -48,8 +49,8 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	userID = strings.TrimSpace(userID)
-	if !isUUID(userID) {
+	userID, ok := canonicalUUID(userID)
+	if !ok {
 		return iam.ErrUserNotFound
 	}
 	tx, err := s.beginAuthorityTransaction(ctx)
@@ -61,8 +62,8 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	if err := s.lockAuthority(ctx, tx); err != nil {
 		return err
 	}
-	at := accountTx{tx: tx, q: s.qtx(tx), st: st, operator: a.Kind() == iam.ActorOperator}
-	at.self = a.Kind() == iam.ActorUser && a.ID() == userID
+	at := accountTx{tx: tx, q: s.qtx(tx), st: st, operator: a.Kind() == iam.ActorOperator, by: actorUserID(a)}
+	at.self = at.by != nil && *at.by == userID
 	switch {
 	case at.self && self == selfRefused:
 		return iam.ErrCannotTargetSelf
@@ -96,13 +97,16 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	return tx.Commit(ctx)
 }
 
-// actorUserID is the account behind a, for audit columns; "" for operators
-// and machines.
+// actorUserID is the account behind a, in canonical form, for self rules and
+// audit columns; nil for operators and machines.
 func actorUserID(a iam.Actor) *string {
 	if a.Kind() != iam.ActorUser {
 		return nil
 	}
 	id := a.ID()
+	if canonical, ok := canonicalUUID(id); ok {
+		id = canonical
+	}
 	return &id
 }
 
@@ -327,18 +331,25 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 	return revoked, nil
 }
 
-// keepMFAHolderProven refuses a contact change that leaves an account holding
-// MFA-required roles without a proven contact: the next proof would retire its
-// second factor while the roles remained (H4). before is the state read before
-// the change, in the same transaction.
+// keepMFAHolderProven refuses a contact change that leaves an account with a
+// second factor, or holding MFA-required roles, without a proven contact: the
+// next proof (a reset to the new address) would retire that factor, handing
+// the account to whoever controls the address (H4, N10). before is the state
+// read before the change, in the same transaction.
 func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID string, before contactState) error {
 	after, err := readContactState(ctx, tx, userID, false)
 	if err != nil || before.unproven || !after.unproven {
 		return err
 	}
-	holds, err := s.userHoldsMFARequiredRole(ctx, tx, userID)
-	if err != nil || !holds {
+	enrolled, err := userHasEnabledMFA(ctx, tx, userID)
+	if err != nil {
 		return err
+	}
+	if !enrolled {
+		holds, err := s.userHoldsMFARequiredRole(ctx, tx, userID)
+		if err != nil || !holds {
+			return err
+		}
 	}
 	return contactVerificationRequired(after)
 }
@@ -514,7 +525,7 @@ func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.C
 	if err := at.q.UserSoftDelete(ctx, userID); err != nil {
 		return nil, err
 	}
-	return revoked, s.createAccountDeletion(ctx, at.tx, client, userID)
+	return revoked, s.createAccountDeletion(ctx, at.tx, client, userID, at.by)
 }
 
 // RestoreUsers restores soft-deleted accounts within their recovery window
@@ -622,7 +633,7 @@ func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, session
 		return err
 	}
 	reason := string(authflow.SessionRevokeReasonAdminRevoke)
-	if a.Kind() == iam.ActorUser && a.ID() == strings.TrimSpace(userID) {
+	if by, target := actorUserID(a), strings.ToLower(strings.TrimSpace(userID)); by != nil && *by == target {
 		reason = string(authflow.SessionRevokeReasonUserRevoke)
 	}
 	var sid string

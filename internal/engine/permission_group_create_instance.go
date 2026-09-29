@@ -64,8 +64,12 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 			owner = &o
 		}
 	case iam.ActorUser:
-		self := iam.UserSubject(a.ID())
-		if ng.Owner != nil && *ng.Owner != self {
+		id, ok := canonicalUUID(a.ID())
+		if !ok {
+			return iam.Group{}, false, iam.ErrInsufficientAuthority
+		}
+		self := iam.UserSubject(id)
+		if ng.Owner != nil && (ng.Owner.Kind != self.Kind || strings.ToLower(strings.TrimSpace(ng.Owner.ID)) != id) {
 			return iam.Group{}, false, iam.ErrInsufficientAuthority
 		}
 		if !sch.CreationEnabled(ref.Persona()) {
@@ -81,6 +85,17 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 
 	var created iam.Group
 	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+		if a.Kind() == iam.ActorUser {
+			// Rule ACTOR: a banned, deleted or reserved account's still-valid
+			// token creates nothing.
+			live, err := subjectUsable(ctx, st.q, *owner)
+			if err != nil {
+				return err
+			}
+			if !live {
+				return iam.ErrInsufficientAuthority
+			}
+		}
 		id, err := st.CreateGroupNamed(ctx, ref, displayName)
 		if err != nil {
 			return err

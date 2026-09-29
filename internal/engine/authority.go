@@ -205,7 +205,7 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 	}
 	var control string
 	err := st.q.QueryRow(ctx, `SELECT a.permission_group_id::text FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id
- WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL`, appID).Scan(&control)
+ WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL AND `+registrarLive("a"), appID).Scan(&control)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && wantGroup != "" && wantGroup != control {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
@@ -213,7 +213,17 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 		return out, err
 	}
 	out.grants, err = s.subjectGrants(ctx, st, iam.RemoteApplicationSubject(appID), g.ID)
-	return out, err
+	return out.withoutMFAGrants(s), err
+}
+
+// withoutMFAGrants drops the grants of a machine actor (an API key or an
+// application) that reach a permission needing MFA: it can present no second
+// factor, whatever path handed it the role.
+func (a authority) withoutMFAGrants(s *Engine) authority {
+	if s.TwoFactorEnabled() && s.groupSchemaOrDefault().RequiresMFA(a.grants) {
+		a.grants = nil
+	}
+	return a
 }
 
 // apiKeyAuthority resolves a live key of a live creator: the permissions of
@@ -236,7 +246,7 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if errors.Is(err, iam.ErrRoleNotAssignable) {
 		return out, nil
 	}
-	return out, err
+	return out.withoutMFAGrants(s), err
 }
 
 // subjectGrants is the subject's walk-up union of grants in gid, custom roles included.
@@ -369,4 +379,15 @@ func (st *permissionGroupStore) savepoint(ctx context.Context, fn func() error) 
 func isUUID(s string) bool {
 	_, err := uuid.Parse(s)
 	return err == nil && len(s) == 36
+}
+
+// canonicalUUID is s as the lower-case hyphenated uuid PostgreSQL returns; ok
+// is false for anything else. Ids are compared only in this form, so a
+// differently cased id never slips past a self rule (N6).
+func canonicalUUID(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !isUUID(s) {
+		return "", false
+	}
+	return strings.ToLower(s), true
 }

@@ -870,8 +870,19 @@ func (v *Verifier) VerifyClaims(ctx context.Context, tokenStr string) (jwt.MapCl
 // resolution); a cancelled ctx aborts them. It is detached from any request,
 // so a certificate-bound delegated token (cnf) fails with
 // ErrSenderProofRequired here; verify those through VerifyRequest.
+//
+// A 2FA-enrollment-only token, and under a Required 2FA policy a user token
+// without mfa_enrolled, is refused: out of band there is no exempt enrollment
+// route (N7).
 func (v *Verifier) Verify(ctx context.Context, tokenStr string) (Claims, error) {
-	return v.verify(ctx, tokenStr, nil)
+	cl, err := v.verify(ctx, tokenStr, nil)
+	if err != nil {
+		return Claims{}, err
+	}
+	if err := v.enrollmentGate(cl, false); err != nil {
+		return Claims{}, err
+	}
+	return cl, nil
 }
 
 // verify additionally checks sender bindings against the originating request.

@@ -10,8 +10,12 @@ import (
 
 // ActorFromClaims derives the actor verified claims act as. It is pure and
 // never yields an operator. ok is false for claims that carry no AuthKit
-// authority: an external user token, or an unrecognized shape.
+// authority: an external user token, a 2FA-enrollment-only token (it reaches
+// only AuthKit's enrollment routes), or an unrecognized shape.
 func ActorFromClaims(c Claims) (iam.Actor, bool) {
+	if c.TwoFAEnrollment {
+		return iam.Actor{}, false
+	}
 	var a iam.Actor
 	switch c.kind() {
 	case iam.ActorAPIKey:

@@ -24,7 +24,4 @@ type groupsBackend interface {
 	DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, role iam.Role) error
 	GroupNamingState(ctx context.Context, id string) (iam.NamingState, error)
 	PermissionGroupSchema() *rbac.Schema
-	// MemberUserIDByEmail is the live account whose email is verified, the
-	// only account an email may add to a group.
-	MemberUserIDByEmail(ctx context.Context, email string) (string, bool, error)
 }

@@ -65,8 +65,30 @@ func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.Grou
 		if err := s.requireMFAForRoleAssignment(ctx, st.q, g.ID, g.Persona, subject, role); err != nil {
 			return err
 		}
+		if err := s.requireRegistrarCover(ctx, st, g, subject, role); err != nil {
+			return err
+		}
 		return st.AssignRole(ctx, g.ID, subject, role)
 	})
+}
+
+// requireRegistrarCover: a group-registered application acts with the
+// authority of the user who supplied its keys (rule CRED), so it holds only a
+// role its registrar could issue it. This binds the operator too.
+func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupStore, g groupTarget, subject iam.Subject, role iam.Role) error {
+	if subject.Kind != iam.SubjectKindRemoteApplication {
+		return nil
+	}
+	var userRooted bool
+	var registrar string
+	if err := st.q.QueryRow(ctx, `SELECT trust_root='user', COALESCE(registered_by::text,'') FROM remote_applications WHERE id=$1::uuid`, subject.ID).Scan(&userRooted, &registrar); err != nil {
+		return err
+	}
+	stands, err := s.credentialStands(ctx, st, sweptCredential{table: "group_remote_application_roles", id: subject.ID, creator: registrar, group: g, role: role, needsCreator: userRooted})
+	if err != nil || stands {
+		return err
+	}
+	return fmt.Errorf("the application's registrar cannot issue role %q: %w", role, iam.ErrRoleAssignmentEscalation)
 }
 
 // UnassignGroupRoles revokes role from each subject that holds it: CAP by

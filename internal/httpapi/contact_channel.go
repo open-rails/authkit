@@ -8,7 +8,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -29,12 +28,8 @@ type contactChannel struct {
 	requestVerification  func(context.Context, string) error
 	requestChange        func(ctx context.Context, userID, id string) error
 	requestPasswordReset func(ctx context.Context, id string, ip, ua *string) error
-	getUser              func(context.Context, string) (iam.User, error)
-	isVerified           func(iam.User) bool
-	pendingExists        func(context.Context, string) (bool, error)
 
-	errUnavailable     errmodel.Code
-	errAlreadyVerified errmodel.Code
+	errUnavailable errmodel.Code
 }
 
 func (s *Service) emailChannel() contactChannel {
@@ -49,16 +44,7 @@ func (s *Service) emailChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
-		getUser: func(ctx context.Context, email string) (iam.User, error) {
-			return s.svc.User(ctx, iam.UserByEmail(email))
-		},
-		isVerified: func(u iam.User) bool { return u.EmailVerified },
-		pendingExists: func(ctx context.Context, id string) (bool, error) {
-			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
-			return p != nil, err
-		},
-		errUnavailable:     errmodel.CodeEmailUnavailable,
-		errAlreadyVerified: errmodel.CodeEmailAlreadyVerified,
+		errUnavailable: errmodel.CodeEmailUnavailable,
 	}
 }
 
@@ -74,16 +60,7 @@ func (s *Service) phoneChannel() contactChannel {
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
-		getUser: func(ctx context.Context, phone string) (iam.User, error) {
-			return s.svc.User(ctx, iam.UserByPhone(phone))
-		},
-		isVerified: func(u iam.User) bool { return u.PhoneVerified },
-		pendingExists: func(ctx context.Context, id string) (bool, error) {
-			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
-			return p != nil, err
-		},
-		errUnavailable:     errmodel.CodeSMSUnavailable,
-		errAlreadyVerified: errmodel.CodePhoneAlreadyVerified,
+		errUnavailable: errmodel.CodeSMSUnavailable,
 	}
 }
 
@@ -182,13 +159,12 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	var target *contactChannel
 	if in.Identifier != "" || in.Token == "" {
-		ch, id, ok := s.requireContactChannel(w, in.Identifier)
+		_, id, ok := s.requireContactChannel(w, in.Identifier)
 		if !ok {
 			return
 		}
-		in.Identifier, target = id, &ch
+		in.Identifier = id
 		if s.rateLimitedByIdentifier(w, r, RLVerifyConfirm, id) {
 			return
 		}
@@ -198,13 +174,14 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 	}
 	out, err := s.svc.ConfirmVerification(r.Context(), in)
 	if err != nil {
-		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims) {
+		switch {
+		case !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims):
 			writeError(w, err)
-		} else if in.Token == "" {
+		case in.Token == "":
 			fail(w, errmodel.CodeInvalidCode)
-		} else if target != nil {
-			s.classifyVerifyLinkFailure(w, r.Context(), *target, in.Identifier)
-		} else {
+		default:
+			// One answer for every failed link: it never tells whether the
+			// address has an account or is already verified (N9).
 			fail(w, errmodel.CodeInvalidLink)
 		}
 		return
@@ -217,25 +194,6 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
-}
-
-// classifyVerifyLinkFailure explains a missed link token for a known
-// identifier: already verified → 409; a live account or an unknown identifier
-// → 410 (the link expired); a pending registration → 400 invalid_link.
-func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, ch contactChannel, id string) {
-	if u, err := ch.getUser(ctx, id); err == nil {
-		if ch.isVerified(u) {
-			fail(w, ch.errAlreadyVerified)
-			return
-		}
-		fail(w, errmodel.CodeVerificationLinkExpired)
-		return
-	}
-	if exists, err := ch.pendingExists(ctx, id); err == nil && exists {
-		fail(w, errmodel.CodeInvalidLink)
-		return
-	}
-	fail(w, errmodel.CodeVerificationLinkExpired)
 }
 
 // POST /password/reset/request — {identifier}; always 202 for a well-formed

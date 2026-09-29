@@ -73,8 +73,10 @@ func (s *Engine) RequireProvenContact(ctx context.Context, userID string) error 
 // account's addresses, before the address is marked verified. When no address
 // was proven yet, whoever created the account's credentials was never shown to
 // control it, so every credential and session goes: provider links (including
-// Solana wallets), passkeys, device keys, 2FA factors and backup codes, API
-// keys the account created, and refresh sessions on every account issuer.
+// Solana wallets), passkeys, device keys, 2FA factors and backup codes, the API
+// keys, invite links and account invitations the account issued, the
+// applications it registered (they keep no registrar), and refresh sessions on
+// every account issuer.
 //
 // keepSessionID is the authenticated session presenting the proof, if any. It
 // survives, and the password survives only when that live session itself
@@ -110,6 +112,9 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userI
 		`DELETE FROM mfa_factors WHERE user_id = $1::uuid`,
 		`UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = $1::uuid`,
 		`UPDATE api_keys SET revoked_at = now() WHERE created_by = $1::uuid AND revoked_at IS NULL`,
+		`UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE invited_by = $1::uuid AND revoked_at IS NULL AND redeemed_at IS NULL`,
+		`UPDATE account_registration_invites SET revoked_at = now(), updated_at = now() WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL`,
+		`UPDATE remote_applications SET registered_by = NULL, updated_at = now() WHERE registered_by = $1::uuid`,
 	}
 	if !keepPassword {
 		statements = append(statements, `DELETE FROM user_passwords WHERE user_id = $1::uuid`)

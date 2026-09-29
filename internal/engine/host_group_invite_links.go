@@ -160,6 +160,8 @@ func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 // live (not revoked, expired or used) and its issuer live, and the redeemer
 // live. The role is assigned in the same transaction and the link consumed.
 // Idempotent: a redeemer already holding the role succeeds without using it.
+// code may also be a role-carrying account invitation (an add by email): only
+// the account that has verified the invited address accepts it.
 func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error) {
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
@@ -175,7 +177,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		var groupID string
 		err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE code_hash=$1`, codeHash).Scan(&groupID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrInviteLinkNotFound
+			return s.acceptAccountInvite(ctx, st, redeemer, codeHash, &out)
 		}
 		if err != nil {
 			return err
@@ -226,6 +228,64 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		return authflow.InviteRedemption{}, err
 	}
 	return out, nil
+}
+
+// acceptAccountInvite accepts a role-carrying account invitation for an
+// existing account: the redeemer's verified email must be the invited address,
+// so the role lands only with the consent of whoever proved it. Anything else
+// is ErrInviteLinkNotFound, never a hint about the invitation.
+func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupStore, redeemer iam.Subject, codeHash string, out *authflow.InviteRedemption) error {
+	var groupID string
+	err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM account_registration_invites WHERE code_hash=$1 AND permission_group_id IS NOT NULL`, codeHash).Scan(&groupID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.ErrInviteLinkNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
+		return err
+	}
+	var inviteID string
+	var consumedAt, revokedAt *time.Time
+	var expiresAt time.Time
+	var issuerOK, addressed bool
+	err = st.q.QueryRow(ctx, `SELECT i.id::text, g.persona, COALESCE(g.instance_slug,''), COALESCE(i.role,''), i.consumed_at, i.expires_at, i.revoked_at, `+issuerLive("i.invited_by")+`,
+       EXISTS(SELECT 1 FROM users u WHERE u.id=$3::uuid AND lower(u.email::text)=lower(i.email::text) AND u.email_verified)
+ FROM account_registration_invites i JOIN permission_groups g ON g.id=i.permission_group_id AND g.deleted_at IS NULL
+ WHERE i.code_hash=$1 AND i.permission_group_id=$2::uuid
+ FOR UPDATE OF i`, codeHash, groupID, redeemer.ID).Scan(&inviteID, &out.Persona, &out.InstanceSlug, &out.Role, &consumedAt, &expiresAt, &revokedAt, &issuerOK, &addressed)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !addressed {
+		return iam.ErrInviteLinkNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if revokedAt != nil || !issuerOK {
+		return errmodel.ErrInviteLinkRevoked
+	}
+	if !expiresAt.After(time.Now().UTC()) {
+		return errmodel.ErrInviteLinkExpired
+	}
+	live, err := subjectUsable(ctx, st.q, redeemer)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return iam.ErrInsufficientAuthority
+	}
+	already, err := subjectHasRole(ctx, st.q, groupID, redeemer.ID, out.Role)
+	if err != nil || already {
+		return err
+	}
+	if consumedAt != nil {
+		return iam.ErrInviteLinkNotFound
+	}
+	if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
+		return err
+	}
+	_, err = st.q.Exec(ctx, `UPDATE account_registration_invites SET consumed_at=now(), consumed_by=$2::uuid, updated_at=now() WHERE id=$1::uuid`, inviteID, redeemer.ID)
+	return err
 }
 
 // subjectHasRole reports whether the user already holds role in the group.

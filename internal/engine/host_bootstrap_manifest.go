@@ -373,12 +373,18 @@ func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permis
 	if role == "" {
 		return nil
 	}
+	subject := iam.RemoteApplicationSubject(ra.ID)
+	// An application can present no second factor, so no path hands it a
+	// role that needs one.
+	if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona, subject, role); err != nil {
+		return err
+	}
 	if role != iam.OwnerRole {
-		if err := s.refuseOwnerLoss(ctx, st, rootID, iam.RemoteApplicationSubject(ra.ID)); err != nil {
+		if err := s.refuseOwnerLoss(ctx, st, rootID, subject); err != nil {
 			return err
 		}
 	}
-	return st.AssignRole(ctx, rootID, iam.RemoteApplicationSubject(ra.ID), role)
+	return st.AssignRole(ctx, rootID, subject, role)
 }
 
 func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {

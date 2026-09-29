@@ -30,7 +30,7 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 		`SELECT ra.permission_group_id::text, pg.persona, COALESCE(pg.instance_slug, '')
 		 FROM remote_applications ra
 		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
-		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL`,
+		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL AND `+registrarLive("ra"),
 		appID).Scan(&gid, &out.Persona, &out.InstanceSlug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.RemoteApplicationAuthority{}, iam.ErrRemoteApplicationNotFound
@@ -43,6 +43,10 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	out.Permissions, err = s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), gid)
 	if err != nil {
 		return iam.RemoteApplicationAuthority{}, err
+	}
+	// An application can present no second factor (see withoutMFAGrants).
+	if s.TwoFactorEnabled() && s.groupSchemaOrDefault().RequiresMFA(out.Permissions) {
+		out.Permissions = []string{}
 	}
 	return out, nil
 }

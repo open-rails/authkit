@@ -41,12 +41,18 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *us
 		return nil
 	}
 	var id string
-	err := tx.QueryRow(ctx, `SELECT id::text FROM account_deletions WHERE user_id=$1::uuid AND state='deleted' AND deleted_at=$2 AND purge_at>statement_timestamp()`, user.ID, user.DeletedAt).Scan(&id)
+	var self bool
+	err := tx.QueryRow(ctx, `SELECT id::text, deleted_by IS NOT DISTINCT FROM user_id FROM account_deletions WHERE user_id=$1::uuid AND state='deleted' AND deleted_at=$2 AND purge_at>statement_timestamp()`, user.ID, user.DeletedAt).Scan(&id, &self)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
 		return err
+	}
+	// Only a self-deletion is undone by signing in; an account staff or the
+	// operator deleted comes back only through RestoreUsers (N5).
+	if !self {
+		return errmodel.E(errmodel.CodeAccountDisabled)
 	}
 	if proof.DeletionID != "" && proof.DeletionID != id {
 		return jwt.ErrTokenUnverifiable

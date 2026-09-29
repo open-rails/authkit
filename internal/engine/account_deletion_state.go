@@ -17,23 +17,27 @@ type accountDeletionRecord struct {
 	iam.UserDeletion
 	state      string
 	recipients []string
+	selfDelete bool // the account deleted itself, so it may restore itself
 }
 
 func loadAccountDeletion(ctx context.Context, tx pgx.Tx, id string) (accountDeletionRecord, error) {
 	var record accountDeletionRecord
-	err := tx.QueryRow(ctx, `SELECT id::text,user_id::text,deleted_at,purge_at,state,recipients FROM account_deletions WHERE id=$1::uuid FOR UPDATE`, id).Scan(&record.ID, &record.UserID, &record.DeletedAt, &record.PurgeAt, &record.state, &record.recipients)
+	err := tx.QueryRow(ctx, `SELECT id::text,user_id::text,deleted_at,purge_at,state,recipients,deleted_by IS NOT DISTINCT FROM user_id FROM account_deletions WHERE id=$1::uuid FOR UPDATE`, id).Scan(&record.ID, &record.UserID, &record.DeletedAt, &record.PurgeAt, &record.state, &record.recipients, &record.selfDelete)
 	return record, err
 }
 
-func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], userID string) error {
+// createAccountDeletion starts the recovery window. deletedBy is the user who
+// deleted the account (nil for the operator); only a self-deletion can be
+// undone by signing in.
+func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], userID string, deletedBy *string) error {
 	issuers := s.accountIssuers()
 	if len(issuers) == 0 {
 		return errors.New("authkit: account deletion requires Token.Issuer")
 	}
 	var deletion iam.UserDeletion
-	err := tx.QueryRow(ctx, `INSERT INTO account_deletions(user_id,deleted_at,purge_at,recipients)
- SELECT id,deleted_at,deleted_at+interval '720 hours',$2 FROM users WHERE id=$1::uuid
- RETURNING id::text,user_id::text,deleted_at,purge_at`, userID, issuers).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
+	err := tx.QueryRow(ctx, `INSERT INTO account_deletions(user_id,deleted_at,purge_at,recipients,deleted_by)
+ SELECT id,deleted_at,deleted_at+interval '720 hours',$2,$3::uuid FROM users WHERE id=$1::uuid
+ RETURNING id::text,user_id::text,deleted_at,purge_at`, userID, issuers, deletedBy).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
 	if err != nil {
 		return err
 	}

@@ -24,7 +24,7 @@ func softDeleteRuntime(t *testing.T) (*Engine, *pgxpool.Pool) {
 	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
 	cfg.Roles = RoleConfig{
-		Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:read"}}},
+		Personas: map[string]Persona{"channel": {Permissions: []string{"channel:posts:read"}, APIKeys: true}},
 		Roles:    []Role{{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}}},
 	}
 	runtimeConfig := pg.Pool.Config()

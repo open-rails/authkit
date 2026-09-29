@@ -34,6 +34,11 @@ func (s *Engine) softDelete(ctx context.Context, id string) error {
 	return itemErr(s.DeleteUsers(ctx, iam.OperatorActor(), []string{id}))
 }
 
+// selfDelete is the account deleting itself, the deletion a sign-in may undo.
+func (s *Engine) selfDelete(ctx context.Context, id string) error {
+	return itemErr(s.DeleteUsers(ctx, iam.UserActor(id), []string{id}))
+}
+
 func (s *Engine) mintTestAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
 	return s.mintAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
 }
