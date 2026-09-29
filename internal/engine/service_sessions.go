@@ -510,7 +510,7 @@ func revokeSessionsTx(ctx context.Context, q *db.Queries, userID string, issuers
 // logRevokedSessions records each revocation under the session's own issuer.
 func (s *Engine) logRevokedSessions(ctx context.Context, userID string, revoked []revokedSession, reason string) {
 	for _, r := range revoked {
-		s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: authflow.SessionEventRevoked, Reason: &reason})
+		s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: r.Issuer, UserID: userID, SessionID: r.ID, Event: iam.SessionEventRevoked, Reason: &reason})
 	}
 }
 

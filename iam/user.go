@@ -188,6 +188,41 @@ type Session struct {
 	IP         string     `json:"ip,omitempty"`
 }
 
+// SessionEventKind names an entry of an account's session history.
+type SessionEventKind string
+
+const (
+	SessionEventCreated          SessionEventKind = "session_created"
+	SessionEventFailed           SessionEventKind = "session_failed"
+	SessionEventRevoked          SessionEventKind = "session_revoked"
+	SessionEventPasswordChange   SessionEventKind = "password_changed"
+	SessionEventPasswordRecovery SessionEventKind = "password_recovery"
+	// SessionEventAccountSessionsRevoked is one account-wide revocation; each
+	// session it ended has its own SessionEventRevoked.
+	SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
+)
+
+// SessionEvent is one entry of an account's sign-in and session history, kept
+// for Config.SessionEventRetention. Method is how a session was created;
+// Reason why one was revoked or a sign-in failed.
+type SessionEvent struct {
+	Kind       SessionEventKind `json:"kind"`
+	OccurredAt time.Time        `json:"occurred_at"`
+	Issuer     string           `json:"issuer"`
+	SessionID  string           `json:"session_id,omitempty"`
+	Method     string           `json:"method,omitempty"`
+	Reason     string           `json:"reason,omitempty"`
+	IP         string           `json:"ip,omitempty"`
+	UserAgent  string           `json:"user_agent,omitempty"`
+}
+
+// SessionEventQuery pages an account's session history, newest first. No
+// Kinds means every kind.
+type SessionEventQuery struct {
+	Kinds []SessionEventKind
+	Page  PageRequest
+}
+
 // AccountSessionRevocation reports an account-wide emergency revocation across
 // the configured account issuers (TokenConfig.AccountIssuers). Issued access
 // tokens are not revoked; they stay valid until they expire.

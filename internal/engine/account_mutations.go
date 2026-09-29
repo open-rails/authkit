@@ -632,7 +632,7 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 		out.RevokedSessions[r.Issuer]++
 	}
 	s.logRevokedSessions(ctx, userID, revoked, reason)
-	s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: s.cfg.Token.Issuer, UserID: userID, Event: authflow.SessionEventAccountSessionsRevoked, Reason: &reason})
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: s.cfg.Token.Issuer, UserID: userID, Event: iam.SessionEventAccountSessionsRevoked, Reason: &reason})
 	return out, nil
 }
 

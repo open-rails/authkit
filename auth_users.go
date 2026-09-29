@@ -40,6 +40,22 @@ func (a *Auth) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam
 	return a.engine.ListUsers(ctx, q)
 }
 
+// ResolveUsername resolves a username, current or a live alias of a renamed
+// account, to its account. An expired alias, a deleted account and a name
+// kept for a purged account are iam.ErrUserNotFound.
+func (a *Auth) ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error) {
+	return a.engine.ResolveUsername(ctx, name)
+}
+
+// CheckUsername reports whether a new account could take name: nil, the
+// username policy's validation error, iam.ErrUsernameInUse, or the
+// NameAdmission refusal. A name is in use while any account holds it, as its
+// name or a live alias, including its own; the answer says nothing more
+// about that account. Serve it to untrusted callers only rate-limited.
+func (a *Auth) CheckUsername(ctx context.Context, name string) error {
+	return a.engine.CheckUsername(ctx, name)
+}
+
 // UserMetadata returns the account's application-owned metadata. It is not a
 // public profile: select public fields explicitly.
 func (a *Auth) UserMetadata(ctx context.Context, userID string) (map[string]any, error) {

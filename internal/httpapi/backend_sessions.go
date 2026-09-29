@@ -13,7 +13,7 @@ type sessionsBackend interface {
 	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
 	RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string) (iam.AccountSessionRevocation, error)
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error)
-	ListSessionEvents(ctx context.Context, userID string, eventTypes ...authflow.SessionEventType) ([]authflow.AuthSessionEvent, error)
+	SessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 	ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error)
 	RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error

@@ -34,16 +34,12 @@ func (s *Engine) generateAvailableUsername(ctx context.Context, base string) str
 	return s.cfg.Username.WithSuffix(base, "_user")
 }
 
-// usernameAvailable reports whether username is free. getUserByUsername returns
-// pgx.ErrNoRows for a free name, so ErrNoRows is the available case (#111: the
-// organization-slug reservation plane was removed, so username uniqueness is the only
-// constraint).
+// usernameAvailable reports whether username is free; a failed read is not.
 func (s *Engine) usernameAvailable(ctx context.Context, username string) bool {
 	if s.pg == nil {
 		return true
 	}
-	var taken bool
-	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, username, s.namingNow()).Scan(&taken)
+	taken, err := s.usernameTaken(ctx, username)
 	return err == nil && !taken
 }
 

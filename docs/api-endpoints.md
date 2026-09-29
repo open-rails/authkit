@@ -36,7 +36,8 @@ Password and username policies are host-configured and published in
 (`{access_token, token_type, expires_in, refresh_token?}`) alone, or under `token_set` beside
 route fields (registration `{next_action, user, token_set?}`, step-up `{token_set, fresh_auth}`,
 device keys `{token_set, device_key}`, passwordless/SIWS/OIDC-json extras). Lists are
-`{object:"list", data:[...], next_cursor?}`. `POST {api}/admin/users/{user_id}/sessions/revoke` returns
+`{object:"list", data:[...], next_cursor?}` and take `?cursor=&limit=`; `GET {api}/admin/users/{user_id}/signins`
+lists `iam.SessionEvent` sign-ins and failed sign-ins, newest first. `POST {api}/admin/users/{user_id}/sessions/revoke` returns
 `iam.AccountSessionRevocation`. Mutations with nothing to return answer `204`;
 anti-enumeration sends answer `202` with an empty body. Pending challenges are `403` error
 envelopes (`2fa_required`, `2fa_enrollment_required`, `verification_required`) with the

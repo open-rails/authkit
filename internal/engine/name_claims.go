@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
@@ -68,6 +69,45 @@ func (s *Engine) resolveUsername(ctx context.Context, name string) (iam.NameReso
 	}
 	row, err := s.q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 	return iam.NameResolution{ID: row.ID, CanonicalName: row.CanonicalName, IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
+}
+
+// ResolveUsername resolves a current username or live alias of a live account.
+func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error) {
+	r, err := s.resolveUsername(ctx, name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.NameResolution{}, iam.ErrUserNotFound
+	}
+	return r, err
+}
+
+// CheckUsername reports whether a new account could take name: the username
+// policy, then any claim on it (a canonical name, a live alias, a purged
+// account's reservation, a pending registration), then NameAdmission. A claim
+// answers ErrUsernameInUse and nothing about its owner.
+func (s *Engine) CheckUsername(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if err := s.cfg.Username.Validate(name); err != nil {
+		return err
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	taken, err := s.usernameTaken(ctx, name)
+	if err != nil {
+		return err
+	}
+	if taken || s.pendingChangeUsernameTaken(ctx, name) {
+		return iam.ErrUsernameInUse
+	}
+	return s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", RequestedName: name, Operation: iam.NameCreate})
+}
+
+// usernameTaken reports whether any claim holds name: a canonical name, an
+// unexpired alias, or a purged account's permanent reservation.
+func (s *Engine) usernameTaken(ctx context.Context, name string) (bool, error) {
+	var taken bool
+	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1) AND (canonical OR expires_at IS NULL OR expires_at>$2))`, strings.TrimSpace(name), s.namingNow()).Scan(&taken)
+	return taken, err
 }
 
 func (s *Engine) admitName(ctx context.Context, request iam.NameAdmissionRequest) error {

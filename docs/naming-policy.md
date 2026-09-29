@@ -81,7 +81,13 @@ most 5000 expired aliases per run; it never decides forwarding or claims.
   `X-AuthKit-Canonical-Instance`.
 - `UpdateGroup(ctx, actor, ref, iam.GroupUpdate{Slug, DisplayName})` commits
   slug and display name together (`<persona>:self:update`).
-- `User(ctx, iam.UserByUsername(name))` resolves live aliases to the owner.
+- `User(ctx, iam.UserByUsername(name))` resolves live aliases to the owner;
+  `ResolveUsername(ctx, name)` also says whether `name` is an alias and until
+  when. Deleted and purged owners resolve nobody.
+- `CheckUsername(ctx, name)` is availability for a new account: the username
+  policy's error, `username_in_use` for any claim (current, live alias,
+  purged account, pending registration; identical whoever holds it), then
+  `Deps.NameAdmission`. It is Go-only; rate-limit it before serving it.
 - `ListGroups(ctx, iam.GroupQuery{Persona, Search, Page})` searches slugs and
   display names by case-insensitive substring, ordered by slug; aliases add no
   duplicates.

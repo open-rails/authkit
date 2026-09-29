@@ -65,6 +65,10 @@ Add a row and a test for every new attack class.
 | First-admin seed adopts a pre-registered account, binds by username, or lets its unproven account sign in without proof | `TestSecurityEnsureUserRole` |
 | Import reports a row without its account, stores an invalid hash, or merges into an account bound by username or unverified address | `TestSecurityImportUsers` |
 | Imported wallet becomes a login method or moves between accounts | `TestSecurityImportSolanaLinks` |
+| Import binds a provider identity another account holds or another row names; a merge unproven by id or a verified contact links one | `TestSecurityImportProviders` |
+| Imported deleted account signs in or restores itself, skips its deletion hooks, outlives its window, or frees its username when purged | `TestSecurityImportedDeletionLifecycle` |
+| Username availability reveals more than "taken" or differs by owner; a deleted owner or expired alias resolves | `TestSecurityUsernameChecks` |
+| Session history shows another account's events, repeats or skips rows while paging, accepts a forged cursor, or is served without `root:users:read` | `TestSecuritySessionEventHistory` |
 | Non-operator links a provider identity; an operator link reaches another account | `TestSecurityLinkProvider` |
 | Stolen session plus password on an account with a second factor: password step-up, or a password-refreshed session, clears the fresh-auth gate (backup codes, passkey, factor, provider link, address change, host `Sensitive` route) | `TestSecurityPasswordStepUpNeedsSecondFactor` |
 | Device key enrolled before MFA signs in without it; an MFA-required role holder without a factor enrolls one; a password change leaves device keys | `TestSecurityDeviceKeyMFAGate` |

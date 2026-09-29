@@ -33,6 +33,22 @@ type ImportUser struct {
 	Metadata     map[string]any
 	CreatedAt    *time.Time
 	UpdatedAt    *time.Time
+	LastLogin    *time.Time
+	// PreferredLanguage and AvatarURL are validated as UpdateUser validates them.
+	PreferredLanguage string
+	AvatarURL         string
+	// DeletedAt, not in the future, imports the account as the operator's
+	// DeleteUsers at that time would have left it: OnSoftDelete runs, the
+	// 30-day recovery window runs from DeletedAt (RestoreUsers restores it,
+	// signing in does not), and once the window has passed the account is
+	// purged after OnHardDelete. Such rows need River, as DeleteUsers does.
+	DeletedAt *time.Time
+	// Providers are external identities the account signs in with, linked as
+	// LinkProvider links them, at most one per issuer; Solana wallets import
+	// only through ImportSolanaLinks. A row naming an identity another account
+	// holds, or an earlier row of the batch names, is rejected with
+	// "provider_already_linked".
+	Providers []ProviderLink
 }
 
 // ImportConflict is what ImportUsers does with a row that finds an account.
@@ -42,11 +58,13 @@ const (
 	// ImportSkip leaves the account unchanged. It is the default.
 	ImportSkip ImportConflict = "skip"
 	// ImportMerge updates an account the row is bound to: found by ID, or by an
-	// email or phone verified on the account. It merges Metadata and keeps the
-	// earlier CreatedAt; it stores PasswordHash only when the account has no
-	// password and the row is bound by ID or by a contact verified on both
-	// sides. It never changes identity, contacts, verification or bans. A row
-	// that is not bound is skipped with Reason "unbound_match".
+	// email or phone verified on the account. It merges Metadata, keeps the
+	// earlier CreatedAt and the later LastLogin, and fills a PreferredLanguage
+	// or AvatarURL the account lacks. Only a row bound by ID or by a contact
+	// verified on both sides links Providers, and stores PasswordHash when the
+	// account has no password. It never changes identity, contacts,
+	// verification, bans or deletion. A row that is not bound is skipped with
+	// Reason "unbound_match".
 	ImportMerge ImportConflict = "merge"
 )
 
@@ -80,7 +98,8 @@ const (
 // skipped and merged rows say which identifier found the account. Reason
 // explains skipped and rejected rows: "already_exists", "duplicate_in_batch",
 // "unbound_match", "deleted", "identifier_conflict", "username_unavailable",
-// or a validation code.
+// "provider_already_linked", "provider_change_requires_unlink", or a
+// validation code such as "invalid_provider" or "invalid_deleted_at".
 type ImportRow struct {
 	Index     int
 	UserID    string

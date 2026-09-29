@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -33,12 +36,19 @@ type newAccount struct {
 }
 
 // importUsersChunkSize bounds rows per transaction and multi-row INSERT
-// (12 parameters a row, far under PostgreSQL's 65535).
+// (16 parameters a row, far under PostgreSQL's 65535).
 const importUsersChunkSize = 1000
+
+// importChunkAttempts bounds retries of a chunk that lost a provider link to
+// a concurrent writer; each retry sees the winner and rejects that row.
+const importChunkAttempts = 3
 
 var (
 	errImportInvalidID           = errors.New("invalid_id")
 	errImportInvalidPasswordHash = errors.New("invalid_password_hash")
+	errImportInvalidProvider     = errors.New("invalid_provider")
+	errImportInvalidDeletedAt    = errors.New("invalid_deleted_at")
+	errImportProviderRaced       = errors.New("authkit: import lost a provider link to a concurrent writer")
 )
 
 // importRow is one validated ImportUsers row and, once its chunk commits, its
@@ -55,6 +65,11 @@ type importRow struct {
 	metadata  string
 	createdAt time.Time
 	updatedAt time.Time
+	lastLogin *time.Time
+	language  *string
+	avatar    *string
+	deletedAt *time.Time
+	providers []iam.ProviderLink
 	out       iam.ImportRow
 }
 
@@ -62,6 +77,9 @@ type importKey struct {
 	match iam.ImportMatch
 	value string
 }
+
+// providerKey is an external identity: user_providers' (issuer, subject).
+type providerKey struct{ issuer, subject string }
 
 // keys lists the row's identifiers in match priority order.
 func (p *importRow) keys() []importKey {
@@ -116,6 +134,8 @@ func (s *Engine) ImportUsers(ctx context.Context, a iam.Actor, rows []iam.Import
 	var prepared []*importRow
 	var dups []duplicate
 	first := map[importKey]*importRow{}
+	linked := map[providerKey]bool{}
+	deletions := false
 	for i, in := range rows {
 		res.Rows[i].Index = i
 		p, err := s.prepareImportRow(i, in)
@@ -135,21 +155,44 @@ func (s *Engine) ImportUsers(ctx context.Context, a iam.Actor, rows []iam.Import
 				}
 			}
 		}
+		held := false
+		for _, l := range p.providers {
+			held = held || linked[providerKey{l.Issuer, l.Subject}]
+		}
 		switch {
 		case conflict:
 			res.Rows[i] = importRejected(i, "identifier_conflict")
 		case of != nil:
 			dups = append(dups, duplicate{i, of, by})
+		case held:
+			res.Rows[i] = importRejected(i, errmodel.CodeProviderAlreadyLinked.String())
 		default:
 			for _, k := range p.keys() {
 				first[k] = p
 			}
+			for _, l := range p.providers {
+				linked[providerKey{l.Issuer, l.Subject}] = true
+			}
+			deletions = deletions || p.deletedAt != nil
 			prepared = append(prepared, p)
 		}
 	}
+	// A deleted row starts the account lifecycle, which needs River.
+	var client *river.Client[pgx.Tx]
 	var err error
+	if deletions {
+		if client, err = s.deletionRiver(); err != nil {
+			return iam.ImportResult{}, err
+		}
+	}
 	for start := 0; start < len(prepared) && err == nil; start += importUsersChunkSize {
-		err = s.importChunk(ctx, prepared[start:min(start+importUsersChunkSize, len(prepared))], merge)
+		chunk := prepared[start:min(start+importUsersChunkSize, len(prepared))]
+		for attempt := 1; ; attempt++ {
+			err = s.importChunk(ctx, chunk, merge, client)
+			if !errors.Is(err, errImportProviderRaced) || attempt == importChunkAttempts {
+				break
+			}
+		}
 	}
 	for _, p := range prepared {
 		res.Rows[p.idx] = p.out
@@ -197,7 +240,32 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 		return nil, err
 	}
 	p := &importRow{idx: idx, in: acct, email: email, phone: phone, username: username, name: strings.ToLower(username),
-		metadata: metadata, createdAt: createdAt, updatedAt: updatedAt}
+		metadata: metadata, createdAt: createdAt, updatedAt: updatedAt, lastLogin: utcTime(in.LastLogin)}
+	language, err := authflow.NormalizePreferredLanguage(in.PreferredLanguage)
+	if err != nil {
+		return nil, err
+	}
+	p.language = nullable(language)
+	if p.avatar, err = normalizeAvatarURL(in.AvatarURL); err != nil {
+		return nil, err
+	}
+	if in.DeletedAt != nil {
+		if in.DeletedAt.After(time.Now()) {
+			return nil, errImportInvalidDeletedAt
+		}
+		p.deletedAt = utcTime(in.DeletedAt)
+	}
+	issuers := map[string]bool{}
+	for _, l := range in.Providers {
+		l.Issuer, l.Subject, l.Provider, l.Email = strings.TrimSpace(l.Issuer), strings.TrimSpace(l.Subject), strings.TrimSpace(l.Provider), strings.TrimSpace(l.Email)
+		// user_providers holds one identity per account and issuer. Wallets
+		// import only as ImportSolanaLinks reservations.
+		if l.Issuer == "" || l.Subject == "" || issuers[l.Issuer] || l.Provider == solanaProviderSlug || strings.HasPrefix(l.Issuer, "solana:") {
+			return nil, errImportInvalidProvider
+		}
+		issuers[l.Issuer] = true
+		p.providers = append(p.providers, l)
+	}
 	if id := strings.TrimSpace(in.ID); id != "" {
 		if !isUUID(id) {
 			return nil, errImportInvalidID
@@ -211,7 +279,7 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 
 // importChunk imports one chunk in one transaction. Outcomes stand only once
 // it commits; on error every row of the chunk is left unreported.
-func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool) (err error) {
+func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool, client *river.Client[pgx.Tx]) (err error) {
 	defer func() {
 		if err != nil {
 			for _, p := range chunk {
@@ -247,11 +315,14 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	if err != nil {
 		return err
 	}
+	if fresh, err = rejectHeldProviders(ctx, tx, fresh); err != nil {
+		return err
+	}
 	inserted, err := insertImportRows(ctx, tx, fresh)
 	if err != nil {
 		return err
 	}
-	var raced, passwords []*importRow
+	var raced, passwords, providers []*importRow
 	for _, p := range fresh {
 		if !inserted[p.id] {
 			raced = append(raced, p)
@@ -260,6 +331,9 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 		p.out = iam.ImportRow{Index: p.idx, UserID: p.id, Status: iam.ImportInserted}
 		if p.in.HashAlgo != "" {
 			passwords = append(passwords, p)
+		}
+		if len(p.providers) > 0 {
+			providers = append(providers, p)
 		}
 	}
 	if len(raced) > 0 {
@@ -274,6 +348,17 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	if err = insertImportPasswords(ctx, tx, passwords); err != nil {
 		return err
+	}
+	if err = insertImportProviders(ctx, tx, providers); err != nil {
+		return err
+	}
+	for _, p := range fresh {
+		if inserted[p.id] && p.deletedAt != nil {
+			// As the operator's DeleteUsers would have: deleted_by stays NULL.
+			if err = s.createAccountDeletion(ctx, tx, client, p.id, nil); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -308,15 +393,16 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 		}
 		top := found[0]
 		conflict := p.declared && top.match != iam.ImportMatchID
-		bound, passwordBound := false, false
+		// credentialBound: bound strongly enough to add a password or providers.
+		bound, credentialBound := false, false
 		for _, h := range found {
 			conflict = conflict || h.userID != top.userID
 			switch {
 			case h.match == iam.ImportMatchID:
-				bound, passwordBound = true, true
+				bound, credentialBound = true, true
 			case h.verified:
 				bound = true
-				passwordBound = passwordBound || h.match == iam.ImportMatchEmail && p.in.EmailVerified || h.match == iam.ImportMatchPhone && p.in.PhoneVerified
+				credentialBound = credentialBound || h.match == iam.ImportMatchEmail && p.in.EmailVerified || h.match == iam.ImportMatchPhone && p.in.PhoneVerified
 			}
 		}
 		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: "already_exists"}
@@ -334,7 +420,7 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 			skipped.Reason = "unbound_match"
 			p.out = skipped
 		default:
-			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID, passwordBound) })
+			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID, credentialBound) })
 			if err != nil {
 				if code := errmodel.CodeOf(err); code == "" || code == errmodel.CodeInternalError {
 					return nil, err
@@ -403,18 +489,30 @@ func (s *Engine) importHits(ctx context.Context, q db.DBTX, rows []*importRow) (
 }
 
 // mergeImportRow merges a bound row into its account: metadata, the earlier
-// creation time and, when withPassword, a password the account lacks.
-// Identity, contacts, verification and bans stay as they are.
-func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withPassword bool) error {
+// creation time, the later last login, a language and avatar the account
+// lacks and, when withCredentials, the row's providers and a password the
+// account lacks. Identity, contacts, verification, bans and deletion stay as
+// they are.
+func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withCredentials bool) error {
 	if metadataMarksReserved([]byte(p.metadata)) {
 		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 			return err
 		}
 	}
-	if _, err := st.q.Exec(ctx, `UPDATE users SET metadata=COALESCE(metadata,'{}'::jsonb) || $2::jsonb, created_at=LEAST(created_at,$3), updated_at=now() WHERE id=$1::uuid`, userID, p.metadata, p.createdAt); err != nil {
+	if _, err := st.q.Exec(ctx, `UPDATE users SET metadata=COALESCE(metadata,'{}'::jsonb) || $2::jsonb, created_at=LEAST(created_at,$3),
+ last_login=GREATEST(last_login,$4), preferred_language=COALESCE(preferred_language,$5), avatar_url=COALESCE(avatar_url,$6), updated_at=now() WHERE id=$1::uuid`,
+		userID, p.metadata, p.createdAt, p.lastLogin, p.language, p.avatar); err != nil {
 		return err
 	}
-	if !withPassword || p.in.HashAlgo == "" {
+	if !withCredentials {
+		return nil
+	}
+	for _, l := range p.providers {
+		if _, err := linkProviderByIssuer(ctx, db.New(st.q), userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
+			return err
+		}
+	}
+	if p.in.HashAlgo == "" {
 		return nil
 	}
 	_, err := st.q.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash, hash_algo) VALUES ($1::uuid,$2,$3) ON CONFLICT (user_id) DO NOTHING`, userID, p.in.PasswordHash, p.in.HashAlgo)
@@ -429,17 +527,18 @@ func insertImportRows(ctx context.Context, q pgx.Tx, rows []*importRow) (map[str
 		return inserted, nil
 	}
 	var b strings.Builder
-	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, metadata, created_at, updated_at) VALUES ")
-	args := make([]any, 0, len(rows)*12)
+	b.WriteString("INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at) VALUES ")
+	args := make([]any, 0, len(rows)*16)
 	for i, r := range rows {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		n := i * 12
-		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb,$%d,$%d)",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12)
+		n := i * 16
+		fmt.Fprintf(&b, "($%d::uuid,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb,$%d,$%d,$%d,$%d,$%d,$%d)",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12, n+13, n+14, n+15, n+16)
 		args = append(args, r.id, r.email, r.phone, r.username, r.in.EmailVerified, r.in.PhoneVerified,
-			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.metadata, r.createdAt, r.updatedAt)
+			r.in.BannedAt, r.in.BannedUntil, r.in.BanReason, r.metadata, r.createdAt, r.updatedAt,
+			r.lastLogin, r.language, r.avatar, r.deletedAt)
 	}
 	b.WriteString(" ON CONFLICT DO NOTHING RETURNING id::text")
 	res, err := q.Query(ctx, b.String(), args...)
@@ -475,6 +574,85 @@ func insertImportPasswords(ctx context.Context, q pgx.Tx, rows []*importRow) err
 	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
 	_, err := q.Exec(ctx, b.String(), args...)
 	return err
+}
+
+// rejectHeldProviders rejects the rows naming an identity some account holds,
+// verified or not, and returns the rest.
+func rejectHeldProviders(ctx context.Context, tx pgx.Tx, rows []*importRow) ([]*importRow, error) {
+	var issuers, subjects []string
+	for _, p := range rows {
+		for _, l := range p.providers {
+			issuers, subjects = append(issuers, l.Issuer), append(subjects, l.Subject)
+		}
+	}
+	if len(issuers) == 0 {
+		return rows, nil
+	}
+	res, err := tx.Query(ctx, `SELECT p.issuer, p.subject FROM user_providers p
+ JOIN unnest($1::text[], $2::text[]) AS k(issuer, subject) ON p.issuer=k.issuer AND p.subject=k.subject`, issuers, subjects)
+	if err != nil {
+		return nil, err
+	}
+	held := map[providerKey]bool{}
+	for res.Next() {
+		var k providerKey
+		if err := res.Scan(&k.issuer, &k.subject); err != nil {
+			res.Close()
+			return nil, err
+		}
+		held[k] = true
+	}
+	res.Close()
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+	var out []*importRow
+	for _, p := range rows {
+		ok := true
+		for _, l := range p.providers {
+			ok = ok && !held[providerKey{l.Issuer, l.Subject}]
+		}
+		if ok {
+			out = append(out, p)
+		} else {
+			p.out = importRejected(p.idx, errmodel.CodeProviderAlreadyLinked.String())
+		}
+	}
+	return out, nil
+}
+
+// insertImportProviders links the providers of freshly inserted rows. An
+// identity a concurrent writer took since rejectHeldProviders fails the chunk
+// with errImportProviderRaced, to be retried.
+func insertImportProviders(ctx context.Context, tx pgx.Tx, rows []*importRow) error {
+	var users, issuers, subjects []string
+	var slugs, emails []*string
+	for _, p := range rows {
+		for _, l := range p.providers {
+			users, issuers, subjects = append(users, p.id), append(issuers, l.Issuer), append(subjects, l.Subject)
+			slugs, emails = append(slugs, nullable(l.Provider)), append(emails, nullable(l.Email))
+		}
+	}
+	if len(users) == 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO user_providers (user_id, issuer, provider_slug, subject, email_at_provider)
+ SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[]) ON CONFLICT DO NOTHING`, users, issuers, slugs, subjects, emails)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != int64(len(users)) {
+		return errImportProviderRaced
+	}
+	return nil
+}
+
+func utcTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // importRejectReason is a row's reject reason: its validation code, or the
