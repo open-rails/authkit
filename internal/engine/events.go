@@ -147,7 +147,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 	if err != nil || len(subscribers) == 0 {
 		return err
 	}
-	actorKind, actorID := string(a.Kind()), a.ID()
+	actorKind, actorID := string(a.Kind()), canonicalID(a.ID())
 	ids := make([]string, len(events))
 	for i := range events {
 		if ids[i], err = newUUIDV7String(); err != nil {
