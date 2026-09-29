@@ -4,6 +4,7 @@
   "exp": "$number",
   "jti": "$string",
   "delegated_sub": "$string",
+  "sid": "$string",
   "aud": ["platform"],
   "permissions": ["resource:read"],
   "attributes": {"tenant": "cozy"},

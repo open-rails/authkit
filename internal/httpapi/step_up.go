@@ -34,7 +34,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 	// MFA-if-enrolled: a password never re-proves an account with a second
 	// factor; it steps up with that factor (N1).
 	if s.hasUsableMFA(r, claims.UserID) {
-		s.requireStepUp(w, r, claims)
+		s.requireStepUp(w, r, claims.UserID)
 		return
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
@@ -162,7 +162,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if s.hasUsableMFA(r, claims.UserID) {
-		s.requireStepUp(w, r, claims)
+		s.requireStepUp(w, r, claims.UserID)
 		return
 	}
 	s.startProviderFlow(w, r, p.Name(), flowStart{
@@ -227,70 +227,49 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 	return !authTime.Before(startedAt.Add(-oidcStepUpClockSkew))
 }
 
+// requireFreshAuthOrPassword is the sensitive-action gate of AuthKit's own
+// credential routes: the engine's CheckRecentSignIn (the gate
+// verify.Sensitive applies to host routes), or, for an account without a
+// second factor, a correct password in the request, which re-authenticates
+// the session and returns a fresh token set.
 func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, map[string]any) {
-	if claims.TwoFAEnrollment {
-		fail(w, errmodel.CodeForbidden)
-		return false, nil
-	}
-	if !s.requireLiveCredential(w, r, claims) {
-		return false, nil
-	}
-	mfa := s.hasUsableMFA(r, claims.UserID)
-	claims.MFAEnrolled = claims.MFAEnrolled || mfa
-	if verify.SensitiveClaims(claims) {
+	err := s.svc.CheckRecentSignIn(r.Context(), claims)
+	if err == nil {
 		return true, nil
 	}
-	if password != "" {
-		if mfa {
-			// MFA-if-enrolled: a password never clears the gate for an
-			// account with a second factor (M5).
-			s.requireStepUp(w, r, claims)
-			return false, nil
-		}
-		if s.rateLimited(w, r, RLPasswordStepUp) {
-			return false, nil
-		}
-		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
-			if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
-				fail(w, errmodel.CodePasswordResetRequired)
-				return false, nil
-			}
-			fail(w, errmodel.CodeInvalidPassword)
-			return false, nil
-		}
-		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, "step_up_failed", err)
-			return false, nil
-		}
-		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-		body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
-		if err != nil {
-			serverErr(w, "token_issue_failed", err)
-			return false, nil
-		}
-		return true, body
+	// MFA-if-enrolled: a password never clears the gate for an account with a
+	// second factor (M5).
+	if password == "" || errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || s.hasUsableMFA(r, claims.UserID) {
+		writeError(w, err)
+		return false, nil
 	}
-	s.requireStepUp(w, r, claims)
-	return false, nil
+	if s.rateLimited(w, r, RLPasswordStepUp) {
+		return false, nil
+	}
+	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
+		if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
+			fail(w, errmodel.CodePasswordResetRequired)
+			return false, nil
+		}
+		fail(w, errmodel.CodeInvalidPassword)
+		return false, nil
+	}
+	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
+		serverErr(w, "step_up_failed", err)
+		return false, nil
+	}
+	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+	if err != nil {
+		serverErr(w, "token_issue_failed", err)
+		return false, nil
+	}
+	return true, body
 }
 
-func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
-	methods, err := s.stepUpMethods(r, claims.UserID)
-	if err != nil {
-		serverErr(w, "database_error", err)
-		return
-	}
-	metadata := map[string]any{
-		"step_up_methods": methods,
-		"max_age_seconds": int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
-	}
-	if twoFA := s.stepUpTwoFactorOptions(r, claims.UserID); twoFA != nil {
-		metadata["step_up_2fa"] = twoFA
-		// User has usable 2FA → MFA-if-enrolled means a password step-up won't
-		// clear the gate; tell the client to route to 2FA.
-		metadata["mfa_required"] = true
-	}
-	fail(w, errmodel.CodeStepUpRequired, errmodel.WithMetadata(metadata))
+// requireStepUp answers step_up_required with how userID can step up.
+func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, userID string) {
+	writeError(w, s.svc.StepUpRequired(r.Context(), userID))
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (map[string]any, error) {
@@ -304,36 +283,11 @@ func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID st
 	}, nil
 }
 
-func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error) {
-	hasPassword, err := s.svc.HasPassword(r.Context(), userID)
-	if err != nil {
-		return nil, err
-	}
-	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
-	providerSlugs, _ := s.svc.ProviderSlugs(r.Context(), userID)
-	return authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
-}
-
 // hasUsableMFA reports whether the account has an enabled second factor. A
 // lookup failure counts as enrolled, so the password shortcut fails closed.
 func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
 	ok, err := s.svc.HasUsableMFA(r.Context(), userID)
 	return ok || err != nil
-}
-
-// sensitiveClaims is verify.SensitiveClaims over the account's live MFA state:
-// a token minted before a second factor was enrolled must not hide it.
-func (s *Service) sensitiveClaims(r *http.Request, claims verify.Claims) bool {
-	claims.MFAEnrolled = claims.MFAEnrolled || s.hasUsableMFA(r, claims.UserID)
-	return verify.SensitiveClaims(claims)
-}
-
-func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authflow.StepUpTwoFactorOptions {
-	settings, err := s.svc.Get2FASettings(r.Context(), userID)
-	if err != nil {
-		return nil
-	}
-	return authflow.NewStepUpTwoFactorOptions(settings)
 }
 
 func sessionFreshnessResponse(f authflow.SessionFreshness) map[string]any {
@@ -378,26 +332,25 @@ func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, stat
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
-// requireLiveCredential refuses a credential-management request whose token
-// outlived its session or device key (ak#392). Access tokens are stateless, so
-// without this a stolen token keeps its minted freshness after logout,
-// revoke-all, a password change, a ban or deletion, and could replace the
-// password or add a login method that survives every revocation.
-func (s *Service) requireLiveCredential(w http.ResponseWriter, r *http.Request, claims verify.Claims) bool {
-	var err error
-	switch {
-	case claims.SessionID != "":
-		_, err = s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	case claims.DeviceKeyID != "":
-		_, err = s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
-	default:
-		err = errors.New("token has no session")
-	}
-	if err != nil {
-		fail(w, errmodel.CodeInvalidToken)
-		return false
-	}
-	return true
+// requireSession is the AuthSession route tier (#412): the session or device
+// key the caller's token was minted from must still be active. Logout,
+// revoke-all, a password change, a ban and deletion revoke it, so a stolen
+// token stops changing the account the moment any of them happens, instead of
+// installing a credential that outlives them. A 2FA-enrollment token has no
+// session; it reaches only the enrollment routes, where the engine checks its
+// login proof.
+func (s *Service) requireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, err := verify.GetClaims(r.Context())
+		if err == nil && !claims.TwoFAEnrollment {
+			err = s.svc.CheckSession(r.Context(), claims)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireProvenContact answers 403 verification_required (metadata identifier,

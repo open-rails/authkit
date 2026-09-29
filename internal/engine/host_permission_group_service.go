@@ -116,8 +116,9 @@ func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role
 }
 
 // Can reports whether a covers perm in the group ref addresses, live: a dead
-// actor, an unknown group or an actor bound to another group is false. The
-// system is always true. An unregistered perm is ErrUnknownPermission.
+// actor, an unknown group or an actor bound to another group is false, and an
+// actor whose bound session was revoked is ErrSessionRevoked. The system is
+// always true. An unregistered perm is ErrUnknownPermission.
 func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
@@ -150,7 +151,8 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 // clients that gate UI on permission strings (glob-matching with
 // iam.Perm.Matches). Globs are returned verbatim; a ceiling narrows them.
 // Unknown and deleted groups and groups granting nothing are absent; a dead
-// actor has none. The system gets each persona's owner grant. A user's
+// actor has none, and one whose bound session was revoked is
+// ErrSessionRevoked. The system gets each persona's owner grant. A user's
 // grants on many groups are read in one query.
 func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
 	if len(refs) > iam.MaxBatch {
@@ -182,14 +184,17 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 		ids = append(ids, g.ID)
 	}
 	if userID, ok := s.actorUser(a); ok {
-		subject := iam.UserSubject(userID)
-		if !isUUID(userID) {
+		session, _ := a.Session()
+		usable, signedIn, err := userLive(ctx, st.q, userID, session)
+		switch {
+		case err != nil:
+			return nil, err
+		case !signedIn:
+			return nil, iam.ErrSessionRevoked
+		case !usable:
 			return out, nil
 		}
-		live, err := subjectUsable(ctx, st.q, subject)
-		if err != nil || !live {
-			return out, err
-		}
+		subject := iam.UserSubject(userID)
 		byGroup, err := st.GrantsOnGroups(ctx, s.groupSchemaOrDefault(), subject, ids)
 		if err != nil {
 			return nil, err

@@ -144,10 +144,8 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
-// Verifier returns the server's token verifier, with the client passed to New
-// already configured as its liveness source. The explicit live middleware and
-// VerifyRequestLive use it; Required and Optional remain stateless. Hosts may
-// replace the source using WithLiveness.
+// Verifier returns the server's token verifier. Required and Optional are
+// stateless; the session tier and permission checks check the session live.
 func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 
 // Backend returns the engine the service drives.

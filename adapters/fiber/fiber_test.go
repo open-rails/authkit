@@ -447,6 +447,9 @@ func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, p
 	return a.f(ctx, actor, ref, perm)
 }
 func (authority) KnownPermission(perm iam.Perm) bool { return perm.String() == "blog:posts:write" }
+func (authority) CheckRecentSignIn(context.Context, verify.Claims) error {
+	return iam.ErrSessionRevoked
+}
 
 func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	issuer := newIssuer(t)
@@ -502,65 +505,6 @@ func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
 		}
 	}()
 	authkitfiber.RequirePermission(auth, ident.Perm("blog:posts:delete"))
-}
-
-type livenessSource func(context.Context, []string) (map[string]iam.User, error)
-
-func (f livenessSource) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
-	return f(ctx, ids)
-}
-
-func TestRequiredLive(t *testing.T) {
-	issuer := newIssuer(t)
-	for _, v := range []*verify.Verifier{nil, newVerifier(t, issuer, true)} {
-		if middleware, err := authkitfiber.RequiredLive(v); middleware != nil || !errors.Is(err, verify.ErrLivenessUnconfigured) {
-			t.Fatalf("unconfigured RequiredLive = %v, middleware nil = %v", err, middleware == nil)
-		}
-	}
-	cases := []struct {
-		name   string
-		live   map[string]iam.User
-		err    error
-		status int
-	}{
-		{"allowed", map[string]iam.User{"user-1": {Live: true, Username: "fresh", Email: "fresh@example.com", EmailVerified: true}}, nil, http.StatusOK},
-		{"disabled", map[string]iam.User{"user-1": {Live: false}}, nil, http.StatusUnauthorized},
-		{"missing", nil, nil, http.StatusUnauthorized},
-		{"unavailable", nil, errors.New("directory unavailable"), http.StatusUnauthorized},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			calls := 0
-			v := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(ctx context.Context, ids []string) (map[string]iam.User, error) {
-				calls++
-				if !reflect.DeepEqual(ids, []string{"user-1"}) {
-					t.Errorf("liveness IDs = %v", ids)
-				}
-				return tc.live, tc.err
-			}))
-			middleware, err := authkitfiber.RequiredLive(v)
-			if err != nil {
-				t.Fatal(err)
-			}
-			app := fiber.New()
-			app.Get("/", middleware, func(c fiber.Ctx) error {
-				user, ok := verify.UserClaimsFromContext(c.Context())
-				if !ok || user.Username != "fresh" || user.Email != "fresh@example.com" || !user.EmailVerified {
-					t.Errorf("fresh user = %+v, present = %v", user, ok)
-				}
-				return c.SendString(user.Username)
-			})
-			for i := 0; i < 2; i++ {
-				status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "stale@example.com"))
-				if status != tc.status {
-					t.Fatalf("status = %d %q, want %d", status, body, tc.status)
-				}
-			}
-			if calls != 2 {
-				t.Errorf("liveness calls = %d, want one per request", calls)
-			}
-		})
-	}
 }
 
 func TestMountPreservesHTTPResponses(t *testing.T) {
@@ -684,50 +628,6 @@ func TestUseWriteAfterNextPreservesFiberContentType(t *testing.T) {
 	status, headers, body := request(t, app, http.MethodGet, "/", "")
 	if status != http.StatusAccepted || headers.Get("Content-Type") != "application/custom" || body != "<html>suffix</html>" {
 		t.Fatalf("response = %d %v %q", status, headers, body)
-	}
-}
-
-func TestOptionalLive(t *testing.T) {
-	if middleware, err := authkitfiber.OptionalLive(nil); middleware != nil || !errors.Is(err, verify.ErrLivenessUnconfigured) {
-		t.Fatalf("missing source: middleware=%v error=%v", middleware, err)
-	}
-	issuer := newIssuer(t)
-	calls := 0
-	allowed := true
-	verifier := newVerifier(t, issuer, true).WithLiveness(livenessSource(func(_ context.Context, ids []string) (map[string]iam.User, error) {
-		calls++
-		return map[string]iam.User{ids[0]: {ID: ids[0], Live: allowed, Username: "fresh"}}, nil
-	}))
-	middleware, err := authkitfiber.OptionalLive(verifier)
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := fiber.New()
-	app.Use(middleware)
-	app.Get("/", func(c fiber.Ctx) error {
-		user, ok := verify.UserClaimsFromContext(c.Context())
-		if !ok {
-			return c.SendString("anonymous")
-		}
-		return c.SendString(user.Username)
-	})
-	for _, tc := range []struct {
-		header, body  string
-		status, calls int
-	}{
-		{body: "anonymous", status: 200},
-		{header: "Bearer invalid", status: 401},
-		{header: "Bearer " + issuer.CreateToken("user-1", "old@test"), body: "fresh", status: 200, calls: 1},
-	} {
-		status, _, body := request(t, app, http.MethodGet, "/", tc.header)
-		if status != tc.status || calls != tc.calls || (tc.body != "" && body != tc.body) {
-			t.Fatalf("optional live: status=%d body=%q calls=%d; want %+v", status, body, calls, tc)
-		}
-	}
-	allowed = false
-	status, _, _ := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "old@test"))
-	if status != http.StatusUnauthorized || calls != 2 {
-		t.Fatalf("banned: status=%d calls=%d", status, calls)
 	}
 }
 

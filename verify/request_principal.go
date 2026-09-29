@@ -26,23 +26,12 @@ func (v *Verifier) WithPermissionChecker(checker PermissionChecker, authorityIss
 // AuthenticateRequest returns a provider-neutral principal for this request.
 // It runs the complete VerifyRequest pipeline exactly once, including issuer,
 // audience, assurance and sender-proof checks. It never trusts ambient context
-// claims. Native account liveness remains deliberately lazy; use the explicit
-// live variant for hosts whose admission policy requires an immediate check.
+// claims. It is stateless; the principal's Can checks the session live.
 func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Principal, error) {
 	if v == nil || r == nil {
 		return nil, auth.ErrUnauthenticated
 	}
 	cl, err := v.VerifyRequest(r.WithContext(ctx))
-	return v.requestPrincipal(cl, err)
-}
-
-// AuthenticateRequestLive applies the host's explicit live-account admission
-// policy once, while retaining the same verified principal for later checks.
-func (v *Verifier) AuthenticateRequestLive(ctx context.Context, r *http.Request) (auth.Principal, error) {
-	if v == nil || r == nil {
-		return nil, auth.ErrUnauthenticated
-	}
-	cl, err := v.VerifyRequestLive(r.WithContext(ctx))
 	return v.requestPrincipal(cl, err)
 }
 
@@ -92,7 +81,8 @@ func (p *requestPrincipal) Identity() auth.Identity { return p.identity }
 
 // Can checks the captured credential's live authority in the group scope.ID
 // names, without parsing the request or consuming sender proof again. The
-// scope's authority must be the checker's own issuer.
+// scope's authority must be the checker's own issuer. A revoked session is
+// auth.ErrRevoked.
 func (p *requestPrincipal) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
 	if scope.ID == "" || scope.Authority == "" || permission == "" {
 		return false, nil
@@ -104,7 +94,10 @@ func (p *requestPrincipal) Can(ctx context.Context, scope auth.Scope, permission
 		return false, nil
 	}
 	allowed, err := Allow(ctx, p.checker, p.claims, ident.Perm(permission), iam.GroupByID(scope.ID))
-	if err != nil {
+	switch {
+	case errors.Is(err, iam.ErrSessionRevoked):
+		return false, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
+	case err != nil:
 		return false, errors.Join(auth.ErrUnavailable, err)
 	}
 	return allowed, nil
@@ -119,8 +112,6 @@ func requestAuthenticationError(err error) error {
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
 	case errors.Is(err, iam.ErrAPIKeyRevoked):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
-	case errors.Is(err, ErrLivenessUnconfigured):
-		classification = auth.ErrUnavailable
 	default:
 		if e, ok := iam.AsError(err); ok {
 			switch {

@@ -21,19 +21,17 @@ import (
 // Account reads. They take no actor: the host is the trust boundary, and
 // httpapi gates its read routes with root:users:read.
 
-// userColumns selects a userRecord plus the reserved flag, in scanUser order.
+// userColumns selects a userRecord in scanUser order.
 const userColumns = `u.id::text, u.email::text, u.phone_number, u.username::text, u.email_verified, u.phone_verified,
  u.banned_at, u.banned_until, u.ban_reason, u.banned_by::text, u.deleted_at, u.created_at, u.updated_at, u.last_login,
- u.preferred_language, u.avatar_url,
- COALESCE(jsonb_typeof(u.metadata->'reserved')='boolean' AND (u.metadata->>'reserved')::boolean, false)`
+ u.preferred_language, u.avatar_url`
 
-func scanUser(row pgx.Row) (*userRecord, bool, error) {
+func scanUser(row pgx.Row) (*userRecord, error) {
 	var r userRecord
-	var reserved bool
 	err := row.Scan(&r.ID, &r.Email, &r.PhoneNumber, &r.Username, &r.EmailVerified, &r.PhoneVerified,
 		&r.BannedAt, &r.BannedUntil, &r.BanReason, &r.BannedBy, &r.DeletedAt, &r.CreatedAt, &r.UpdatedAt, &r.LastLogin,
-		&r.PreferredLanguage, &r.AvatarURL, &reserved)
-	return &r, reserved, err
+		&r.PreferredLanguage, &r.AvatarURL)
+	return &r, err
 }
 
 // User returns one account. Soft-deleted accounts are excluded unless opts
@@ -63,19 +61,18 @@ func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOpti
 	if !iam.IncludesDeleted(opts) {
 		where += ` AND u.deleted_at IS NULL`
 	}
-	r, reserved, err := scanUser(s.pg.QueryRow(ctx, `SELECT `+userColumns+` FROM users u WHERE `+where, value))
+	r, err := scanUser(s.pg.QueryRow(ctx, `SELECT `+userColumns+` FROM users u WHERE `+where, value))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.User{}, iam.ErrUserNotFound
 	}
 	if err != nil {
 		return iam.User{}, err
 	}
-	return r.public(reserved, time.Now()), nil
+	return r.public(time.Now()), nil
 }
 
 // Users returns the accounts among ids, deleted ones included; unknown ids are
-// absent. It is privileged (it carries contact details) and is verify's
-// liveness source: Live is the same gate login and refresh apply.
+// absent. It is privileged: it carries contact details.
 func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
 	out := map[string]iam.User{}
 	ids = uuidsOnly(ids)
@@ -95,11 +92,11 @@ func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, 
 	defer rows.Close()
 	now := time.Now()
 	for rows.Next() {
-		r, reserved, err := scanUser(rows)
+		r, err := scanUser(rows)
 		if err != nil {
 			return nil, err
 		}
-		out[r.ID] = r.public(reserved, now)
+		out[r.ID] = r.public(now)
 	}
 	return out, rows.Err()
 }
@@ -309,18 +306,17 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	var last userCursor
 	for rows.Next() {
 		var r userRecord
-		var reserved bool
 		var sortValue *string
 		if err := rows.Scan(&r.ID, &r.Email, &r.PhoneNumber, &r.Username, &r.EmailVerified, &r.PhoneVerified,
 			&r.BannedAt, &r.BannedUntil, &r.BanReason, &r.BannedBy, &r.DeletedAt, &r.CreatedAt, &r.UpdatedAt, &r.LastLogin,
-			&r.PreferredLanguage, &r.AvatarURL, &reserved, &sortValue); err != nil {
+			&r.PreferredLanguage, &r.AvatarURL, &sortValue); err != nil {
 			return page, err
 		}
 		if len(page.Items) == limit {
 			page.Next = encodeUserCursor(last)
 			break
 		}
-		page.Items = append(page.Items, r.public(reserved, now))
+		page.Items = append(page.Items, r.public(now))
 		last = userCursor{Sort: q.Sort, Desc: q.Desc, Value: sortValue, ID: r.ID}
 	}
 	return page, rows.Err()

@@ -57,9 +57,6 @@ type Verifier struct {
 
 	enrich Enricher
 
-	// liveness is the optional account-liveness backend for VerifyRequestLive /
-	// RequiredLive (#267). Nil on the stateless default path; guarded by mu.
-	liveness            LivenessSource
 	permissionChecker   PermissionChecker
 	permissionAuthority string
 
@@ -564,7 +561,8 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // ---------------------------------------------------------------------------
 
 // Enricher resolves API keys and stored application authority. Local access
-// tokens remain stateless; account liveness uses the separate LivenessSource.
+// tokens remain stateless; the session check runs at the permission and
+// sensitive gates (RequirePermission, Sensitive).
 type Enricher interface {
 	// ResolveAPIKey authenticates a whole presented API-key token.
 	ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error)

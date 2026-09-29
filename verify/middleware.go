@@ -26,14 +26,10 @@ func unauthorizedError(err error) error {
 // are enforced by the shared verifier on every typed entrypoint.
 // Embedders that authenticate a request outside the middleware chain call this
 // instead of driving Required against a throwaway ResponseWriter. The
-// native-user path is stateless: it does ZERO DB lookups (#215) — no ban gate,
-// no role/email/provider re-enrichment. Ban/deleted is enforced at token mint
-// (login + refresh); the short access TTL bounds the residual window (#90).
-//
-// Per-request account liveness is opt-in (#267): a surface that cannot accept
-// the residual window calls VerifyRequestLive (or mounts RequiredLive) for an
-// account-liveness gate and fresh identity claims. This default path stays
-// stateless even when a liveness source has been configured.
+// native-user path is stateless: it does ZERO DB lookups (#215). Logout,
+// revocation, bans and deletion reach a held token at the live gates, which
+// check its session: RequirePermission (and every permission check) and
+// Sensitive. Elsewhere the short access TTL bounds the window.
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := requestToken(r)
 	if tokenStr == "" {
@@ -148,10 +144,6 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 			req(next).ServeHTTP(w, r)
 		})
 	}
-}
-
-func isUserClaims(cl Claims) bool {
-	return cl.IsUser()
 }
 
 func toUnix(v any) (int64, bool) {

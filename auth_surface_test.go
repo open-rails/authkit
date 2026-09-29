@@ -45,7 +45,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth",
 		// HTTP surface and request verification.
 		"Handler", "Routes", "Patterns", "Mount", "Verifier", "NewVerifier",
-		"Require", "Optional", "RequireLive", "RequirePermission", "RequirePermissionOn",
+		"Require", "Optional", "RequirePermission", "RequirePermissionOn", "CheckRecentSignIn",
 		// Signing that grants no AuthKit authority.
 		"MintServiceJWT",
 	}

@@ -617,6 +617,8 @@ export const de: AuthUiMessageBundle = {
     rename_rate_limited:
       "Zu viele Änderungen des Benutzernamens. Bitte versuchen Sie es später erneut.",
     renames_disabled: "Änderungen des Benutzernamens sind deaktiviert.",
+    session_revoked:
+      "Ihre Sitzung wurde beendet. Bitte melden Sie sich erneut an.",
     sms_delivery_failed:
       "Die Verifizierungs-SMS konnte nicht zugestellt werden. Bitte versuchen Sie es stattdessen per E-Mail oder wenden Sie sich an den Support.",
     sms_unavailable:

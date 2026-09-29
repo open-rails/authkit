@@ -528,6 +528,7 @@ export const zh: AuthUiMessageBundle = {
     registration_disabled: "注册功能当前已关闭。",
     rename_rate_limited: "用户名修改次数过多，请稍后再试。",
     renames_disabled: "已禁止修改用户名。",
+    session_revoked: "会话已结束，请重新登录。",
     sms_delivery_failed: "验证短信发送失败。请改用邮箱验证，或联系客服。",
     sms_unavailable: "短信服务当前不可用。请改用邮箱。",
     step_up_required: "请确认是你本人以继续。",

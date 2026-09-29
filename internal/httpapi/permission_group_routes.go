@@ -22,12 +22,11 @@ var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.Cod
 // PermissionGroupRoutes returns the group-management routes some persona has,
 // plus the caller's own groups and permissions. Mirrors APIRoutes:
 // prefix-neutral RouteSpecs, rate-limited by their bucket, language-wrapped and
-// auth-required.
+// gated by their tier.
 func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return nil
 	}
-	required := verify.Required(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 
 	specs := s.permissionGroupRouteSpecs()
@@ -53,7 +52,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 			Method:  http.MethodPost,
 			Path:    "/invites/redeem",
 			Group:   iam.RoutePermissionGroups,
-			Auth:    iam.AuthRequired,
+			Auth:    iam.AuthSession,
 			Bucket:  RLInviteRedeem,
 			Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
 		})
@@ -61,7 +60,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 
 	out := make([]RouteSpec, 0, len(specs))
 	for _, spec := range specs {
-		spec.Handler = lang(s.rateLimitedRoute(spec.Bucket, required(spec.Handler)))
+		spec.Handler = lang(s.rateLimitedRoute(spec.Bucket, s.authenticate(spec.Auth, spec.Handler)))
 		out = append(out, spec)
 	}
 	return out
@@ -156,6 +155,10 @@ func (s *Service) GroupHandler(gr GroupRoute) http.HandlerFunc {
 			if allowed, err = s.svc.Can(r.Context(), actor, group, perm); err != nil || allowed {
 				break
 			}
+		}
+		if errors.Is(err, iam.ErrSessionRevoked) {
+			writeError(w, err)
+			return
 		}
 		if err != nil {
 			serverErr(w, "database_error", err)

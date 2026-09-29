@@ -26,7 +26,7 @@ func (a *Client) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOpti
 
 // Users returns the accounts among ids (at most iam.MaxBatch), deleted ones
 // included; unknown ids are absent. It carries contact details: render other
-// people with PublicUsers. It is also verify's liveness source (User.Live).
+// people with PublicUsers.
 func (a *Client) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
 	return a.engine.Users(ctx, ids)
 }

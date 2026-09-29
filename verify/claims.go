@@ -321,14 +321,6 @@ func (c Claims) HasAMR(method string) bool {
 	return false
 }
 
-func (c Claims) AuthenticatedWithin(maxAge time.Duration) bool {
-	if maxAge <= 0 || c.AuthTime.IsZero() {
-		return false
-	}
-	now := time.Now()
-	return !c.AuthTime.After(now) && now.Sub(c.AuthTime) <= maxAge
-}
-
 type claimsCtxKey struct{}
 
 func SetClaims(ctx context.Context, cl Claims) context.Context {

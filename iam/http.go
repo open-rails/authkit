@@ -29,7 +29,8 @@ const (
 	AuthPublic     RouteAuthTier = "public"     // no principal
 	AuthOptional   RouteAuthTier = "optional"   // principal used when present
 	AuthRequired   RouteAuthTier = "required"   // valid principal
-	AuthPermission RouteAuthTier = "permission" // valid principal holding Route.Permission
+	AuthSession    RouteAuthTier = "session"    // valid principal whose session or device key is still active
+	AuthPermission RouteAuthTier = "permission" // valid principal holding Route.Permission, its session checked
 )
 
 // Route is one mounted endpoint. Path is the full net/http pattern path

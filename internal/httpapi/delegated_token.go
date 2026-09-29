@@ -62,15 +62,9 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	// A delegated token outlives its parent, so the parent must still be a live
-	// account and, when session-bound, a live session (ak#392).
-	if live, _, err := s.verifier.IsLive(r.Context(), claims); err != nil || !live {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if (claims.SessionID != "" || claims.DeviceKeyID != "") && !s.requireLiveCredential(w, r, claims) {
-		return
-	}
+	// A delegated token outlives its parent: the route's session tier refused
+	// a revoked parent, and the mint below re-checks it through the actor's
+	// session binding and carries that session in the token (#412).
 	authorize := s.svc.DelegationAuthorizer()
 	if authorize == nil {
 		fail(w, errmodel.CodeDelegationAuthorizerUnavailable)

@@ -28,7 +28,8 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	path := "/admin/users/" + targetID
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, path, staff.AccessToken, nil))
 	f.expect(http.StatusUnauthorized, f.request(http.MethodPost, path+"/restore", "", nil))
-	f.expect(http.StatusForbidden, f.request(http.MethodPost, path+"/restore", target.AccessToken, nil))
+	refused := f.expect(http.StatusUnauthorized, f.request(http.MethodPost, path+"/restore", target.AccessToken, nil))
+	require.Equal(t, "session_revoked", refused.Error.Code, "the deletion ended the target's own session")
 	f.expect(http.StatusNoContent, f.request(http.MethodPost, path+"/restore", staff.AccessToken, nil))
 	user, err := fixtureBackend(f.service.Backend()).getUserByID(t.Context(), targetID)
 	require.NoError(t, err)

@@ -11,7 +11,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// The account lock serializes credential/liveness changes; the session lock
+// The account lock serializes credential and account-state changes; the session lock
 // serializes every revocation path. Linking never mints a replacement session.
 func (s *Engine) completeProviderLink(ctx context.Context, link authflow.ExternalLinkAuthorization, id authflow.ExternalIdentity, email *string) error {
 	if s.pg == nil || link.UserID == "" || link.SessionID == "" || link.AuthenticatedAt.IsZero() {

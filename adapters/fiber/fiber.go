@@ -45,27 +45,6 @@ func Optional(src verify.VerifierSource) fiber.Handler {
 	return Use(verify.Optional(verifierOf(src)))
 }
 
-// RequiredLive adds an account-liveness check and fresh identity claims.
-// It returns verify.ErrLivenessUnconfigured if no liveness source is wired.
-func RequiredLive(src verify.VerifierSource) (fiber.Handler, error) {
-	mw, err := verify.RequiredLive(verifierOf(src))
-	if err != nil {
-		return nil, err
-	}
-	return Use(mw), nil
-}
-
-// OptionalLive admits anonymous requests and checks the liveness of presented
-// native-user credentials. It returns verify.ErrLivenessUnconfigured at startup
-// when no source is wired. Use on routes, groups, or as application middleware.
-func OptionalLive(src verify.VerifierSource) (fiber.Handler, error) {
-	mw, err := verify.OptionalLive(verifierOf(src))
-	if err != nil {
-		return nil, err
-	}
-	return Use(mw), nil
-}
-
 func verifierOf(src verify.VerifierSource) *verify.Verifier {
 	if src == nil {
 		return nil
@@ -124,6 +103,14 @@ func RequirePermission(a verify.Authority, perm iam.Perm) fiber.Handler {
 // iam.RootGroup().
 func RequirePermissionOn(a verify.Authority, ref iam.GroupRef, perm iam.Perm) fiber.Handler {
 	return Use(verify.RequirePermissionOn(a, ref, perm))
+}
+
+// Sensitive authenticates the request (it includes Required) and requires a
+// live, recent sign-in: the token's session or device key is still active and
+// signed in within the last 15 minutes, with its second factor when the
+// account has one. See verify.Sensitive.
+func Sensitive(a verify.Authority) fiber.Handler {
+	return Use(verify.Sensitive(a))
 }
 
 // responseWriter writes directly into Fiber's response, so a downstream Fiber

@@ -4,7 +4,8 @@
 //
 // Run Migrate, then New with a Config and Deps. New returns *Client, the one
 // host type: its methods are the host operations, Verifier and
-// Require/Optional/RequireLive verify requests, and with Config.HTTP set,
+// Require/Optional verify requests (verify.RequirePermission and
+// verify.Sensitive gate them on the live session), and with Config.HTTP set,
 // Handler serves AuthKit's HTTP surface (Mount, Patterns and Routes place it
 // on a router). If the entitlements provider needs the Client first, pass it to
 // SetEntitlements, then call Start.

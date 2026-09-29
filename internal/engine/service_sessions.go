@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/verify"
 )
 
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
@@ -385,6 +386,85 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 	out := sessionFreshness(fresh.FreshSince, fresh.AuthMethods, fresh.MfaAuthenticatedAt)
 	out.TimeUntilStepUpRequired, out.StepUpRequiredForSensitiveOps = remaining, remaining <= 0
 	return out, nil
+}
+
+// CheckSession is the session check (#412) for verified user claims: the
+// refresh session or device key the token was minted from is still active and
+// its account usable. A token that names neither is refused too, since
+// nothing proves it still stands. Every refusal is ErrSessionRevoked; a
+// credential that is not a user's (or a 2FA-enrollment token) is forbidden.
+// Permission checks run the same query through the actor's session binding.
+func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
+	if cl.TwoFAEnrollment || !cl.IsUser() {
+		return errmodel.E(errmodel.CodeForbidden)
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
+	if ref.IsZero() {
+		return iam.ErrSessionRevoked
+	}
+	usable, signedIn, err := userLive(ctx, s.pg, cl.UserID, ref)
+	switch {
+	case err != nil:
+		return err
+	case !usable || !signedIn:
+		return iam.ErrSessionRevoked
+	}
+	return nil
+}
+
+// CheckRecentSignIn is the sensitive-action gate, for AuthKit's own
+// credential routes and verify.Sensitive alike: CheckSession, then a sign-in
+// within authflow.SensitiveActionFreshAuthWindow, with a second factor when
+// the account has one (checked live, so a token minted before enrollment
+// cannot hide it). A stale sign-in is StepUpRequired.
+func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
+	if err := s.CheckSession(ctx, cl); err != nil {
+		return err
+	}
+	mfa := cl.MFAEnrolled
+	if !mfa {
+		enrolled, err := s.HasUsableMFA(ctx, cl.UserID)
+		mfa = enrolled || err != nil // an unknown MFA state counts as enrolled
+	}
+	if authflow.RecentSignIn(cl.AuthTime, cl.AMR, mfa, time.Now()) {
+		return nil
+	}
+	return s.StepUpRequired(ctx, cl.UserID)
+}
+
+// StepUpRequired is the step_up_required error for userID, carrying how the
+// account can step up: its methods, the window, and its second factors (with
+// mfa_required, since a password never clears the gate for such an account).
+func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
+	hasPassword, err := s.HasPassword(ctx, userID)
+	if err != nil {
+		return errmodel.Internal("step_up_methods", err)
+	}
+	settings, _ := s.Get2FASettings(ctx, userID)
+	providerSlugs, _ := s.ProviderSlugs(ctx, userID)
+	meta := map[string]any{
+		"step_up_methods": authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp),
+		"max_age_seconds": int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
+	}
+	if twoFA := authflow.NewStepUpTwoFactorOptions(settings); twoFA != nil {
+		meta["step_up_2fa"] = twoFA
+		meta["mfa_required"] = true
+	}
+	return errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithMetadata(meta))
+}
+
+// providerSupportsStepUp reports whether the configured provider name can
+// re-authenticate a signed-in user.
+func (s *Engine) providerSupportsStepUp(name string) bool {
+	for _, p := range s.cfg.Identity.Providers {
+		if p != nil && strings.EqualFold(p.Name(), strings.TrimSpace(name)) {
+			return p.SupportsStepUp()
+		}
+	}
+	return false
 }
 
 func sessionFreshness(since time.Time, methods []string, mfaAt *time.Time) authflow.SessionFreshness {

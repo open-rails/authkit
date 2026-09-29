@@ -16,7 +16,10 @@ import (
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
 // A user actor mints for itself only, and every AuthKit-namespace permission
 // in the grant must be held live on the root group (checkDelegatedGrant); the
-// system may mint for any subject; machine actors may not mint.
+// system may mint for any subject; machine actors may not mint. A user actor
+// bound to a session (verify.ActorFromClaims) mints only while that session
+// stands, and the token carries it (sid or device_key_id), so revoking the
+// session cuts the delegated token off at every AuthKit permission check.
 func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
 	if err := requireActor(actor); err != nil {
 		return iam.Token{}, err
@@ -36,7 +39,7 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 			return iam.Token{}, iam.ErrInsufficientAuthority
 		}
 		d.Subject = self
-		if err := s.checkDelegatedGrant(ctx, d.Subject, d.Permissions); err != nil {
+		if err := s.checkDelegatedGrant(ctx, actor, d.Permissions); err != nil {
 			return iam.Token{}, err
 		}
 	default:
@@ -48,7 +51,8 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 	}
 	d.TTL = s.delegatedTTL(d.TTL)
 	now := time.Now()
-	token, err := mintDelegatedAccessToken(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), d, now)
+	session, _ := actor.Session()
+	token, err := mintDelegatedAccessToken(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), d, session, now)
 	if err != nil {
 		return iam.Token{}, err
 	}
@@ -74,11 +78,12 @@ func (s *Engine) delegatedTTL(ttl time.Duration) time.Duration {
 }
 
 // checkDelegatedGrant refuses a delegated grant carrying AuthKit authority the
-// user does not hold now. Delegated permissions are scope-free, so one in an
-// AuthKit persona's namespace must be held on the root group by a live user;
-// the host's own vocabulary is the host's decision.
-func (s *Engine) checkDelegatedGrant(ctx context.Context, userID string, permissions []string) error {
-	auth, err := s.rootUserAuthority(ctx, userID)
+// user does not hold now, and a user who is not live (nor, when bound, their
+// session). Delegated permissions are scope-free, so one in an AuthKit
+// persona's namespace must be held on the root group; the host's own
+// vocabulary is the host's decision.
+func (s *Engine) checkDelegatedGrant(ctx context.Context, user iam.Actor, permissions []string) error {
+	auth, err := s.rootAuthority(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -90,9 +95,8 @@ func (s *Engine) checkDelegatedGrant(ctx context.Context, userID string, permiss
 	return nil
 }
 
-// rootUserAuthority is a live user's authority on the root group. A deleted,
-// reserved or banned user is ErrInsufficientAuthority.
-func (s *Engine) rootUserAuthority(ctx context.Context, userID string) (authority, error) {
+// rootAuthority is a's authority on the root group (rule ACTOR).
+func (s *Engine) rootAuthority(ctx context.Context, a iam.Actor) (authority, error) {
 	if err := s.requirePG(); err != nil {
 		return authority{}, err
 	}
@@ -101,7 +105,7 @@ func (s *Engine) rootUserAuthority(ctx context.Context, userID string) (authorit
 	if err != nil {
 		return authority{}, err
 	}
-	return s.actorAuthority(ctx, st, iam.UserActor(userID), groupTarget{ID: rootID, Persona: iam.RootPersona})
+	return s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona})
 }
 
 func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
@@ -116,9 +120,10 @@ func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
 
 // mintDelegatedAccessToken signs a canonical delegated access token: typ
 // delegated-access+jwt, delegated_sub and never sub, permissions,
-// attributes (roles ride under attributes.roles), a jti and at most one sender
-// binding. The caller has authorized the grant and clamped p.TTL.
-func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer string, p iam.DelegatedAccess, now time.Time) (string, error) {
+// attributes (roles ride under attributes.roles), a jti, at most one sender
+// binding, and the minting session (sid or device_key_id) when there is one.
+// The caller has authorized the grant and clamped p.TTL.
+func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer string, p iam.DelegatedAccess, session iam.SessionRef, now time.Time) (string, error) {
 	if signer == nil {
 		return "", errors.New("signer required")
 	}
@@ -199,6 +204,12 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	}
 	if p.ConfirmationCertificateSHA256 != nil {
 		claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(*p.ConfirmationCertificateSHA256)
+	}
+	if session.SessionID != "" {
+		claims["sid"] = session.SessionID
+	}
+	if session.DeviceKeyID != "" {
+		claims["device_key_id"] = session.DeviceKeyID
 	}
 	// Invariant: a delegated access token must never carry `sub`.
 	delete(claims, "sub")

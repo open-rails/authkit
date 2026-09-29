@@ -11,7 +11,7 @@ import (
 
 // handlePasswordLoginPOST: decode, rate-limit, one engine call, one switch.
 // The login policy (identifier resolution, pending-registration recovery, the
-// verification gate, credentials, liveness, 2FA, session) is
+// verification gate, credentials, the account gate, 2FA, session) is
 // authkit.PasswordLogin (ak#318).
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
 	var req struct {

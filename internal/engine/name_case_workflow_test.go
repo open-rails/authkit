@@ -37,11 +37,15 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	userID := claims.UserID
 	require.Equal(t, name, meUsername(t, f, confirmed.AccessToken), "display keeps the chosen spelling")
 
+	// Three sign-ins fill the session cap and evict the confirmation's session;
+	// the last one's token is live.
+	var live string
 	for _, spelling := range []string{name, lower, upper} {
 		login := f.expect(200, f.post("/password/login", map[string]any{"identifier": spelling, "password": pass}))
 		got, err := f.service.Verifier().Verify(ctx, login.AccessToken)
 		require.NoError(t, err)
 		require.Equal(t, userID, got.UserID, "login as %s", spelling)
+		live = login.AccessToken
 	}
 
 	taken := f.expect(400, f.post("/register", map[string]any{"identifier": uniqueEmail("case-dup"), "username": upper, "password": pass}))
@@ -59,9 +63,11 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(availability.raw), &answer))
 	require.False(t, answer.Username.Available)
 
-	renamed := f.expect(200, f.request("PATCH", "/user/username", confirmed.AccessToken, map[string]any{"username": lower}))
+	evicted := f.expect(401, f.request("PATCH", "/user/username", confirmed.AccessToken, map[string]any{"username": lower}))
+	require.Equal(t, "session_revoked", evicted.Error.Code, "an evicted session changes nothing")
+	renamed := f.expect(200, f.request("PATCH", "/user/username", live, map[string]any{"username": lower}))
 	require.Contains(t, renamed.raw, `"username":"`+lower+`"`)
-	require.Equal(t, lower, meUsername(t, f, confirmed.AccessToken))
+	require.Equal(t, lower, meUsername(t, f, live))
 	var cooled bool
 	var claimsHeld int
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT last_renamed_at IS NOT NULL, (SELECT count(*) FROM name_claims WHERE owner_kind='user' AND owner_id=users.id) FROM users WHERE id=$1::uuid`, userID).Scan(&cooled, &claimsHeld))

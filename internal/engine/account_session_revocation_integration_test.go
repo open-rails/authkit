@@ -45,7 +45,6 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 		require.NoError(t, err)
 		t.Cleanup(srv.Close)
-		require.True(t, srv.Verifier().HasLiveness(), "httpapi.New supplies the engine liveness source")
 		return srv
 	}
 	siteA := site(issuerA, accessTTL, issuerB)
@@ -154,33 +153,24 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.ElementsMatch(t, []string{issuerA + " session_revoked", issuerB + " session_revoked", issuerA + " account_sessions_revoked"}, got)
 	})
 
-	// Revocation stops token minting. It does not recall issued access tokens:
-	// stateless routes accept them until exp, the live gate checks account
-	// liveness (ban/deletion), and session-backed step-up fails at once.
-	t.Run("issued access token lives until exp; live checks are account-level", func(t *testing.T) {
-		live, err := verify.RequiredLive(siteA.Verifier())
-		require.NoError(t, err)
-		probeLive := func() int {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/live", nil)
-			req.Header.Set("Authorization", "Bearer "+victimA.AccessToken)
-			live(echoClaimsHandler()).ServeHTTP(rec, req)
-			return rec.Code
-		}
+	// Revocation stops token minting, and every session check refuses the
+	// access tokens those sessions minted at once; stateless verification
+	// admits them until exp.
+	t.Run("session checks refuse held access tokens; stateless routes wait for exp", func(t *testing.T) {
 		require.Equal(t, http.StatusOK, call(siteA, http.MethodGet, "/me", victimA.AccessToken, "").Code)
-		require.Equal(t, http.StatusOK, probeLive(), "session revocation is not an account-liveness fact")
-		stepUp := call(siteA, http.MethodPost, "/step-up/password", victimA.AccessToken, `{"password":"`+victimPass+`"}`)
-		require.NotEqual(t, http.StatusOK, stepUp.Code, "a revoked session cannot regain step-up freshness: %s", stepUp.Body.String())
-
-		ban := call(siteA, http.MethodPost, "/admin/users/"+victimID+"/ban", login(siteA, staffEmail, staffPass).AccessToken, `{"until":"infinite"}`)
-		require.Equal(t, http.StatusNoContent, ban.Code, ban.Body.String())
-		require.Equal(t, http.StatusUnauthorized, probeLive(), "ban reaches held access tokens through the live gate immediately")
+		for _, tc := range []struct{ method, path, body string }{
+			{http.MethodPatch, "/user/preferred-language", `{"preferred_language":"en"}`},
+			{http.MethodDelete, "/user/sessions", ""},
+			{http.MethodPost, "/step-up/password", `{"password":"` + victimPass + `"}`},
+		} {
+			w := call(siteA, tc.method, tc.path, victimA.AccessToken, tc.body)
+			require.Equal(t, http.StatusUnauthorized, w.Code, "%s %s: %s", tc.method, tc.path, w.Body.String())
+			require.Contains(t, w.Body.String(), "session_revoked")
+		}
 		// Use the sibling site's hour-long token so the stateless assertion
 		// cannot disappear merely because the short site-A token expired.
 		request := httptest.NewRequest(http.MethodGet, "/resource", nil)
 		request.Header.Set("Authorization", "Bearer "+victimB.AccessToken)
-		_, err = siteB.Verifier().VerifyRequest(request)
-		require.NoError(t, err, "automatic source wiring must not make stateless verification stateful")
 		for _, middleware := range []func(http.Handler) http.Handler{
 			verify.Required(siteB.Verifier()), verify.Optional(siteB.Verifier()),
 		} {
@@ -188,23 +178,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 			response := httptest.NewRecorder()
 			middleware(echoClaimsHandler()).ServeHTTP(response, request)
 			require.Equal(t, http.StatusOK, response.Code)
-			require.Equal(t, before, queries.count.Load(), "ordinary middleware must perform no account lookup")
+			require.Equal(t, before, queries.count.Load(), "ordinary middleware must perform no lookup")
 		}
-		beforeLive := queries.count.Load()
-		_, err = siteB.Verifier().VerifyRequestLive(request)
-		require.Error(t, err, "the default source must deny the banned account")
-		require.Greater(t, queries.count.Load(), beforeLive, "the explicit live path must consult the database")
-		optionalLive, err := verify.OptionalLive(siteB.Verifier())
-		require.NoError(t, err)
-		optionalHandler := optionalLive(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
-		beforeAnonymous := queries.count.Load()
-		anonymous := httptest.NewRecorder()
-		optionalHandler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/public", nil))
-		require.Equal(t, http.StatusOK, anonymous.Code)
-		require.Equal(t, beforeAnonymous, queries.count.Load(), "anonymous OptionalLive must perform no lookup")
-		banned := httptest.NewRecorder()
-		optionalHandler.ServeHTTP(banned, request)
-		require.Equal(t, http.StatusUnauthorized, banned.Code, "OptionalLive must reject presented banned credentials")
 		if time.Now().Before(victimA.exp) {
 			require.Equal(t, http.StatusOK, call(siteA, http.MethodGet, "/me", victimA.AccessToken, "").Code, "stateless routes still accept it before exp")
 		}
@@ -256,15 +231,15 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		_, err = fixtureBackend(siteC.Backend()).RevokeAccountSessions(ctx, iam.SystemActor(), "00000000-0000-7000-8000-000000000000")
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
-	t.Run("permission gates are live while native tokens follow their lifetime", func(t *testing.T) {
+	t.Run("permission gates check the session while native tokens follow their lifetime", func(t *testing.T) {
 		elevated := login(siteB, staffEmail, staffPass)
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
 		targetID, _, _ := user("sensitive-target")
 		require.NoError(t, siteA.Backend().Ban(ctx, iam.SystemActor(), staffID, iam.Ban{}))
 		directory := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
-		require.Equal(t, http.StatusForbidden, directory.Code, "a banned identity loses its permissions at once")
+		require.Equal(t, http.StatusUnauthorized, directory.Code, "a ban ends the sibling issuer's session at once: %s", directory.Body.String())
 		mutation := call(siteB, http.MethodPost, "/admin/users/"+targetID+"/ban", elevated.AccessToken, `{"until":"infinite"}`)
-		require.Equal(t, http.StatusForbidden, mutation.Code, mutation.Body.String())
+		require.Equal(t, http.StatusUnauthorized, mutation.Code, mutation.Body.String())
 		target, err := fixtureBackend(siteB.Backend()).getUserByID(ctx, targetID)
 		require.NoError(t, err)
 		require.Nil(t, target.BannedAt)
@@ -272,6 +247,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		relogin := call(siteB, http.MethodPost, "/password/login", "", `{"identifier":"`+staffEmail+`","password":"`+staffPass+`"}`)
 		require.Equal(t, http.StatusUnauthorized, relogin.Code, relogin.Body.String())
 		require.NoError(t, fixtureBackend(siteA.Backend()).Unban(ctx, iam.SystemActor(), staffID))
+		require.Equal(t, http.StatusUnauthorized, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code, "unban never revives a revoked session")
+		elevated = login(siteB, staffEmail, staffPass)
 		require.Equal(t, http.StatusOK, call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "").Code)
 		revokeRole(t, fixtureBackend(siteA.Backend()), iam.RootGroup(), iam.UserSubject(staffID), "staff")
 		revoked := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
@@ -285,30 +262,13 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		verify.Required(siteB.Verifier())(echoClaimsHandler()).ServeHTTP(response, request)
 		require.Equal(t, http.StatusOK, response.Code)
 		require.Equal(t, before, queries.count.Load())
-		// Permission checks do not silently depend on an optional ban backend.
-		siteB.Verifier().WithLiveness(nil)
-		unavailable := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
-		require.Equal(t, http.StatusOK, unavailable.Code, unavailable.Body.String())
-		siteB.Verifier().WithLiveness(fixtureBackend(siteB.Backend()))
 		require.NoError(t, fixtureBackend(siteA.Backend()).softDelete(ctx, staffID))
 		deleted := call(siteB, http.MethodGet, "/admin/users", elevated.AccessToken, "")
-		require.Equal(t, http.StatusForbidden, deleted.Code, "deleted identities have no current permission authority")
+		require.Equal(t, http.StatusUnauthorized, deleted.Code, "deletion ends the session: %s", deleted.Body.String())
 		latent, err := siteB.Backend().EffectivePermissions(ctx, iam.UserActor(staffID), []iam.GroupRef{iam.RootGroup()})
 		require.NoError(t, err)
 		require.Empty(t, latent, "a deleted identity acts with no permission")
 	})
-
-	t.Run("host may replace the default liveness source", func(t *testing.T) {
-		verifier := siteC.Verifier().WithLiveness(nil)
-		require.False(t, verifier.HasLiveness())
-		_, err := verify.RequiredLive(verifier)
-		require.ErrorIs(t, err, verify.ErrLivenessUnconfigured)
-		verifier.WithLiveness(fixtureBackend(siteA.Backend()))
-		require.True(t, verifier.HasLiveness())
-		_, err = verify.RequiredLive(verifier)
-		require.NoError(t, err)
-	})
-
 }
 
 // Count real database queries through the production engine's cloned pool.

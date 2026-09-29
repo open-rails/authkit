@@ -37,7 +37,8 @@ func TestUserLookups(t *testing.T) {
 	require.Equal(t, "alice@example.test", alice.Email)
 	require.True(t, alice.EmailVerified)
 	require.False(t, alice.PhoneVerified)
-	require.True(t, alice.Live)
+	require.Nil(t, alice.DeletedAt)
+	require.Nil(t, alice.Ban)
 
 	for _, ref := range []iam.UserRef{iam.UserByID(alice.ID), iam.UserByEmail("ALICE@example.test"), iam.UserByPhone("+15555550100"), iam.UserByUsername("Alice")} {
 		u, err := auth.User(ctx, ref)
@@ -58,12 +59,11 @@ func TestUserLookups(t *testing.T) {
 		deleted, err := auth.User(ctx, iam.UserByID(bob.ID), iam.IncludeDeleted())
 		require.NoError(t, err)
 		require.NotNil(t, deleted.DeletedAt)
-		require.False(t, deleted.Live)
 		users, err := auth.Users(ctx, []string{alice.ID, bob.ID, "0190a0a0-0000-7000-8000-000000000000", "junk"})
 		require.NoError(t, err)
 		require.Len(t, users, 2)
-		require.True(t, users[alice.ID].Live)
-		require.False(t, users[bob.ID].Live)
+		require.Nil(t, users[alice.ID].DeletedAt)
+		require.NotNil(t, users[bob.ID].DeletedAt)
 		public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID})
 		require.NoError(t, err)
 		require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true}, public[bob.ID])
@@ -72,7 +72,7 @@ func TestUserLookups(t *testing.T) {
 		require.NoError(t, itemErr(auth.RestoreUsers(ctx, op, []string{bob.ID})))
 		restored, err := auth.User(ctx, iam.UserByID(bob.ID))
 		require.NoError(t, err)
-		require.True(t, restored.Live)
+		require.Nil(t, restored.DeletedAt)
 	})
 }
 
@@ -86,7 +86,6 @@ func TestUserBanState(t *testing.T) {
 		t.Helper()
 		users, err := auth.Users(ctx, []string{carol.ID})
 		require.NoError(t, err)
-		require.Equal(t, users[carol.ID].Ban == nil, users[carol.ID].Live)
 		return users[carol.ID].Ban
 	}
 	past := time.Now().Add(-time.Minute)
@@ -261,6 +260,7 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	require.NoError(t, err)
 	for _, m := range withUsers.Items {
 		require.NotNil(t, m.User)
-		require.Equal(t, m.Subject.ID == ids["liveone"], m.User.Live)
+		live := m.User.DeletedAt == nil && m.User.Ban == nil
+		require.Equal(t, m.Subject.ID == ids["liveone"], live)
 	}
 }

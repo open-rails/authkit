@@ -2,7 +2,7 @@ package engine
 
 // Password login as ONE engine decision (ak#318): identifier resolution,
 // pending-registration recovery, the verification gate, the credential check,
-// the liveness gate, the 2FA challenge and session issue all live here and
+// the account gate, the 2FA challenge and session issue all live here and
 // come back as a closed LoginOutcome. The transport decodes, rate-limits,
 // calls, and switches on Kind — it re-derives no policy.
 
@@ -88,7 +88,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	return out, err
 }
 
-// loginRejection maps a credential/liveness failure to its rejection reason.
+// loginRejection maps a credential or account-gate failure to its rejection reason.
 func loginRejection(err error) error {
 	switch {
 	case errors.Is(err, errmodel.ErrUserBanned):

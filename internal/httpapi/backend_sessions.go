@@ -6,10 +6,15 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/verify"
 )
 
-// sessionsBackend is session, token and device-key management.
+// sessionsBackend is session, token and device-key management, and the live
+// session gates.
 type sessionsBackend interface {
+	CheckSession(ctx context.Context, cl verify.Claims) error
+	CheckRecentSignIn(ctx context.Context, cl verify.Claims) error
+	StepUpRequired(ctx context.Context, userID string) error
 	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
 	RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string) (iam.AccountSessionRevocation, error)
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error)

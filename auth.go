@@ -20,19 +20,15 @@ import (
 // entitlements cycle with SetEntitlements, then Start it. Operations are
 // methods, grouped by domain in the auth_*.go files.
 type Client struct {
-	engine      *engine.Engine
-	verifier    *verify.Verifier
-	requireLive func(http.Handler) http.Handler
-	http        *httpapi.Service
-	mount       *httpapi.Mount
-	started     atomic.Bool
+	engine   *engine.Engine
+	verifier *verify.Verifier
+	http     *httpapi.Service
+	mount    *httpapi.Mount
+	started  atomic.Bool
 }
 
-// Client is what verify's permission and liveness seams consume.
-var (
-	_ verify.LivenessSource = (*Client)(nil)
-	_ verify.Authority      = (*Client)(nil)
-)
+// Client is the authority verify's permission and session gates consume.
+var _ verify.Authority = (*Client)(nil)
 
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
 // the pool first. ctx bounds the boot-time database work.
@@ -51,9 +47,6 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 			a.Close()
 		}
 	}()
-	if a.requireLive, err = verify.RequiredLive(a.verifier); err != nil {
-		return nil, err
-	}
 	if settings.http != nil {
 		if deps.Postgres == nil {
 			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
@@ -166,20 +159,19 @@ func (a *Client) Verifier() *verify.Verifier { return a.verifier }
 // NewVerifier builds an extra verifier for the host's own resource routes,
 // such as delegated tokens for another audience. It trusts no issuer until the
 // host adds one (AddIssuer, LoadRemoteApplications) and shares this
-// deployment's API-key resolver, stored remote applications, account
-// liveness, permission checks and DPoP replay store. DPoP proofs are checked
+// deployment's API-key resolver, stored remote applications, permission
+// checks and DPoP replay store. DPoP proofs are checked
 // against the issuer's origin plus the request path unless
 // verify.WithDPoPRequestURL says otherwise.
 func (a *Client) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
 	return a.engine.NewVerifier(opts...)
 }
 
-// Require rejects requests without a valid credential. Ordinary
-// verification is stateless; see RequireLive.
+// Require rejects requests without a valid credential. It is stateless: a
+// token outlives its revoked session until it expires (at most the access
+// token lifetime). verify.RequirePermission and verify.Sensitive check the
+// session live.
 func (a *Client) Require(next http.Handler) http.Handler { return verify.Required(a.verifier)(next) }
 
 // Optional verifies a credential when one is presented.
 func (a *Client) Optional(next http.Handler) http.Handler { return verify.Optional(a.verifier)(next) }
-
-// RequireLive is Require plus a live account check for sensitive operations.
-func (a *Client) RequireLive(next http.Handler) http.Handler { return a.requireLive(next) }

@@ -28,20 +28,17 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	if body.CurrentPassword != "" && s.rateLimited(w, r, RLPasswordStepUp) {
 		return
 	}
-	if !s.requireLiveCredential(w, r, claims) {
-		return
-	}
 	if err := s.svc.ValidatePassword(body.NewPassword); err != nil {
 		writeError(w, err)
 		return
 	}
 
 	var authMeta map[string]any
-	if !s.sensitiveClaims(r, claims) {
+	if err := s.svc.CheckRecentSignIn(r.Context(), claims); err != nil {
 		// MFA-if-enrolled: the current password alone never clears the gate
 		// for an account with a second factor (M5).
-		if body.CurrentPassword == "" || s.hasUsableMFA(r, claims.UserID) {
-			s.requireStepUp(w, r, claims)
+		if errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || body.CurrentPassword == "" || s.hasUsableMFA(r, claims.UserID) {
+			writeError(w, err)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {

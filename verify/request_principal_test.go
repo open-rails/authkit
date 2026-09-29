@@ -40,30 +40,23 @@ func (s *principalAuthority) Can(_ context.Context, a iam.Actor, ref iam.GroupRe
 
 func (s *principalAuthority) KnownPermission(iam.Perm) bool { return true }
 
-type principalLiveness struct{ calls int }
-
-func (s *principalLiveness) Users(context.Context, []string) (map[string]iam.User, error) {
-	s.calls++
-	return map[string]iam.User{"native-user": {Live: false}}, nil
-}
-
 func principalRequest(token string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "https://resource.example/read", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	return r
 }
 
-func TestRequestPrincipalNativeAuthorityAndExplicitLiveness(t *testing.T) {
+func TestRequestPrincipalNativeAuthority(t *testing.T) {
 	v, signer := confirmationVerifier(t)
 	require.NoError(t, v.AddIssuer(confirmationIssuer, []string{"resource"}, IssuerOptions{IsLocal: true, RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}))
-	authority, live := &principalAuthority{allowed: true}, &principalLiveness{}
-	v.WithPermissionChecker(authority, confirmationIssuer).WithLiveness(live)
+	authority := &principalAuthority{allowed: true}
+	v.WithPermissionChecker(authority, confirmationIssuer)
 	token := mintStatelessAccess(t, signer, confirmationIssuer, "resource", "native-user")
 	r := principalRequest(token)
 	p, err := v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
 	require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: confirmationIssuer, Subject: "native-user"}, p.Identity())
-	require.Zero(t, live.calls, "ordinary JWT auth must not apply the configured ban gate")
+	require.Zero(t, authority.calls, "authentication is stateless")
 	checker := p.(auth.PermissionChecker)
 	scope := auth.Scope{Authority: confirmationIssuer, ID: "group-1"}
 	allowed, err := checker.Can(r.Context(), scope, "repo:read")
@@ -78,9 +71,10 @@ func TestRequestPrincipalNativeAuthorityAndExplicitLiveness(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, allowed)
 	require.Equal(t, 2, authority.calls)
-	_, err = v.AuthenticateRequestLive(r.Context(), r)
+	authority.err = iam.ErrSessionRevoked
+	_, err = checker.Can(r.Context(), scope, "repo:read")
+	require.ErrorIs(t, err, auth.ErrRevoked, "a revoked session is a revoked credential, not an outage")
 	require.ErrorIs(t, err, auth.ErrUnauthenticated)
-	require.Equal(t, 1, live.calls)
 
 	// Context values cannot substitute for verification by this verifier.
 	bad := principalRequest("invalid")
@@ -150,7 +144,7 @@ func TestRequestPrincipalAPIKeyIdentityAndScopeCeiling(t *testing.T) {
 	allowed, err := checker.Can(r.Context(), auth.Scope{Authority: confirmationIssuer, ID: "group-1"}, "repo:read")
 	require.NoError(t, err)
 	require.False(t, allowed, "same captured credential observes group retirement")
-	require.Equal(t, 1, source.calls, "group liveness never repeats credential verification")
+	require.Equal(t, 1, source.calls, "group retirement never repeats credential verification")
 	for _, failure := range []struct{ source, neutral error }{{iam.ErrAPIKeyExpired, auth.ErrExpired}, {iam.ErrAPIKeyRevoked, auth.ErrRevoked}} {
 		source.err = failure.source
 		_, err := v.AuthenticateRequest(r.Context(), r)
