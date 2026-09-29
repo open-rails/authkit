@@ -8,6 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
@@ -124,7 +125,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error
 	if err := s.claimProof(ctx, key, raw); err != nil {
 		return err
 	}
-	if err := s.restoreAccountDeletionOn(ctx, tx, proof.UserID, proof.Generation); err != nil {
+	if err := s.restoreAccountDeletionOn(ctx, tx, iam.UserActor(proof.UserID), proof.UserID, proof.Generation); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

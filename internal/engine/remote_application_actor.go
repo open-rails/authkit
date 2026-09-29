@@ -49,7 +49,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 		return nil, fmt.Errorf("%w: unknown tier or trust root", iam.ErrInvalidRemoteApplication)
 	}
 	var out *iam.RemoteApplication
-	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err := s.withGroupMutation(ctx, actor, ref, func(st *permissionGroupStore, g groupTarget) error {
 		in.PermissionGroupID = g.ID
 		row, err := db.New(st.q).RemoteApplicationByIssuer(ctx, in.Issuer)
 		var existing *iam.RemoteApplication
@@ -124,7 +124,7 @@ func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, r
 	if slug == "" {
 		return iam.ErrInvalidRemoteApplication
 	}
-	return s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	return s.withGroupMutation(ctx, actor, ref, func(st *permissionGroupStore, g groupTarget) error {
 		q := db.New(st.q)
 		app, err := q.RemoteApplicationBySlugForUpdate(ctx, slug)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {

@@ -120,6 +120,7 @@ func (d Deps) engine() engine.Deps {
 		OnSoftDelete:           d.OnSoftDelete,
 		OnHardDelete:           d.OnHardDelete,
 		OnRestore:              d.OnRestore,
+		OnEvent:                d.OnEvent,
 		DelegatedAuthorization: d.DelegatedAuthorization,
 		ApplicationAdmission:   d.ApplicationAdmission,
 		InstanceAdmission:      d.InstanceAdmission,

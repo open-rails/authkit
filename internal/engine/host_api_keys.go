@@ -71,7 +71,7 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	}
 	var out iam.APIKey
 	var token string
-	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		// A persona without API keys has none, whoever asks (the operator too).
 		if p, ok := s.groupSchemaOrDefault().Persona(g.Persona); !ok || !p.APIKeys {
 			return fmt.Errorf("persona %q does not enable API keys: %w", g.Persona, iam.ErrInsufficientAuthority)
@@ -157,7 +157,7 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 	}
 	id = strings.TrimSpace(id)
 	revoked := false
-	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !isUUID(id) {
 			return nil
 		}

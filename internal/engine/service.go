@@ -49,6 +49,9 @@ type Engine struct {
 	onSoftDelete func(context.Context, iam.UserDeletion) error
 	onHardDelete func(context.Context, iam.UserDeletion) error
 	onRestore    func(context.Context, iam.UserDeletion) error
+	onEvent      func(context.Context, iam.Event) error
+	// eventProducers are insert-only River clients for other issuers' fleets.
+	eventProducers sync.Map
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys

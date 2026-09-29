@@ -230,7 +230,7 @@ func TestAccountAuthorityCoversEveryGroup(t *testing.T) {
 	grantRole(t, f.engine, iam.RootGroup(), moderator, "moderator")
 	grantRole(t, f.engine, iam.RootGroup(), orgAdmin, "org-admin")
 	account := func(a iam.Actor, target iam.Subject) error {
-		return f.engine.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+		return f.engine.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
 			return f.engine.requireAccount(ctx, st, a, target.ID, iam.PermRootUsersBan)
 		})
 	}
@@ -262,7 +262,7 @@ func TestCredentialsOfDeadCreatorsAreRevoked(t *testing.T) {
 			} else {
 				require.NoError(t, f.engine.softDelete(ctx, creator.ID))
 			}
-			require.NoError(t, f.engine.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+			require.NoError(t, f.engine.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
 				return f.engine.revokeCredentialsOf(ctx, st, creator.ID)
 			}))
 			keys, err := f.engine.APIKeys(ctx, f.acme, iam.PageRequest{})

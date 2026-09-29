@@ -253,7 +253,8 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 			removals = append(removals, r)
 		}
 	}
-	st := newPermissionGroupStore(q)
+	st := s.groupStoreFor(q)
+	st.actor = iam.UserActor(userID)
 	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
 		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 			return nil, err
@@ -266,15 +267,9 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	}
 
 	for _, r := range removals {
-		if _, err := q.Exec(ctx,
-			`DELETE FROM group_user_roles
-			  WHERE permission_group_id = $1::uuid
-			    AND user_id = $2::uuid
-			    AND role = $3`,
-			r.PermissionGroupID, userID, r.Role); err != nil {
+		if err := st.UnassignRole(ctx, r.PermissionGroupID, iam.UserSubject(userID), r.Role); err != nil {
 			return nil, err
 		}
-		st.touched = append(st.touched, authorityTouch{r.PermissionGroupID, userID})
 	}
 	if err := s.revokeUncoveredCredentials(ctx, st, st.touched...); err != nil {
 		return nil, err

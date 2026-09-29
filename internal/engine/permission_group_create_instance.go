@@ -85,7 +85,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 	}
 
 	var created iam.Group
-	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		if a.Kind() == iam.ActorUser {
 			// Rule ACTOR: a banned, deleted or reserved account's still-valid
 			// token creates nothing.
@@ -184,7 +184,7 @@ func (s *Engine) UpdateGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef,
 	if u.DisplayName != nil && len(strings.TrimSpace(*u.DisplayName)) > 256 {
 		return out, iam.ErrGroupSlugInvalid
 	}
-	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		auth, err := s.actorAuthority(ctx, st, a, g)
 		if err != nil {
 			return err

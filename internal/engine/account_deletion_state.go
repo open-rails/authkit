@@ -139,6 +139,9 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if _, err := tx.Exec(ctx, "UPDATE account_deletions SET state='purged',purged_at=statement_timestamp() WHERE id=$1::uuid", id); err != nil {
 		return err
 	}
+	if err := store.record(ctx, userEvent(iam.EventUserPurged, userID)); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

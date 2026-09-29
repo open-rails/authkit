@@ -35,7 +35,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupR
 		return iam.User{}, err
 	}
 	var outID string
-	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}
@@ -63,6 +63,9 @@ func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupR
 				return mapUserUniqueViolation(err)
 			}
 			id = u.ID
+			if err := st.record(ctx, userEvent(iam.EventUserRegistered, id)); err != nil {
+				return err
+			}
 		}
 		subject := iam.UserSubject(id)
 		current, err := st.directRole(ctx, g.ID, subject)

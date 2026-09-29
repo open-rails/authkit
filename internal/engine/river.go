@@ -153,6 +153,9 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &accountDeliveryWorker{engine: s}); err != nil {
 		return err
 	}
+	if err := river.AddWorkerSafely(workers, &accountEventWorker{engine: s}); err != nil {
+		return err
+	}
 	cfg.Workers = workers
 	if cfg.Queues == nil {
 		cfg.Queues = make(map[string]river.QueueConfig)
@@ -166,6 +169,13 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	}
 	if _, ok := cfg.Queues[deliveryQueue]; !ok {
 		cfg.Queues[deliveryQueue] = river.QueueConfig{MaxWorkers: 1}
+	}
+	eventQueue := accountEventQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	if existing, ok := cfg.Queues[eventQueue]; ok && existing.MaxWorkers < 1 {
+		return fmt.Errorf("authkit: account event queue %q requires workers", eventQueue)
+	}
+	if _, ok := cfg.Queues[eventQueue]; !ok {
+		cfg.Queues[eventQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
 	finalizerQueue := accountFinalizerQueue(s.dbSchema())
 	if existing, ok := cfg.Queues[finalizerQueue]; ok && existing.MaxWorkers < 1 {

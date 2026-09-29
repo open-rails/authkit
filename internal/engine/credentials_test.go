@@ -243,10 +243,10 @@ func TestCredentialIssuance(t *testing.T) {
 	require.NoError(t, err)
 	opInvite, err := f.e.CreateAccountInvite(ctx, iam.OperatorActor(), iam.NewAccountInvite{Email: "operator@credentials.test"})
 	require.NoError(t, err)
-	require.NoError(t, f.e.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
 		return f.e.revokeCredentialsOf(ctx, st, manager.ID)
 	}))
-	require.NoError(t, f.e.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	require.NoError(t, f.e.withAuthorityMutation(ctx, iam.OperatorActor(), func(st *permissionGroupStore) error {
 		root, err := f.e.rootGroup(ctx, st)
 		if err != nil {
 			return err
@@ -414,7 +414,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 
 func (f *credentialFixture) defineCustomRole(t *testing.T, role iam.Role, perms ...string) {
 	t.Helper()
-	require.NoError(t, f.e.withGroupMutation(t.Context(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
+	require.NoError(t, f.e.withGroupMutation(t.Context(), iam.OperatorActor(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
 		return st.UpsertCustomRole(t.Context(), g.ID, role, perms)
 	}))
 }

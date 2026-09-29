@@ -311,7 +311,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef)
 	if err := requireActor(a); err != nil {
 		return out, err
 	}
-	err := s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		auth, err := s.actorAuthority(ctx, st, a, g)
 		if err != nil {
 			return err
@@ -327,6 +327,9 @@ func (s *Engine) DeleteGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef)
 			return err
 		}
 		if _, err = st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=$2,updated_at=$2 WHERE id=$1::uuid`, g.ID, st.now()); err != nil {
+			return err
+		}
+		if err := st.record(ctx, groupEvent(iam.EventGroupDeleted, g.ID, g.Persona)); err != nil {
 			return err
 		}
 		for _, id := range surviving {
@@ -355,7 +358,7 @@ func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	if a.Kind() != iam.ActorOperator {
 		return iam.ErrInsufficientAuthority
 	}
-	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		id := ref.ID()
 		if id == "" {
 			g, err := s.resolveGroup(ctx, st, ref)

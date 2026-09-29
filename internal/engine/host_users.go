@@ -206,9 +206,20 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*userR
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return nil, err
 	}
-	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	ins, err := s.qtx(tx).UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
 	if err != nil {
 		return nil, mapUserUniqueViolation(err)
+	}
+	if err := s.emitEvents(ctx, tx, iam.UserActor(ins.ID), userEvent(iam.EventUserRegistered, ins.ID)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 	u := userRecord{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 	return &u, nil

@@ -31,6 +31,14 @@ type Deps struct {
 	OnSoftDelete func(context.Context, iam.UserDeletion) error
 	OnHardDelete func(context.Context, iam.UserDeletion) error
 	OnRestore    func(context.Context, iam.UserDeletion) error
+	// OnEvent receives account and group changes (iam.Event) durably through
+	// River: recorded in the change's transaction, delivered after commit at
+	// least once, in order per user (per group for group events). A failure
+	// is retried with backoff up to an hour apart and holds back that
+	// subject's later events. It must be idempotent on Event.ID, ignore kinds
+	// it does not know and never run in the change's transaction. Events are
+	// recorded from the first start of a deployment that sets it.
+	OnEvent func(context.Context, iam.Event) error
 	// DelegatedAuthorization is the host's delegation authorizer for the
 	// delegated-token mint route (#261/#277); its grant is the complete
 	// authority AuthKit signs. Required when Delegated.Audiences is set.
