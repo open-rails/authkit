@@ -44,24 +44,36 @@ func (s *Service) adminUsers(r *http.Request, users []iam.User) []adminUser {
 	return out
 }
 
-// userQueryFromRequest parses the directory query: cursor, limit, search,
-// root_role, status, sort, order (default desc), entitlement.
-func userQueryFromRequest(r *http.Request) iam.UserQuery {
+// userQuery parses the directory query: cursor, limit, search, root_role,
+// status, sort, order (default desc), entitlement.
+func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	return iam.UserQuery{
+	out := iam.UserQuery{
 		Search:      strings.TrimSpace(q.Get("search")),
 		Status:      iam.UserStatus(strings.TrimSpace(q.Get("status"))),
-		RootRole:    iam.Role(strings.TrimSpace(q.Get("root_role"))),
 		Entitlement: strings.TrimSpace(q.Get("entitlement")),
 		Sort:        iam.UserSort(strings.TrimSpace(q.Get("sort"))),
 		Desc:        !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc"),
 		Page:        iam.PageRequest{Cursor: strings.TrimSpace(q.Get("cursor")), Limit: limit},
 	}
+	if name := strings.TrimSpace(q.Get("root_role")); name != "" {
+		role, err := s.svc.PermissionGroupSchema().ParseRole(iam.RootPersona, name)
+		if err != nil {
+			return iam.UserQuery{}, err
+		}
+		out.RootRole = role
+	}
+	return out, nil
 }
 
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
-	page, err := s.svc.ListUsers(r.Context(), userQueryFromRequest(r))
+	q, err := s.userQuery(r)
+	if err != nil {
+		writeError(w, remap(err, notFoundCodes, groupOpCodes))
+		return
+	}
+	page, err := s.svc.ListUsers(r.Context(), q)
 	if err != nil {
 		writeError(w, err)
 		return

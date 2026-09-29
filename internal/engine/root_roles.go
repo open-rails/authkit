@@ -12,12 +12,6 @@ import (
 // the RootPersona group; the catalog itself lives in Config.Roles,
 // not the DB, so upsert is validation-only.
 
-// normalizeRootRoleSlug canonicalises a root role slug. "admin" is not special:
-// apps declare their own bounded `admin` catalog role when they need one.
-func normalizeRootRoleSlug(role iam.Role) iam.Role {
-	return iam.Role(strings.ToLower(strings.TrimSpace(string(role))))
-}
-
 func (s *Engine) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
 	if len(roles) == 0 {
 		return nil, nil
@@ -26,7 +20,7 @@ func (s *Engine) splitConfiguredRootRoles(roles []string) (live []string, remove
 	if s.groupSchema != nil {
 		if root, ok := s.groupSchema.Persona(iam.RootPersona); ok {
 			for _, r := range root.Roles {
-				valid[string(normalizeRootRoleSlug(r.Name))] = struct{}{}
+				valid[r.Name.Name()] = struct{}{}
 			}
 		}
 	}
@@ -38,7 +32,7 @@ func (s *Engine) splitConfiguredRootRoles(roles []string) (live []string, remove
 	liveSeen := map[string]struct{}{}
 	removedSeen := map[string]struct{}{}
 	for _, raw := range roles {
-		role := string(normalizeRootRoleSlug(iam.Role(raw)))
+		role := strings.ToLower(strings.TrimSpace(raw))
 		if role == "" {
 			continue
 		}
@@ -76,8 +70,8 @@ func (s *Engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 	}
 	var roles []string
 	for _, a := range asg {
-		if a.Role != "" {
-			roles = append(roles, string(a.Role))
+		if !a.Role.IsZero() {
+			roles = append(roles, a.Role.Name())
 		}
 	}
 	return s.splitConfiguredRootRoles(roles)

@@ -23,6 +23,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 type accountEventArgs struct {
@@ -65,11 +66,11 @@ func groupEvent(kind iam.EventKind, groupID string, persona iam.Persona) iam.Eve
 
 // roleEvent is subject's role in the group going from previous to current.
 func roleEvent(groupID string, persona iam.Persona, subject iam.Subject, previous, current iam.Role) iam.Event {
-	e := iam.Event{Kind: iam.EventRoleChanged, GroupID: groupID, Persona: persona, Previous: string(previous), Current: string(current)}
+	e := iam.Event{Kind: iam.EventRoleChanged, GroupID: groupID, Persona: persona, Previous: previous.Name(), Current: current.Name()}
 	switch {
-	case previous == "":
+	case previous.IsZero():
 		e.Kind = iam.EventRoleGranted
-	case current == "":
+	case current.IsZero():
 		e.Kind = iam.EventRoleRevoked
 	}
 	if subject.Kind == iam.SubjectKindUser {
@@ -164,7 +165,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 			err := tx.QueryRow(ctx, `INSERT INTO account_events
  (issuer,subject,event_id,kind,actor_kind,actor_id,user_id,group_id,persona,application_id,previous_value,current_value,reason,until)
  VALUES ($1,$2,$3::uuid,$4,$5,$6,$7::uuid,$8::uuid,$9,$10::uuid,$11,$12,$13,$14) RETURNING id`,
-				sub.issuer, eventSubject(e), ids[i], string(e.Kind), actorKind, actorID, nullable(e.UserID), nullable(e.GroupID), string(e.Persona), nullable(e.ApplicationID), e.Previous, e.Current, e.Reason, e.Until).Scan(&row)
+				sub.issuer, eventSubject(e), ids[i], string(e.Kind), actorKind, actorID, nullable(e.UserID), nullable(e.GroupID), e.Persona.String(), nullable(e.ApplicationID), e.Previous, e.Current, e.Reason, e.Until).Scan(&row)
 			if err != nil {
 				return fmt.Errorf("authkit: record %s event: %w", e.Kind, err)
 			}
@@ -238,7 +239,7 @@ func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
 	if issuer != s.cfg.Token.Issuer {
 		return river.JobCancel(errors.New("authkit: account event issuer mismatch"))
 	}
-	e.Kind, e.ActorKind, e.Persona = iam.EventKind(kind), iam.ActorKind(actorKind), iam.Persona(persona)
+	e.Kind, e.ActorKind, e.Persona = iam.EventKind(kind), iam.ActorKind(actorKind), ident.Persona(persona)
 	e.UserID, e.GroupID, e.ApplicationID = deref(userID), deref(groupID), deref(appID)
 	var blocked bool
 	var wait float64

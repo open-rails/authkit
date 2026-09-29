@@ -150,16 +150,16 @@ type Persona struct {
 }
 
 type Role struct {
-	Persona     iam.Persona
-	Name        iam.Role
+	Persona     string
+	Name        string
 	Permissions []string
-	Includes    []iam.Role
+	Includes    []string
 }
 
 func (c RoleConfig) schema() (*rbac.Schema, error) {
-	personas := make(map[iam.Persona]rbac.PersonaSpec, len(c.Personas))
+	personas := make(map[string]rbac.PersonaSpec, len(c.Personas))
 	for name, p := range c.Personas {
-		personas[iam.Persona(name)] = rbac.PersonaSpec{
+		personas[name] = rbac.PersonaSpec{
 			Permissions:        p.Permissions,
 			RequireMFA:         p.RequireMFA,
 			CustomRoles:        p.CustomRoles,

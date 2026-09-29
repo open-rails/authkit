@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -31,7 +32,7 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 		 FROM remote_applications ra
 		 JOIN permission_groups pg ON pg.id = ra.permission_group_id
 		 WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL AND `+registrarLive("ra"),
-		appID).Scan(&gid, &out.Persona)
+		appID).Scan(&gid, scanPersona(&out.Persona))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.RemoteApplicationAuthority{}, iam.ErrRemoteApplicationNotFound
 	}
@@ -40,13 +41,14 @@ func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	}
 	out.PermissionGroupID = gid
 	out.AuthorityIssuer = s.cfg.Token.Issuer
-	out.Permissions, err = s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), gid)
+	grants, err := s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), gid)
 	if err != nil {
 		return iam.RemoteApplicationAuthority{}, err
 	}
 	// An application can present no second factor (see withoutMFAGrants).
-	if s.TwoFactorEnabled() && s.groupSchemaOrDefault().RequiresMFA(out.Permissions) {
-		out.Permissions = []string{}
+	if s.TwoFactorEnabled() && s.groupSchemaOrDefault().RequiresMFA(grants) {
+		grants = []string{}
 	}
+	out.Permissions = ident.Perms(grants)
 	return out, nil
 }

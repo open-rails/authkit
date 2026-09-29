@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/engine"
 )
 
 // Bootstrap, the first admin, bulk import and provider links. These are host
@@ -61,14 +60,15 @@ func (a *Auth) LinkProvider(ctx context.Context, userID string, l iam.ProviderLi
 const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 
 // ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
-// fields, empty manifests and structurally invalid entries.
-func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	return engine.ParseBootstrapManifestYAML(raw)
+// fields, empty manifests, structurally invalid entries and a root_role that
+// is not a root role of Config.Roles.
+func (a *Auth) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
+	return a.engine.ParseBootstrapManifestYAML(raw)
 }
 
 // LoadBootstrapManifestFile reads and parses a bootstrap manifest; an empty
 // path reads DefaultBootstrapManifestPath.
-func LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
+func (a *Auth) LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = DefaultBootstrapManifestPath
@@ -77,5 +77,5 @@ func LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
 	if err != nil {
 		return iam.BootstrapManifest{}, err
 	}
-	return ParseBootstrapManifestYAML(raw)
+	return a.ParseBootstrapManifestYAML(raw)
 }

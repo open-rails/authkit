@@ -25,7 +25,7 @@ func apiKeyJSON(k iam.APIKey) map[string]any {
 		"id":          k.ID,
 		"lookup_id":   k.LookupID,
 		"name":        k.Name,
-		"role":        k.Role,
+		"role":        k.Role.Name(),
 		"permissions": k.Permissions,
 		"created_at":  k.CreatedAt,
 	}
@@ -52,9 +52,14 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, body.Role)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
 	key, token, err := s.svc.MintAPIKey(r.Context(), actor, iam.GroupByID(g.ID), iam.NewAPIKey{
 		Name:      strings.TrimSpace(body.Name),
-		Role:      iam.Role(strings.TrimSpace(body.Role)),
+		Role:      role,
 		ExpiresAt: body.ExpiresAt,
 	})
 	if err != nil {

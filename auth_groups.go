@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -132,13 +133,14 @@ func options(opts []Option) operationOptions {
 // promptly.
 func InTx(tx pgx.Tx) Option { return func(o *operationOptions) { o.tx = tx } }
 
-// DefineGroupRole creates or redefines a custom role in a group whose persona
-// has CustomRoles. It needs `<persona>:roles:manage` and must cover the old
-// and new permissions; redefining a role users hold also needs
+// DefineGroupRole creates or redefines the custom role name, holding perms
+// (permissions or patterns of the persona), in a group whose persona has
+// CustomRoles, and returns it. It needs `<persona>:roles:manage` and must
+// cover the old and new permissions; redefining a role users hold also needs
 // `<persona>:members:manage`, and one API keys or applications hold
 // `<persona>:credentials:manage`.
-func (a *Auth) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, r iam.CustomRole) error {
-	return a.engine.DefineGroupRole(ctx, actor, ref, r)
+func (a *Auth) DefineGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
+	return a.engine.DefineGroupRole(ctx, actor, ref, name, perms...)
 }
 
 // DeleteGroupRole deletes a custom role and every reference to it, under
@@ -165,6 +167,37 @@ func (a *Auth) EffectivePermissions(ctx context.Context, actor iam.Actor, refs [
 // KnownPermission reports whether perm is registered in a persona catalog of
 // Config.Roles, AuthKit's built-ins included.
 func (a *Auth) KnownPermission(perm iam.Perm) bool { return a.engine.KnownPermission(perm) }
+
+// Names read at run time (a request parameter, a config file, a stored row
+// of the host's) become typed values only through the schema.
+
+// Persona resolves a persona name: iam.ErrUnknownGroupPersona unless
+// Config.Roles declares it (root always is).
+func (a *Auth) Persona(name string) (iam.Persona, error) {
+	p, ok := a.engine.PermissionGroupSchema().PersonaNamed(name)
+	if !ok {
+		return iam.Persona{}, fmt.Errorf("persona %q: %w", name, iam.ErrUnknownGroupPersona)
+	}
+	return p, nil
+}
+
+// Permission resolves a concrete permission: iam.ErrUnknownPermission unless
+// it is registered.
+func (a *Auth) Permission(text string) (iam.Perm, error) {
+	p, ok := a.engine.PermissionGroupSchema().Permission(text)
+	if !ok {
+		return iam.Perm{}, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, text)
+	}
+	return p, nil
+}
+
+// Role resolves a role name for groups of persona: a declared role or the
+// owner role, else iam.ErrRoleNotAssignable. When the persona has
+// CustomRoles, any valid name resolves; whether a group defines it is checked
+// where the role is used.
+func (a *Auth) Role(persona iam.Persona, name string) (iam.Role, error) {
+	return a.engine.PermissionGroupSchema().ParseRole(persona, name)
+}
 
 // RequirePermission authenticates the request (it includes Require) and
 // requires perm in group, checked live. For a group taken from the request,

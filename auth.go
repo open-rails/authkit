@@ -37,6 +37,9 @@ var (
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
 // the pool first. ctx bounds the boot-time database work.
 func New(ctx context.Context, cfg Config, deps Deps) (_ *Auth, err error) {
+	if err := cfg.Roles.err(); err != nil {
+		return nil, fmt.Errorf("authkit: Config.Roles: %w", err)
+	}
 	settings := cfg.settings()
 	e, err := engine.New(ctx, settings.engine, deps.engine())
 	if err != nil {

@@ -110,7 +110,7 @@ func (a Actor) Bounded() bool { return a.ceilings != nil }
 // CeilingCovers reports whether every ceiling permits perm (true when unbounded).
 func (a Actor) CeilingCovers(perm Perm) bool {
 	for _, c := range a.ceilings {
-		if !AnyGrantCovers(permStrings(c), perm) {
+		if !AnyGrantCovers(c, perm) {
 			return false
 		}
 	}
@@ -126,12 +126,4 @@ func (a Actor) String() string {
 		return string(ActorSystem)
 	}
 	return string(a.kind) + ":" + a.id
-}
-
-func permStrings(perms []Perm) []string {
-	out := make([]string, len(perms))
-	for i, p := range perms {
-		out[i] = string(p)
-	}
-	return out
 }

@@ -45,7 +45,7 @@ func (s *Service) documentsHandler() http.Handler {
 		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootDomain &&
 			byDomain[strings.ToLower(claims.RemoteApplicationDomain)]:
 		case claims.RemoteApplicationTrustRoot == iam.ApplicationTrustRootManual &&
-			iam.Persona(claims.PermissionGroupPersona) == iam.RootPersona && byIssuer[claims.Issuer]:
+			claims.PermissionGroupPersona == iam.RootPersona.String() && byIssuer[claims.Issuer]:
 		default:
 			return documents.ErrUnauthorized
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // API keys (#111): long-lived, revocable bearer credentials owned by a
@@ -54,8 +55,8 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 	if name == "" {
 		return iam.APIKey{}, "", errmodel.ErrMissingName
 	}
-	role := iam.Role(strings.ToLower(strings.TrimSpace(string(k.Role))))
-	if role == "" {
+	role := k.Role
+	if role.IsZero() {
 		return iam.APIKey{}, "", errmodel.ErrInvalidRole
 	}
 	now := time.Now().UTC()
@@ -94,10 +95,10 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 			if err != nil {
 				return err
 			}
-			out = iam.APIKey{LookupID: minted.LookupID, Name: name, Role: role, Permissions: append([]string{}, grants...), CreatedBy: creator, ExpiresAt: expiresAt}
+			out = iam.APIKey{LookupID: minted.LookupID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
 			err = st.q.QueryRow(ctx, `INSERT INTO api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
  VALUES($1::uuid,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO NOTHING RETURNING id::text,created_at`,
-				g.ID, minted.LookupID, minted.SecretHash, name, role, nullable(creator), expiresAt).Scan(&out.ID, &out.CreatedAt)
+				g.ID, minted.LookupID, minted.SecretHash, name, role.Name(), nullable(creator), expiresAt).Scan(&out.ID, &out.CreatedAt)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
 			}
@@ -135,7 +136,7 @@ func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageReques
 	}
 	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.APIKey, error) {
 		var k iam.APIKey
-		err := row.Scan(&k.ID, &k.LookupID, &k.Name, &k.Role, &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt)
+		err := row.Scan(&k.ID, &k.LookupID, &k.Name, scanRole(&k.Role, g.Persona), &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt)
 		return k, err
 	})
 	if err != nil {
@@ -162,7 +163,7 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 			return nil
 		}
 		var role iam.Role
-		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, id, g.ID).Scan(&role)
+		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, id, g.ID).Scan(scanRole(&role, g.Persona))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -200,6 +201,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		revokedAt   *time.Time
 		creatorLive bool
 		custom      []string
+		role        string
 	)
 	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
         g.id::text, g.persona, g.created_at, r.permissions
@@ -207,8 +209,8 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
  JOIN permission_groups g ON g.id=k.permission_group_id
  LEFT JOIN group_custom_roles r ON r.permission_group_id=k.permission_group_id AND r.role=k.role
  WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
-		Scan(&p.ID, &secretHash, &p.Role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, &p.Group.Persona, &p.Group.CreatedAt, &custom)
+		Scan(&p.ID, &secretHash, &role, &p.ExpiresAt, &revokedAt, &creatorLive,
+			&p.Group.ID, scanPersona(&p.Group.Persona), &p.Group.CreatedAt, &custom)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
@@ -225,19 +227,20 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyExpired
 	}
 	s.touchAccessTokenAsync(p.ID)
+	p.Role = ident.Role(p.Group.Persona, role)
 	sch := s.groupSchemaOrDefault()
 	persona, _ := sch.Persona(p.Group.Persona)
+	grants := []string{}
 	switch def, ok := sch.Role(p.Group.Persona, p.Role); {
 	case ok:
-		p.Permissions = append([]string{}, def.Permissions...)
+		grants = def.Permissions
 	case custom != nil && persona.CustomRoles:
-		p.Permissions = custom
-	default:
-		p.Permissions = []string{}
+		grants = custom
 	}
+	p.Permissions = ident.Perms(grants)
 	// A key can present no second factor: a role that came to need MFA (a
 	// changed RequireMFA) confers nothing even before the boot sweep revokes it.
-	if s.TwoFactorEnabled() && sch.RequiresMFA(p.Permissions) {
+	if s.TwoFactorEnabled() && sch.RequiresMFA(grants) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
 	}
 	p.LookupID = lookupID
@@ -262,14 +265,16 @@ func (s *Engine) touchAccessTokenAsync(id string) {
 // loadAPIKeyPermissions fills each key's Permissions with its role resolved
 // now. Keys sharing a role resolve once.
 func (s *Engine) loadAPIKeyPermissions(ctx context.Context, st *permissionGroupStore, g groupTarget, keys []iam.APIKey) error {
-	byRole := map[iam.Role][]string{}
+	byRole := map[iam.Role][]iam.Perm{}
 	for i := range keys {
 		perms, ok := byRole[keys[i].Role]
 		if !ok {
 			var err error
-			if perms, err = s.effectiveGroupRolePermissions(ctx, st, g.ID, g.Persona, keys[i].Role); err != nil {
+			grants, err := s.effectiveGroupRolePermissions(ctx, st, g.ID, g.Persona, keys[i].Role)
+			if err != nil {
 				return err
 			}
+			perms = ident.Perms(grants)
 			byRole[keys[i].Role] = perms
 		}
 		keys[i].Permissions = perms

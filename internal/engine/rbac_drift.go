@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // rbacDriftReport counts orphaned authority rows — assigned group roles, custom
@@ -51,12 +52,12 @@ func (s *Engine) driftCustomRoles(ctx context.Context) (int, error) {
 	total := 0
 	for rows.Next() {
 		var persona iam.Persona
-		var role iam.Role
+		var name string
 		var count int
-		if err := rows.Scan(&persona, &role, &count); err != nil {
+		if err := rows.Scan(scanPersona(&persona), &name, &count); err != nil {
 			return 0, err
 		}
-		if !s.customRolesLive(persona, role) {
+		if !s.customRolesLive(persona, ident.Role(persona, name)) {
 			total += count
 		}
 	}
@@ -81,14 +82,13 @@ func (s *Engine) driftAssignedRoles(ctx context.Context, table, where string) (i
 
 	total := 0
 	for rows.Next() {
-		var groupID string
+		var groupID, name string
 		var persona iam.Persona
-		var role iam.Role
 		var count int
-		if err := rows.Scan(&groupID, &persona, &role, &count); err != nil {
+		if err := rows.Scan(&groupID, scanPersona(&persona), &name, &count); err != nil {
 			return 0, err
 		}
-		if !s.roleLive(persona, groupID, role, custom) {
+		if !s.roleLive(persona, groupID, ident.Role(persona, name), custom) {
 			total += count
 		}
 	}
@@ -126,7 +126,7 @@ func (s *Engine) roleLive(persona iam.Persona, groupID string, role iam.Role, cu
 	if !s.customRolesLive(persona, role) {
 		return false
 	}
-	_, ok := custom[groupID][string(role)]
+	_, ok := custom[groupID][role.Name()]
 	return ok
 }
 
@@ -139,5 +139,5 @@ func (s *Engine) customRolesLive(persona iam.Persona, role iam.Role) bool {
 	if _, catalog := sch.Role(persona, role); catalog {
 		return true
 	}
-	return role != ""
+	return !role.IsZero()
 }

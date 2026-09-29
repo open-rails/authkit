@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -83,7 +84,7 @@ func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
 // CreateGroup inserts a non-root permission group and returns its id.
 func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Persona) (string, error) {
 	var id string
-	if err := st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id::text`, persona).Scan(&id); err != nil {
+	if err := st.q.QueryRow(ctx, `INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id::text`, persona.String()).Scan(&id); err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
 	return id, st.record(ctx, groupEvent(iam.EventGroupCreated, id, persona))
@@ -93,15 +94,15 @@ func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Per
 // persona. The root group cannot be deleted.
 func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (iam.Persona, error) {
 	var persona iam.Persona
-	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(&persona)
+	err := st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, groupID).Scan(scanPersona(&persona))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", iam.ErrGroupNotFound
+		return iam.Persona{}, iam.ErrGroupNotFound
 	}
 	if err != nil {
-		return "", err
+		return iam.Persona{}, err
 	}
 	if persona == iam.RootPersona {
-		return "", fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
+		return iam.Persona{}, fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 	}
 	return persona, nil
 }
@@ -194,19 +195,20 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 	defer rows.Close()
 	seen := map[[2]string]bool{}
 	for rows.Next() {
-		var target string
+		var target, assigned string
 		var assignment rbac.Assignment
 		var role *string
 		var permissions []string
-		if err := rows.Scan(&target, &assignment.PermissionGroupID, &assignment.Persona, &assignment.Role, &role, &permissions); err != nil {
+		if err := rows.Scan(&target, &assignment.PermissionGroupID, scanPersona(&assignment.Persona), &assigned, &role, &permissions); err != nil {
 			return nil, nil, err
 		}
+		assignment.Role = ident.Role(assignment.Persona, assigned)
 		if k := [2]string{target, assignment.PermissionGroupID}; !seen[k] {
 			seen[k] = true
 			out[target] = append(out[target], assignment)
 		}
 		if role != nil {
-			custom[key{assignment.PermissionGroupID, iam.Role(*role)}] = permissions
+			custom[key{assignment.PermissionGroupID, ident.Role(assignment.Persona, *role)}] = permissions
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -259,7 +261,7 @@ func (st *permissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 // primary key enforces one assignment; callers validate the role definition.
 // Assigning the role already held changes nothing.
 func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
-	if subject.Kind == iam.SubjectKindRemoteApplication && role == iam.OwnerRole {
+	if subject.Kind == iam.SubjectKindRemoteApplication && role.IsOwner() {
 		var operable bool
 		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled AND permission_group_id=$2::uuid)`, subject.ID, groupID).Scan(&operable); err != nil {
 			return err
@@ -273,19 +275,22 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 		return err
 	}
 	var persona iam.Persona
-	err = st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(&persona)
+	err = st.q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(scanPersona(&persona))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrGroupNotFound
 	}
 	if err != nil {
 		return err
 	}
-	previous, err := st.directRole(ctx, groupID, subject)
+	if role.Persona() != persona {
+		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
+	}
+	previous, err := st.directRole(ctx, groupTarget{ID: groupID, Persona: persona}, subject)
 	if err != nil || previous == role {
 		return err
 	}
 	if _, err := st.q.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (permission_group_id, %s, role) VALUES ($1::uuid, $2::uuid, $3)
- ON CONFLICT (permission_group_id, %s) DO UPDATE SET role=EXCLUDED.role`, table, subjectColumn, subjectColumn), groupID, subject.ID, role); err != nil {
+ ON CONFLICT (permission_group_id, %s) DO UPDATE SET role=EXCLUDED.role`, table, subjectColumn, subjectColumn), groupID, subject.ID, role.Name()); err != nil {
 		return err
 	}
 	st.touch(groupID, subject)
@@ -294,7 +299,7 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 
 // UnassignRole deletes the matching current assignment.
 func (st *permissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
-	return st.unassign(ctx, groupID, subject, "AND r.role=$3", role)
+	return st.unassign(ctx, groupID, subject, "AND r.role=$3", role.Name())
 }
 
 // UnassignSubject deletes the subject's current assignment in this group.
@@ -308,10 +313,10 @@ func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, su
 		return err
 	}
 	var persona iam.Persona
-	var role iam.Role
+	var role string
 	err = st.q.QueryRow(ctx, fmt.Sprintf(`DELETE FROM %s r USING permission_groups g
  WHERE g.id=r.permission_group_id AND r.permission_group_id=$1::uuid AND r.%s=$2::uuid %s RETURNING g.persona, r.role`, table, subjectColumn, filter),
-		append([]any{groupID, subject.ID}, args...)...).Scan(&persona, &role)
+		append([]any{groupID, subject.ID}, args...)...).Scan(scanPersona(&persona), &role)
 	st.touch(groupID, subject)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -319,7 +324,7 @@ func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, su
 	if err != nil {
 		return err
 	}
-	return st.record(ctx, roleEvent(groupID, persona, subject, role, ""))
+	return st.record(ctx, roleEvent(groupID, persona, subject, ident.Role(persona, role), iam.Role{}))
 }
 
 // OwnerCount returns the count of live, unbanned, unreserved user owners and
@@ -343,7 +348,7 @@ func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID st
 	tag, err := st.q.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT id FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE)
  INSERT INTO group_custom_roles(permission_group_id,role,permissions)
  SELECT id,$2,$3 FROM locked
- ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,updated_at=now()`, groupID, role, grants)
+ ON CONFLICT(permission_group_id,role) DO UPDATE SET permissions=EXCLUDED.permissions,updated_at=now()`, groupID, role.Name(), grants)
 	if err == nil && tag.RowsAffected() == 0 {
 		return iam.ErrGroupNotFound
 	}
@@ -356,7 +361,7 @@ func (st *permissionGroupStore) UpsertCustomRole(ctx context.Context, groupID st
 // CustomRole returns a group's custom role grants; exists is false when the
 // group defines no such role.
 func (st *permissionGroupStore) CustomRole(ctx context.Context, groupID string, role iam.Role) (grants []string, exists bool, err error) {
-	err = st.q.QueryRow(ctx, `SELECT permissions FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2`, groupID, role).Scan(&grants)
+	err = st.q.QueryRow(ctx, `SELECT permissions FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2`, groupID, role.Name()).Scan(&grants)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -376,7 +381,7 @@ func (st *permissionGroupStore) roleReferences(ctx context.Context, groupID stri
  (SELECT count(*) FROM api_keys WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())),
  (SELECT count(*) FROM group_invite_links WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND redeemed_at IS NULL AND (expires_at IS NULL OR expires_at>now()))
  + (SELECT count(*) FROM account_registration_invites WHERE permission_group_id=$1::uuid AND role=$2 AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now())`,
-		groupID, role).Scan(&r.users, &r.applications, &r.apiKeys, &r.invites)
+		groupID, role.Name()).Scan(&r.users, &r.applications, &r.apiKeys, &r.invites)
 	return r, err
 }
 
@@ -388,8 +393,9 @@ func (st *permissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 		return func(string, iam.Role) ([]string, bool) { return nil, false }, nil
 	}
 	rows, err := st.q.Query(ctx,
-		`SELECT permission_group_id::text, role, permissions FROM group_custom_roles
-		 WHERE permission_group_id = ANY($1::uuid[])`,
+		`SELECT r.permission_group_id::text, g.persona, r.role, r.permissions FROM group_custom_roles r
+		 JOIN permission_groups g ON g.id = r.permission_group_id
+		 WHERE r.permission_group_id = ANY($1::uuid[])`,
 		groupIDs)
 	if err != nil {
 		return nil, err
@@ -401,13 +407,13 @@ func (st *permissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 	}
 	m := map[key][]string{}
 	for rows.Next() {
-		var gid string
-		var role iam.Role
+		var gid, role string
+		var persona iam.Persona
 		var perms []string
-		if err := rows.Scan(&gid, &role, &perms); err != nil {
+		if err := rows.Scan(&gid, scanPersona(&persona), &role, &perms); err != nil {
 			return nil, err
 		}
-		m[key{gid, role}] = perms
+		m[key{gid, ident.Role(persona, role)}] = perms
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -489,7 +495,7 @@ const groupColumns = `id::text, persona, created_at, deleted_at`
 
 func scanGroup(row pgx.Row) (iam.Group, error) {
 	var g iam.Group
-	err := row.Scan(&g.ID, &g.Persona, &g.CreatedAt, &g.DeletedAt)
+	err := row.Scan(&g.ID, scanPersona(&g.Persona), &g.CreatedAt, &g.DeletedAt)
 	return g, err
 }
 
@@ -498,7 +504,7 @@ func scanGroup(row pgx.Row) (iam.Group, error) {
 // a no-op, so a catalog role cannot accidentally lose its assignments here.
 func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID string, role iam.Role) error {
 	var exists bool
-	if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2)`, groupID, role).Scan(&exists); err != nil {
+	if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_custom_roles WHERE permission_group_id=$1::uuid AND role=$2)`, groupID, role.Name()).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -511,17 +517,17 @@ func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID st
 			return err
 		}
 		rows, err := st.q.Query(ctx, fmt.Sprintf(`DELETE FROM %s r USING permission_groups g
- WHERE g.id=r.permission_group_id AND r.permission_group_id=$1::uuid AND r.role=$2 RETURNING r.%s::text, g.persona`, table, column), groupID, role)
+ WHERE g.id=r.permission_group_id AND r.permission_group_id=$1::uuid AND r.role=$2 RETURNING r.%s::text, g.persona`, table, column), groupID, role.Name())
 		if err != nil {
 			return err
 		}
 		events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.Event, error) {
 			var id string
 			var persona iam.Persona
-			if err := row.Scan(&id, &persona); err != nil {
+			if err := row.Scan(&id, scanPersona(&persona)); err != nil {
 				return iam.Event{}, err
 			}
-			return roleEvent(groupID, persona, iam.Subject{Kind: kind, ID: id}, role, ""), nil
+			return roleEvent(groupID, persona, iam.Subject{Kind: kind, ID: id}, role, iam.Role{}), nil
 		})
 		if err != nil {
 			return err
@@ -529,7 +535,7 @@ func (st *permissionGroupStore) DeleteCustomRole(ctx context.Context, groupID st
 		revoked = append(revoked, events...)
 	}
 	for _, table := range []string{"api_keys", "group_invite_links", "account_registration_invites", "group_custom_roles"} {
-		if _, err := st.q.Exec(ctx, "DELETE FROM "+table+" WHERE permission_group_id=$1::uuid AND role=$2", groupID, role); err != nil {
+		if _, err := st.q.Exec(ctx, "DELETE FROM "+table+" WHERE permission_group_id=$1::uuid AND role=$2", groupID, role.Name()); err != nil {
 			return err
 		}
 	}

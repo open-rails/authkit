@@ -61,7 +61,7 @@ type RemoteApplicationKey struct {
 type RemoteApplicationAuthority struct {
 	PermissionGroupID string
 	AuthorityIssuer   string
-	Permissions       []string
+	Permissions       []Perm
 	Persona           Persona
 }
 

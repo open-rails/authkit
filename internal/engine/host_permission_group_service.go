@@ -15,6 +15,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -110,8 +111,7 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
 func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role iam.Role) bool {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	if role == "" {
+	if role.IsZero() || role.Persona() != persona {
 		return false
 	}
 	if _, ok := sch.Role(persona, role); ok {
@@ -259,14 +259,15 @@ func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
 			out = append(out, p)
 		}
 	}
-	for _, grant := range auth.grants {
-		if auth.actor.CeilingCovers(iam.Perm(grant)) {
-			add(iam.Perm(grant))
+	for _, raw := range auth.grants {
+		grant := ident.Perm(raw)
+		if auth.actor.CeilingCovers(grant) {
+			add(grant)
 			continue
 		}
-		persona, _ := sch.Persona(iam.Perm(grant).Persona())
+		persona, _ := sch.Persona(grant.Persona())
 		for _, perm := range persona.Permissions {
-			if perm.Matches(iam.Perm(grant)) && auth.actor.CeilingCovers(perm) {
+			if perm.Matches(grant) && auth.actor.CeilingCovers(perm) {
 				add(perm)
 			}
 		}
@@ -274,8 +275,8 @@ func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
 	return out
 }
 
-// DefineGroupRole creates or redefines a custom role in a group whose persona
-// allows them. A redefinition is a deferred grant or revoke to every holder,
+// DefineGroupRole creates or redefines the custom role name in a group whose
+// persona allows them, and returns it. A redefinition is a deferred grant or revoke to every holder,
 // so the actor needs <p>:roles:manage and COVER of both the current and the
 // new permissions, plus <p>:members:manage when users hold the role and
 // <p>:credentials:manage when applications or API keys do (invite links
@@ -283,20 +284,19 @@ func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
 // without a definition (a catalog role removed from config) is refused, so a
 // new definition never silently re-binds those holders. Permissions that need
 // MFA are refused while a holder cannot present it.
-func (s *Engine) DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, r iam.CustomRole) error {
+func (s *Engine) DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
 	if err := requireActor(a); err != nil {
-		return err
+		return iam.Role{}, err
 	}
-	role := iam.Role(strings.TrimSpace(string(r.Name)))
-	if !iam.ValidPermissionSegment(string(role)) {
-		return fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*: %w", role, iam.ErrCustomRoleNameInvalid)
+	name = strings.TrimSpace(name)
+	if !iam.ValidPermissionSegment(name) {
+		return iam.Role{}, fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*: %w", name, iam.ErrCustomRoleNameInvalid)
 	}
-	grants := make([]string, 0, len(r.Permissions))
-	for _, p := range r.Permissions {
-		grants = append(grants, strings.TrimSpace(p))
-	}
+	grants := ident.Strings(perms)
 	sch := s.groupSchemaOrDefault()
-	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+	var role iam.Role
+	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+		role = ident.Role(g.Persona, name)
 		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
 			return err
 		}
@@ -322,6 +322,10 @@ func (s *Engine) DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.Group
 		}
 		return st.UpsertCustomRole(ctx, g.ID, role, grants)
 	})
+	if err != nil {
+		return iam.Role{}, err
+	}
+	return role, nil
 }
 
 // DeleteGroupRole deletes a custom role and every reference to it (holders,
@@ -331,9 +335,11 @@ func (s *Engine) DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.Group
 	if err := requireActor(a); err != nil {
 		return err
 	}
-	role = iam.Role(strings.TrimSpace(string(role)))
 	sch := s.groupSchemaOrDefault()
 	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if role.Persona() != g.Persona {
+			return fmt.Errorf("role %q is not a role of a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
+		}
 		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
 			return err
 		}
@@ -402,7 +408,7 @@ func (s *Engine) requireHoldersMFA(ctx context.Context, st *permissionGroupStore
 	}
 	var missing bool
 	err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_user_roles r WHERE r.permission_group_id=$1::uuid AND r.role=$2
- AND NOT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=r.user_id AND m.enabled AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=r.user_id)))`, g.ID, role).Scan(&missing)
+ AND NOT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=r.user_id AND m.enabled AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=r.user_id)))`, g.ID, role.Name()).Scan(&missing)
 	if err != nil {
 		return err
 	}

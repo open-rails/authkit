@@ -8,6 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/helpers/auth"
 )
 
@@ -102,7 +103,7 @@ func (p *requestPrincipal) Can(ctx context.Context, scope auth.Scope, permission
 	if scope.Authority != p.authority {
 		return false, nil
 	}
-	allowed, err := Allow(ctx, p.checker, p.claims, iam.Perm(permission), iam.GroupByID(scope.ID))
+	allowed, err := Allow(ctx, p.checker, p.claims, ident.Perm(permission), iam.GroupByID(scope.ID))
 	if err != nil {
 		return false, errors.Join(auth.ErrUnavailable, err)
 	}

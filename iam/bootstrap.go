@@ -3,10 +3,11 @@ package iam
 import "time"
 
 // BootstrapManifest is genesis seed data: accounts, their root roles and
-// remote applications. ApplyBootstrapManifest applies it as a host operation.
+// remote applications. ApplyBootstrapManifest applies it as a host operation;
+// Auth.ParseBootstrapManifestYAML reads one from its YAML file format.
 type BootstrapManifest struct {
-	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
-	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
+	Users              []BootstrapManifestUser
+	RemoteApplications []BootstrapManifestRemoteApplication
 }
 
 // BootstrapManifestUser seeds one account. A new account is created as
@@ -16,29 +17,29 @@ type BootstrapManifest struct {
 // contact, or username when no contact is named) is refused unless the apply
 // would change nothing on it.
 type BootstrapManifestUser struct {
-	Username      string                 `json:"username" yaml:"username"`
-	Email         string                 `json:"email" yaml:"email"`
-	Phone         string                 `json:"phone" yaml:"phone"`
-	EmailVerified bool                   `json:"email_verified" yaml:"email_verified"`
-	PhoneVerified bool                   `json:"phone_verified" yaml:"phone_verified"`
-	Banned        bool                   `json:"banned" yaml:"banned"`
-	BannedUntil   *time.Time             `json:"banned_until" yaml:"banned_until"`
-	BanReason     string                 `json:"ban_reason" yaml:"ban_reason"`
-	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
-	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// RootRole is the account's root role. "owner" is seeded only while the
-	// root group has no usable owner.
-	RootRole Role `json:"root_role" yaml:"root_role"`
+	Username      string
+	Email         string
+	Phone         string
+	EmailVerified bool
+	PhoneVerified bool
+	Banned        bool
+	BannedUntil   *time.Time
+	BanReason     string
+	Metadata      map[string]any
+	Password      *BootstrapUserPassword
+	// RootRole is the account's root role. The root owner role is seeded only
+	// while the root group has no usable owner.
+	RootRole Role
 }
 
 // BootstrapManifestRemoteApplication seeds one application controlled by root.
 type BootstrapManifestRemoteApplication struct {
-	Slug       string                 `json:"slug" yaml:"slug"`
-	Issuer     string                 `json:"issuer" yaml:"issuer"`
-	JWKSURI    string                 `json:"jwks_uri" yaml:"jwks_uri"`
-	PublicKeys []RemoteApplicationKey `json:"public_keys" yaml:"public_keys"`
-	Enabled    *bool                  `json:"enabled" yaml:"enabled"`
-	RootRole   Role                   `json:"root_role" yaml:"root_role"`
+	Slug       string
+	Issuer     string
+	JWKSURI    string
+	PublicKeys []RemoteApplicationKey
+	Enabled    *bool
+	RootRole   Role
 }
 
 // BootstrapUserPassword is exactly one of Plaintext, Hash with HashAlgo, or

@@ -49,26 +49,6 @@ func (c Config) settings() settings {
 	return s
 }
 
-func (c RoleConfig) engine() engine.RoleConfig {
-	var out engine.RoleConfig
-	if c.Personas != nil {
-		out.Personas = make(map[string]engine.Persona, len(c.Personas))
-		for name, p := range c.Personas {
-			out.Personas[name] = engine.Persona{
-				Permissions:        p.Permissions,
-				RequireMFA:         p.RequireMFA,
-				CustomRoles:        p.CustomRoles,
-				APIKeys:            p.APIKeys,
-				RemoteApplications: p.RemoteApplications,
-			}
-		}
-	}
-	for _, r := range c.Roles {
-		out.Roles = append(out.Roles, engine.Role(r))
-	}
-	return out
-}
-
 func (c DocumentsConfig) engine() engine.DocumentsConfig {
 	out := engine.DocumentsConfig{AllowRegisteredTier: c.AllowRegisteredTier}
 	for _, r := range c.Readers {

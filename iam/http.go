@@ -48,7 +48,7 @@ type Route struct {
 	Path       string
 	Group      RouteGroup
 	Auth       RouteAuthTier
-	Permission Perm
+	Permission string // `<persona>` stands for the group's persona
 }
 
 const (

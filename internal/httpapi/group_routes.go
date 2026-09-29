@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -106,9 +108,10 @@ func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 
 // catalogPermission names the gate in the route catalog, where no persona is
 // known yet: `<persona>:members:manage`.
-func (op GroupOp) catalogPermission() iam.Perm {
-	perms := op.Perms(rbac.Persona{Name: "<persona>"})
-	return perms[0]
+func (op GroupOp) catalogPermission() string {
+	const placeholder = "persona"
+	perm := op.Perms(rbac.Persona{Name: ident.Persona(placeholder)})[0].String()
+	return "<persona>" + strings.TrimPrefix(perm, placeholder)
 }
 
 // MountedGroupRoutes returns the group routes some persona of s has.

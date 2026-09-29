@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // Controlling an application's keys is acting as it, so every non-system
@@ -173,10 +174,12 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 	var roles []held
 	for rows.Next() {
 		var h held
-		if err := rows.Scan(&h.group.ID, &h.group.Persona, &h.role); err != nil {
+		var role string
+		if err := rows.Scan(&h.group.ID, scanPersona(&h.group.Persona), &role); err != nil {
 			rows.Close()
 			return err
 		}
+		h.role = ident.Role(h.group.Persona, role)
 		roles = append(roles, h)
 	}
 	rows.Close()

@@ -240,7 +240,7 @@ func (s *Engine) applicationsEnabled() (rbac.Persona, error) {
 	if !s.cfg.Applications.SelfRegistration {
 		return rbac.Persona{}, errmodel.ErrApplicationRegistrationDisabled
 	}
-	persona := iam.Persona(strings.TrimSpace(string(s.cfg.Applications.OrgPersona)))
+	persona := s.cfg.Applications.OrgPersona
 	td, ok := s.groupSchemaOrDefault().Persona(persona)
 	if !ok || persona == iam.RootPersona {
 		return rbac.Persona{}, fmt.Errorf("%w: Applications.OrgPersona %q must be a declared non-root persona", errmodel.ErrApplicationRegistrationDisabled, persona)
@@ -329,7 +329,11 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		}
 		// Make sure the owner assignment exists (self-heal).
 		if row.PermissionGroupID != "" {
-			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteApplicationSubject(row.ID), iam.OwnerRole); err != nil {
+			persona, err := groupPersona(ctx, dbtx, row.PermissionGroupID)
+			if err != nil {
+				return nil, err
+			}
+			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteApplicationSubject(row.ID), persona.OwnerRole()); err != nil {
 				return nil, err
 			}
 		}
@@ -389,7 +393,7 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	// Engine-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
-	if err := st.AssignRole(ctx, gid, iam.RemoteApplicationSubject(row.ID), iam.OwnerRole); err != nil {
+	if err := st.AssignRole(ctx, gid, iam.RemoteApplicationSubject(row.ID), td.Name.OwnerRole()); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -405,11 +409,11 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 
 func groupPersona(ctx context.Context, dbtx db.DBTX, groupID string) (persona iam.Persona, err error) {
 	if groupID == "" {
-		return "", nil
+		return iam.Persona{}, nil
 	}
-	err = dbtx.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id = $1::uuid`, groupID).Scan(&persona)
+	err = dbtx.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id = $1::uuid`, groupID).Scan(scanPersona(&persona))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return iam.Persona{}, nil
 	}
 	return persona, err
 }

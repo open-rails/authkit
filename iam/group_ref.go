@@ -26,7 +26,7 @@ func (g GroupRef) IsRoot() bool { return g.root }
 
 func (g GroupRef) String() string {
 	if g.root {
-		return string(RootPersona)
+		return RootPersona.String()
 	}
 	return "id:" + g.id
 }

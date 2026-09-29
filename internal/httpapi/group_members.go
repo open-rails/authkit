@@ -40,9 +40,13 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role := iam.Role(strings.TrimSpace(body.Role))
-	if role == "" {
+	if strings.TrimSpace(body.Role) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, body.Role)
+	if err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
 	if email != "" {
@@ -65,7 +69,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 			"group_id": g.ID,
 			"persona":  g.Persona,
 			"email":    email,
-			"role":     role,
+			"role":     role.Name(),
 			"invited":  true,
 			"invite": map[string]any{
 				"id":   invite.ID,
@@ -84,7 +88,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 		"group_id": g.ID,
 		"persona":  g.Persona,
 		"user_id":  userID,
-		"role":     role,
+		"role":     role.Name(),
 	})
 }
 
@@ -107,10 +111,14 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g ia
 }
 
 // groupMemberRole assigns or replaces the user's single role in the group.
-func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, userID string, role iam.Role) {
-	role = iam.Role(strings.TrimSpace(string(role)))
-	if userID == "" || role == "" {
+func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, userID, name string) {
+	if userID == "" || strings.TrimSpace(name) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, name)
+	if err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
 	res, err := s.svc.AssignGroupRoles(r.Context(), actor, iam.GroupByID(g.ID), []iam.Subject{iam.UserSubject(userID)}, role)
@@ -122,7 +130,7 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.
 		"group_id": g.ID,
 		"persona":  g.Persona,
 		"user_id":  userID,
-		"role":     role,
+		"role":     role.Name(),
 	})
 }
 
@@ -133,8 +141,13 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 	for _, k := range r.URL.Query()["kind"] {
 		q.Kinds = append(q.Kinds, iam.SubjectKind(strings.TrimSpace(k)))
 	}
-	for _, role := range r.URL.Query()["role"] {
-		q.Roles = append(q.Roles, iam.Role(strings.TrimSpace(role)))
+	for _, name := range r.URL.Query()["role"] {
+		role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, name)
+		if err != nil {
+			s.writeGroupOpError(w, err)
+			return
+		}
+		q.Roles = append(q.Roles, role)
 	}
 	page, err := s.svc.ListGroupMembers(r.Context(), iam.GroupByID(g.ID), q)
 	if err != nil {
@@ -143,7 +156,7 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 	}
 	data := make([]map[string]any, 0, len(page.Items))
 	for _, m := range page.Items {
-		data = append(data, map[string]any{"subject_id": m.Subject.ID, "subject_kind": m.Subject.Kind, "role": m.Role})
+		data = append(data, map[string]any{"subject_id": m.Subject.ID, "subject_kind": m.Subject.Kind, "role": m.Role.Name()})
 	}
 	out := map[string]any{
 		"object":   "list",
@@ -177,7 +190,7 @@ func (s *Service) groupRolesList(w http.ResponseWriter, g iam.Group) {
 		if perms == nil {
 			perms = []string{}
 		}
-		data = append(data, map[string]any{"name": rd.Name, "permissions": perms})
+		data = append(data, map[string]any{"name": rd.Name.Name(), "permissions": perms})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":   "list",
@@ -202,7 +215,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make([]map[string]any, 0, len(page.Items))
 	for _, m := range page.Items {
-		data = append(data, map[string]any{"group_id": m.Group.ID, "persona": m.Group.Persona, "role": m.Role})
+		data = append(data, map[string]any{"group_id": m.Group.ID, "persona": m.Group.Persona, "role": m.Role.Name()})
 	}
 	writeList(w, data, page.Next)
 }

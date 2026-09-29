@@ -35,7 +35,7 @@ type NewGroup struct {
 	Owner   *Subject
 }
 
-// GroupQuery lists the groups of a persona ("" = every persona but root),
+// GroupQuery lists the groups of a persona (zero = every persona but root),
 // oldest first.
 type GroupQuery struct {
 	Persona        Persona
@@ -53,11 +53,4 @@ type MemberQuery struct {
 	LiveOnly  bool
 	WithUsers bool
 	Page      PageRequest
-}
-
-// CustomRole is a role a group defines at run time, composed from its
-// persona's catalog. Whether holding it needs MFA follows from its permissions.
-type CustomRole struct {
-	Name        Role
-	Permissions []string
 }

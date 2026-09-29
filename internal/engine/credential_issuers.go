@@ -121,13 +121,13 @@ func refuseShadowedCustomRoles(ctx context.Context, st *permissionGroupStore, sc
 	var shadowed []string
 	for rows.Next() {
 		var persona iam.Persona
-		var role iam.Role
-		if err := rows.Scan(&persona, &role); err != nil {
+		var name string
+		if err := rows.Scan(scanPersona(&persona), &name); err != nil {
 			rows.Close()
 			return err
 		}
-		if _, ok := sch.Role(persona, role); ok {
-			shadowed = append(shadowed, fmt.Sprintf("%s/%s", persona, role))
+		if _, ok := sch.RoleNamed(persona, name); ok {
+			shadowed = append(shadowed, fmt.Sprintf("%s/%s", persona, name))
 		}
 	}
 	rows.Close()
@@ -155,9 +155,9 @@ func (s *Engine) roleCatalogFingerprint() string {
 		p, _ := sch.Persona(name)
 		fmt.Fprintf(h, "persona %s custom=%t\n", name, p.CustomRoles)
 		roles := slices.Clone(p.Roles)
-		slices.SortFunc(roles, func(a, b rbac.Role) int { return strings.Compare(string(a.Name), string(b.Name)) })
+		slices.SortFunc(roles, func(a, b rbac.Role) int { return strings.Compare(a.Name.Name(), b.Name.Name()) })
 		for _, r := range roles {
-			fmt.Fprintf(h, "role %s %s\n", r.Name, strings.Join(slices.Sorted(slices.Values(r.Permissions)), ","))
+			fmt.Fprintf(h, "role %s %s\n", r.Name.Name(), strings.Join(slices.Sorted(slices.Values(r.Permissions)), ","))
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
