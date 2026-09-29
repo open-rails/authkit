@@ -15,5 +15,5 @@
 //
 // Shared identity and access types live in package iam; package verify
 // verifies tokens without a database, and the adapters mount AuthKit on Gin
-// or Fiber. docs/stability.md states what is stable.
+// or Fiber.
 package authkit

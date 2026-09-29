@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCookieRegistry is the cookie compatibility guard (docs/security/cookies.md).
+// TestCookieRegistry is the cookie compatibility guard.
 // The cookies AuthKit sets must be the registry's current variants, and the
 // registry must match the append-only golden list, so a cookie's name, path,
 // domain or prefix cannot change without its old variant staying registered

@@ -7,7 +7,7 @@ package httpapi
 // TestCookieRegistry pins this list against the cookies AuthKit actually sets
 // and against internal/engine/testdata/cookie-registry.golden: a changed cookie shape
 // must be added here as a new variant, never edited in place, and no variant
-// may be removed. See docs/security/cookies.md.
+// may be removed.
 
 import (
 	"fmt"
